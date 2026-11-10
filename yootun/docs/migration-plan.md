@@ -75,9 +75,20 @@ remote: origin   = meitingjun2025-hue/yootun-agent
 remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 
 分支：
-  upstream/master  只读引用，永不直接提交
-  main             产品分支（默认），所有定制开发在此；绝不 rebase 已发布历史
+  upstream/master      只读引用，永不直接提交
+  main                 唯一长期分支（默认），任何时刻保持可发包状态
+  feat/<主题>          新功能开发分支，完成后 merge --no-ff 回 main 并删除
+  sync/upstream-<日期>  上游同步分支（见下方 SOP）
 ```
+
+日常开发工作流（2026-11-10 定稿，单人维护）：
+
+- **新功能一律走 `feat/<主题>` 分支**，完成后 `merge --no-ff` 回 main；
+  merge commit 即批次回滚单元（`revert -m 1` 一次回退整个功能）。
+- **小修小动直接提交 main**：文档、文案、配置微调、单点修复。
+- 红线不变：碰官方文件（第 0/2 层）先登记 `inline-changes.md`。
+- main 不设 PR 门禁（单人维护，CI 上线后作为事后守门：push 即跑，红了立刻修）。
+- 发版：从 main 打 tag，Actions 出包 → feed。
 
 例行同步 SOP（写入 `yootun/docs/upstream-sync.md`）：
 
