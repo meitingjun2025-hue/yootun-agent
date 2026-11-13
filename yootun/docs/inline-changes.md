@@ -9,7 +9,7 @@
 | 1 | `pnpm-workspace.yaml` | `packages:` 列表追加 `yootun/packages/*` 一行 glob | 已落实 | 批次 1（2026-11-13） | 冲突时保留自有行 |
 | 2 | `apps/desktop/src/project-manager.ts` | profile bundles 列表追加 yootun bundle（`DESKTOP_BUNDLES` 常量） | 已落实 | 批次 3（2026-11-13） | 重放（一行） |
 | 3 | `apps/desktop/scripts/prepare-package-set.ts`（含配套测试闭包 fixture 更新）+ `apps/desktop/scripts/pack-local-packages.ts` | 打包闭包接入完整形态：ROOT_PACKAGES 追加 yootun bundle（选择）+ unsigned 本地 pack 后追加 `--filter=@yootun/*` pack 进同一 staging 目录（产出——dsh family 只选 @deepseek-ai 包，yootun 包须单独 stage；CI 实测补齐，2026-11-13） | 已落实 | 批次 3（2026-11-13） | 重放（两处小改 + 测试 fixture 同步） |
-| 4 | `apps/desktop/scripts/electron-builder-config.mjs` | 品牌输入收口：productName/artifactName/protocols 名/图标路径改为从品牌环境读取（官方值作缺省） | 已落实 | 批次 3（2026-11-13） | 重放（生成式，重跑品牌环境脚本即可） |
+| 4 | `apps/desktop/scripts/electron-builder-config.mjs` + `smoke-packaged-runtime.ts` + `package-target.ts`（mac app 路径两处） | 品牌输入收口完整形态：productName/artifactName/protocols 名/图标路径改为从品牌环境读取（官方值作缺省）；冒烟与 mac 产物路径消费同一品牌产品名（CI 实测补齐，2026-11-13——electron-builder 以 productName 命名 exe/app，冒烟脚本原硬编码官方名） | 已落实 | 批次 3（2026-11-13） | 重放（生成式，重跑品牌环境脚本即可） |
 | 5 | `apps/desktop/scripts/desktop-auto-update-environment.mjs` | production feed origin 改自有地址（或引入 env 覆盖） | 已落实（env 覆盖形态） | 批次 3（2026-11-13） | 重放（一行） |
 | 6 | `scripts/client-build-environment.ts` | `DSH_CLIENT_TITLE` 改 yootun 值 | 已落实（env 覆盖形态） | 批次 3（2026-11-13） | 重放（一行） |
 | 7 | `apps/desktop/src/locale.ts`、`apps/desktop/src/main.ts` | About 面板与可见欢迎/更新文案品牌名（长尾菜单 hide/quit/open/startupFailed 留待分期） | 已落实 | 批次 3（2026-11-13） | 重放 |

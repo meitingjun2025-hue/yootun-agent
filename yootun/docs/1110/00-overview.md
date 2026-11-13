@@ -78,7 +78,7 @@
 | 1 | `pnpm-workspace.yaml` | packages 列表 + `yootun/*` | 冲突时保留自有行 |
 | 2 | `apps/desktop/src/project-manager.ts` | profile bundles 列表追加 yootun bundle 一项 | 重放（一行） |
 | 3 | `apps/desktop/scripts/prepare-package-set.ts` + `pack-local-packages.ts` | 打包闭包接入完整形态：`ROOT_PACKAGES` 追加 yootun bundle（选择）；`pack-local-packages.ts` 在 dsh family pack 后追加 `--filter=@yootun/*` pack 进同一 staging 目录（产出，CI 实测补齐 2026-11-13） | 重放（两处小改） |
-| 4 | `apps/desktop/scripts/electron-builder-config.mjs` | 品牌输入收口：productName/artifactName/protocols 名/图标路径改为从品牌环境读取（官方值作缺省），见分册 02 | 重放（生成式，重跑品牌环境脚本即可） |
+| 4 | `apps/desktop/scripts/electron-builder-config.mjs` + `smoke-packaged-runtime.ts` + `package-target.ts`（mac app 路径两处） | 品牌输入收口：productName/artifactName/protocols 名/图标路径改为从品牌环境读取（官方值作缺省），见分册 02；冒烟与 mac 产物路径同用品牌产品名（CI 实测补齐 2026-11-13） | 重放（生成式，重跑品牌环境脚本即可） |
 | 5 | `apps/desktop/scripts/desktop-auto-update-environment.mjs` | production feed origin 改自有地址（或引入 env 覆盖） | 重放（一行） |
 | 6 | `scripts/client-build-environment.ts` | `DSH_CLIENT_TITLE` 改 yootun 值 | 重放（一行） |
 | 7 | `apps/desktop/src/locale.ts`、`apps/desktop/src/main.ts` | About 面板与可见欢迎/更新文案品牌名（长尾文案可分期清理，先改用户可见关键面） | 重放 |
