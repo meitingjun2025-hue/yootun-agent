@@ -98,11 +98,11 @@ yootun-ui 表单（浏览器端）
 | 会话 | 机制就绪：未激活不挂任何 MCP（C 部分）；挂载清单 = 权限边界（模型只见已挂载 server 的工具） | 「会话只读」策略落地：查询/展示类路由挂载，写/采集类路由不进会话 patch 或经服务端 mcp-gateway 新增 tools/list 裁剪（服务端改造，另立项） |
 | 插件页面 | 不涉及（无业务插件） | 插件 host 侧 `ctx.webServer.register` 同源路由直连全能力端点（标准形态，随各插件迁移） |
 
-## 8. F 部分：官方插件能力与 Discover 市场（2026-11-13 定案）
+## 8. F 部分：官方插件能力保留（2026-11-13 定案）
 
 - 一切皆插件原则：yootun 自有包（ui-brand / ui-access / bundle-yootun）均为标准 Cordis 插件/bundle，经 bundle patch 与 profile bundles 列表组合进 desktop profile，与官方内置插件同机制、同地位、同样可被用户层 patch 禁用。
 - 官方能力原样保留（web-app bundle 默认内置，desktop 复用，零定制）：Plugins 页（`ui-plugin-manager` / `ui-settings-plugins`）、`tool-plugin-manager` 模型工具、会话动态创建插件（`tool-cordis` + `cordis-host-runner`/`cordis-client-runner` + `ui-cordis` 审批 UI）。
-- Discover 第三方索引市场默认启用（选项 1+2：官方管理能力保留 + 市场开箱启用）：desktop profile bundles 列表追加官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle`（内联点 #2 同批落实；打包闭包经 yootun bundle 的 `dependencies: workspace:*` 自然带入，ROOT_PACKAGES 不额外加行）。该 bundle 官方标注 experimental（无产品级支持承诺），能力随官方升级演进；不复制其 insert 行，跟随官方 bundle 内容。
+- Discover 自定义插件索引（`plugin-market-bundle`）保持官方默认关闭（2026-11-13 复议定案 B）：它是实验性的索引源机制而非预置市场，开箱无内容且需用户自行添加第三方索引源；yootun 不预置、不默认启用，用户需要时自行开启。用户自选第三方插件的默认途径 = 官方 Plugins 页 Installed 管理 + CLI（`dsh plugin --profile desktop add`）。
 
 ## 9. 验收
 
@@ -111,7 +111,7 @@ yootun-ui 表单（浏览器端）
 - [ ] 移除 key：回到门禁态；
 - [ ] `MODELS_API_KEY` 仅存在于 credential store（ambient 环境变量被剥离）；
 - [ ] 官方模型设置页可用：用户可自配 DeepSeek 官方 key/通道（yootun 激活状态与 MCP 门禁不受影响）；
-- [ ] Plugins 页 Installed 管理与 Discover 市场默认可见；会话可创建动态插件（官方能力原样）；
+- [ ] Plugins 页 Installed 管理可用，会话可创建动态插件（官方能力原样；Discover 保持默认关闭）；
 - [ ] managed MCP patch 样例经 `dsh` CLI 干跑（不挂载真实路由）验证 patch 解析与凭证模板展开路径正确；
 - [ ] review 子代理验证通过，本地 commit。
 
@@ -125,4 +125,3 @@ yootun-ui 表单（浏览器端）
 | credentials seam 0.2.2 契约变化 | 以 packages/credentials 源码为准核对 set/unset/reference 事件；包内冒烟测试 |
 | 表单 API 路径/协议漂移 | 服务端零改动承诺已确认；实施时以真实 key 全链路联调 |
 | 官方通道自配与网关默认配置的优先级（settings 覆盖 vs 双实例） | 批次 4 按官方 settings 优先级机制实测；两种形态 patch 结构均不变 |
-| plugin-market-bundle 处于 experimental，上游可能调整 | 只做 profile bundles 列表组合（一行），不复制其内容，随官方升级演进 |

@@ -53,7 +53,7 @@ Actions 出 **yootun 品牌安装包**：窗口标题、侧边栏品牌位、会
          name: '@yootun/dsh-client-ui-brand'
    ```
    （批次 4 再追加 access 包、llm patch、managed MCP 行。）
-3. **两个内联点**（00-overview 第五节 #2/#3）：`apps/desktop/src/project-manager.ts` 的 bundles 列表追加 `'@yootun/dsh-bundle-yootun'` 与官方 `'@deepseek-ai/dsh-experimental-plugin-market-bundle'`（bundle 生效；后者为 Discover 市场默认启用，2026-11-13 定案，见分册 03 F 部分）；`apps/desktop/scripts/prepare-package-set.ts` 的 `ROOT_PACKAGES` 追加 yootun bundle 同包名（plugin-market-bundle 经 yootun bundle 的 workspace 依赖进入打包闭包）。不动官方 `PROFILE_TEMPLATES`。
+3. **两个内联点**（00-overview 第五节 #2/#3）：`apps/desktop/src/project-manager.ts` 的 bundles 列表追加 `'@yootun/dsh-bundle-yootun'`（bundle 生效）；`apps/desktop/scripts/prepare-package-set.ts` 的 `ROOT_PACKAGES` 追加同包名（打进安装包）。不动官方 `PROFILE_TEMPLATES`。
 
 ## 6. D 部分：Electron 壳品牌收口（内联 #4/#5/#6/#7）
 

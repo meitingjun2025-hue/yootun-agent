@@ -118,7 +118,7 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 
 | 项 | 处置 |
 |---|---|
-| `dsh-community-market`、`dshmarket`、第三方 Plugin Console | 不接。用户自选插件走官方 Settings → Plugins（`dsh plugin --profile desktop add`）；官方实验性 Discover 市场（plugin-market-bundle）默认启用（2026-11-13 定案），与旧自研市场不迁不冲突 |
+| `dsh-community-market`、`dshmarket`、第三方 Plugin Console | 不接。用户自选插件走官方 Settings → Plugins（`dsh plugin --profile desktop add`）；官方实验性 Discover 自定义索引（plugin-market-bundle）保持官方默认关闭，用户需要时自行开启（2026-11-13 定案） |
 | sensteed 品牌全套、双品牌构建矩阵 | 不迁 |
 | @linxin666 等 19 个第三方捆绑包 | 不内置，用户按需自装 |
 | 旧内核 fork 外挂桌面适配补丁（~40 个）、SDK wire 扩展（7 个）、`dsh-desktop-next`、`_deprecated`、patches/ 死文件 | 全部废弃 |
@@ -160,9 +160,9 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
   长期规范）：旧插件的样式实现与视觉不迁移，只迁移交互逻辑与数据面；验收含
   设计合规检查。
 - 用户自选插件走官方插件管理器，官方行为原样。
-- 官方插件能力原样保留并默认启用实验性 Discover 自定义索引市场（2026-11-13 定案，
-  见 1110 分册 03 F 部分）；DeepSeek 官方 key 保留官方设置页自配（可选），
-  yootun key 激活强制不变。
+- 官方插件能力原样保留（Plugins 页管理与会话创建插件）；实验性 Discover 自定义索引
+  保持官方默认关闭（2026-11-13 定案，见 1110 分册 03 F 部分）；DeepSeek 官方 key
+  保留官方设置页自配（可选），yootun key 激活强制不变。
 
 ### 5.4 MCP 权限双通道（会话只读 / 插件页面全能力）
 
