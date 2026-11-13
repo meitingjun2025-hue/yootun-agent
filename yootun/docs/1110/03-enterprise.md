@@ -51,8 +51,6 @@ yootun-ui 表单（浏览器端）
        models: [ <旧桌面默认模型清单> ]     # 兜底；激活后前端按网关实际列表覆写 settings
    - id: agent-default-model
      config: { provider: deepseek-official, model: <默认模型 id> }
-   - id: ui-settings-models
-     disabled: true                        # yootun Access 是唯一模型配置面
    - insert:
        - id: yootun-ui-access
          name: '@yootun/dsh-client-ui-access'
@@ -61,13 +59,14 @@ yootun-ui 表单（浏览器端）
    - 官方已支持 → 零额外代码；
    - 只读进程环境 → 补一个薄 host 侧插件（bundle patch 注册一行），启动时从 credential store 解析 `MODELS_API_KEY` 注入运行环境，并剥离 ambient 同名凭证（旧壳 dofe-credential-migration.ts 的精简版）。
 3. 模型协议确认：旧桌面 0.1.7 曾 disable llm-deepseek 改用 llm-pi-ai 承载路由（protocol 差异）；0.2.2 的 llm-deepseek 若已支持所需协议则直接用，否则照旧方案换承载插件（实施时按网关 `/api/v1/models?protocol=` 实测）。
+4. **官方通道自配（2026-11-13 定案）**：不 disable `ui-settings-models`——官方模型设置页保留开放，用户可选自配 DeepSeek 官方 key/通道；yootun key 激活保持强制（managed MCP 凭证依赖 `MODELS_API_KEY`），两者互不替代、互不解锁。实施查证点：用户自配官方通道的实现形态——settings 覆盖 bundle patch 的 llm config，或 `llm-deepseek` 双实例（网关默认 + 官方可选），批次 4 按官方 settings 与 patch 的优先级机制实测定夺。
 
 ## 5. C 部分：门禁收敛
 
 **validationVersion 机制说明**（决策点 4）：它是「激活契约版本号」——随激活结果写入用户设置的一个整数；激活流程的数据契约（字段、写入规则）每次变化就 +1，校验方要求「已存版本 == 代码要求的版本」，不相等即视为未激活、强制重新激活，防止旧格式数据在新逻辑下被误认为有效。旧三仓库模式下它已实际漂移过（docker-helm 前端写 3、旧桌面 host 要求 5，旧激活记录被判无效）——这就是单一来源必要性的实证。
 
 - 单一来源：`yootun/brand/brand.json` → 构建期注入前端包与门禁判定处，代码中不再出现第二份字面量。决策点 4 推荐重置 `1`（新桌面新契约、无存量兼容），待用户确认。
-- 门禁语义保持旧三层：前端全屏模态（未激活不可用 UI）+ bundle patch 层 config 收紧 + `yootun-access.setupComplete` 判定。旧桌面「工具执行校验/模型 profile 校验」两层在旧壳代码里，官方 0.2.x 无对应挂点——其等效保障由「managed MCP 只按 setupComplete 挂载 + Access 是唯一模型配置面」达成，行为面等价；如后续插件批次发现缺口再补 guard 插件。
+- 门禁语义保持旧三层：前端全屏模态（未激活不可用 UI）+ bundle patch 层 config 收紧 + `yootun-access.setupComplete` 判定。旧桌面「工具执行校验/模型 profile 校验」两层在旧壳代码里，官方 0.2.x 无对应挂点——其等效保障由「未激活全屏阻断 + managed MCP 只按 setupComplete 挂载」达成（激活后用户在官方设置页改动模型配置属有意行为，yootun-access 设置区块提供更换 Key 以重写企业默认）；如后续插件批次发现缺口再补 guard 插件。
 - 服务端租户校验（`/api/internal/auth/context`、X-Company-Code）在服务端，零客户端改动，`X-Company-Code: yootun` 头随 MCP headers 携带（D 部分）。
 
 ## 6. D 部分：managed MCP 骨架（机制就绪、清单为空）
@@ -99,16 +98,24 @@ yootun-ui 表单（浏览器端）
 | 会话 | 机制就绪：未激活不挂任何 MCP（C 部分）；挂载清单 = 权限边界（模型只见已挂载 server 的工具） | 「会话只读」策略落地：查询/展示类路由挂载，写/采集类路由不进会话 patch 或经服务端 mcp-gateway 新增 tools/list 裁剪（服务端改造，另立项） |
 | 插件页面 | 不涉及（无业务插件） | 插件 host 侧 `ctx.webServer.register` 同源路由直连全能力端点（标准形态，随各插件迁移） |
 
-## 8. 验收
+## 8. F 部分：官方插件能力与 Discover 市场（2026-11-13 定案）
+
+- 一切皆插件原则：yootun 自有包（ui-brand / ui-access / bundle-yootun）均为标准 Cordis 插件/bundle，经 bundle patch 与 profile bundles 列表组合进 desktop profile，与官方内置插件同机制、同地位、同样可被用户层 patch 禁用。
+- 官方能力原样保留（web-app bundle 默认内置，desktop 复用，零定制）：Plugins 页（`ui-plugin-manager` / `ui-settings-plugins`）、`tool-plugin-manager` 模型工具、会话动态创建插件（`tool-cordis` + `cordis-host-runner`/`cordis-client-runner` + `ui-cordis` 审批 UI）。
+- Discover 第三方索引市场默认启用（选项 1+2：官方管理能力保留 + 市场开箱启用）：desktop profile bundles 列表追加官方 `@deepseek-ai/dsh-experimental-plugin-market-bundle`（内联点 #2 同批落实；打包闭包经 yootun bundle 的 `dependencies: workspace:*` 自然带入，ROOT_PACKAGES 不额外加行）。该 bundle 官方标注 experimental（无产品级支持承诺），能力随官方升级演进；不复制其 insert 行，跟随官方 bundle 内容。
+
+## 9. 验收
 
 - [ ] 真机：首次启动被全屏门禁拦截，无法绕过（无 key 时无模型可用）；
 - [ ] 输入有效 key：校验通过 → 模型列表拉取 → 激活成功 → 对话可用且走 ixicai.cn 网关（抓包/服务端日志确认）；
 - [ ] 移除 key：回到门禁态；
 - [ ] `MODELS_API_KEY` 仅存在于 credential store（ambient 环境变量被剥离）；
+- [ ] 官方模型设置页可用：用户可自配 DeepSeek 官方 key/通道（yootun 激活状态与 MCP 门禁不受影响）；
+- [ ] Plugins 页 Installed 管理与 Discover 市场默认可见；会话可创建动态插件（官方能力原样）；
 - [ ] managed MCP patch 样例经 `dsh` CLI 干跑（不挂载真实路由）验证 patch 解析与凭证模板展开路径正确；
 - [ ] review 子代理验证通过，本地 commit。
 
-## 9. 风险
+## 10. 风险
 
 | 风险 | 对策 |
 |---|---|
@@ -117,3 +124,5 @@ yootun-ui 表单（浏览器端）
 | settings 命名空间迁移（dofe-access → yootun-access）与残留旧值 | 新桌面全新 profile，无存量数据；服务端 API 不读客户端命名空间，无耦合 |
 | credentials seam 0.2.2 契约变化 | 以 packages/credentials 源码为准核对 set/unset/reference 事件；包内冒烟测试 |
 | 表单 API 路径/协议漂移 | 服务端零改动承诺已确认；实施时以真实 key 全链路联调 |
+| 官方通道自配与网关默认配置的优先级（settings 覆盖 vs 双实例） | 批次 4 按官方 settings 优先级机制实测；两种形态 patch 结构均不变 |
+| plugin-market-bundle 处于 experimental，上游可能调整 | 只做 profile bundles 列表组合（一行），不复制其内容，随官方升级演进 |

@@ -25,6 +25,7 @@
 | key 激活 UI + 凭证链 + 门禁收敛 | OIDC（永不迁）、旧自研更新器（废弃）、sensteed 全部 |
 | UI/UX 现代化重设计（官方规范体系内，带科技感） | 旧激活界面的旧视觉原样照搬 |
 | managed MCP 机制骨架（凭证模板绑定 + patch 格式定稿） | managed MCP 具体路由清单（依赖插件勾选清单，清单为空交付） |
+| 官方插件能力保留：模型设置自配 + Plugins 页/会话创建插件 + Discover 市场默认启用 | 无（全部走官方已有机制） |
 | feed 切换为 electron-updater generic 自有端点 | MCP 工具级裁剪策略（查询/写入分类，依赖业务插件清单） |
 
 「除业务插件外」的旧资产边界（调查确认）：`plugins/brand`（素材与品牌常量）、`plugins/dsh-yootun-ui`（品牌前端 + key 门禁）、旧桌面壳的 `brand.config.json` 身份与 `brand/assets` 素材、managed MCP 机制、门禁契约。`dsh-plugin-console` / `dsh-opencli` 属可选项，本次不迁（如需再单独确认）。
@@ -47,7 +48,7 @@
 | 1 | `feat/migration-step1-scaffold` | 分册 01：分区骨架 + workspace + 护栏文档 + gate 实测记录 | `pnpm install` lockfile 刷新、`constraints`/`lint` 过、目录树就位 | 0.5 天 |
 | 2 | `feat/migration-step1-package-ci` | 分册 04 前半：自建打包 workflow，先出**未品牌化官方包**（unsigned、无 feed）验证构建链 | Actions 出 win/mac 官方品牌安装包 artifact，实测构建时长 | 1 天 |
 | 3 | `feat/migration-step1-brand` | 分册 02 + 05：素材分区、品牌前端包（UI/UX 按分册 05 规范设计）、bundle 进 profile、Electron 壳品牌收口 | Actions 出 yootun 品牌安装包；真机安装后侧边栏/首页/标题/图标/About 全 yootun 且视觉过设计验收 | 3–4 天 |
-| 4 | `feat/migration-step1-enterprise` | 分册 03 + 05：key 激活（UI/UX 重设计）+ 凭证链 + 门禁 + managed MCP 骨架 | 真机：未激活被门禁拦截 → 输 key 激活成功 → 模型可用；managed MCP patch 格式定稿（路由清单为空） | 3–4 天 |
+| 4 | `feat/migration-step1-enterprise` | 分册 03 + 05：key 激活（UI/UX 重设计）+ 凭证链 + 门禁 + managed MCP 骨架 + 官方设置页开放与 Discover 市场启用 | 真机：未激活被门禁拦截 → 输 key 激活成功 → 模型可用；官方 key 可自配；Discover 市场可见；managed MCP patch 格式定稿（路由清单为空） | 3–4 天 |
 | 5 | `feat/migration-step1-release` | 分册 04 后半：feed 目录首批手动上传 + 端到端更新闭环验证（自动上传 workflow 为可选增强，暂缓） | 真机：手动传 feed 后检测到新版 → 下载 → 安装 | 0.5–1 天 |
 
 合计约 7–10 天（不含用户真机验收等待）。
@@ -58,13 +59,15 @@
 |---|---|---|---|
 | 1 | appId | **已定案**：`ai.yootun.agent` 单一 appId（官方 channel 机制是同一安装实例切 nightly/stable） | 02 |
 | 2 | productName / 窗口标题 | **已定案**：`Yootun-Agent`（artifact 前缀、About 面板、DSH_CLIENT_TITLE 同值） | 02 |
-| 3 | key 激活形态 | **已定案**：保持旧形态（前端 credentials.set + patch 固定 config） | 03 |
+| 3 | key 激活形态 | **已定案**：保持旧形态（前端 credentials.set + patch 固定 config）；yootun key 激活强制（managed MCP 凭证依赖），DeepSeek 官方 key 用户可在官方设置页自配（可选） | 03 |
 | 4 | VALIDATION_VERSION | **已定案**：重置 `1`（新契约单一来源，首装切换无存量包袱；机制讲解见 03 第 5 节） | 03 |
 | 5 | feed 托管位置 | **已定案**：火山 TOS `dofe-public` bucket 直连，feed 目录 `yootun-agent/releases/feeds/`（该前缀已被 bucket 公开读策略放行，零服务端改动），客户端用官方 electron-updater；**上传由用户手动完成**：Actions 出包 → 清单重命名为 `<channel>.yml`（如 `stable.yml`/`stable-mac.yml`，channel 非 latest 时 electron-updater 按此名请求）→ 连同安装包传 feeds/ 目录，规范见 04 第 4 节；自动上传 workflow 为可选增强暂缓；旧 `/api/desktop/*` 服务原样保留服务旧桌面 | 04 |
 | 6 | mac 包签名 | **已定案**：unsigned（2026-11-10）；将来购证书后官方链路可切 signed | 04 |
 | 7 | 品牌包拆分 | **已定案**：拆两个包 `@yootun/dsh-client-ui-brand`（品牌 slot）+ `@yootun/dsh-client-ui-access`（激活/门禁）——低耦合、符合 harness 一切皆插件理念（2026-11-10 用户拍板） | 02/03 |
 | 8 | 激活页范围 | **已定案**：只做 key 维护 + 模型加载选择；旧「预装插件勾选」整段删除 | 03 |
 | 9 | UI/UX 重设计 | **已定案**：迁移时 UI/UX 重头设计——现代化规范 + 科技感，整体符合官方 harness 设计规范（token/圆角/材质/文案全套沿用官方体系）；规范见分册 05，工时已计入批次 3/4 | 05 |
+| 10 | 官方模型设置页 | **已定案**：不 disable `ui-settings-models`，保留开放供用户自配 DeepSeek 官方 key/通道（可选）；yootun 激活与官方自配互不替代（2026-11-13） | 03 |
+| 11 | 插件市场 | **已定案**：官方 Plugins 管理与会话创建插件原样保留 + 默认启用官方实验性 Discover 市场（plugin-market-bundle，选项 1+2，2026-11-13） | 03 |
 
 全部决策点已定案，无阻塞项，可从批次 1 开工。
 
@@ -73,7 +76,7 @@
 | # | 文件 | 改动 | 上游同步策略 |
 |---|---|---|---|
 | 1 | `pnpm-workspace.yaml` | packages 列表 + `yootun/*` | 冲突时保留自有行 |
-| 2 | `apps/desktop/src/project-manager.ts` | profile bundles 列表追加 yootun bundle 一项 | 重放（一行） |
+| 2 | `apps/desktop/src/project-manager.ts` | profile bundles 列表追加 yootun bundle 与官方 plugin-market-bundle 两项（后者为 Discover 市场默认启用，2026-11-13 定案） | 重放（两行） |
 | 3 | `apps/desktop/scripts/prepare-package-set.ts` | `ROOT_PACKAGES` 追加 yootun bundle | 重放（一行） |
 | 4 | `apps/desktop/scripts/electron-builder-config.mjs` | 品牌输入收口：productName/artifactName/protocols 名/图标路径改为从品牌环境读取（官方值作缺省），见分册 02 | 重放（生成式，重跑品牌环境脚本即可） |
 | 5 | `apps/desktop/scripts/desktop-auto-update-environment.mjs` | production feed origin 改自有地址（或引入 env 覆盖） | 重放（一行） |
