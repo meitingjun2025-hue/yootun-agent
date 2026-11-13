@@ -23,7 +23,7 @@ docker-helm.dofe.ai ──(快照同步 .ci/)──▶ dsh-desktop ──(symlin
 
 ## 2. 现状调查结论（摘要）
 
-- 旧内核 fork（iTechwu/deepseek-harness，基线 commit `21638c5631`，2026-09-27）共约
+- 旧内核 fork（iTechwu/deepseek-harness，基线 0.1.7-rc.2，2026-09-27）共约
   126 个内容提交，其中约 40 个是「外挂桌面架构适配」（ELECTRON_RUN_AS_NODE 剥离、
   恢复官方已删除的 settings 旧门面 API 等）。官方 0.2.x 自带 `apps/desktop`
   （Electron 44.7 + `apps/desktop-host` + electron-updater 双通道）后，这一族补丁的
@@ -156,6 +156,9 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 - 插件本体迁移含 0.1.7→0.2.2 适配（图标集/slot/客户端注入包名，
   有 0.1.6 删图标致 React #130 崩溃先例），用 docker-helm 的
   `desktop-compat` 契约测试与能力矩阵审计脚本护航（一并移植到 `yootun/scripts/`）。
+- 插件 UI/UX 一律按 `yootun/docs/1110/05-ui-ux.md` 规范重做（2026-11-10 定为
+  长期规范）：旧插件的样式实现与视觉不迁移，只迁移交互逻辑与数据面；验收含
+  设计合规检查。
 - 用户自选插件走官方插件管理器，官方行为原样。
 
 ### 5.4 MCP 权限双通道（会话只读 / 插件页面全能力）
