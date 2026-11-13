@@ -1,0 +1,7 @@
+/* 侧边栏 mark：alpha 通道作 CSS mask，颜色取宿主语义主 label 色（明暗主题自适应）。 */
+.mark {
+  display: inline-block;
+  flex: none;
+  background: var(--dsw-alias-label-primary);
+  mask: url('./assets/sidebar-mark.png') center / contain no-repeat;
+}

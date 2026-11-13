@@ -1,0 +1,39 @@
+{
+  "name": "Yootun-Agent",
+  "title": "Yootun-Agent",
+  "appId": "ai.yootun.agent",
+  "tenant": "yootun",
+  "company": "优惠豚",
+  "eyebrow": "YOOTUN AGENT",
+  "protocolName": "Yootun-Agent",
+  "artifactPrefix": "Yootun-Agent",
+  "mission": {
+    "zh": "青年人买车就到优惠豚",
+    "en": "The destination for young car buyers"
+  },
+  "feedOrigin": null,
+  "validationVersion": 1,
+  "baseVersion": "0.2.2-rc.2",
+  "palette": {
+    "primary": "#28C8F8",
+    "primaryDark": "#3DD4FF",
+    "ink": "#0F172A",
+    "accentGradient": {
+      "light": "linear-gradient(165deg, rgba(40, 200, 248, 0.20) 0%, rgba(40, 200, 248, 0.04) 55%, rgba(15, 23, 42, 0) 100%)",
+      "dark": "linear-gradient(165deg, rgba(61, 212, 255, 0.16) 0%, rgba(61, 212, 255, 0.04) 55%, rgba(15, 23, 42, 0) 100%)"
+    }
+  },
+  "artwork": {
+    "appIconSource": "assets/app-icon-source.jpg",
+    "sidebarMark": "assets/sidebar-mark.png",
+    "heroMark": "assets/hero-mark.png",
+    "wordmark": "assets/wordmark.png",
+    "iconSize": 1024,
+    "whiteThreshold": 235,
+    "macIcon": {
+      "canvas": 1024,
+      "artwork": 824
+    },
+    "trayFrames": [16, 20, 24, 32, 40, 48, 64]
+  }
+}

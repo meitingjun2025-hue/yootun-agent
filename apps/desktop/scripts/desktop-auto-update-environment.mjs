@@ -26,7 +26,9 @@ const UPDATE_ENVIRONMENTS = {
   },
   production: {
     originEnvName: undefined,
-    fixedOrigin: 'https://download.deepseek.com',
+    // yootun enterprise tier (registered inline change): the feed origin follows the brand
+    // environment (yootun/scripts/brand-environment.mjs); the official origin is the default.
+    fixedOrigin: process.env.YOOTUN_BRAND_FEED_ORIGIN ?? 'https://download.deepseek.com',
     bucketEnvName: 'DOWNLOAD_PROD_COS_BUCKET',
     secretIdEnvName: 'DOWNLOAD_PROD_COS_SECRET_ID',
     secretKeyEnvName: 'DOWNLOAD_PROD_COS_SECRET_KEY',

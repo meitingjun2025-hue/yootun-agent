@@ -42,6 +42,7 @@ describe('desktop package-set selection', () => {
       ['@deepseek-ai/cordis', packed('@deepseek-ai/cordis')],
       ['@deepseek-ai/platform-package', packed('@deepseek-ai/platform-package')],
       ['@deepseek-ai/unused', packed('@deepseek-ai/unused')],
+      ['@yootun/dsh-bundle-yootun', packed('@yootun/dsh-bundle-yootun')],
     ])
     expect(selectDesktopPackageClosure(available, { platform: 'win32', arch: 'x64' }).map(entry => entry.manifest.name)).toEqual([
       '@deepseek-ai/cordis',
@@ -49,6 +50,7 @@ describe('desktop package-set selection', () => {
       '@deepseek-ai/dsh-base',
       '@deepseek-ai/dsh-desktop-host',
       '@deepseek-ai/platform-package',
+      '@yootun/dsh-bundle-yootun',
     ])
   })
 
@@ -62,6 +64,7 @@ describe('desktop package-set selection', () => {
       ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', {
         dependencies: { '@deepseek-ai/dsh': '^1.0.0' },
       })],
+      ['@yootun/dsh-bundle-yootun', packed('@yootun/dsh-bundle-yootun')],
     ])
     expect(() => selectDesktopPackageClosure(available, { platform: 'win32', arch: 'x64' })).toThrow(/unpacked package/u)
     expect(() => selectDesktopPackageClosure(new Map([
@@ -78,9 +81,10 @@ describe('desktop package-set selection', () => {
         },
       })],
       ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+      ['@yootun/dsh-bundle-yootun', packed('@yootun/dsh-bundle-yootun')],
     ])
     expect(selectDesktopPackageClosure(available, { platform: 'win32', arch: 'x64' }).map(entry => entry.manifest.name)).toEqual([
-      '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host',
+      '@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', '@yootun/dsh-bundle-yootun',
     ])
   })
 
@@ -104,6 +108,7 @@ const cuaBundle = '@deepseek-ai/dsh-cua-bundle'
 const targetManifests = () => new Map<string, PackedDesktopPackage>([
   ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh', { dependencies: { [cuaBundle]: '1.0.0' } })],
   ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
+  ['@yootun/dsh-bundle-yootun', packed('@yootun/dsh-bundle-yootun')],
   [cuaBundle, packed(cuaBundle, {
     optionalDependencies: { [macProvider]: '1.0.0' }, dependencies: { '@deepseek-ai/dsh-cua': '1.0.0' },
   })],
@@ -143,7 +148,7 @@ it('copies no macOS tarball into the Windows package set', () => {
   const inputs = join(root, 'inputs')
   mkdirSync(inputs)
   for (const [name, entry] of targetManifests()) {
-    const stem = name.replace('@deepseek-ai/', '')
+    const stem = name.replace(/^@[^/]+\//u, '')
     const folder = join(root, stem, 'package')
     mkdirSync(folder, { recursive: true })
     writeFileSync(join(folder, 'package.json'), JSON.stringify(entry.manifest))

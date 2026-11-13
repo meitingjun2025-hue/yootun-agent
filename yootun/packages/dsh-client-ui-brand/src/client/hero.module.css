@@ -1,0 +1,40 @@
+/* 会话首页品牌层。布局中性外壳 + hero 态装饰；品牌色以组件局部 custom property
+   声明（分册 05 允许的 artwork 强调位形态），暗色档经官方主题选择器切换。 */
+.layer {
+  /* 品牌渐变微光（亮色档），源自 brand.json palette.primary #28C8F8。 */
+  --yootun-glow-head: rgba(40, 200, 248, 0.2);
+  --yootun-glow-tail: rgba(40, 200, 248, 0.04);
+  display: contents;
+}
+
+body[data-ds-dark-theme] .layer {
+  /* 暗色档：primary 提亮一档（brand.json palette.primaryDark #3DD4FF），透明度收敛。 */
+  --yootun-glow-head: rgba(61, 212, 255, 0.16);
+  --yootun-glow-tail: rgba(61, 212, 255, 0.04);
+}
+
+/* Host isolates stacking at the Conversation root, so -1 lands above its
+   background and below its content（官方 PixelWhale 同型层位）。 */
+.glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(165deg, var(--yootun-glow-head) 0%, var(--yootun-glow-tail) 55%, transparent 100%);
+}
+
+/* 品牌落款：hero 态中下方的弱色小字，brand font + 拉宽字距。 */
+.eyebrow {
+  position: absolute;
+  bottom: 16%;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-family: var(--ds-font-family-brand);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em; /* 抵消末字符字距，保持光学居中 */
+  color: var(--dsw-alias-label-tertiary);
+  user-select: none;
+}
