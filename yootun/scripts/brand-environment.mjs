@@ -9,7 +9,7 @@
 
 import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const brandConfig = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'brand', 'brand.json'), 'utf8'))
@@ -31,7 +31,7 @@ export function resolveBrandEnvironment() {
   return environment
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] !== undefined && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   for (const [name, value] of Object.entries(resolveBrandEnvironment())) {
     process.stdout.write(`${name}=${value}\n`)
   }

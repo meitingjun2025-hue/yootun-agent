@@ -60,6 +60,8 @@ jobs:
       - name: Inject brand environment
         # 品牌环境单一出口（yootun/scripts/brand-environment.mjs 读 yootun/brand/brand.json）；
         # 官方脚本按「品牌环境值 ?? 官方缺省」消费，未注入时官方身份原样。
+        # shell 固定 bash：Windows runner 默认 pwsh 的 >> 重定向行为与 bash 不同。
+        shell: bash
         run: node yootun/scripts/brand-environment.mjs >> "$GITHUB_ENV"
       - name: Write Windows packaging settings
         # unsigned 打包同样要求平台 dotenv（.env.windows 由本步骤生成，仓库内只有模板）。
@@ -68,6 +70,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          if (-not $env:YOOTUN_BRAND_APP_ID) { throw 'brand environment missing: YOOTUN_BRAND_APP_ID is empty before writing .env.windows' }
           $settings = @"
           DSH_DESKTOP_APP_ID=$env:YOOTUN_BRAND_APP_ID
           DSH_DESKTOP_AUTO_UPDATE_ENV=production
