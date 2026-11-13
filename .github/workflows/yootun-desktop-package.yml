@@ -1,0 +1,82 @@
+# yootun 自有桌面打包 workflow（批次 2：GH-hosted 构建链探路，出未品牌化官方包）。
+# 独立命名，不修改任何官方 workflow；官方 self-hosted 打包流水线（preset/签名/公证/COS）
+# 不复用，仅调用官方 npm scripts 的 unsigned 自包含链路：打包入口内部编排
+# build --profile local → 本地依赖闭包 → runtime 物化 → electron-builder → 产物冒烟。
+# 批次 3 起品牌环境注入（yootun/scripts 品牌脚本）加在打包步骤之前。
+# 构建时长实测数据回填 yootun/docs/1110/04-release.md 附录（2026-11-13 批次 2）。
+
+name: Yootun Desktop Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['yootun-v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: yootun-desktop-package
+  cancel-in-progress: false
+
+jobs:
+  package:
+    strategy:
+      # 探路批次：一个平台失败不影响另一平台跑完，各自留下完整日志与时长数据。
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target-script: package:desktop:win:x64:unsigned
+            target-dir: win-x64
+            artifact-name: yootun-desktop-windows-unsigned
+          - os: macos-latest
+            target-script: package:desktop:mac:arm64:unsigned
+            target-dir: mac-arm64
+            artifact-name: yootun-desktop-macos-unsigned
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Write Windows packaging settings
+        # unsigned 打包同样要求平台 dotenv（.env.windows 由本步骤生成，仓库内只有模板）。
+        # 三个键即官方 unsigned 校验的最小集：官方身份 appId + production 策略 origin
+        # （mandatory-update origin 对 unsigned 与预打包构建同样必填）；上传凭证不被读取。
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $settings = @'
+          DSH_DESKTOP_APP_ID=com.deepseek.harness
+          DSH_DESKTOP_AUTO_UPDATE_ENV=production
+          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://download.deepseek.com
+          '@
+          Set-Content -Path apps/desktop/.env.windows -Value $settings -Encoding utf8NoBOM
+      - name: Validate packaging configuration and toolchain
+        # 完整构建前的快速失败：环境校验 + 工具链探针（tar / Windows 下 VS C++ 探针）。
+        # pnpm 会把 --check 直接转发给打包脚本（脚本参数解析不含分隔符转发问题）。
+        run: pnpm run ${{ matrix.target-script }} --check
+      - name: Package unsigned installer
+        run: pnpm run ${{ matrix.target-script }}
+      - name: Upload unsigned artifacts
+        # 只上传分发物（安装器/更新包/差分文件）；打包冒烟用的 win-unpacked 与 .app
+        # 解包目录不上传。批次 5 起按分册 04 第 4 节操作表把清单重命名后传 feed。
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: |
+            apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.exe
+            apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.dmg
+            apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.zip
+            apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.blockmap
+          if-no-files-found: error
+          retention-days: 14

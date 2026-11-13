@@ -1,6 +1,6 @@
 # 内联改动登记簿（第 2 层）
 
-本仓库对官方目录（`packages/` `vendor/` `apps/` `docs/` `scripts/` `.github/` `native/` `benchmarks/` `website/` `python/`，第 0 层）原则上零改动；允许触碰的仅限本登记簿所列第 2 层内联改动。红线：**任何官方文件改动必须先登记后动工**；每批结束时以 `git diff main --stat -- packages vendor apps docs scripts .github native benchmarks website python` 与本簿对账，官方目录 diff 中出现簿外条目即违规。对账口径：批次开发中用 `git diff main`（分支工作区相对 main 的批次增量）；第一步全部批次合入后按分册 5.1 以 `git diff master..main` 做第一步总对账。
+本仓库对官方目录（`packages/` `vendor/` `apps/` `docs/` `scripts/` `.github/` `native/` `benchmarks/` `website/` `python/`，第 0 层）原则上零改动；允许触碰的仅限本登记簿所列第 2 层内联改动。红线：**任何官方文件改动必须先登记后动工**；每批结束时以 `git diff main --stat -- packages vendor apps docs scripts .github native benchmarks website python ':(exclude).github/workflows/yootun-*.yml'` 与本簿对账，官方目录 diff 中出现簿外条目即违规。对账口径：批次开发中用 `git diff main`（分支工作区相对 main 的批次增量）；第一步全部批次合入后按分册 5.1 以 `git diff master..main` 做第一步总对账。`.github/workflows/yootun-*.yml` 是总纲第 3 节架构图明列的自有 CI 新增文件（第 1 层），虽物理位于官方目录下但不属内联改动，对账命令中排除。
 
 初始清单按 `yootun/docs/1110/00-overview.md` 第五节 7 处预登记（2026-11-13）。同步策略详见 `yootun/docs/upstream-sync.md`。「落实」列按批次与日期定位（不记裸 commit hash）。
 
@@ -21,3 +21,4 @@
 | 批次 | 日期 | 对账结果 |
 |---|---|---|
 | 批次 1 | 2026-11-13 | 一致：`git diff main --stat -- packages vendor apps docs scripts .github native benchmarks website python` 零输出，`pnpm-lock.yaml` 零 diff；根 `pnpm-workspace.yaml` 的 diff 即 #1 登记内容（+3 行：2 行注释 + 1 行 glob） |
+| 批次 2 | 2026-11-13 | 一致：排除口径下官方目录 diff 零输出；唯一 `.github` 变化为新增自有 CI 文件 `.github/workflows/yootun-desktop-package.yml`（第 1 层，排除项），无官方既有文件改动 |
