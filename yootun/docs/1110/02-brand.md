@@ -22,7 +22,7 @@ Actions 出 **yootun 品牌安装包**：窗口标题、侧边栏品牌位、会
 
 ## 3. A 部分：品牌素材分区（`yootun/brand/`）
 
-从旧桌面 `/brand/`（源素材 + 生成脚本群）精简迁移：
+从 `dsh-desktop`（dev 分支）`brand/`（源素材 + 生成脚本群）只读迁移（总纲第 4 节只读红线）：
 
 - `brand.json`（单一来源）：`name: Yootun-Agent`、`appId: ai.yootun.agent`（决策点 1）、`tenant: yootun`、`title: Yootun-Agent`、feed origin（决策点 5 定稿后填）、`validationVersion`（决策点 4）、logo/wordmark 文件引用。
 - `assets/`：从旧桌面 `brand/assets/` 拷贝源素材（app-icon-source.jpg 1024、sidebar-mark.png、hero-mark.png、wordmark.png）。旧桌面 build 产物（ico/icns/托盘多尺寸）**不拷**——官方桌面从单张 PNG 派生尺寸，只需产出 `icon-macos.png` / `icon-windows.png` / `tray-windows.ico` 三件（ico 由旧脚本 generate-windows-app-icon.mjs 精简版生成）。

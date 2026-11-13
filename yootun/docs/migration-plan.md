@@ -104,6 +104,23 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 
 ## 4. 迁移范围
 
+### 迁移来源与只读红线（2026-11-13 增补）
+
+定制内容迁移自两个旧仓库，实施期间**只读参照，严禁改动其中任何内容**
+（含工作区文件、创建或切换分支、commit、push、tag）；两仓库的退役处置
+属第五步，且只能由维护者本人执行。
+
+| 来源仓库 | 参照分支 | 迁移资产 | 对应批次 |
+|---|---|---|---|
+| `docker-helm.dofe.ai` | master | `plugins/dsh-yootun-ui`（key 激活 UI 逻辑层，视觉不迁）；`plugins/brand`（品牌常量参照）；`plugins/` 其余业务插件（第三步按勾选清单分批迁） | 3 / 4 / 第三步 |
+| `dsh-desktop` | dev（2.0.12-beta.x 版本线） | `dsh-plugin-desktop/`（llm patch、门禁判定、credential-migration、managed MCP ROUTES 蓝本）；`brand/`（`brand.config.json` 身份字段、`assets/` 源素材、生成脚本最小集） | 3 / 4 |
+
+- 服务端（激活 API `/api/desktop/dofe/*`、mcp-gateway、nginx）属
+  docker-helm 服务端职责，零改动，客户端只对接不修改；
+- 旧自研更新器相关代码仅作调查参照，已定案整体废弃，不迁移；
+- 本机克隆路径：`/home/ubuntu/projects/docker-helm.dofe.ai`、
+  `/home/ubuntu/projects/dsh-desktop`（换开发环境时同步更新本表）。
+
 ### 迁移（全部随安装包内置）
 
 1. **yootun 品牌**：前端品牌 slot 占位、窗口标题、图标、安装器品牌（仅 yootun，
@@ -232,6 +249,8 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 3. **旧桌面是否加「新一代发布」提示横幅**（取决于存量用户量）。
 
 ## 9. 旧仓库退役处置
+
+迁移期间两仓库只读（第 4 节只读红线）；本节处置动作全部在第五步执行，且由维护者本人操作。
 
 - `docker-helm.dofe.ai`：桌面相关部分（`plugins/`、快照同步脚本）冻结归档；
   服务端基础设施（docker-compose、mcp-gateway、nginx、jenkins、各服务部署、

@@ -31,7 +31,7 @@ yootun-ui 表单（浏览器端）
 
 ## 3. A 部分：key 激活页 `@yootun/dsh-client-ui-access`
 
-独立激活包（决策点 7 拆包定案），从 docker-helm `plugins/dsh-yootun-ui` 迁移改造。2026-11-10 用户定稿：**激活页只做 key 维护 + 模型加载选择，旧「预装插件勾选」（PLUGINS：geoflow/georank/tools/openmontage/opencli/knowledge）整段删除，不迁移**。UI/UX 按分册 05 规范重头设计（决策点 9），不复刻旧视觉。
+独立激活包（决策点 7 拆包定案），从 `docker-helm.dofe.ai`（master 分支）`plugins/dsh-yootun-ui` 只读迁移改造（总纲第 4 节只读红线）。2026-11-10 用户定稿：**激活页只做 key 维护 + 模型加载选择，旧「预装插件勾选」（PLUGINS：geoflow/georank/tools/openmontage/opencli/knowledge）整段删除，不迁移**。UI/UX 按分册 05 规范重头设计（决策点 9），不复刻旧视觉。
 
 - 保留（逻辑层）：`settings.section`（id `yootun-access`，替换旧 `dofe-access` 命名空间——设置命名空间与常量统一换 yootun 前缀，**服务端 API 路径不变**）、激活全屏门禁语义（未激活阻断主界面）、key 表单逻辑、`save()` 的顺序敏感写入序列、`removeAccess`。
 - 删除：PLUGINS 勾选步骤整体移除；`enabledPlugins` 字段保留写空数组（managed MCP 挂载的门禁输入，后续插件批次按需复用）。
