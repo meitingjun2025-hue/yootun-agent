@@ -8,7 +8,7 @@ GitHub Actions 在 GH-hosted runner 上一键出 win/mac 安装包；tag 触发�
 
 ## 2. 官方构建链事实（复用基础）
 
-- 打包入口：根 `package.json` 的 `package:desktop:<target>:unsigned` scripts → `apps/desktop` 的 `package:<target>:unsigned` = `tsx scripts/package-target.ts <target> --unsigned`。链路：`pnpm run build:artifacts` → `prepare:runtime`（stage-packages → prod install → materialize → smoke 等十二步）→ electron-builder → `prepare:packages`（依赖闭包 tarball）。
+- 打包入口：根 `package.json` 的 `package:desktop:<target>:unsigned` scripts → `apps/desktop` 的 `package:<target>:unsigned` = `tsx scripts/package-target.ts <target> --unsigned`。链路：`pnpm run build --profile local`（打包入口内部无条件编排的完整构建，覆盖 `build:artifacts` 范围）→ `prepare:runtime`（stage-packages → prod install → materialize → smoke 等十二步）→ electron-builder → `prepare:packages`（依赖闭包 tarball）。
 - **unsigned 分支行为**：无签名/公证步骤、`publish: null`（不生成 app-update.yml，即不启用自动更新）——批次 2 用它验证纯构建链；批次 5 起品牌包走 signed 参数以外的 feed 路径（见第 5 节：用 signed 打包形态但只配 feed 不配证书在 mac 上不可行，方案见下）。
 - 环境变量（`desktop-release-environment.mjs` 等）：`DSH_DESKTOP_APP_ID`（必填，reverse-DNS 校验）、`DSH_DESKTOP_AUTO_UPDATE_ENV`（test/production）、`DSH_DESKTOP_UPDATE_CHANNEL`（nightly/stable）、`DSH_DESKTOP_BUILD_VERSION`（可选覆盖版本号）。feed origin：unsigned 时不读；非 unsigned 时 production 硬编码 `https://download.deepseek.com`（内联 #5 收口为品牌环境输入）。
 - 产物：`apps/desktop/.desktop-build/` 下各 target 的 `artifacts/`（unsigned）/ `unsigned-artifacts/` 子目录。
@@ -23,10 +23,10 @@ on:
     tags: ['yootun-v*']   # 发版 tag（区别于上游镜像的官方 tag）
 ```
 
-- **job（build-matrix，第一步唯一 job）**：`strategy.matrix` 平台 `windows-latest` / `macos-latest`；steps：checkout → pnpm + node 24（官方 engines）→ `pnpm install --frozen-lockfile` → `pnpm run build:artifacts` → 品牌环境注入（`yootun/scripts/brand-environment.mjs` 输出 env）→ `pnpm run package:desktop:<target>:unsigned`（批次 2）→ upload-artifact。
+- **job（build-matrix，第一步唯一 job）**：`strategy.matrix` 平台 `windows-latest` / `macos-latest`（`fail-fast: false` 留双平台完整数据）；steps：checkout → pnpm + node 24（官方 engines）→ `pnpm install --frozen-lockfile` → 打包前 `--check` 快速校验（环境 + 工具链探针）→ 品牌环境注入（`yootun/scripts/brand-environment.mjs` 输出 env，批次 3 起）→ `pnpm run package:desktop:<target>:unsigned`（打包入口内部已编排完整构建，无需也不应再单独跑 `build:artifacts`，否则全仓构建翻倍）→ upload-artifact（只传分发物：exe/dmg/zip/blockmap，不含冒烟解包目录）。Windows 侧打包入口强制读取 `apps/desktop/.env.windows`（仓库内只有模板），runner 上生成最小三键文件（appId + 更新环境 + policy origin；unsigned 下不读上传凭证）。
 - **上传 = 用户手动**（2026-11-10 定案）：从 artifacts 下载 4 个文件（win/mac 清单 + 两安装包），按第 4 节操作表**重命名清单**（`latest.yml` → `stable.yml`/`nightly.yml` 等）后传 TOS feeds/ 目录。电子构建器已把清单与安装包成对生成，内容零手工编辑。
 - **（可选增强，暂缓）自动上传 job**：如后续想省掉手动步骤，再加一个 publish job——TOS CLI/SDK 上传 + 凭证走 GitHub Environments secrets（`yootun-feed`，建议火山 RAM 子账号最小权限）+ `concurrency` 防并行写 feed。机制已明确，启用成本约半天，不阻塞任何批次。
-- 时长风险：GH-hosted 全量构建（build:artifacts 全仓 + 两端打包）预估 30–90 分钟/平台；批次 2 实测后决定是否加 pnpm store 缓存（`actions/cache`）与 electron 缓存。实测数据记入本册附录。
+- 时长：批次 2 已实测（附录 A）——双平台并行 24m54s（无缓存首跑），远低于 30–90 分钟/平台的预估；暂不引入 pnpm store / electron 缓存，时长劣化时再评估。
 
 ## 4. feed 目录约定（electron-updater generic provider，2026-11-10 定案，服务端调查后修正）
 
@@ -81,8 +81,8 @@ dofe-public/yootun-agent/releases/feeds/
 ## 6. 验收
 
 批次 2：
-- [ ] Actions 出未品牌化官方包（win/mac artifact 可下载安装，官方品牌，无 feed）；
-- [ ] 构建时长实测记录（附录表），缓存策略定夺。
+- [x] Actions 出未品牌化官方包（win/mac artifact 可下载安装，官方品牌，无 feed）——2026-11-13 双平台首跑成功（附录 A）；
+- [x] 构建时长实测记录（附录表），缓存策略定夺——见附录 A。
 
 批次 5：
 - [ ] tag `yootun-v*` 触发 → artifact 出包 → 按第 4 节操作表重命名清单并上传 feeds/ 目录；
@@ -94,8 +94,21 @@ dofe-public/yootun-agent/releases/feeds/
 
 | 风险 | 对策 |
 |---|---|
-| GH-hosted 构建超时/成本 | 批次 2 实测；必要时 pnpm store + electron builder 缓存、拆 build:artifacts 缓存层 |
+| GH-hosted 构建超时/成本 | 批次 2 已实测 24m54s 双平台并行（附录 A），暂不需要缓存；时长劣化时再启用 pnpm store + electron builder 缓存 |
 | mac unsigned 更新包被 Gatekeeper 干扰更新流程 | 优先切 signed（决策点 6）；unsigned 期更新安装引导文案写进发布说明 |
 | feed 侧缓存导致客户端读到旧 latest.yml | TOS 直读默认无 CDN 缓存层（批次 5 核实 bucket 是否挂 CDN）；若后续挂 CDN，需对 `latest*.yml` 设短缓存、安装包长缓存 |
 | channel 目录与官方 keyPrefix 结构不一致导致 404 | 以打包产物 `app-update.yml` 内实际 URL 为准做一次端到端联调（验收项覆盖） |
 | 官方打包脚本对 GH-hosted 环境的隐性假设（官方只在 self-hosted 跑过） | 批次 2 就是探路批次；失败逐条修 workflow env，不改官方脚本逻辑 |
+
+## 附录 A：批次 2 出包与时长实测（2026-11-13）
+
+| 项 | 结果 |
+|---|---|
+| 首跑形态 | GH-hosted 首跑，无任何缓存；`workflow_dispatch` 手动触发，双平台并行（`fail-fast: false`） |
+| 双平台结果 | windows-latest / macos-latest 均成功 |
+| run 总时长 | **24m54s**（双平台并行，用户实测提供；分平台明细如需可从 run 页补录） |
+| artifacts | `yootun-desktop-windows-unsigned`（exe）、`yootun-desktop-macos-unsigned`（dmg/zip）均生成并上传成功；真机安装抽查未单独执行，首装安装验证随批次 3 品牌包真机验收覆盖 |
+| 结论一（探路） | 官方 unsigned 自包含打包链在 GH-hosted runner 完整跑通，无需修改任何官方脚本 |
+| 结论二（缓存策略定夺） | 24m54s 远低于 30–90 分钟/平台预估，**暂不引入 pnpm store / electron 缓存**——保持 workflow 简单、避免缓存一致性与陈旧缓存维护成本；后续单次时长显著劣化或批次并发需求出现时再评估（`actions/cache` + electron-builder 缓存目录） |
+
+实施备注：第 3 节 steps 描述已按官方源码事实修正——打包入口（`package-target.ts`）对 unsigned 构建内部无条件执行 `pnpm run build --profile local` 完整构建，workflow 不含也不应含独立 `build:artifacts` 步骤；Windows 侧 `.env.windows` 三键（官方 appId + production 更新环境 + policy origin）为 unsigned 链路必填最小集，批次 3 起随品牌环境一并替换为 yootun 值。
