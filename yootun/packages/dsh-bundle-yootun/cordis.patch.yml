@@ -1,0 +1,11 @@
+# yootun 产品 bundle 的 patch 层：关闭官方品牌包并插入 yootun 品牌前端。
+# 本 bundle 在 profile bundles 列表中排在 web-app 之后，patch 同 id 后层胜出：
+# 下面第一行覆盖 web-app 对 ui-brand-official 的 insert（官方品牌不加载），
+# insert 行新增 yootun 品牌占位。批次 4 再追加 access 包、llm patch 与 managed MCP 行。
+
+- id: ui-brand-official
+  disabled: true
+
+- insert:
+    - id: yootun-ui-brand
+      name: '@yootun/dsh-client-ui-brand'

@@ -52,6 +52,15 @@ export function createElectronBuilderConfig(
   preparedRuntimeVersion = undefined,
 ) {
   const appId = resolveDesktopAppId(env)
+  // yootun enterprise tier (registered inline change): brand identity and icon paths come
+  // from the injected brand environment (yootun/scripts/brand-environment.mjs) and fall
+  // back to the official values when it is absent.
+  const brandProductName = env.YOOTUN_BRAND_PRODUCT_NAME ?? 'DeepSeek Harness'
+  const brandArtifactPrefix = env.YOOTUN_BRAND_ARTIFACT_PREFIX ?? 'deepseek-harness'
+  const brandProtocolName = env.YOOTUN_BRAND_PROTOCOL_NAME ?? 'DeepSeek Harness'
+  const brandIconMacos = env.YOOTUN_BRAND_ICON_MACOS ?? fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url))
+  const brandIconWindows = env.YOOTUN_BRAND_ICON_WINDOWS ?? fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url))
+  const brandTrayIcon = env.YOOTUN_BRAND_TRAY_ICON ?? fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url))
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
@@ -108,7 +117,7 @@ export function createElectronBuilderConfig(
   const packaged = resolveDesktopBuildCommit(env)
   return {
     appId,
-    protocols: [{ name: 'DeepSeek Harness', schemes: ['dsh'] }],
+    protocols: [{ name: brandProtocolName, schemes: ['dsh'] }],
     extraMetadata: {
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
@@ -116,11 +125,11 @@ export function createElectronBuilderConfig(
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'DeepSeek Harness',
+    productName: brandProductName,
     // The default copyright uses author.name; this line names the product instead.
     copyright: `Copyright © ${new Date().getFullYear()} \${productName}`,
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `deepseek-harness-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+    artifactName: `${brandArtifactPrefix}-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
     directories: { output: output.directory },
     asar: true,
     electronDist: buildPaths.electron,
@@ -159,12 +168,12 @@ export function createElectronBuilderConfig(
     asarUnpack: unpack,
     extraResources: [
       { from: buildPaths.runtime, to: 'runtime' },
-      { from: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)), to: 'icon.png' },
+      { from: brandIconWindows, to: 'icon.png' },
       // Windows tray bitmaps; macOS keeps the Dock and ships no menu bar icon.
-      ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
+      ...(packagesWindows ? [{ from: brandTrayIcon, to: 'tray.ico' }] : []),
     ],
     mac: {
-      icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),
+      icon: brandIconMacos,
       category: 'public.app-category.developer-tools',
       // macOS matches the application locale against this bundle, not Electron Framework resources.
       extendInfo: {
@@ -245,7 +254,7 @@ export function createElectronBuilderConfig(
       )
     },
     win: {
-      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
+      icon: brandIconWindows,
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,

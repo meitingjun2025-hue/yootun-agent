@@ -1,8 +1,9 @@
-# yootun 自有桌面打包 workflow（批次 2：GH-hosted 构建链探路，出未品牌化官方包）。
+# yootun 自有桌面打包 workflow（批次 2 建立构建链，批次 3 起出 yootun 品牌包）。
 # 独立命名，不修改任何官方 workflow；官方 self-hosted 打包流水线（preset/签名/公证/COS）
 # 不复用，仅调用官方 npm scripts 的 unsigned 自包含链路：打包入口内部编排
 # build --profile local → 本地依赖闭包 → runtime 物化 → electron-builder → 产物冒烟。
-# 批次 3 起品牌环境注入（yootun/scripts 品牌脚本）加在打包步骤之前。
+# 品牌环境经 yootun/scripts/brand-environment.mjs 注入（官方脚本「品牌值 ?? 官方缺省」）；
+# 未注入时（如批次 2 的历史运行）出未品牌化官方包。
 # 构建时长实测数据回填 yootun/docs/1110/04-release.md 附录（2026-11-13 批次 2）。
 
 name: Yootun Desktop Package
@@ -48,18 +49,25 @@ jobs:
           node-version: '24'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build yootun packages
+        # 打包闭包（ROOT_PACKAGES 含 @yootun/dsh-bundle-yootun）要求 lib/ 产物已就位。
+        run: pnpm --filter '@yootun/*' run build
+      - name: Inject brand environment
+        # 品牌环境单一出口（yootun/scripts/brand-environment.mjs 读 yootun/brand/brand.json）；
+        # 官方脚本按「品牌环境值 ?? 官方缺省」消费，未注入时官方身份原样。
+        run: node yootun/scripts/brand-environment.mjs >> "$GITHUB_ENV"
       - name: Write Windows packaging settings
         # unsigned 打包同样要求平台 dotenv（.env.windows 由本步骤生成，仓库内只有模板）。
-        # 三个键即官方 unsigned 校验的最小集：官方身份 appId + production 策略 origin
+        # 三个键即官方 unsigned 校验的最小集：品牌 appId + production 策略 origin
         # （mandatory-update origin 对 unsigned 与预打包构建同样必填）；上传凭证不被读取。
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $settings = @'
-          DSH_DESKTOP_APP_ID=com.deepseek.harness
+          $settings = @"
+          DSH_DESKTOP_APP_ID=$env:YOOTUN_BRAND_APP_ID
           DSH_DESKTOP_AUTO_UPDATE_ENV=production
           DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://download.deepseek.com
-          '@
+          "@
           Set-Content -Path apps/desktop/.env.windows -Value $settings -Encoding utf8NoBOM
       - name: Validate packaging configuration and toolchain
         # 完整构建前的快速失败：环境校验 + 工具链探针（tar / Windows 下 VS C++ 探针）。
