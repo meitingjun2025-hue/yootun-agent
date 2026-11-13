@@ -6,7 +6,7 @@
 
 建立 `yootun/` 自有分区（第 1 层）并接入 pnpm workspace，落定官方 CI gate 对该分区的波及结论，建立 `inline-changes.md` 与 `upstream-sync.md` 两份护栏文档。
 
-## 2. 目录树（本批建立骨架，空位留目录 + README 占位）
+## 2. 目录树（本批建立骨架，空位留目录 + .gitkeep 占位）
 
 ```
 yootun/

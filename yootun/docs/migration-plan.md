@@ -58,7 +58,7 @@ yootun-agent/
 │   ├── bundle/       yootun 产品 bundle：把自有插件 + 默认配置组一层，插进 desktop profile
 │   └── docs/         本方案、inline-changes.md（阶段 0 建）、upstream-sync.md（阶段 0 建）
 ├── .github/workflows/yootun-*.yml ← 自有 CI（独立命名，不与官方 workflow 冲突）
-└── pnpm-workspace.yaml             ← 第 2 层：+一行 `yootun/**` glob
+└── pnpm-workspace.yaml             ← 第 2 层：+一行 `yootun/packages/*` glob
 ```
 
 - **第 0 层**：官方目录原则上一个字不改。
@@ -93,7 +93,7 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 例行同步 SOP（写入 `yootun/docs/upstream-sync.md`）：
 
 1. `git fetch upstream && git checkout -b sync/upstream-<date> main && git merge upstream/master`；
-2. 冲突预期：`vendor/`（只接受官方）→ `pnpm-workspace.yaml`（保留 `yootun/**` 行）→
+2. 冲突预期：`vendor/`（只接受官方）→ `pnpm-workspace.yaml`（保留 `yootun/packages/*` 行）→
    `apps/desktop` 品牌文件（重跑品牌生成脚本覆盖）→ 其余应为空；
 3. 先读官方新增 `docs/upgrade-guide/v<version>/*`，按指南适配第 1 层资产；
 4. 验证：`pnpm install && pnpm run build`，聚焦跑受影响面（插件契约测试、
