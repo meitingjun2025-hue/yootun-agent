@@ -24,7 +24,7 @@ yootun/
 │   ├── 1110/                     本方案（已存在）
 │   ├── inline-changes.md         第 2 层内联改动登记（本批建立）
 │   └── upstream-sync.md          上游同步 SOP（本批建立）
-└── README.md                     分区导航（本批建立）
+└── OVERVIEW.md                   分区导航（本批建立；不命名 README.md，见第 4 节）
 ```
 
 包命名约定：npm scope 一律 `@yootun/*`（对齐官方 `@deepseek-ai/dsh-*` 模式）；Cordis 插件/bundle id 一律 `yootun-*` / `yootun` 前缀，避免与官方 id 冲突（patch 同 id 后层胜出，id 冲突即覆盖，是有意机制而非事故）。
@@ -49,7 +49,7 @@ yootun/
 |---|---|---|
 | `test:coverage` | **否** | vitest include 硬编码 `packages/*/*/src/**`；yootun 源码与测试均不进官方覆盖门禁（也不被官方测试跑——自有测试自带自跑） |
 | `hygiene`（publint/package-deps/runtime-closure/node-next 等） | **否** | 各 leaf gate 的 glob 只含 `packages/*/*`、`vendor/*`、`apps/*` |
-| `doc-sync` | **否** | md-links/md-wrap 的 pattern 不含 `yootun/docs/**`（yootun 文档不受官方文档门禁，也自动不进文档站） |
+| `doc-sync` | **部分** | md-links/md-wrap 的 pattern 不含 `yootun/docs/**`（yootun 文档不进文档站）；但聚合内 `verify-translation-pairing` 把任何路径下名为 README.md 的文件纳入双语配对 scope，`verify-repository-references` 扫全仓文本禁止本仓库裸 commit hash（2026-11-13 实测）。处置：分区导航命名 OVERVIEW.md、文档引用官方版本用版本号/日期而非 hash |
 | `duplication` | **否** | jscpd 只扫 `packages scripts` |
 | `constraints` | **部分** | workspace 成员协议检查覆盖所有 pnpm-workspace 成员：@yootun 包依赖 workspace 成员时，依赖官方包必须写 `workspace:*`。发布类 manifest 规则不扫 yootun |
 | `lint`（oxlint） | **是** | 全仓扫描，yootun 下 TS/TSX 会被解析并吃到通用规则——按官方代码质量标准写即可 |
@@ -75,7 +75,7 @@ yootun/
 
 ## 6. 验收
 
-- [ ] `yootun/` 目录树就位，README 导航可用；
+- [ ] `yootun/` 目录树就位，OVERVIEW 导航可用；
 - [ ] `pnpm-workspace.yaml` 含 `yootun/packages/*` 且 `pnpm install` / `constraints` / `lint` 全绿；
 - [ ] 两份护栏文档建立，inline-changes.md 含 7 处预登记；
 - [ ] gate 波及结论实测记录写入 upstream-sync.md 附录；

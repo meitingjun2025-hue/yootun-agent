@@ -36,7 +36,7 @@
 3. **「插件进安装包」的官方机制是依赖闭包**：打包脚本从 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-desktop-host` 两个根出发沿依赖递归打 tarball；desktop profile 复用 web 模板的 bundle 列表（base + web-app）。因此让 yootun bundle 内置 = 两个内联点（bundles 列表 + 打包闭包根），并非总纲设想的「profile 组装两条路径」。
 4. **门禁版本契约已漂移**：docker-helm 的 yootun-ui 写 `validationVersion=3`，旧桌面 host 要求 `=5`。新单仓必须收敛为单一来源；因采用首装切换（无存量数据兼容），建议重置为 1。
 5. **官方把桌面品牌身份硬编码在源码的面比总纲预估大**：productName/artifactName/protocols 名硬编码于 `electron-builder-config.mjs`，About 面板与 locale 文案硬编码 "DeepSeek Harness"。appId 与 feed 反而是环境变量驱动。内联改动从预估 ≤5 处修正为 **7 处**（见第五节）。
-6. **CI gate 波及面比总纲预估小**：`yootun/` 天然不在 coverage/hygiene/doc-sync/duplication 的目录 scope 内；被波及的仅 3 点：workspace 协议检查（constraints）、oxlint 全仓解析、pnpm lockfile 同步。详见分册 01。
+6. **CI gate 波及面比总纲预估小**：`yootun/` 天然不在 coverage/hygiene/duplication 的目录 scope 内；doc-sync 聚合中 md-links/md-wrap 不扫 `yootun/docs/**`，但 `verify-translation-pairing`（任何路径下名为 README.md 的文件进入双语配对 scope）与 `verify-repository-references`（全仓文本禁止本仓库裸 commit hash）两项会扫到 yootun（2026-11-13 实测）。处置：yootun 分区导航文档不命名 README.md（2026-11-13 定案，内部项目不依赖 GitHub 目录默认展示），文档引用官方版本一律用版本号/日期，不写裸 hash。连同 workspace 协议检查（constraints）、oxlint 全仓解析、pnpm lockfile 同步，波及点共 5 点。详见分册 01。
 
 ## 三、批次划分与顺序
 
