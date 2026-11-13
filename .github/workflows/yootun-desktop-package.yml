@@ -49,6 +49,11 @@ jobs:
           node-version: '24'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build official artifacts
+        # yootun 包的 tsc 引用官方包的 lib/types 产物（官方根 tsconfig 的 include 不含
+        # yootun/**，官方构建不产出 yootun 包）；先跑官方 artifacts 链复现本地成功序列。
+        # 打包入口内部的 complete build 随后走 tsc 增量，无全量翻倍。
+        run: pnpm run build:artifacts
       - name: Build yootun packages
         # 打包闭包（ROOT_PACKAGES 含 @yootun/dsh-bundle-yootun）要求 lib/ 产物已就位。
         run: pnpm --filter '@yootun/*' run build
