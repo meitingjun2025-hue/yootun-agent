@@ -19134,6 +19134,10 @@ importers:
         version: 3.5.42(typescript@6.0.3)
 
   yootun/packages/dsh-bundle-yootun:
+    dependencies:
+      '@yootun/dsh-client-ui-brand':
+        specifier: workspace:*
+        version: link:../dsh-client-ui-brand
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
