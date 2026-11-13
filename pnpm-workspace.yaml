@@ -13,6 +13,9 @@ packages:
   # Deploy root of the single-exe build: a pure dependency manifest whose
   # closure is what the exe bundles and what the Python runtime distributes.
   - python/sdk-runtime
+  # yootun enterprise customization tier; packages live at yootun/packages/<pkg>.
+  # brand/, scripts/, docs/ stay outside the workspace on purpose (narrow glob).
+  - yootun/packages/*
 
 overrides:
   'extract-zip>yauzl': '3.4.0'
