@@ -1,6 +1,6 @@
 # 批次 3 真机验收问题与修复方案（2026-11-14）
 
-状态：**A/B 两组与第二轮真机反馈修复均已实施（2026-11-14，main 直修），待 push 出包复验**（决策点 2026-11-14 用户定案；welcomeTaglineBefore/After 实施取舍见第二节 B 组 2 备注）。来源：批次 3 品牌包 Windows 真机验收反馈。出包状态：win/mac 双平台安装包均已产出（macOS 重跑成功）；真机目检 Windows 反馈如下，macOS 真机目检挂起（维护者无 mac 设备，后续有条件时补验）。已正确的面：安装包名（无 `-unsigned`）、安装器圆标 yootun 素材、卸载页 yootun logo、任务栏/桌面快捷方式、About 面板、hero 品牌头像与 eyebrow。
+状态：**A/B 两组、第二轮真机反馈修复与第三轮补充（D 组）均已实施（2026-11-14，main 直修），待 push 出包复验**（决策点 2026-11-14 用户定案；welcomeTaglineBefore/After 实施取舍见第二节 B 组 2 备注）。来源：批次 3 品牌包 Windows 真机验收反馈。出包状态：win/mac 双平台安装包均已产出（macOS 重跑成功）；真机目检 Windows 反馈如下，macOS 真机目检挂起（维护者无 mac 设备，后续有条件时补验）。已正确的面：安装包名（无 `-unsigned`）、安装器圆标 yootun 素材、卸载页 yootun logo（白底化后）、任务栏/桌面快捷方式、About 面板、hero 品牌头像与 eyebrow、登录窗标语、托盘菜单。
 
 ## 一、问题清单与根因
 
@@ -61,7 +61,8 @@
 | 1 | 欢迎窗主标题「欢迎使用 DeepSeek Harness」、描述句产品名 | 欢迎窗内容是 client Web 页（onboarding 流程），文案在 `ui-settings-account/src/client/locales/onboarding.ts`（`onboardingBrand`/`onboardingIntroduction` 等词条硬编码官方名）——分册 06 未覆盖该文件 | ✅ 已实施：onboarding 全部词条产品名经 `DSH_CLIENT_PRODUCT_NAME` 构建内联（官方名缺省），机制同 TAGLINE（并入内联 #7 扩展） |
 | 2 | 首页标题「探索未至之境」未替换 | TAGLINE 构建期内联断点：`ui-conversation` 的 `hero.headline` 消费 `process.env.DSH_CLIENT_TAGLINE_*`，但 client 产物运行时无 `process.env`（永远 fallback 官方值）；供给端断点——官方 define 按 `DSH_CLIENT_` 前缀从流程环境透传，而流程环境只有 `YOOTUN_BRAND_*`（上批实施漏了供给端） | ✅ 已实施：品牌环境出口增 `DSH_CLIENT_TAGLINE_ZH/EN`（官方 define 动态透传，无需改 vite.config）；上批 locales 消费随即生效（并入内联 #6） |
 | 3 | 托盘右键菜单/tooltip 显示「DeepSeek Harness」 | `locale.ts` 托盘菜单与 tooltip 词条硬编码官方名（8 语言 × hide/quit/open/quitTitle/startupFailed 等约 40 处）——原「长尾分期」升级为本批必修（托盘为高频可见面） | ✅ 已实施：全部词条模板化为品牌产品名；tooltip 消费 `aboutProduct` 词条（上批已收口）（并入内联 #7 扩展） |
-| 4 | 卸载页 yootun logo 外的浅灰圆角卡突兀（卸载页白底） | 生成脚本给 uninstaller-sidebar 加了浅灰圆角卡；卸载页为浅色主题，卡与底色冲突（安装页深色底不受影响） | **图片类，挂起**：随公司设计出图一并替换（与欢迎窗 mockup 同批）；届时 `uninstaller-sidebar` 出白底纯 logo 版、`installer-sidebar` 保留深色卡版并分指 |
+| 4 | 卸载页 yootun logo 外的浅灰圆角卡突兀（卸载页白底） | 生成素材的透明底在 NSIS BMP 转换后渲染为浅灰卡；卸载页为浅色主题，卡与底色冲突（安装页深色底不受影响） | ✅ 已实施（2026-11-14）：`uninstaller-sidebar.png` 透明与浅灰像素白化（潜水员圆标保留居中），NSIS 转换后融白底；欢迎窗 mockup 大图仍挂起待设计出图 |
+| 8 | 登录窗标语已生效，但侧边栏 eyebrow 落款为生成字面量（不经构建环境，官方构建行为不等价） | `brand-constants.ts` 为生成文件，`BRAND_EYEBROW` 输出纯字面量 | ✅ 已实施：生成脚本改 `process.env.YOOTUN_BRAND_EYEBROW ?? ''`（官方构建空串=无落款，行为等价），`tsdown.client.ts` 增该键 define（并入内联 #4 扩展），品牌环境出口增 `YOOTUN_BRAND_EYEBROW` |
 | 5 | 首页渐变 0.08 仍显淡蓝，定案改纯白跟随侧边栏底色 | 设计决策更新（用户 2026-11-14 复议：0.08 在浅色底仍突兀） | ✅ 已实施：渐变整体移除（glow 层删除、`brand.json` accentGradient 清除），底色完全跟随宿主；eyebrow 落款保留 |
 | 6 | 侧边栏 mark 显示异常（第二轮仍为官方鱼） | 分册 06 已改 `<img>` 形态仍未生效 → 嫌疑收敛到 slot 注册层（写法与声明均与官方 ui-brand-official 同构）；hero.brand.mark 同包生效证明包加载正常 | 诊断项（见第三节），按诊断结论修注册 |
 | 7 | ~~首页右上角 X 无法关闭窗口~~ | **误报撤销**（2026-11-14 用户确认 X 关闭正常） | 无需修复 |

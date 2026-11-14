@@ -840,6 +840,9 @@ function clientConfig(
     // the truthiness probe would otherwise survive as an empty import.meta.
     define: {
       ...clientBuildEnvironmentDefines(process.env),
+      // yootun enterprise tier (registered inline change): brand eyebrow follows the
+      // injected environment; official builds leave it empty (no tagline rendered).
+      'process.env.YOOTUN_BRAND_EYEBROW': JSON.stringify(process.env.YOOTUN_BRAND_EYEBROW ?? ''),
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),

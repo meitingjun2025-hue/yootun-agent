@@ -29,6 +29,7 @@ export function resolveBrandEnvironment() {
     DSH_CLIENT_PRODUCT_NAME: brandConfig.name,
     DSH_CLIENT_TAGLINE_ZH: brandConfig.mission.zh,
     DSH_CLIENT_TAGLINE_EN: brandConfig.mission.en,
+    YOOTUN_BRAND_EYEBROW: brandConfig.eyebrow,
     YOOTUN_BRAND_ICON_MACOS: iconPath('icon-macos.png'),
     YOOTUN_BRAND_ICON_WINDOWS: iconPath('icon-windows.png'),
     YOOTUN_BRAND_TRAY_ICON: iconPath('tray-windows.ico'),
