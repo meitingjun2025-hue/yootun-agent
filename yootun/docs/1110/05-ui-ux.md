@@ -58,16 +58,16 @@
   - 卡片：R28 + `--dsw-alias-bg-layer-2` + `--dsw-elevation-prominent`，宽度 `min(380px,100%)` 官方 Modal 档（旧 680px 宽卡抛弃），进场动画 token 化 + reduced-motion 守卫；
   - header：YootunMark 48px + eyebrow + 标题（typography role，字重 ≤500）；
   - 表单控件全换官方 primitives：key 输入用 `Input`（32px/R12/0.5px 边框/焦点 business-primary 描边），「显示 Key」用 `Switch`（旧原生 checkbox 抛弃），模型选择用官方 `Menu`/select 模式（旧 `<select>` 抛弃），主按钮 `Button md primary`，移除 Key 为危险态（`--dsw-alias-state-error-*`）；
-  - 反馈：提交中 loading 态（Button loading 变体）、成功走全局 Toast、失败 in-place notice（`role="alert"`，短句中文不带句号）。
+  - 反馈：提交中禁用控件并切换 busy 文案 + `aria-busy`（官方 Button 无 loading 变体，2026-11-14 批次 4 实施口径）、失败 in-place notice（`role="alert"`，短句中文不带句号）；激活成功由门禁解除的自然过渡承载，不另发 Toast。
 
 ### 3.4 设置页激活管理（`settings.section`，id `yootun-access`）
 
 - 对齐官方设置区块规律（ConfigField 范式）：`12px 0` 行距 + 相邻字段 0.5px hairline 分隔，label 13px/500，控件右置；分组大间距，不堆卡片盒子。
-- 内容三行：激活状态（已激活/未激活 + 租户/模型摘要）、更换 Key（进入门禁同款表单，复用组件）、移除 Key（危险按钮 + 官方确认 Modal）。
+- 内容三行：激活状态（已激活/未激活 + 模型摘要）、更换 Key（进入门禁同款表单，复用组件）、移除 Key（危险按钮 + in-place 确认区：warning 文案 `role="alert"` + 确认/取消——旧实现同型语义，不用 Modal；2026-11-14 批次 4 实施口径）。
 
 ## 4. 文案与 i18n
 
-- 首版两语言：`zh`（key-set source of truth）+ `en`；字典形态照官方（typed `keyof typeof zh` + `t` + `{placeholder}` 插值），`locale/zh-CN.json`、`locale/en.json` 随包发布；`ctx.locale.register/bind` 注册。
+- 首版两语言：`zh`（key-set source of truth）+ `en`；字典形态照官方（typed `keyof typeof zh` + `t` + `{placeholder}` 插值），`locale/zh.json`、`locale/en.json`（插件展示元数据 meta）随包发布；`ctx.locale.register/bind` 注册。
 - 旧实现的手写 copy 对象升级为 typed dictionary；eyebrow/按钮文案/错误提示全部进字典。
 
 ## 5. 无障碍与适配（验收硬项）

@@ -30,6 +30,8 @@ export function resolveBrandEnvironment() {
     DSH_CLIENT_TAGLINE_ZH: brandConfig.mission.zh,
     DSH_CLIENT_TAGLINE_EN: brandConfig.mission.en,
     YOOTUN_BRAND_EYEBROW: brandConfig.eyebrow,
+    // 激活契约版本（分册 03 C 部分）：门禁判定与写入同源的唯一字面量，构建期 define 进 access 包产物。
+    YOOTUN_BRAND_VALIDATION_VERSION: String(brandConfig.validationVersion),
     YOOTUN_BRAND_ICON_MACOS: iconPath('icon-macos.png'),
     YOOTUN_BRAND_ICON_WINDOWS: iconPath('icon-windows.png'),
     YOOTUN_BRAND_TRAY_ICON: iconPath('tray-windows.ico'),

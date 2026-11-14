@@ -40,7 +40,7 @@ yootun-ui 表单（浏览器端）
 - 修正：`VALIDATION_VERSION` 不再前端硬编码——从 `yootun/brand/brand.json` 构建期注入（决策点 4 定案重置 `1`，与门禁判定同一来源）。
 - 0.2.2 适配：inject/peer 包名对齐现行全名；`settings.section` slot 与 credentials seam API 以 0.2.2 实际契约为准核对（vitest scope 外，包内自带 `node --test` 冒烟）。
 
-## 4. B 部分：凭证链
+## 4. B 部分：凭证链（批次 4 查证定案，2026-11-14）
 
 1. `@yootun/dsh-bundle-yootun/cordis.patch.yml` 追加（对齐旧桌面壳 patch）：
    ```yaml
@@ -52,14 +52,13 @@ yootun-ui 表单（浏览器端）
    - id: agent-default-model
      config: { provider: deepseek-official, model: <默认模型 id> }
    - insert:
-       - id: yootun-ui-access
+       - id: yootun-access
          name: '@yootun/dsh-client-ui-access'
    ```
-2. **实施时查证点（本册唯一硬风险）**：官方 `llm-deepseek` 的 `apiKeyEnv` 在 0.2.2 是否自动回退 credential store（旧桌面壳有专门的 credential-migration 层做这件事）。查证结论二选一：
-   - 官方已支持 → 零额外代码；
-   - 只读进程环境 → 补一个薄 host 侧插件（bundle patch 注册一行），启动时从 credential store 解析 `MODELS_API_KEY` 注入运行环境，并剥离 ambient 同名凭证（旧壳 dofe-credential-migration.ts 的精简版）。
-3. 模型协议确认：旧桌面 0.1.7 曾 disable llm-deepseek 改用 llm-pi-ai 承载路由（protocol 差异）；0.2.2 的 llm-deepseek 若已支持所需协议则直接用，否则照旧方案换承载插件（实施时按网关 `/api/v1/models?protocol=` 实测）。
-4. **官方通道自配（2026-11-13 定案）**：不 disable `ui-settings-models`——官方模型设置页保留开放，用户可选自配 DeepSeek 官方 key/通道；yootun key 激活保持强制（managed MCP 凭证依赖 `MODELS_API_KEY`），两者互不替代、互不解锁。实施查证点：用户自配官方通道的实现形态——settings 覆盖 bundle patch 的 llm config，或 `llm-deepseek` 双实例（网关默认 + 官方可选），批次 4 按官方 settings 与 patch 的优先级机制实测定夺。
+2. **查证结论（已定案，走 A：零额外代码）**：0.2.2 的 `apiKeyEnv` 字段在 `llm-deepseek-api-key` 包（base bundle 以 entry id `llm-deepseek` 挂载的正是该包），每次请求经 `resolveDeepSeekApiKey` → credentials 服务（base bundle 内置 `dsh-credentials-local`）解析；credentials-local 的解析级联为 **managed 文件（store）→ 继承环境 → .env fallback，store 优先**。前端 `credentials.set('MODELS_API_KEY', key)` 写入即生效，凭证轮换零重建（优于旧桌面）。**ambient 语义修正（2026-11-14 用户定案）**：官方机制是「store 优先于 ambient」，不主动剥离——验收表述从「ambient 环境变量被剥离」修正为「ambient 不被优先采用（store 优先）」；旧壳 credential-migration 的剥离层（删 process.env + 包装 launch snapshot）不迁移。理由：桌面双击启动场景 ambient `MODELS_API_KEY` 出现概率极低；即使出现，baseURL 被 patch 固定指向自有网关，该值只发往自有网关致一次 401，不外泄；门禁与 MCP 挂载均不读 ambient。
+3. 模型协议确认（已定案）：0.1.7 与 0.2.2 的 llm-deepseek 同为 Anthropic Messages 协议（`messagesApiRoot` 同型，请求 path = `{baseURL}/messages`，baseURL 以 `/v1` 结尾不再追加版本段）；旧桌面 2.0.12-beta.5 真机在用同形态正常对话即网关实证。旧桌面曾用 llm-pi-ai 承载是历史中间态（2026-09-01 起 `1c7a8a52` 已切回并禁用 pi-ai）。**0.2.2 直接用 llm-deepseek 承载**。
+4. **官方通道自配（2026-11-13 定案，批次 4 查证补齐）**：不 disable `ui-settings-models`——官方模型设置页写入 `llm-deepseek:` settings section（settingsNs = entry id），**settings section 优先于 bundle patch 的 entry config**（base bundle 注释明确）；用户自配官方通道 = settings 覆盖 + key 存派生 ref（`DEEPSEEK_OFFICIAL_API_KEY`），与 yootun 的 `MODELS_API_KEY` 互不干扰、互不解锁。零额外代码。
+5. 激活 API 调用形态（批次 4 实施增补）：桌面 client 页面从本地 webServer（`http://127.0.0.1:<port>`）加载，浏览器直连 ixicai.cn 会被 CORS 拒绝——access 包 host 半注册 **webServer 同源代理路由**（`/api/desktop/dofe/{validate,models}`，`ctx.webServer.register`，旧壳 dofe-access-route 的 0.2.2 形态迁移），host 转发 ixicai.cn 并携带 `X-Company-Code` 租户头与租户校验（`/api/internal/auth/context`，租户 id 进 `brand.json` 单一来源），client 同源相对路径调用。
 
 ## 5. C 部分：门禁收敛
 
@@ -109,7 +108,7 @@ yootun-ui 表单（浏览器端）
 - [ ] 真机：首次启动被全屏门禁拦截，无法绕过（无 key 时无模型可用）；
 - [ ] 输入有效 key：校验通过 → 模型列表拉取 → 激活成功 → 对话可用且走 ixicai.cn 网关（抓包/服务端日志确认）；
 - [ ] 移除 key：回到门禁态；
-- [ ] `MODELS_API_KEY` 仅存在于 credential store（ambient 环境变量被剥离）；
+- [ ] `MODELS_API_KEY` 存于 credential store 且为解析首选（ambient 环境变量不被优先采用，store 优先——2026-11-14 定案表述）；
 - [ ] 官方模型设置页可用：用户可自配 DeepSeek 官方 key/通道（yootun 激活状态与 MCP 门禁不受影响）；
 - [ ] Plugins 页 Installed 管理可用，会话可创建动态插件（官方能力原样；Discover 保持默认关闭）；
 - [ ] managed MCP patch 样例经 `dsh` CLI 干跑（不挂载真实路由）验证 patch 解析与凭证模板展开路径正确；
@@ -119,9 +118,10 @@ yootun-ui 表单（浏览器端）
 
 | 风险 | 对策 |
 |---|---|
-| apiKeyEnv 不回退 credential store（第 4 节查证点） | 备选薄 host 插件方案已设计，+0.5~1 天 |
-| llm 承载插件协议不匹配（旧 llm-pi-ai 先例） | 按网关 protocol 参数实测后选承载插件，patch 结构不变 |
+| ~~apiKeyEnv 不回退 credential store（第 4 节查证点）~~ | **已消除**（2026-11-14 查证定案走 A：官方 credentials-local 原生支持，store 优先） |
+| ~~llm 承载插件协议不匹配（旧 llm-pi-ai 先例）~~ | **已消除**（0.1.7/0.2.2 同协议，旧桌面同形态真机实证，直接用 llm-deepseek） |
 | settings 命名空间迁移（dofe-access → yootun-access）与残留旧值 | 新桌面全新 profile，无存量数据；服务端 API 不读客户端命名空间，无耦合 |
-| credentials seam 0.2.2 契约变化 | 以 packages/credentials 源码为准核对 set/unset/reference 事件；包内冒烟测试 |
-| 表单 API 路径/协议漂移 | 服务端零改动承诺已确认；实施时以真实 key 全链路联调 |
-| 官方通道自配与网关默认配置的优先级（settings 覆盖 vs 双实例） | 批次 4 按官方 settings 优先级机制实测；两种形态 patch 结构均不变 |
+| credentials seam 0.2.2 契约变化 | 已核对（Result 包装形态 + `credentials/reference-updated` 事件）；包内冒烟测试通过 |
+| 表单 API 路径/协议漂移 | 服务端零改动承诺已确认；真机验收时以真实 key 全链路联调 |
+| ~~官方通道自配与网关默认配置的优先级（settings 覆盖 vs 双实例）~~ | **已消除**（官方 settings section 优先于 patch，单实例覆盖形态，零额外代码） |
+| ambient `MODELS_API_KEY` 在 store 未写值时被级联采用（官方 file→env→dotenv 语义） | 已接受（2026-11-14 定案：store 优先语义 + 桌面场景 ambient 概率极低 + 仅发往自有网关）；如后续需要严格隔离再补薄插件 |

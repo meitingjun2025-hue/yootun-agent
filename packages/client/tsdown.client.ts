@@ -849,6 +849,10 @@ function clientConfig(
       'process.env.YOOTUN_BRAND_PRODUCT_NAME': JSON.stringify(process.env.YOOTUN_BRAND_PRODUCT_NAME ?? 'DeepSeek Harness'),
       'process.env.YOOTUN_BRAND_TAGLINE_ZH': JSON.stringify(process.env.YOOTUN_BRAND_TAGLINE_ZH ?? '探索未至之境'),
       'process.env.YOOTUN_BRAND_TAGLINE_EN': JSON.stringify(process.env.YOOTUN_BRAND_TAGLINE_EN ?? 'Into the Unknown'),
+      // yootun enterprise tier (registered inline change): the activation-contract version the
+      // access gate compares and writes, one literal from brand.json via the brand environment;
+      // official builds default to the current contract version 1.
+      'process.env.YOOTUN_BRAND_VALIDATION_VERSION': JSON.stringify(process.env.YOOTUN_BRAND_VALIDATION_VERSION ?? '1'),
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),
