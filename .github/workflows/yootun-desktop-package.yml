@@ -49,6 +49,14 @@ jobs:
           node-version: '24'
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Inject brand environment
+        # 品牌环境单一出口（yootun/scripts/brand-environment.mjs 读 yootun/brand/brand.json）；
+        # 官方脚本按「品牌环境值 ?? 官方缺省」消费，未注入时官方身份原样。
+        # 注入必须在构建之前：client 构建键集（DSH_CLIENT_TAGLINE_*，首页空态标语）在
+        # build:artifacts 的 bundle define 内联。shell 固定 bash：Windows runner 默认 pwsh
+        # 的 >> 重定向行为与 bash 不同。
+        shell: bash
+        run: node yootun/scripts/brand-environment.mjs >> "$GITHUB_ENV"
       - name: Build official artifacts
         # yootun 包的 tsc 引用官方包的 lib/types 产物（官方根 tsconfig 的 include 不含
         # yootun/**，官方构建不产出 yootun 包）；先跑官方 artifacts 链复现本地成功序列。
@@ -57,12 +65,6 @@ jobs:
       - name: Build yootun packages
         # 打包闭包（ROOT_PACKAGES 含 @yootun/dsh-bundle-yootun）要求 lib/ 产物已就位。
         run: pnpm --filter '@yootun/*' run build
-      - name: Inject brand environment
-        # 品牌环境单一出口（yootun/scripts/brand-environment.mjs 读 yootun/brand/brand.json）；
-        # 官方脚本按「品牌环境值 ?? 官方缺省」消费，未注入时官方身份原样。
-        # shell 固定 bash：Windows runner 默认 pwsh 的 >> 重定向行为与 bash 不同。
-        shell: bash
-        run: node yootun/scripts/brand-environment.mjs >> "$GITHUB_ENV"
       - name: Write Windows packaging settings
         # unsigned 打包同样要求平台 dotenv（.env.windows 由本步骤生成，仓库内只有模板）。
         # 三个键即官方 unsigned 校验的最小集：品牌 appId + production 策略 origin

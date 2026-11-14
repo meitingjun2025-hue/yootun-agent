@@ -13,10 +13,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const brandConfig = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'brand', 'brand.json'), 'utf8'))
+const brandAssetsRoot = join(repositoryRoot, 'yootun', 'brand', 'assets')
 
 /** 品牌环境映射；值不含换行，可直接追加进 GITHUB_ENV。 */
 export function resolveBrandEnvironment() {
-  const iconPath = name => join(repositoryRoot, 'yootun', 'brand', 'assets', name)
+  const iconPath = name => join(brandAssetsRoot, name)
   const environment = {
     YOOTUN_BRAND_PRODUCT_NAME: brandConfig.name,
     YOOTUN_BRAND_ARTIFACT_PREFIX: brandConfig.artifactPrefix,
@@ -26,6 +27,16 @@ export function resolveBrandEnvironment() {
     YOOTUN_BRAND_ICON_MACOS: iconPath('icon-macos.png'),
     YOOTUN_BRAND_ICON_WINDOWS: iconPath('icon-windows.png'),
     YOOTUN_BRAND_TRAY_ICON: iconPath('tray-windows.ico'),
+    // 首页空态标语（分册 06 问题 3）：官方构建键集 DSH_CLIENT_TAGLINE_ZH/EN 的品牌值。
+    YOOTUN_BRAND_TAGLINE_ZH: brandConfig.mission.zh,
+    YOOTUN_BRAND_TAGLINE_EN: brandConfig.mission.en,
+    // 安装器位图素材源目录与 NSIS 安装器/卸载器图标（分册 06 问题 1）。
+    YOOTUN_BRAND_INSTALLER_ASSETS: join(brandAssetsRoot, 'installer'),
+    YOOTUN_BRAND_INSTALLER_ICON: iconPath('installer-windows.ico'),
+    // 欢迎窗展示图覆盖目录（分册 06 问题 2）：目录内 welcome-brand.svg 覆盖拷入安装包。
+    YOOTUN_BRAND_WELCOME_ASSETS: join(brandAssetsRoot, 'welcome'),
+    // 产物后缀置空（分册 06 问题 7）：自有 feed 分发 unsigned 产物，无与官方签名产物混淆的风险。
+    YOOTUN_BRAND_ARTIFACT_SUFFIX: '',
   }
   if (brandConfig.feedOrigin !== null) environment.YOOTUN_BRAND_FEED_ORIGIN = brandConfig.feedOrigin
   return environment

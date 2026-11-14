@@ -402,7 +402,11 @@ async function main(): Promise<void> {
   if (success && target.platform === 'darwin' && !invocation.directory && !invocation.prepareOnly) {
     const paths = desktopTargetBuildPaths(target.name, environment)
     const output = desktopArtifactOutput(paths, invocation)
-    const filename = `deepseek-harness-${buildVersion}-mac-${target.arch}${output.suffix}.dmg`
+    // yootun enterprise tier (registered inline change): the logged name follows the brand
+    // artifact prefix and its overridable packaging-mode suffix; the official values are the default.
+    const artifactPrefix = environment.YOOTUN_BRAND_ARTIFACT_PREFIX ?? 'deepseek-harness'
+    const artifactSuffix = environment.YOOTUN_BRAND_ARTIFACT_SUFFIX ?? output.suffix
+    const filename = `${artifactPrefix}-${buildVersion}-mac-${target.arch}${artifactSuffix}.dmg`
     console.log(`DMG: ${join(output.directory, filename)}`)
   }
 }

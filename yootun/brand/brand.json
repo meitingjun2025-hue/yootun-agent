@@ -19,8 +19,8 @@
     "primaryDark": "#3DD4FF",
     "ink": "#0F172A",
     "accentGradient": {
-      "light": "linear-gradient(165deg, rgba(40, 200, 248, 0.20) 0%, rgba(40, 200, 248, 0.04) 55%, rgba(15, 23, 42, 0) 100%)",
-      "dark": "linear-gradient(165deg, rgba(61, 212, 255, 0.16) 0%, rgba(61, 212, 255, 0.04) 55%, rgba(15, 23, 42, 0) 100%)"
+      "light": "linear-gradient(165deg, rgba(40, 200, 248, 0.08) 0%, rgba(40, 200, 248, 0.04) 55%, rgba(15, 23, 42, 0) 100%)",
+      "dark": "linear-gradient(165deg, rgba(61, 212, 255, 0.05) 0%, rgba(61, 212, 255, 0.04) 55%, rgba(15, 23, 42, 0) 100%)"
     }
   },
   "artwork": {
@@ -34,6 +34,19 @@
       "canvas": 1024,
       "artwork": 824
     },
-    "trayFrames": [16, 20, 24, 32, 40, 48, 64]
+    "trayFrames": [16, 20, 24, 32, 40, 48, 64],
+    "installer": {
+      "banner": { "width": 600, "height": 196 },
+      "uninstallerSidebar": {
+        "width": 164,
+        "height": 314,
+        "card": { "width": 124, "height": 200, "radius": 12 }
+      },
+      "iconFrames": [16, 24, 32, 48, 64, 128, 256]
+    },
+    "welcomeBrand": {
+      "viewBox": [472, 40],
+      "mark": 40
+    }
   }
 }

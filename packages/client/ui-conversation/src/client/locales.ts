@@ -3,6 +3,9 @@
 /** Dictionary namespace owned by this plugin. */
 export const NS = 'conversation'
 
+// `hero.headline` follows the tier brand through the build-time client environment
+// (DSH_CLIENT_TAGLINE_ZH/EN, official headlines as defaults; registered inline change).
+
 // The claimed /plan hint and the plan-mode textarea placeholder describe the same next action.
 const PLAN_NEXT_ACTION_ZH = '描述你的任务以生成计划'
 const PLAN_NEXT_ACTION_EN = 'describe your task to generate plan'
@@ -76,7 +79,7 @@ export const zh = {
   'settings.enter.description': '智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为',
   'settings.enter.queue': '排队发送',
   'settings.enter.steer': '插话发送',
-  'hero.headline': '探索未至之境',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_ZH ?? '探索未至之境',
   'hero.preview': '预览版',
   'hero.chooseWorkspace': '选择工作区',
   'header.more': '更多操作',
@@ -475,7 +478,7 @@ export const en = {
   'settings.enter.description': 'What Enter and the Send button do while the agent is running; Cmd/Ctrl+Enter uses the other behavior',
   'settings.enter.queue': 'Queue',
   'settings.enter.steer': 'Steer',
-  'hero.headline': 'Into the Unknown',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? 'Into the Unknown',
   'hero.preview': 'Preview',
   'hero.chooseWorkspace': 'Choose workspace',
   'header.more': 'More actions',
@@ -873,7 +876,7 @@ export const ja = {
   'settings.enter.description': 'エージェントの実行中にEnterキーと送信ボタンが行う動作。Cmd/Ctrl+Enterではもう一方の動作になります',
   'settings.enter.queue': 'キュー',
   'settings.enter.steer': '指示を変更',
-  'hero.headline': '未知への挑戦',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? '未知への挑戦',
   'hero.preview': 'プレビュー',
   'hero.chooseWorkspace': 'ワークスペースを選択',
   'header.more': 'その他の操作',
@@ -1269,7 +1272,7 @@ export const es = {
   'settings.enter.description': 'Qué hacen los botones Intro y Enviar mientras el agente se está ejecutando; Cmd/Ctrl+Enter usa el otro comportamiento',
   'settings.enter.queue': 'cola',
   'settings.enter.steer': 'Redirigir',
-  'hero.headline': 'Hacia lo desconocido',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? 'Hacia lo desconocido',
   'hero.preview': 'Vista previa',
   'hero.chooseWorkspace': 'Elige espacio de trabajo',
   'header.more': 'Más acciones',
@@ -1667,7 +1670,7 @@ export const fr = {
   'settings.enter.description': "Ce que font Entrée et le bouton Envoyer pendant l'exécution de l'agent ; Cmd/Ctrl+Entrée utilise l'autre comportement",
   'settings.enter.queue': "File d'attente",
   'settings.enter.steer': 'Guider',
-  'hero.headline': "Dans l'inconnu",
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? "Dans l'inconnu",
   'hero.preview': 'Aperçu',
   'hero.chooseWorkspace': 'Choisir un espace de travail',
   'header.more': 'Autres actions',
@@ -2065,7 +2068,7 @@ export const de = {
   'settings.enter.description': 'Was die Eingabetaste und die Schaltfläche „Senden“ bewirken, während der Agent ausgeführt wird; Cmd/Strg+Enter verwendet das andere Verhalten',
   'settings.enter.queue': 'Warteschlange',
   'settings.enter.steer': 'Lenken',
-  'hero.headline': 'Ins Unbekannte',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? 'Ins Unbekannte',
   'hero.preview': 'Vorschau',
   'hero.chooseWorkspace': 'Wählen Sie einen Arbeitsbereich',
   'header.more': 'Weitere Aktionen',
@@ -2463,7 +2466,7 @@ export const ru = {
   'settings.enter.description': 'Что делают кнопки «Ввод» и «Отправить» во время работы агента; Cmd/Ctrl+Enter использует другое поведение.',
   'settings.enter.queue': 'Очередь',
   'settings.enter.steer': 'Направить',
-  'hero.headline': 'В неизвестность',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? 'В неизвестность',
   'hero.preview': 'Предварительный просмотр',
   'hero.chooseWorkspace': 'Выберите рабочее пространство',
   'header.more': 'Другие действия',
@@ -2861,7 +2864,7 @@ export const pt = {
   'settings.enter.description': 'O que o botão Enter e o botão Enviar fazem enquanto o agente está em execução; Cmd/Ctrl+Enter usa o outro comportamento',
   'settings.enter.queue': 'Fila',
   'settings.enter.steer': 'Orientar',
-  'hero.headline': 'Para o desconhecido',
+  'hero.headline': process.env.DSH_CLIENT_TAGLINE_EN ?? 'Para o desconhecido',
   'hero.preview': 'Visualização',
   'hero.chooseWorkspace': 'Escolha o espaço de trabalho',
   'header.more': 'Mais ações',

@@ -1,6 +1,6 @@
 # 批次 3 真机验收问题与修复方案（2026-11-14）
 
-状态：**决策点已定案，待实施**（2026-11-14 用户定案）。来源：批次 3 品牌包 Windows 真机验收反馈。出包状态：win/mac 双平台安装包均已产出（macOS 重跑成功）；真机目检 Windows 反馈如下，macOS 真机目检挂起（维护者无 mac 设备，后续有条件时补验）。已正确的面：安装包前缀、任务栏/桌面快捷方式图标与名称、About 面板、hero.brand.mark（首页标题旁品牌头像）、hero 渐变与 eyebrow 占位生效。
+状态：**A/B 两组已实施（2026-11-14），待 push 出包真机复验**（决策点 2026-11-14 用户定案；welcomeTaglineBefore/After 实施取舍见第二节 B 组 2 备注）。来源：批次 3 品牌包 Windows 真机验收反馈。出包状态：win/mac 双平台安装包均已产出（macOS 重跑成功）；真机目检 Windows 反馈如下，macOS 真机目检挂起（维护者无 mac 设备，后续有条件时补验）。已正确的面：安装包前缀、任务栏/桌面快捷方式图标与名称、About 面板、hero.brand.mark（首页标题旁品牌头像）、hero 渐变与 eyebrow 占位生效。
 
 ## 一、问题清单与根因
 
@@ -24,7 +24,7 @@
 ### B 组：官方内联扩展（并入既有登记项）
 
 1. 问题 1：`prepare-windows-installer.ps1` 资产源目录品牌收口（品牌环境指向 yootun 安装器素材目录，官方 assets 缺省）+ nsis 节 `installerIcon`/`uninstallerIcon` 收口——并入内联 #4（品牌输入收口完整形态）；
-2. 问题 2：`apps/desktop/src/locale.ts` welcome 系列词条收口（`welcomeTaglineBefore/After`、描述、按钮文案跟随品牌环境）——并入内联 #7；
+2. 问题 2：`apps/desktop/src/locale.ts` welcome 系列词条收口（`welcomeTaglineBefore/After`、描述、按钮文案跟随品牌环境）——并入内联 #7。实施取舍：`welcomeTaglineBefore/After` 为中性欢迎语（Welcome to/欢迎使用），保留官方值不改——品牌名已在 `welcomeTaglineBrand`；实际收口 `welcomeDescription`（官方 slogan → mission 标语，zh 档 mission.zh、其余语言档 mission.en）与 `welcomeKeyDescription`（句内产品名 Harness → 品牌名，中文官方句无产品名不动）；
 3. 问题 3：`scripts/client-build-environment.ts` 键集增加品牌标语变量 + `ui-conversation` locales.ts 的 `hero.headline` 消费（`hero.preview` 徽章默认保留，见决策点）——并入内联 #6（client 构建环境键集）；
 4. 问题 7：`electron-builder-config.mjs` artifactName 的 suffix 改品牌可覆盖——并入内联 #4。
 

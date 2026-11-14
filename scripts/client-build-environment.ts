@@ -22,6 +22,11 @@ const OFFICIAL_CLIENT_BUILD_ENVIRONMENT = {
   // yootun enterprise tier (registered inline change): the build-time title follows the brand
   // environment; the official title is the default.
   DSH_CLIENT_TITLE: process.env.YOOTUN_BRAND_TITLE ?? 'DeepSeek Harness',
+  // yootun enterprise tier (registered inline change): the blank-session hero headline follows
+  // the brand mission through these keys (zh and en tiers); the official headlines are the
+  // defaults. `ui-conversation` locales consume them per language.
+  DSH_CLIENT_TAGLINE_ZH: process.env.YOOTUN_BRAND_TAGLINE_ZH ?? '探索未至之境',
+  DSH_CLIENT_TAGLINE_EN: process.env.YOOTUN_BRAND_TAGLINE_EN ?? 'Into the Unknown',
 } as const
 
 /** Public variable carrying the source commit embedded in client artifacts. */

@@ -1,7 +1,10 @@
-/* 侧边栏 mark：alpha 通道作 CSS mask，颜色取宿主语义主 label 色（明暗主题自适应）。 */
+/* 侧边栏 mark：位图形态（hero mark 同型，规避桌面注入环境下 CSS mask 资产解析异常）。
+   源素材为深墨单色，暗色主题先压纯黑再反白成形状色，保证深底可见。 */
 .mark {
-  display: inline-block;
+  display: block;
   flex: none;
-  background: var(--dsw-alias-label-primary);
-  mask: url('./assets/sidebar-mark.png') center / contain no-repeat;
+}
+
+body[data-ds-dark-theme] .mark {
+  filter: brightness(0) invert(1);
 }
