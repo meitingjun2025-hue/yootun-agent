@@ -17,11 +17,7 @@
   "palette": {
     "primary": "#28C8F8",
     "primaryDark": "#3DD4FF",
-    "ink": "#0F172A",
-    "accentGradient": {
-      "light": "linear-gradient(165deg, rgba(40, 200, 248, 0.08) 0%, rgba(40, 200, 248, 0.04) 55%, rgba(15, 23, 42, 0) 100%)",
-      "dark": "linear-gradient(165deg, rgba(61, 212, 255, 0.05) 0%, rgba(61, 212, 255, 0.04) 55%, rgba(15, 23, 42, 0) 100%)"
-    }
+    "ink": "#0F172A"
   },
   "artwork": {
     "appIconSource": "assets/app-icon-source.jpg",

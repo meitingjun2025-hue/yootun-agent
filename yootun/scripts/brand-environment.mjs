@@ -24,6 +24,11 @@ export function resolveBrandEnvironment() {
     YOOTUN_BRAND_PROTOCOL_NAME: brandConfig.protocolName,
     YOOTUN_BRAND_TITLE: brandConfig.name,
     YOOTUN_BRAND_APP_ID: brandConfig.appId,
+    // Client 构建环境键：官方 define 按 DSH_CLIENT_ 前缀从流程环境透传进产物
+    // （scripts/client-build-environment.ts），品牌名与空态标语由此进入 client 产物。
+    DSH_CLIENT_PRODUCT_NAME: brandConfig.name,
+    DSH_CLIENT_TAGLINE_ZH: brandConfig.mission.zh,
+    DSH_CLIENT_TAGLINE_EN: brandConfig.mission.en,
     YOOTUN_BRAND_ICON_MACOS: iconPath('icon-macos.png'),
     YOOTUN_BRAND_ICON_WINDOWS: iconPath('icon-windows.png'),
     YOOTUN_BRAND_TRAY_ICON: iconPath('tray-windows.ico'),

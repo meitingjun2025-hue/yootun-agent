@@ -1,4 +1,4 @@
-/** 会话首页品牌层：hero 态的渐变微光背景、品牌落款与 headline 前的品牌头像。 */
+/** 会话首页品牌层：hero 态的品牌落款与 headline 前的品牌头像。 */
 import type { HeroBrandMarkOwnerProps, HeroFrameOwnerProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ReactNode } from 'react'
 import { BRAND_EYEBROW } from './brand-constants.ts'
@@ -17,12 +17,7 @@ export type YootunHeroFrameProps = HeroFrameOwnerProps & { children: ReactNode }
 export function YootunHeroFrame({ hero, children }: YootunHeroFrameProps) {
   return (
     <div className={css.layer}>
-      {hero && (
-        <>
-          <div className={css.glow} aria-hidden="true" />
-          <div className={css.eyebrow} aria-hidden="true">{BRAND_EYEBROW}</div>
-        </>
-      )}
+      {hero && <div className={css.eyebrow} aria-hidden="true">{BRAND_EYEBROW}</div>}
       {children}
     </div>
   )
