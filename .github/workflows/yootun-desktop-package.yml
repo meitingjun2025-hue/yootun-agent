@@ -10,6 +10,18 @@ name: Yootun Desktop Package
 
 on:
   workflow_dispatch:
+    # 可选版本号抬升（DSH_DESKTOP_BUILD_VERSION，官方键）：仅用于更新链真机验证——
+    # feed 包版本须大于已装版本才会触发更新；tag 触发的正式发版不带此输入，
+    # 包版本一律取 workspace 版本（分册 04 第 5 节官方恒等原则）。
+    inputs:
+      build_version:
+        # 可选版本号抬升（仅 dispatch 验证用）：合法形态为产品版本的 build 扩展
+        # （官方 validateDesktopBuildVersion 校验 `<workspace 版本>.<日期>.<序列>`，
+        # 如 0.2.2-rc.2.20261114.1）；经 CLI --build-version 转发（打包入口唯一
+        # 消费通道）。tag 触发的正式发版不带此输入，包版本一律取 workspace 版本。
+        description: 'Build version extension for update-chain verification only, e.g. 0.2.2-rc.2.20261114.1'
+        required: false
+        type: string
   push:
     tags: ['yootun-v*']
 
@@ -97,10 +109,18 @@ jobs:
         # pnpm 会把 --check 直接转发给打包脚本（脚本参数解析不含分隔符转发问题）。
         run: pnpm run ${{ matrix.target-script }} --check
       - name: Package unsigned installer
-        run: pnpm run ${{ matrix.target-script }}
+        # 仅 dispatch 验证抬号时转发 --build-version（官方抬号通道是 CLI 参数）。
+        # 判空必须用 truthiness：push tag 触发时 inputs.build_version 是 null，
+        # `null != ''` 求值 true 会展开悬挂的空值参数（复审 P0）；null 与 ''
+        # 均 falsy，两种空态都输出空串，包版本走 workspace 版本。
+        # build_version 仅维护者可填（repo 内 dispatch），值再经官方
+        # validateDesktopBuildVersion 校验后才进入版本号。
+        run: pnpm run ${{ matrix.target-script }} ${{ inputs.build_version && format('--build-version {0}', inputs.build_version) || '' }}
       - name: Upload unsigned artifacts
-        # 只上传分发物（安装器/更新包/差分文件）；打包冒烟用的 win-unpacked 与 .app
-        # 解包目录不上传。批次 5 起按分册 04 第 4 节操作表把清单重命名后传 feed。
+        # 只上传分发物（安装器/更新包/差分文件/更新清单）；打包冒烟用的 win-unpacked 与
+        # .app 解包目录不上传。批次 5 起品牌环境注入 feed origin：打包链为品牌 unsigned
+        # 包生成 app-update.yml 与通道清单（latest.yml/latest-mac.yml，electron-builder
+        # 成对生成零手工），artifact 供批次 5 操作表重命名后传 TOS feed。
         uses: actions/upload-artifact@v7.0.1
         with:
           name: ${{ matrix.artifact-name }}
@@ -109,5 +129,6 @@ jobs:
             apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.dmg
             apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.zip
             apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.blockmap
+            apps/desktop/.desktop-build/targets/${{ matrix.target-dir }}/unsigned-artifacts/*.yml
           if-no-files-found: error
           retention-days: 14

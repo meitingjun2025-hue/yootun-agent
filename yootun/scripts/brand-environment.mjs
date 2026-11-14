@@ -46,7 +46,21 @@ export function resolveBrandEnvironment() {
     // 产物后缀置空（分册 06 问题 7）：自有 feed 分发 unsigned 产物，无与官方签名产物混淆的风险。
     YOOTUN_BRAND_ARTIFACT_SUFFIX: '',
   }
-  if (brandConfig.feedOrigin !== null) environment.YOOTUN_BRAND_FEED_ORIGIN = brandConfig.feedOrigin
+  // feed 直连（决策点 5，批次 5 定稿）：TOS bucket 公开读 origin + 放行前缀。
+  // 官方 httpsOrigin 仅校验 test 部署的 origin，品牌 origin 不经该校验——
+  // 此处自检格式（HTTPS origin 无路径），fail loud 防止拼出坏 feed URL。
+  if (brandConfig.feedOrigin !== null) {
+    const parsed = new URL(brandConfig.feedOrigin)
+    if (parsed.protocol !== 'https:' || parsed.pathname !== '/' || parsed.username !== '' || parsed.password !== '' || parsed.search !== '' || parsed.hash !== '') {
+      throw new Error(`brand.json feedOrigin must be an HTTPS origin without path, credentials, query, or fragment; got ${JSON.stringify(brandConfig.feedOrigin)}`)
+    }
+    environment.YOOTUN_BRAND_FEED_ORIGIN = brandConfig.feedOrigin
+    environment.YOOTUN_BRAND_FEED_KEY_PREFIX = brandConfig.feedKeyPrefix
+    // 打包链的更新部署与通道键（官方键，值定稿为 production/stable）：一次品牌环境
+    // 注入即齐全，unsigned 品牌包由此生成 app-update.yml 与通道清单。
+    environment.DSH_DESKTOP_AUTO_UPDATE_ENV = 'production'
+    environment.DSH_DESKTOP_UPDATE_CHANNEL = 'stable'
+  }
   return environment
 }
 

@@ -23,12 +23,20 @@ const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDA
 /**
  * Select local macOS test defaults without reading dotenv files or inheriting release settings.
  * @param {NodeJS.ProcessEnv} environment Parent environment, retained for build tools and networking.
- * @returns {NodeJS.ProcessEnv} Unsigned build environment with the standard application identifier and no update policy.
+ * @returns {NodeJS.ProcessEnv} Unsigned build environment with the application identifier
+ *   (brand-overridable) and the update deployment key passed through when present.
  */
 export function localMacOSPackageEnvironment(environment = process.env) {
+  // yootun enterprise tier (registered inline change): the ambient strip removes the
+  // update deployment key, so a brand unsigned macOS build could never resolve its
+  // production feed (electron-builder-config reads the brand feed origin to opt in).
+  // Pass the deployment through explicitly — same shape as the Windows loader's
+  // UPDATE_CHANNEL passthrough — and let the brand application id override the
+  // default, which is what the Windows dotenv path already supplies.
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
-    DSH_DESKTOP_APP_ID: 'com.deepseek.harness',
+    DSH_DESKTOP_APP_ID: environment.YOOTUN_BRAND_APP_ID ?? 'com.deepseek.harness',
+    ...(environment.DSH_DESKTOP_AUTO_UPDATE_ENV === undefined ? {} : { DSH_DESKTOP_AUTO_UPDATE_ENV: environment.DSH_DESKTOP_AUTO_UPDATE_ENV }),
     DSH_DESKTOP_UNSIGNED: '1',
   }
 }

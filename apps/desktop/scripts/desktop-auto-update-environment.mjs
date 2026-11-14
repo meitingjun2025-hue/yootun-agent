@@ -173,7 +173,10 @@ export function resolveDesktopAutoUpdateConfig(env, platform, arch) {
     if (originEnvName === undefined) throw new Error('desktop auto-update: selected deployment has no origin')
     origin = httpsOrigin(requiredEnvironmentValue(env, originEnvName), originEnvName)
   }
-  let releasePrefix = 'dsh-desk'
+  // yootun enterprise tier (registered inline change): the release prefix is brand
+  // overridable — a brand feed lives under its own storage prefix (the brand bucket
+  // policy only admits that prefix); the official dsh-desk prefix is the default.
+  let releasePrefix = env.YOOTUN_BRAND_FEED_KEY_PREFIX ?? 'dsh-desk'
   if (environment === 'test') {
     const releaseId = requiredEnvironmentValue(env, 'DOWNLOAD_TEST_RELEASE_ID')
     if (!/^[a-f0-9]{32}$/u.test(releaseId)) {
