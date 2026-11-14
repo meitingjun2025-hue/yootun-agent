@@ -45,7 +45,7 @@ test('bundle patch 收口企业模型路由且保留官方模型设置页（批�
   const patch = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-bundle-yootun', 'cordis.patch.yml'), 'utf8')
   // 2026-11-14 协议定案：网关只服务 OpenAI 兼容协议，企业路由经 llm-pi-ai
   // 预置 provider（openai_response），llm-deepseek 收口撤除（恢复 base 默认）。
-  assert.match(patch, /- id: llm-pi-ai\n\s+config:\n\s+providers:\n\s+yootun:\n\s+displayName: Yootun\n\s+apiKeyEnv: MODELS_API_KEY\n\s+api: openai_response\n\s+baseURL: https:\/\/ixicai\.cn\/api\/v1/u)
+  assert.match(patch, /- id: llm-pi-ai\n\s+config:\n\s+providers:\n\s+yootun:\n\s+displayName: Yootun\n\s+apiKeyEnv: MODELS_API_KEY\n\s+api: openai-responses\n\s+baseURL: https:\/\/ixicai\.cn\/api\/v1/u)
   assert.match(patch, /- id: agent-default-model\n\s+config:\n\s+provider: yootun\n\s+model: deepseek-v4-flash\n/u)
   assert.match(patch, /- id: yootun-access\n\s+name: '@yootun\/dsh-client-ui-access'\n/u)
   // 决策点 10：ui-settings-models 不 disable（无 disabled 行），显式注释声明零动作。

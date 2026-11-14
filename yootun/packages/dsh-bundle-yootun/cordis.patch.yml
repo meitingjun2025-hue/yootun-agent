@@ -13,7 +13,7 @@
 # 不适用（patch 收口撤除，恢复 base 官方默认；官方通道自配仍走官方默认
 # 机制，决策点 10）。企业网关改经官方多协议适配器 llm-pi-ai 预置
 # provider 路由（base bundle 已挂载 dormant，settings section 供 profile
-# 即激活）：协议 openai_response（用户实测可会话），密钥按 credential-ref
+# 即激活）：协议 openai-responses（用户实测可会话），密钥按 credential-ref
 # 每请求从 credential store 解析 MODELS_API_KEY，models 预置网关目录全量。
 - id: llm-pi-ai
   config:
@@ -21,7 +21,7 @@
       yootun:
         displayName: Yootun
         apiKeyEnv: MODELS_API_KEY
-        api: openai_response
+        api: openai-responses
         baseURL: https://ixicai.cn/api/v1
         models:
           - { id: minimax-m2 }
