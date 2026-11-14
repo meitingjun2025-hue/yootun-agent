@@ -112,7 +112,7 @@ test('官方打包脚本按「品牌环境 ?? 官方缺省」收口', () => {
   assert.equal(conversationLocales.match(/process\.env\.YOOTUN_BRAND_TAGLINE_EN \?\?/gu)?.length, 7)
 })
 
-test('品牌环境出口覆盖全部收口键且不含未定稿 feed', async () => {
+test('品牌环境出口覆盖全部收口键（批次 5 起含 feed 定稿四键）', async () => {
   const { resolveBrandEnvironment } = await import('./brand-environment.mjs')
   const environment = resolveBrandEnvironment()
   for (const name of ['YOOTUN_BRAND_PRODUCT_NAME', 'YOOTUN_BRAND_ARTIFACT_PREFIX', 'YOOTUN_BRAND_PROTOCOL_NAME', 'YOOTUN_BRAND_TITLE', 'YOOTUN_BRAND_APP_ID', 'YOOTUN_BRAND_ICON_MACOS', 'YOOTUN_BRAND_ICON_WINDOWS', 'YOOTUN_BRAND_TRAY_ICON', 'YOOTUN_BRAND_TAGLINE_ZH', 'YOOTUN_BRAND_TAGLINE_EN', 'YOOTUN_BRAND_INSTALLER_ASSETS', 'YOOTUN_BRAND_INSTALLER_ICON', 'YOOTUN_BRAND_WELCOME_ASSETS']) {
@@ -121,7 +121,30 @@ test('品牌环境出口覆盖全部收口键且不含未定稿 feed', async () 
   }
   // 分册 06 问题 7：产物后缀品牌覆盖为空串（自有 feed 的 unsigned 产物无混淆风险）。
   assert.equal(environment.YOOTUN_BRAND_ARTIFACT_SUFFIX, '')
-  assert.equal(environment.YOOTUN_BRAND_FEED_ORIGIN, undefined)
+  // 批次 5 feed 定稿（决策点 5）：TOS 直连 origin 无路径 + 放行前缀 keyPrefix + 打包链部署键。
+  assert.equal(environment.YOOTUN_BRAND_FEED_ORIGIN, 'https://dofe-public.tos-cn-beijing.volces.com')
+  assert.equal(environment.YOOTUN_BRAND_FEED_KEY_PREFIX, 'yootun-agent/releases')
+  assert.equal(environment.DSH_DESKTOP_AUTO_UPDATE_ENV, 'production')
+  assert.equal(environment.DSH_DESKTOP_UPDATE_CHANNEL, 'stable')
+})
+
+test('unsigned 品牌包生成更新 feed 且 keyPrefix 落在 TOS 放行前缀（批次 5 配合项）', () => {
+  const builderConfig = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'electron-builder-config.mjs'), 'utf8')
+  // update 条件：品牌 feed 环境在（YOOTUN_BRAND_FEED_ORIGIN）时 unsigned 也解析 update。
+  assert.match(builderConfig, /unsigned && env\.YOOTUN_BRAND_FEED_ORIGIN === undefined\s*\n\s*\? undefined/u)
+  // mac 侧：品牌 unsigned 加 zip 更新目标并放开 dmg update info（stable-mac.yml 产物来源）。
+  assert.match(builderConfig, /target: unsigned && env\.YOOTUN_BRAND_FEED_ORIGIN === undefined \? \['dmg'\] : \['dmg', 'zip'\]/u)
+  assert.match(builderConfig, /writeUpdateInfo: unsigned && env\.YOOTUN_BRAND_FEED_ORIGIN !== undefined/u)
+  const updateEnvironment = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'desktop-auto-update-environment.mjs'), 'utf8')
+  // keyPrefix 品牌可覆盖（读函数参数 env，与函数内其他键同源），官方 dsh-desk 缺省；
+  // feed URL = origin/prefix/feeds/<target>/（平台子目录）。
+  assert.match(updateEnvironment, /env\.YOOTUN_BRAND_FEED_KEY_PREFIX \?\? 'dsh-desk'/u)
+  assert.match(updateEnvironment, /`\$\{releasePrefix\}\/feeds\/\$\{target\}`/u)
+  assert.match(updateEnvironment, /publicUrl: `\$\{origin\}\/\$\{keyPrefix\}\/`/u)
+  // 内联 #8：mac 本地打包环境透传更新部署键且 appId 品牌可覆盖（P0-1 修复）。
+  const packageEnvironment = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'desktop-package-environment.mjs'), 'utf8')
+  assert.match(packageEnvironment, /environment\.YOOTUN_BRAND_APP_ID \?\? 'com\.deepseek\.harness'/u)
+  assert.match(packageEnvironment, /DSH_DESKTOP_AUTO_UPDATE_ENV: environment\.DSH_DESKTOP_AUTO_UPDATE_ENV \}/u)
 })
 
 test('tray ICO 帧清单与编码形态对齐官方', () => {

@@ -30,45 +30,39 @@ on:
 
 ## 4. feed 目录约定（electron-updater generic provider，2026-11-10 定案，服务端调查后修正）
 
-官方运行期行为：electron-updater 读安装包内 `app-update.yml`（`provider: generic, url, channel`），按 **`<url><channel>.yml`（win）/ `<url><channel>-mac.yml`（mac）** 请求清单文件（channel 非 `latest` 时替换文件名前缀——官方 CI 上传的就是 `${channel}.yml` / `${channel}-mac.yml`，`desktop-auto-update-environment.mjs:105-114`），比对版本后按清单内相对路径下载安装包。feed 只需静态 HTTPS 目录，**不调任何 JSON API**。
+官方运行期行为：electron-updater 读安装包内 `app-update.yml`（`provider: generic, url, channel`），按 **`<url><channel>.yml`（win）/ `<url><channel>-mac.yml`（mac）** 请求清单文件（channel 非 `latest` 时替换文件名前缀——官方 CI 上传的就是 `${channel}.yml` / `${channel}-mac.yml`，`desktopUpdateMetadataFilename` 于 `desktop-auto-update-environment.mjs`），比对版本后按清单内相对路径下载安装包。feed 只需静态 HTTPS 目录，**不调任何 JSON API**。
 
-**feed origin（定案）**：`https://dofe-public.tos-cn-beijing.volces.com/yootun-agent/releases/feeds/`
+**feed origin 与 keyPrefix（批次 5 定稿）**：origin `https://dofe-public.tos-cn-beijing.volces.com`（**无路径**——路径语义由 keyPrefix 承载，本册原「origin 带 `/yootun-agent/releases/feeds/` 路径」的设计不可行：品牌 origin 与官方拼装规则 `publicUrl = origin + '/' + keyPrefix` 会在路径处断裂，2026-11-14 修正）；keyPrefix 品牌可覆盖（`YOOTUN_BRAND_FEED_KEY_PREFIX ?? 'dsh-desk'`，内联 #5 扩展），品牌值 `yootun-agent/releases`。品牌环境出口对 feedOrigin 做格式自检（HTTPS 且无路径，fail loud——官方 `httpsOrigin` 仅校验 test 部署的 origin，品牌 origin 不经该校验）。
 
-- 前缀必须在 **`yootun-agent/releases/*`** 之下：bucket 公开读策略（`dofe-public-policy.json`）只放行 `tools-dofe/*` 与 `yootun-agent/releases/*`，该前缀零服务端改动即可匿名 GET；自建 `feeds/` 等新前缀需要改 policy 并重跑 `configure-desktop-release-storage.js`。
+- 前缀必须在 **`yootun-agent/releases/*`** 之下：bucket 公开读策略（`dofe-public-policy.json`）只放行 `tools-dofe/*` 与 `yootun-agent/releases/*`，该前缀零服务端改动即可匿名 GET；`dsh-desk` 官方缺省前缀不在放行范围，品牌环境必须注入 keyPrefix。
 - CORS 不构成障碍：electron-updater 跑在 Electron 主进程（Chromium 网络栈的非渲染层请求），不受浏览器 CORS 约束，普通公开读 GET 即可。
-- `url` 以 `/` 结尾（官方 publicUrl 拼接规则）。
+- 最终 feed URL = `origin/keyPrefix/feeds/<target>/`（target 子目录 `win-x64` / `mac-arm64`，官方 keyPrefix 拼装，2026-11-14 干跑实证），`url` 以 `/` 结尾。
 
-**目录结构（单层，channel 靠清单文件名区分，无子目录）**：
+**目录结构（按 target 子目录，channel 靠清单文件名区分——2026-11-14 定案修正，原「单层 feeds/」设计作废）**：
 
 ```
 dofe-public/yootun-agent/releases/feeds/
-├── stable.yml                                  # Windows·stable 通道清单
-├── nightly.yml                                 # Windows·nightly 通道清单
-├── stable-mac.yml / nightly-mac.yml            # macOS 两通道清单
-├── Yootun-Agent-<version>-win-x64.exe          # Windows 安装包（清单 files[].url 指向它）
-├── Yootun-Agent-<version>-mac-arm64.zip        # macOS 更新包（electron-updater 的 mac 更新走 zip；dmg 仅首装分发）
-└── （可选 *.blockmap 差分文件：缺省时回退全量下载，功能不受影响）
+├── win-x64/
+│   ├── stable.yml / nightly.yml            # Windows 两通道清单
+│   ├── Yootun-Agent-<version>-win-x64.exe
+│   └── （可选 *.blockmap 差分文件：缺省回退全量下载）
+└── mac-arm64/
+    ├── stable-mac.yml / nightly-mac.yml
+    ├── Yootun-Agent-<version>-mac-arm64.zip  # mac 更新走 zip；dmg 仅首装分发不进 feed
+    └── （可选 *.blockmap）
 ```
 
-**手动上传操作表（定案发版流程）**：打 tag → Actions 出包 → 从 artifacts 下载 → 按下表重命名/上传：
-
-| 打包产物 | 上传名（channel 按目标） | 规则 |
-|---|---|---|
-| `latest.yml`（builder 固定名） | **`stable.yml` 或 `nightly.yml`** | 重命名后放 feeds/ 根；内容不改 |
-| win 安装包 exe | 原名（**不改**） | 同目录；清单内文件名/sha512 必须与实际一致 |
-| `latest-mac.yml` | **`stable-mac.yml` 或 `nightly-mac.yml`** | 重命名后放 feeds/ 根 |
-| mac zip | 原名（**不改**） | 同目录 |
+清单与安装包必须放进对应平台子目录：electron-updater 按包内 app-update.yml 的 `url`（含子目录）拼清单路径，放错层级一律 404。完整操作流程（tag → 出包 → 核对 → 上传映射 → curl 验证 → 真机更新链 → 记录回填）见 `yootun/docs/feed-upload-runbook.md`（批次 5 操作单）。
 
 - **发布哪个通道 = 用哪套清单文件名**：灰度传 `nightly(.yml/-mac.yml)`，验证稳定后把同一对清单（指向同一安装包）以 `stable(.yml/-mac.yml)` 名再传一份；两通道可共享同一安装包文件。
 - **成对覆盖**：清单与安装包版本必须一致，一起上传。
 - 旧链路（`/api/desktop/version`、`/api/desktop/downloads/*`、13101 release 服务）**原样保留**服务旧桌面，新 feed 是纯新增，不触碰旧链路。
 - 首装分发入口仍可在 ixicai.cn 官网链接到 TOS 文件地址；若将来统一域名，nginx 加一条到该前缀的流式反代即可，客户端只改 feed origin 一处。
 
-**打包链配合项（批次 3 实测定夺，三候选组合）**：启用 feed 需要包内有 `app-update.yml`（否则 `update-coordinator.ts:64` 的 `enabled()` 恒 false，后台静默禁用）；官方 **unsigned 分支强制 `publish: null`**（`electron-builder-config.mjs:102/:274`）——即官方现成 target 里「无签名 + 带 feed」不存在，需实测/选择：
-1. 非 unsigned 目标 + 无签名身份（electron-builder 无 CSC 时 ad-hoc/跳过签名）——若官方 `package-target.ts` 容忍即零改动；
-2. `package-target.ts` 增加一个「跳过签名但生成 publish/app-update.yml」的组合（第 2 层内联登记）；
-3. unsigned 打包 + CI 后处理：自写清单生成（官方 `installed-update-distribution.ts:68-69` 的 dump 格式可抄）+ mac 侧复用 afterPack 写入钩子（`macos-app-update-config.mjs`）。
-另确认：无 app-update.yml 时后台轮询完全静默无感，仅设置页手动「检查更新」会弹一次错误框——如需完全干净，渲染层一处判断不注册通道行（`ui-settings-general/src/client/index.ts:110`），列为可选小改。
+**打包链配合项（批次 5 已落实，候选 2 定案 2026-11-14 用户确认）**：官方 unsigned 分支强制无 update 配置（`electron-builder-config.mjs` `update = unsigned ? undefined : …`，publish 落 `null`，包内无 `app-update.yml` → `update-coordinator` 的 `enabled()` 恒 false）。落实为两处**已登记内联条目的扩展**：
+1. `electron-builder-config.mjs`（内联 #4 同文件扩展）：update 条件改 `unsigned && env.YOOTUN_BRAND_FEED_ORIGIN === undefined`——品牌 feed 环境注入时 unsigned 也走 `resolveDesktopAutoUpdateConfig`，electron-builder 据此生成 app-update.yml 与通道清单（成对生成零手工，正式产物清单名随 channel）；官方构建无品牌环境时行为原样。
+2. `desktop-auto-update-environment.mjs`（内联 #5 同文件扩展）：releasePrefix 品牌可覆盖（`YOOTUN_BRAND_FEED_KEY_PREFIX ?? 'dsh-desk'`）。
+品牌环境出口（`yootun/scripts/brand-environment.mjs`）一次注入四键：`YOOTUN_BRAND_FEED_ORIGIN`、`YOOTUN_BRAND_FEED_KEY_PREFIX`、`DSH_DESKTOP_AUTO_UPDATE_ENV=production`、`DSH_DESKTOP_UPDATE_CHANNEL=stable`。真机首装包 app-update.yml 抽查入操作单第二节首跑检查项。
 
 ## 5. 版本与签名策略
 
@@ -76,7 +70,7 @@ dofe-public/yootun-agent/releases/feeds/
 - **首装切换**：旧桌面（自研更新器）不会看到新 feed，天然不会误升级——两代并行，无跨代自动更新（总纲既定决策）。
 - **Windows**：unsigned（SmartScreen 提示与现状一致），决策点 6 同步预留。
 - **macOS（决策点 6 已定案 2026-11-10）**：unsigned。Gatekeeper 会拦截——安装时右键打开（或 `xattr -cr`），发布说明写清引导。旧桌面 mac 是签名+公证的，此为已接受的分发体验退化项；将来购入 Apple 开发者证书后走官方 signed 链切换（`macos-packaging/production.env.example` 列明所需 env：证书、notarize 凭证），workflow 加签名步骤即可，feed 结构不变。
-- 打包形态选择：品牌包启用 feed 时走「非 unsigned」目标（publish 生效、生成 app-update.yml 与 latest.yml）；mac 侧若 unsigned 则 app-update.yml 由官方 `macos-app-update-config.mjs` afterPack 写入路径不受签名影响——实施时按实测取可行组合，两分支都登记进 workflow 注释。
+- 打包形态选择（批次 5 定案收口）：品牌包启用 feed 时**保持 unsigned 目标**——配合项（第 4 节候选 2，内联 #4/#5/#8）让品牌 unsigned 打包解析 update 配置并生成 app-update.yml 与通道清单；mac 侧品牌态额外加 zip 更新目标并放开 dmg update info（`stable-mac.yml` 与 zip/blockmap 由 builder 生成）。官方构建无品牌环境时所有行为原样。
 
 ## 6. 验收
 
@@ -85,9 +79,9 @@ dofe-public/yootun-agent/releases/feeds/
 - [x] 构建时长实测记录（附录表），缓存策略定夺——见附录 A。
 
 批次 5：
-- [ ] tag `yootun-v*` 触发 → artifact 出包 → 按第 4 节操作表重命名清单并上传 feeds/ 目录；
-- [ ] 真机：设置页切 nightly/stable → 检测到新版本 → 下载 → 安装重启，版本号前进，全程 TOS feed；
-- [ ] 篡改防护：latest.yml sha512 校验路径生效（改一位安装包内容应导致更新拒绝）；
+- [ ] tag `yootun-v*` 触发 → artifact 出包 → 按操作单重命名清单并上传 feeds/ 平台子目录（`yootun/docs/feed-upload-runbook.md`，维护者执行后回填 runbook 第七节）；
+- [ ] 真机：设置页切 nightly/stable → 检测到新版本 → 下载 → 安装重启，版本号前进，全程 TOS feed（runbook 第五节，依赖上传完成）；
+- [ ] 篡改防护：清单 sha512 校验路径生效（改一位安装包内容应导致更新拒绝）；
 - [ ] review 子代理验证通过，本地 commit。
 
 ## 7. 风险
@@ -112,3 +106,15 @@ dofe-public/yootun-agent/releases/feeds/
 | 结论二（缓存策略定夺） | 24m54s 远低于 30–90 分钟/平台预估，**暂不引入 pnpm store / electron 缓存**——保持 workflow 简单、避免缓存一致性与陈旧缓存维护成本；后续单次时长显著劣化或批次并发需求出现时再评估（`actions/cache` + electron-builder 缓存目录） |
 
 实施备注：第 3 节 steps 描述已按官方源码事实修正——打包入口（`package-target.ts`）对 unsigned 构建内部无条件执行 `pnpm run build --profile local` 完整构建，workflow 不含也不应含独立 `build:artifacts` 步骤；Windows 侧 `.env.windows` 三键（官方 appId + production 更新环境 + policy origin）为 unsigned 链路必填最小集，批次 3 起随品牌环境一并替换为 yootun 值。
+
+## 附录 B：批次 5 feed 配套与首批记录（2026-11-14，待维护者执行后回填）
+
+| 项 | 状态 |
+|---|---|
+| 配合项落实（候选 2，内联 #4/#5/#8 三处扩展） | ✅ 代码就位（electron-builder-config update 条件与 mac zip/updateInfo、keyPrefix 品牌化、mac 本地打包环境透传部署键 + 品牌 appId）；CI 首跑验证 app-update.yml 内容（runbook 第二节首跑检查项） |
+| feed URL 干跑（含 mac unsigned 实际环境形态） | ✅ `resolveDesktopAutoUpdateConfig` 品牌环境注入实证：win `…/feeds/win-x64/`、mac `…/feeds/mac-arm64/`、清单名 `stable.yml`/`stable-mac.yml`；mac 过滤后环境（内联 #8 修复形态）update 解析通过、品牌 appId 存活、ambient 泄入仍剥离 |
+| 抬号机制 | ✅ workflow_dispatch `build_version` 经 CLI `--build-version` 转发（打包入口只认该参数）；合法形态 `<workspace 版本>.<日期>.<序列>`（如 `0.2.2-rc.2.20261114.1`，干跑实证 gt 基线成立、`0.2.2-rc.3` 形态被官方校验拒绝）；tag 触发空参回退 workspace 版本 |
+| artifact 清单收集 | ✅ workflow upload glob 增 `*.yml`（win `stable.yml`、mac `stable-mac.yml` 均有产物来源） |
+| review 修复 | ✅ P0-1（mac unsigned 品牌打包必崩，内联 #8）/P0-2（抬号 env 无效改 CLI 转发 + 合法形态）/P1-1（mac feed 产物无来源）/P1-2（第 5 节矛盾段）/P2 全部修复，复审确认 |
+| 基线出包 / 抬号出包 / 上传 / curl / 真机更新链 / 基线恢复 | ⏳ 待维护者按 runbook 执行（第七节记录表回填；构建时长随首跑补录） |
+| macOS | artifact 归档（Gatekeeper unsigned 限制已知，runbook 第六节；mac 更新链真机验证挂起） |

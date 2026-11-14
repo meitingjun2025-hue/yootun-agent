@@ -121,7 +121,14 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? undefined : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  // yootun enterprise tier (registered inline change): a brand unsigned build embeds the
+  // update feed when the brand feed origin is injected — electron-builder then writes
+  // app-update.yml and the channel manifest beside the artifacts, so the unsigned brand
+  // feed keeps the builder-generated pairing (zero hand-edited manifests). Official
+  // unsigned builds without the brand environment stay publish-free as before.
+  const update = unsigned && env.YOOTUN_BRAND_FEED_ORIGIN === undefined
+    ? undefined
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
@@ -211,12 +218,16 @@ export function createElectronBuilderConfig(
       // Prepared runtime files retain their signatures; PAK resources are sealed by their enclosing bundle.
       signIgnore: ['/Contents/Resources/app\\.asar\\.unpacked/dsh(?:/|$)', '/Contents/Resources/runtime/primary-runtime(?:/|$)', '\\.pak$'],
       notarize: !unsigned && !skipNotarization,
-      target: unsigned ? ['dmg'] : ['dmg', 'zip'],
+      // yootun enterprise tier (registered inline change): a brand unsigned macOS build
+      // also ships the zip update target and dmg update info, so electron-builder emits
+      // stable-mac.yml plus the zip/blockmap pair the generic feed serves; official
+      // unsigned builds keep the dmg-only artifact set.
+      target: unsigned && env.YOOTUN_BRAND_FEED_ORIGIN === undefined ? ['dmg'] : ['dmg', 'zip'],
     },
     dmg: {
       format: 'ULMO',
       sign: !unsigned,
-      writeUpdateInfo: false,
+      writeUpdateInfo: unsigned && env.YOOTUN_BRAND_FEED_ORIGIN !== undefined,
     },
     beforePack: async context => {
       const office = await officePackageDirectories(buildPaths.dsh, { platform: resolvedPlatform, arch: resolvedArch })

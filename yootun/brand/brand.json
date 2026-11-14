@@ -12,7 +12,8 @@
     "zh": "青年人买车就到优惠豚",
     "en": "The destination for young car buyers"
   },
-  "feedOrigin": null,
+  "feedOrigin": "https://dofe-public.tos-cn-beijing.volces.com",
+  "feedKeyPrefix": "yootun-agent/releases",
   "validationVersion": 1,
   "baseVersion": "0.2.2-rc.2",
   "palette": {
