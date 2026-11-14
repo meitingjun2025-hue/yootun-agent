@@ -57,7 +57,8 @@ function finish(res: ServerResponse, status: number, value: object): void {
 
 /**
  * Whether the request may reach the gateway through this host: loopback peer,
- * the local client page's origin, browser same-origin fetch metadata, and a
+ * browser same-origin fetch metadata (origin is optional — the desktop
+ * dsh-app forwarder strips it by design), and a
  * JSON body. Non-browser callers have no origin and fail this check.
  * @param req - incoming request.
  * @param expectedOrigin - the local webServer origin the client page is served from.
@@ -67,7 +68,7 @@ function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
   const address = req.socket.remoteAddress ?? ''
   const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
   return loopback
-    && req.headers.origin === expectedOrigin
+    && (req.headers.origin === undefined || req.headers.origin === expectedOrigin)
     && (req.headers['sec-fetch-site'] === undefined || req.headers['sec-fetch-site'] === 'same-origin')
     && req.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase() === 'application/json'
 }
