@@ -19,7 +19,6 @@ export interface AccessSettings {
 /** 激活写入涉及的三个设置 namespace 的表单面。 */
 export interface AccessForms {
   access: ConfigForm<AccessSettings>
-  llm: ConfigForm<{ models: GatewayModel[] }>
   defaultModel: ConfigForm<{ provider: string; model: string }>
 }
 
@@ -73,16 +72,9 @@ export async function validateAndLoadModels(key: string): Promise<{ models: Gate
 export async function saveActivation(
   forms: AccessForms, credentials: CredentialsFace, key: string, models: readonly GatewayModel[], modelId: string,
 ): Promise<boolean> {
-  const modelConfig = models.map(model => ({
-    id: model.id, name: model.name, ...(model.description !== undefined ? { description: model.description } : {}),
-    ...(model.contextWindow !== undefined ? { contextWindow: model.contextWindow } : {}),
-    inputModalities: model.inputModalities ?? ['text'],
-  }))
-  const llmWritten = await forms.llm.mutate([{ op: 'set', path: ['models'], value: modelConfig }] satisfies SettingsPathOpView[])
-  if (!llmWritten) return false
   await credentials.set(ACCESS_CREDENTIAL_REF, key)
   const defaultModelWritten = await forms.defaultModel.mutate([
-    { op: 'set', path: ['provider'], value: 'deepseek-official' },
+    { op: 'set', path: ['provider'], value: 'yootun' },
     { op: 'set', path: ['model'], value: modelId },
   ] satisfies SettingsPathOpView[])
   if (!defaultModelWritten) return false

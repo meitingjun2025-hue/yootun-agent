@@ -19,7 +19,6 @@ import type { AccessForms, AccessSettings, CredentialsFace } from './logic.ts'
 export const inject = ['slots', 'locale', 'remote', 'remote.credentials', 'configForms']
 
 /** `llm-deepseek` section 的写入面（激活流程覆写网关默认目录）。 */
-type LlmForm = ConfigForm<{ models: GatewayModel[] }>
 /** `agent-default-model` section 的写入面。 */
 type DefaultModelForm = ConfigForm<{ provider: string; model: string }>
 
@@ -34,7 +33,6 @@ export function apply(ctx: ClientContext): void {
 
   const forms: AccessForms = {
     access: ctx.configForms.get<AccessSettings>(ACCESS_NAMESPACE),
-    llm: ctx.configForms.get('llm-deepseek') as LlmForm,
     defaultModel: ctx.configForms.get('agent-default-model') as DefaultModelForm,
   }
   const credentials: CredentialsFace = {

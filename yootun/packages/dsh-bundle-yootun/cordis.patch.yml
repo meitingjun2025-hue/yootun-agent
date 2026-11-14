@@ -7,30 +7,50 @@
 - id: ui-brand-official
   disabled: true
 
-# 企业模型路由收口（分册 03 B 部分，2026-11-14 查证定案走官方机制）：
-# 0.2.2 的 llm-deepseek entry 实际承载包是 llm-deepseek-api-key，其 apiKeyEnv
-# 是 credential-ref——credentials 服务（base bundle 内置 credentials-local）
-# 在服时每次请求从 credential store 解析 MODELS_API_KEY（解析级联
-# file → env → dotenv，store 优先；ambient 同名变量不被优先采用，分册 03
-# 第 4 节查证定案 A）。baseURL 固定自有网关；models 是未激活/未自定义时的
-# 兜底目录，激活成功后前端按网关实际列表覆写 llm-deepseek settings section
-# （settings 优先于本 patch，官方 Models 设置页自配官方通道同机制，决策点 10）。
-# 网关 /api/v1 已证实支持 Messages 协议（messagesApiRoot 对 /v1 结尾的 baseURL
-# 不再追加版本段；旧桌面同形态真机在役）。
-- id: llm-deepseek
+# 企业模型路由（分册 03 B 部分，2026-11-14 协议定案 OpenAI Responses）：
+# ixicai.cn 网关只服务 OpenAI 兼容协议（/v1/messages 不存在、
+# /v1/chat/completions 真实 key 实测可对话），Anthropic 形态的 llm-deepseek
+# 不适用（patch 收口撤除，恢复 base 官方默认；官方通道自配仍走官方默认
+# 机制，决策点 10）。企业网关改经官方多协议适配器 llm-pi-ai 预置
+# provider 路由（base bundle 已挂载 dormant，settings section 供 profile
+# 即激活）：协议 openai_response（用户实测可会话），密钥按 credential-ref
+# 每请求从 credential store 解析 MODELS_API_KEY，models 预置网关目录全量。
+- id: llm-pi-ai
   config:
-    apiKeyEnv: MODELS_API_KEY
-    baseURL: https://ixicai.cn/api/v1
-    models:
-      - id: deepseek-v4-flash
-        name: DeepSeek V4 Flash
-        description: Yootun managed DeepSeek model
-        contextWindow: 1000000
-        inputModalities: [text, image]
+    providers:
+      yootun:
+        displayName: Yootun
+        apiKeyEnv: MODELS_API_KEY
+        api: openai_response
+        baseURL: https://ixicai.cn/api/v1
+        models:
+          - { id: minimax-m2 }
+          - { id: minimax-m2.1-highspeed }
+          - { id: minimax-m2.1 }
+          - { id: minimax-m2.5-highspeed }
+          - { id: minimax-m2.5 }
+          - { id: minimax-m2.7-highspeed }
+          - { id: minimax-m2.7 }
+          - { id: minimax-m3 }
+          - { id: minimax-m3.1-flash }
+          - { id: glm-5.3-flash }
+          - { id: glm-5.3 }
+          - { id: glm-5.2 }
+          - { id: deepseek-v4-flash-vision }
+          - { id: deepseek-v4-pro }
+          - { id: deepseek-v4-flash }
+          - { id: kimi-k3 }
+          - { id: seed-2.0-lite }
+          - { id: seed-2.0-mini }
+          - { id: seed-2.0-pro }
+          - { id: seed-2.0-code }
+          - { id: seed-2.1-pro }
+          - { id: seed-2.1-turbo }
+          - { id: seed-evolving }
 
 - id: agent-default-model
   config:
-    provider: deepseek-official
+    provider: yootun
     model: deepseek-v4-flash
 
 # 决策点 10（2026-11-13 定案）：ui-settings-models 保持官方默认（开放），用户
