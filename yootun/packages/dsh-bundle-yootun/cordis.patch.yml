@@ -1,11 +1,70 @@
-# yootun 产品 bundle 的 patch 层：关闭官方品牌包并插入 yootun 品牌前端。
-# 本 bundle 在 profile bundles 列表中排在 web-app 之后，patch 同 id 后层胜出：
-# 下面第一行覆盖 web-app 对 ui-brand-official 的 insert（官方品牌不加载），
-# insert 行新增 yootun 品牌占位。批次 4 再追加 access 包、llm patch 与 managed MCP 行。
+# yootun 产品 bundle 的 patch 层：关闭官方品牌包、插入 yootun 品牌前端与
+# 企业接入层、收口企业模型路由。本 bundle 在 profile bundles 列表中排在
+# web-app 之后，patch 同 id 后层胜出：第一行覆盖 web-app 对 ui-brand-official
+# 的 insert（官方品牌不加载）。
+# managed MCP 的真实路由清单也收敛在本文件（分册 03 D 部分，见文末样例）。
 
 - id: ui-brand-official
   disabled: true
 
+# 企业模型路由收口（分册 03 B 部分，2026-11-14 查证定案走官方机制）：
+# 0.2.2 的 llm-deepseek entry 实际承载包是 llm-deepseek-api-key，其 apiKeyEnv
+# 是 credential-ref——credentials 服务（base bundle 内置 credentials-local）
+# 在服时每次请求从 credential store 解析 MODELS_API_KEY（解析级联
+# file → env → dotenv，store 优先；ambient 同名变量不被优先采用，分册 03
+# 第 4 节查证定案 A）。baseURL 固定自有网关；models 是未激活/未自定义时的
+# 兜底目录，激活成功后前端按网关实际列表覆写 llm-deepseek settings section
+# （settings 优先于本 patch，官方 Models 设置页自配官方通道同机制，决策点 10）。
+# 网关 /api/v1 已证实支持 Messages 协议（messagesApiRoot 对 /v1 结尾的 baseURL
+# 不再追加版本段；旧桌面同形态真机在役）。
+- id: llm-deepseek
+  config:
+    apiKeyEnv: MODELS_API_KEY
+    baseURL: https://ixicai.cn/api/v1
+    models:
+      - id: deepseek-v4-flash
+        name: DeepSeek V4 Flash
+        description: Yootun managed DeepSeek model
+        contextWindow: 1000000
+        inputModalities: [text, image]
+
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+
+# 决策点 10（2026-11-13 定案）：ui-settings-models 保持官方默认（开放），用户
+# 可自配 DeepSeek 官方 key/通道；yootun 激活强制不变，两者互不替代、互不解锁。
+# 显式列出以声明这是有意为之的零动作（而非遗漏）。
+# - id: ui-settings-models
+#   （无 patch 行：官方 web-app 的 insert 原样生效）
+
 - insert:
     - id: yootun-ui-brand
       name: '@yootun/dsh-client-ui-brand'
+    # 企业接入层（分册 03 A 部分）：host 半暴露 yootun-access 设置 namespace
+    # 与同源激活 API 路由，client 半挂全屏门禁与设置页区块。
+    - id: yootun-access
+      name: '@yootun/dsh-client-ui-access'
+
+# managed MCP patch 格式定稿（分册 03 D 部分）。本批不注册真实路由；真实
+# 路由随插件勾选清单在后续批次逐条补入本文件（客户端侧清单单一来源）。
+# 凭证模板 ${credential:REF} 运行期经 credentials 服务解析并在诊断中脱敏
+# （expandTemplates: true），凭证轮换无需重建插件实例。serverName 保持短名
+# （<32 字符），规避旧桌面 64 字符工具名截断问题。
+# 会话权限边界 = 挂载清单（分册 03 E 部分）：未激活不挂任何 MCP；挂载即模型
+# 可见，「会话只读」策略落地时写/采集类路由不进本文件或经服务端 mcp-gateway
+# 裁剪 tools/list（服务端改造另立项）。插件页面全能力通道由各业务插件的
+# ctx.webServer.register 同源路由承载（随插件批次迁移）。
+#
+# - insert:
+#     - id: mcp-yootun-<route>
+#       name: '@deepseek-ai/dsh-mcp-client'
+#       config:
+#         transport: streamable-http
+#         serverName: <32 字符内短名>
+#         url: https://ixicai.cn/mcp/<route>
+#         expandTemplates: true
+#         headers:
+#           Authorization: ${credential:MODELS_API_KEY}
+#           X-Company-Code: yootun

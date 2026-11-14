@@ -1,0 +1,237 @@
+/* yootun 接入门禁与设置区块（分册 05 §3.3/§3.4）。视觉全部走官方 token：
+   背板 mask、R28 面板档圆角、prominent 抬升面（无中性描边）、token 动效。
+   品牌色只出现在主按钮强调位，以组件局部 custom property 声明（分册 05 §2）。 */
+
+/* 品牌强调位变量：palette 值经生成常量（brand.json 单一来源）以 style 注入，
+   本文件只做亮暗两档的变量选择（分册 05 §2 组件局部 custom property）。 */
+.gate {
+  --yu-brand-primary: var(--yu-brand-primary-light);
+  --yu-brand-primary-hover: var(--yu-brand-primary-dark);
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: max(24px, var(--dsh-frame-overlay-top, 24px)) 24px;
+  background: var(--dsw-alias-bg-mask-1);
+  animation: modalEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+body[data-ds-dark-theme] .gate {
+  --yu-brand-primary: var(--yu-brand-primary-dark);
+  --yu-brand-primary-hover: var(--yu-brand-primary-light);
+}
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(380px, 100%);
+  max-height: 100%;
+  padding: 24px;
+  overflow: auto;
+  border: 0;
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: var(--dsw-elevation-prominent);
+  animation: modalEnter var(--ds-transition-duration) var(--ds-ease-in-out);
+  outline: none;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: 48px 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.mark {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.intro {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.form {
+  display: grid;
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.visibility {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.selector {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.selector:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 1px;
+}
+
+.selectorLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.status {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.notice {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.help {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.primary {
+  /* 品牌强调位（分册 05 §2）：激活主按钮的填充与悬停取品牌档位。 */
+  --dsw-alias-button-primary-fill: var(--yu-brand-primary);
+  --dsw-alias-button-primary-hover: var(--yu-brand-primary-hover);
+}
+
+.danger {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.section {
+  display: grid;
+  gap: 0;
+  max-width: 680px;
+}
+
+.sectionTitle {
+  margin: 0;
+  padding: 12px 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  font-size: 13px;
+}
+
+.row + .row {
+  border-top: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.rowLabel {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.rowValue {
+  color: var(--dsw-alias-label-primary);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+@keyframes modalEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gate,
+  .card {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .gate {
+    padding: 12px;
+  }
+
+  .card {
+    padding: 16px;
+  }
+}

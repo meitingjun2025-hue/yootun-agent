@@ -41,6 +41,43 @@ test('yootun bundle patch 关官方品牌包并插入自有包', () => {
   assert.match(patch, /- id: yootun-ui-brand\n\s+name: '@yootun\/dsh-client-ui-brand'\n/u)
 })
 
+test('bundle patch 收口企业模型路由且保留官方模型设置页（批次 4，分册 03 B/决策点 10）', () => {
+  const patch = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-bundle-yootun', 'cordis.patch.yml'), 'utf8')
+  assert.match(patch, /- id: llm-deepseek\n\s+config:\n\s+apiKeyEnv: MODELS_API_KEY\n\s+baseURL: https:\/\/ixicai\.cn\/api\/v1\n/u)
+  assert.match(patch, /- id: agent-default-model\n\s+config:\n\s+provider: deepseek-official\n\s+model: deepseek-v4-flash\n/u)
+  assert.match(patch, /- id: yootun-access\n\s+name: '@yootun\/dsh-client-ui-access'\n/u)
+  // 决策点 10：ui-settings-models 不 disable（无 disabled 行），显式注释声明零动作。
+  assert.match(patch, /ui-settings-models 保持官方默认/u)
+  assert.doesNotMatch(patch, /- id: ui-settings-models\n\s+disabled/u)
+  // managed MCP patch 格式定稿（D 部分）：样例为注释、含凭证模板与租户头。
+  assert.match(patch, /Authorization: \$\{credential:MODELS_API_KEY\}/u)
+  assert.match(patch, /X-Company-Code: yootun/u)
+})
+
+test('激活契约版本单一来源：brand.json → 环境出口 → client 构建内联 → access 生成常量（分册 03 C）', () => {
+  const brandEnvironment = readFileSync(join(repositoryRoot, 'yootun', 'scripts', 'brand-environment.mjs'), 'utf8')
+  assert.match(brandEnvironment, /YOOTUN_BRAND_VALIDATION_VERSION: String\(brandConfig\.validationVersion\)/u)
+  const tsdownClient = readFileSync(join(repositoryRoot, 'packages', 'client', 'tsdown.client.ts'), 'utf8')
+  assert.match(tsdownClient, /'process\.env\.YOOTUN_BRAND_VALIDATION_VERSION': JSON\.stringify\(process\.env\.YOOTUN_BRAND_VALIDATION_VERSION \?\? '1'\)/u)
+  const generated = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-client-ui-access', 'src', 'access-constants.ts'), 'utf8')
+  assert.match(generated, /export const VALIDATION_VERSION = process\.env\.YOOTUN_BRAND_VALIDATION_VERSION \?\? '1'/u)
+  assert.match(generated, /export const TENANT_ID = '/u)
+})
+
+test('access 包 host 半暴露 yootun-access namespace 与同源激活路由', () => {
+  const host = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-client-ui-access', 'src', 'index.ts'), 'utf8')
+  assert.match(host, /setupComplete: z\.boolean\(\)\.default\(false\)\.volatile\(\)/u)
+  assert.match(host, /validationVersion: z\.number\(\)\.default\(0\)\.volatile\(\)/u)
+  assert.match(host, /path: '\/api\/desktop\/dofe\/validate'/u)
+  assert.match(host, /path: '\/api\/desktop\/dofe\/models'/u)
+})
+
+test('品牌包素材被 access 包按官方 asset 契约持有副本且生成链覆盖', () => {
+  const generated = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-client-ui-access', 'scripts', 'generate-access-constants.mjs'), 'utf8')
+  assert.match(generated, /copyFileSync\(join\(brandRoot, brandConfig\.artwork\.sidebarMark\)/u)
+  readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-client-ui-access', 'src', 'client', 'assets', 'sidebar-mark.png'))
+})
+
 test('桌面 profile bundles 与打包闭包都接入 yootun bundle', () => {
   const projectManager = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'src', 'project-manager.ts'), 'utf8')
   assert.match(projectManager, /DESKTOP_BUNDLES = \[\.\.\.WEB_PROFILE\.bundles, '@yootun\/dsh-bundle-yootun'\]/u)
@@ -68,8 +105,9 @@ test('官方打包脚本按「品牌环境 ?? 官方缺省」收口', () => {
   assert.match(clientEnvironment, /process\.env\.YOOTUN_BRAND_TAGLINE_ZH \?\? '探索未至之境'/u)
   assert.match(clientEnvironment, /process\.env\.YOOTUN_BRAND_TAGLINE_EN \?\? 'Into the Unknown'/u)
   const conversationLocales = readFileSync(join(repositoryRoot, 'packages', 'client', 'ui-conversation', 'src', 'client', 'locales.ts'), 'utf8')
-  assert.match(conversationLocales, /process\.env\.DSH_CLIENT_TAGLINE_ZH \?\? '探索未至之境'/u)
-  assert.equal(conversationLocales.match(/process\.env\.DSH_CLIENT_TAGLINE_EN \?\?/gu)?.length, 7)
+  // 分册 06 第二轮「供给端直通」定案：headline 直接消费 YOOTUN_BRAND_TAGLINE_* define（八语言档同型，缺省为各语言官方标语）。
+  assert.equal(conversationLocales.match(/process\.env\.YOOTUN_BRAND_TAGLINE_ZH \?\?/gu)?.length, 1)
+  assert.equal(conversationLocales.match(/process\.env\.YOOTUN_BRAND_TAGLINE_EN \?\?/gu)?.length, 7)
 })
 
 test('品牌环境出口覆盖全部收口键且不含未定稿 feed', async () => {
