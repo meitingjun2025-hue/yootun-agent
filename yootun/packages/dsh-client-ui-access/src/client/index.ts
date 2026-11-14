@@ -12,7 +12,6 @@ import { AccessSection } from './section.tsx'
 import { mountGate } from './gate.tsx'
 import { en, NS, zh, type AccessLocaleKey } from './locales.ts'
 import { ACCESS_NAMESPACE } from '../access-constants.ts'
-import type { GatewayModel } from '../route.ts'
 import type { AccessForms, AccessSettings, CredentialsFace } from './logic.ts'
 
 /** Required services (cordis fiber inject). */

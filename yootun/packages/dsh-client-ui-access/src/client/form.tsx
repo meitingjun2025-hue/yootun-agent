@@ -84,7 +84,7 @@ export function AccessForm(props: AccessFormProps) {
         setError(t('invalid'))
         return
       }
-      if (!await saveActivation(forms, credentials, entered, verdict.models, selected.id)) {
+      if (!await saveActivation(forms, credentials, entered, selected.id)) {
         setError(t('saveError'))
         return
       }

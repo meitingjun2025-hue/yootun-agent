@@ -65,12 +65,11 @@ export async function validateAndLoadModels(key: string): Promise<{ models: Gate
  * @param forms - the three namespace forms.
  * @param credentials - the credential seam.
  * @param key - the verified key.
- * @param models - the loaded catalog written over the patch fallback.
  * @param modelId - the chosen default model.
  * @returns whether every write committed.
  */
 export async function saveActivation(
-  forms: AccessForms, credentials: CredentialsFace, key: string, models: readonly GatewayModel[], modelId: string,
+  forms: AccessForms, credentials: CredentialsFace, key: string, modelId: string,
 ): Promise<boolean> {
   await credentials.set(ACCESS_CREDENTIAL_REF, key)
   const defaultModelWritten = await forms.defaultModel.mutate([
