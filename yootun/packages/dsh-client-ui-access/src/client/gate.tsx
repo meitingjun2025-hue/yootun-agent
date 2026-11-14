@@ -39,17 +39,19 @@ export function AccessGate(props: GateProps): ReactNode {
 
   const authorized = isAuthorized(settings, configured)
 
-  // 应用阻断跟随授权状态：授权成立释放；撤销授权（设置页移除 Key 回门禁态）
-  // 重新申请。mountGate 已预申请一次（消除首帧闪烁），effect 首跑保持现状。
+  // 应用阻断跟随授权状态：授权成立强制解除（不依赖捕获引用——多窗口/升级
+  // 重入场景引用可能错位，直接清除 root.inert 与滚动锁兜底）；未授权（含
+  // 设置页移除 Key 回门禁态）重新申请。
   useEffect(() => {
     if (authorized) {
-      if (releaseApplication !== undefined) {
-        releaseApplication()
-        releaseApplication = undefined
-      }
+      const root = document.getElementById('root')
+      if (root !== null) root.inert = false
+      document.body.style.overflow = ''
+      releaseApplication?.()
+      releaseApplication = undefined
       return
     }
-    if (releaseApplication === undefined) releaseApplication = blockApplicationRoot()
+    releaseApplication = blockApplicationRoot()
   }, [authorized])
 
   useEffect(() => {
@@ -131,12 +133,14 @@ export function mountGate(props: GateProps): () => void {
   const host = document.createElement('div')
   host.id = 'yu-access-gate'
   document.body.appendChild(host)
-  releaseApplication = blockApplicationRoot()
   gateRoot = createRoot(host)
   gateRoot.render(<AccessGate {...props} />)
   return () => {
     gateRoot?.unmount()
     gateRoot = undefined
+    const root = document.getElementById('root')
+    if (root !== null) root.inert = false
+    document.body.style.overflow = ''
     releaseApplication?.()
     releaseApplication = undefined
     host.remove()

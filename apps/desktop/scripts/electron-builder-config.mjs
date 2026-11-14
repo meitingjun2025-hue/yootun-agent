@@ -139,6 +139,10 @@ export function createElectronBuilderConfig(
     appId,
     protocols: [{ name: brandProtocolName, schemes: ['dsh'] }],
     extraMetadata: {
+      // yootun enterprise tier (registered inline change): app.name follows the brand
+      // product name — it is the title source of electron-updater's Windows toast and
+      // the system-visible application identity; official builds keep the official name.
+      name: brandProductName,
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),
