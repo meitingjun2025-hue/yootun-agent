@@ -46,7 +46,7 @@
 - [ ] 欢迎窗：标题、描述、按钮文案品牌化，展示图按决策点处理；
 - [ ] 首页空态：标题品牌标语（青年人买车就到优惠豚）+ 品牌 mark，预览版徽章保留；侧边栏 mark 显示正确（明暗两主题）；
 - [ ] 首页背景回归白/深灰（按决策点浓度）；
-- [ ] X 关闭可用（诊断结论落地后复验）；
+- [x] X 关闭可用（2026-11-14 用户确认正常；首次反馈为误报，诊断项撤销）；
 - [ ] 安装包名：`Yootun-Agent-<版本>-win-x64.exe` 与 `Yootun-Agent-<版本>-mac-arm64.dmg/.zip`（无 -unsigned）；
 - [ ] 内联登记簿同步（#4/#6/#7 扩展口径）；review 子代理验证通过。
 
@@ -64,13 +64,12 @@
 | 4 | 卸载页 yootun logo 外的浅灰圆角卡突兀（卸载页白底） | 生成脚本给 uninstaller-sidebar 加了浅灰圆角卡；卸载页为浅色主题，卡与底色冲突（安装页深色底不受影响） | **图片类，挂起**：随公司设计出图一并替换（与欢迎窗 mockup 同批）；届时 `uninstaller-sidebar` 出白底纯 logo 版、`installer-sidebar` 保留深色卡版并分指 |
 | 5 | 首页渐变 0.08 仍显淡蓝，定案改纯白跟随侧边栏底色 | 设计决策更新（用户 2026-11-14 复议：0.08 在浅色底仍突兀） | ✅ 已实施：渐变整体移除（glow 层删除、`brand.json` accentGradient 清除），底色完全跟随宿主；eyebrow 落款保留 |
 | 6 | 侧边栏 mark 显示异常（第二轮仍为官方鱼） | 分册 06 已改 `<img>` 形态仍未生效 → 嫌疑收敛到 slot 注册层（写法与声明均与官方 ui-brand-official 同构）；hero.brand.mark 同包生效证明包加载正常 | 诊断项（见第三节），按诊断结论修注册 |
-| 7 | 首页右上角 X 无法关闭窗口（第二轮复现） | 待诊断：hero 装饰层均 `pointer-events: none` 理论不拦截窗口 chrome；需 devtools console 与菜单退出/Alt+F4 对照 | 诊断项（见第三节） |
+| 7 | ~~首页右上角 X 无法关闭窗口~~ | **误报撤销**（2026-11-14 用户确认 X 关闭正常） | 无需修复 |
 
 ### 诊断步骤（维护者在 Windows 本机 dev 模式执行）
 
 1. 按「本地 dev 启动」流程起桌面（品牌环境注入 + `pnpm run dev:desktop`）；
 2. devtools console 查：sidebar slot 注册是否有报错/警告；`document.querySelector` 侧边栏 mark 元素的实际 DOM（是 `<img class=mark>` 还是 fallback FishLogo svg）；
-3. X 失效复现：点击 X 时观察 console、进程是否退出、应用菜单「退出」与 Alt+F4 对照；
 4. 结论回填本节表格后实施对应修复。
 
 ## 六、验收补充（第二轮，并入第四节复验）
