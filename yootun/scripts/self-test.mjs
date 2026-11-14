@@ -26,9 +26,13 @@ test('brand.json 素材引用与派生产物都在库', () => {
   for (const name of ['appIconSource', 'sidebarMark', 'heroMark']) {
     readFileSync(join(brandRoot, brandConfig.artwork[name]))
   }
-  for (const name of ['icon-windows.png', 'icon-macos.png', 'tray-windows.ico']) {
+  for (const name of ['icon-windows.png', 'icon-macos.png', 'tray-windows.ico', 'installer-windows.ico']) {
     readFileSync(join(brandRoot, 'assets', name))
   }
+  for (const name of ['brand.png', 'brand-2x.png', 'brand-dark.png', 'brand-dark-2x.png', 'uninstaller-sidebar.png']) {
+    readFileSync(join(brandRoot, 'assets', 'installer', name))
+  }
+  readFileSync(join(brandRoot, 'assets', 'welcome', 'welcome-brand.svg'))
 })
 
 test('yootun bundle patch 关官方品牌包并插入自有包', () => {
@@ -48,19 +52,35 @@ test('官方打包脚本按「品牌环境 ?? 官方缺省」收口', () => {
   const builderConfig = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'electron-builder-config.mjs'), 'utf8')
   assert.match(builderConfig, /env\.YOOTUN_BRAND_PRODUCT_NAME \?\? 'DeepSeek Harness'/u)
   assert.match(builderConfig, /env\.YOOTUN_BRAND_ICON_MACOS \?\?/u)
+  // 分册 06 问题 1/2/7 的扩展收口：安装器图标、产物后缀、欢迎窗展示图。
+  assert.match(builderConfig, /env\.YOOTUN_BRAND_ARTIFACT_SUFFIX \?\? output\.suffix/u)
+  assert.match(builderConfig, /env\.YOOTUN_BRAND_INSTALLER_ICON/u)
+  assert.match(builderConfig, /env\.YOOTUN_BRAND_WELCOME_ASSETS/u)
+  assert.match(builderConfig, /installerIcon: brandInstallerIcon, uninstallerIcon: brandInstallerIcon/u)
+  const installerScript = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'prepare-windows-installer.ps1'), 'utf8')
+  assert.match(installerScript, /env:YOOTUN_BRAND_INSTALLER_ASSETS/u)
+  assert.match(installerScript, /Join-Path \$assetSource "\$asset\.png"/u)
   const updateEnvironment = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'desktop-auto-update-environment.mjs'), 'utf8')
   assert.match(updateEnvironment, /process\.env\.YOOTUN_BRAND_FEED_ORIGIN \?\? 'https:\/\/download\.deepseek\.com'/u)
   const clientEnvironment = readFileSync(join(repositoryRoot, 'scripts', 'client-build-environment.ts'), 'utf8')
   assert.match(clientEnvironment, /process\.env\.YOOTUN_BRAND_TITLE \?\? 'DeepSeek Harness'/u)
+  // 分册 06 问题 3：首页空态标语键集。
+  assert.match(clientEnvironment, /process\.env\.YOOTUN_BRAND_TAGLINE_ZH \?\? '探索未至之境'/u)
+  assert.match(clientEnvironment, /process\.env\.YOOTUN_BRAND_TAGLINE_EN \?\? 'Into the Unknown'/u)
+  const conversationLocales = readFileSync(join(repositoryRoot, 'packages', 'client', 'ui-conversation', 'src', 'client', 'locales.ts'), 'utf8')
+  assert.match(conversationLocales, /process\.env\.DSH_CLIENT_TAGLINE_ZH \?\? '探索未至之境'/u)
+  assert.equal(conversationLocales.match(/process\.env\.DSH_CLIENT_TAGLINE_EN \?\?/gu)?.length, 7)
 })
 
 test('品牌环境出口覆盖全部收口键且不含未定稿 feed', async () => {
   const { resolveBrandEnvironment } = await import('./brand-environment.mjs')
   const environment = resolveBrandEnvironment()
-  for (const name of ['YOOTUN_BRAND_PRODUCT_NAME', 'YOOTUN_BRAND_ARTIFACT_PREFIX', 'YOOTUN_BRAND_PROTOCOL_NAME', 'YOOTUN_BRAND_TITLE', 'YOOTUN_BRAND_APP_ID', 'YOOTUN_BRAND_ICON_MACOS', 'YOOTUN_BRAND_ICON_WINDOWS', 'YOOTUN_BRAND_TRAY_ICON']) {
+  for (const name of ['YOOTUN_BRAND_PRODUCT_NAME', 'YOOTUN_BRAND_ARTIFACT_PREFIX', 'YOOTUN_BRAND_PROTOCOL_NAME', 'YOOTUN_BRAND_TITLE', 'YOOTUN_BRAND_APP_ID', 'YOOTUN_BRAND_ICON_MACOS', 'YOOTUN_BRAND_ICON_WINDOWS', 'YOOTUN_BRAND_TRAY_ICON', 'YOOTUN_BRAND_TAGLINE_ZH', 'YOOTUN_BRAND_TAGLINE_EN', 'YOOTUN_BRAND_INSTALLER_ASSETS', 'YOOTUN_BRAND_INSTALLER_ICON', 'YOOTUN_BRAND_WELCOME_ASSETS']) {
     assert.equal(typeof environment[name], 'string', name)
     assert.ok(environment[name].length > 0, name)
   }
+  // 分册 06 问题 7：产物后缀品牌覆盖为空串（自有 feed 的 unsigned 产物无混淆风险）。
+  assert.equal(environment.YOOTUN_BRAND_ARTIFACT_SUFFIX, '')
   assert.equal(environment.YOOTUN_BRAND_FEED_ORIGIN, undefined)
 })
 
@@ -80,4 +100,27 @@ test('tray ICO 帧清单与编码形态对齐官方', () => {
       [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
     )
   }
+})
+
+test('安装器位图规格逐项对齐官方素材与安装器 ICO 帧清单', () => {
+  const officialAssets = join(repositoryRoot, 'apps', 'desktop', 'installer', 'assets')
+  for (const name of ['brand.png', 'brand-2x.png', 'brand-dark.png', 'brand-dark-2x.png', 'uninstaller-sidebar.png']) {
+    const official = readFileSync(join(officialAssets, name))
+    const branded = readFileSync(join(brandRoot, 'assets', 'installer', name))
+    // PNG 宽高在 IHDR 头（字节 16-23）；品牌产物尺寸必须与官方同名素材一致。
+    assert.deepEqual([...branded.subarray(16, 24)], [...official.subarray(16, 24)], name)
+  }
+  const installerIco = readFileSync(join(brandRoot, 'assets', 'installer-windows.ico'))
+  const count = installerIco.readUInt16LE(4)
+  // ICO 目录项宽度为 1 字节，256 帧按规范存 0。
+  assert.deepEqual(
+    Array.from({ length: count }, (_, index) => {
+      const byte = installerIco[6 + index * 16]
+      return byte === 0 ? 256 : byte
+    }),
+    brandConfig.artwork.installer.iconFrames,
+  )
+  const welcomeSvg = readFileSync(join(brandRoot, 'assets', 'welcome', 'welcome-brand.svg'), 'utf8')
+  assert.match(welcomeSvg, /viewBox="0 0 472 40"/u)
+  assert.match(welcomeSvg, /data:image\/png;base64,/u)
 })

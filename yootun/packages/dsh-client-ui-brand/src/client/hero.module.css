@@ -1,15 +1,16 @@
 /* 会话首页品牌层。布局中性外壳 + hero 态装饰；品牌色以组件局部 custom property
    声明（分册 05 允许的 artwork 强调位形态），暗色档经官方主题选择器切换。 */
 .layer {
-  /* 品牌渐变微光（亮色档），源自 brand.json palette.primary #28C8F8。 */
-  --yootun-glow-head: rgba(40, 200, 248, 0.2);
+  /* 品牌渐变微光（亮色档），源自 brand.json palette.primary #28C8F8；头部浓度按
+     分册 06 决策点收敛（0.2 → 0.08），底色回归白。 */
+  --yootun-glow-head: rgba(40, 200, 248, 0.08);
   --yootun-glow-tail: rgba(40, 200, 248, 0.04);
   display: contents;
 }
 
 body[data-ds-dark-theme] .layer {
   /* 暗色档：primary 提亮一档（brand.json palette.primaryDark #3DD4FF），透明度收敛。 */
-  --yootun-glow-head: rgba(61, 212, 255, 0.16);
+  --yootun-glow-head: rgba(61, 212, 255, 0.05);
   --yootun-glow-tail: rgba(61, 212, 255, 0.04);
 }
 

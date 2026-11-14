@@ -1,7 +1,7 @@
 import { readInstallerLocales, renderInstallerStrings } from './installer-locales.mjs'
 import { officePackageDirectories } from '../../../scripts/libreoffice-packages.mjs'
 import { X509Certificate } from 'node:crypto'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -61,6 +61,15 @@ export function createElectronBuilderConfig(
   const brandIconMacos = env.YOOTUN_BRAND_ICON_MACOS ?? fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url))
   const brandIconWindows = env.YOOTUN_BRAND_ICON_WINDOWS ?? fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url))
   const brandTrayIcon = env.YOOTUN_BRAND_TRAY_ICON ?? fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url))
+  // The installer icon and the welcome brand image have no official override value: they are
+  // injected only when the brand environment provides them, so the official behavior is untouched.
+  const brandInstallerIcon = env.YOOTUN_BRAND_INSTALLER_ICON
+  const brandWelcomeAssets = env.YOOTUN_BRAND_WELCOME_ASSETS
+  // The negation in `files` drops the official welcome image from the package, so a brand
+  // directory without the replacement file would ship a broken image reference.
+  if (brandWelcomeAssets !== undefined && !existsSync(join(brandWelcomeAssets, 'welcome-brand.svg'))) {
+    throw new Error('desktop package: YOOTUN_BRAND_WELCOME_ASSETS must contain welcome-brand.svg')
+  }
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
@@ -81,6 +90,10 @@ export function createElectronBuilderConfig(
   if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
   const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch), env)
   const output = desktopArtifactOutput(buildPaths, { unsigned, skipNotarization })
+  // yootun enterprise tier (registered inline change): the packaging-mode suffix is brand
+  // overridable — a brand feed owns its unsigned artifacts and drops the marker with an
+  // empty override; the official suffix is the default.
+  const artifactSuffix = env.YOOTUN_BRAND_ARTIFACT_SUFFIX ?? output.suffix
   let primaryRuntimeDestination
   let dshDestination
   let windowsCode = []
@@ -129,7 +142,7 @@ export function createElectronBuilderConfig(
     // The default copyright uses author.name; this line names the product instead.
     copyright: `Copyright © ${new Date().getFullYear()} \${productName}`,
     // Unsigned builds carry their own suffix so a shared file can never pass for a release artifact.
-    artifactName: `${brandArtifactPrefix}-\${version}-\${os}-\${arch}${output.suffix}.\${ext}`,
+    artifactName: `${brandArtifactPrefix}-\${version}-\${os}-\${arch}${artifactSuffix}.\${ext}`,
     directories: { output: output.directory },
     asar: true,
     electronDist: buildPaths.electron,
@@ -164,6 +177,15 @@ export function createElectronBuilderConfig(
       { from: buildPaths.dsh, to: 'dsh', filter: ['**/*'] },
       // electron-builder excludes a source directory's root node_modules.
       { from: join(buildPaths.dsh, 'node_modules'), to: 'dsh/node_modules', filter: ['**/*'] },
+      // Brand welcome image replaces the official asset inside the asar: the negation drops
+      // the official file from the glob collection and the copy descriptor is then the only
+      // source of that path. Same-path overwrite semantics across file sets are
+      // electron-builder-version-sensitive, so the replacement never relies on them. Absent
+      // the brand environment the official asset ships unchanged.
+      ...(brandWelcomeAssets === undefined ? [] : [
+        '!renderer/assets/welcome-brand.svg',
+        { from: brandWelcomeAssets, to: 'renderer/assets', filter: ['welcome-brand.svg'] },
+      ]),
     ],
     asarUnpack: unpack,
     extraResources: [
@@ -271,6 +293,9 @@ export function createElectronBuilderConfig(
       uninstallDisplayName: '${productName}',
       installerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
       uninstallerSidebar: join(buildPaths.root, 'installer-ui', 'uninstaller-sidebar.bmp'),
+      // The installer executables follow the brand icon only when the brand environment
+      // provides one; otherwise electron-builder's built-in NSIS icon ships as before.
+      ...(brandInstallerIcon === undefined ? {} : { installerIcon: brandInstallerIcon, uninstallerIcon: brandInstallerIcon }),
       include: fileURLToPath(new URL('./installer.nsh', import.meta.url)),
       oneClick: false,
       perMachine: false,

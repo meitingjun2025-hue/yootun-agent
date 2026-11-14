@@ -1,14 +1,16 @@
-/** 侧边栏品牌占位组件：单色 mark 以 CSS mask 呈现，颜色走宿主语义 token，明暗主题自适应。 */
+/** 侧边栏品牌占位组件：mark 以位图呈现（分册 06 问题 4 修复路径 B，与 hero mark 同型）。 */
 import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import sidebarMarkUrl from './assets/sidebar-mark.png'
 import css from './brand.module.css'
 
 /**
- * 侧边栏品牌 mark：按宿主请求的方形尺寸渲染 yootun 鲸尾图形。
+ * 侧边栏品牌 mark：按宿主请求的方形尺寸渲染 yootun 鲸尾图形；
+ * 暗色主题经 CSS filter 反白（源素材为深墨单色，见 brand.module.css）。
  * @param props - Host-supplied mark presentation.
  * @returns the yootun mark.
  */
 export function YootunMark({ size }: SidebarBrandMarkOwnerProps) {
-  return <span className={css.mark} style={{ width: size, height: size }} aria-hidden="true" />
+  return <img src={sidebarMarkUrl} width={size} height={size} className={css.mark} alt="" />
 }
 
 /**
