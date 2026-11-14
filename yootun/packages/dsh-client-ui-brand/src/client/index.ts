@@ -22,9 +22,12 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register({
     name: 'conversation.hero.brand.mark',
   }, YootunHeroMark))
-  ctx.slots.inject('sidebar.brand.mark', () =>
-    ctx.slots.inject('sidebar.brand.name', function* () {
-      yield ctx.slots.register({ name: 'sidebar.brand.mark' }, YootunMark)
-      yield ctx.slots.register({ name: 'sidebar.brand.name' }, YootunName)
-    }))
+  // 侧边栏两 slot 采用与 hero 同型的直接注册（分册 06 第二轮真机反馈：嵌套
+  // generator 形态在本桌面运行时未到达注册，直接形态已被 hero.brand.mark 证实可用）。
+  ctx.slots.inject('sidebar.brand.mark', () => ctx.slots.register({
+    name: 'sidebar.brand.mark',
+  }, YootunMark))
+  ctx.slots.inject('sidebar.brand.name', () => ctx.slots.register({
+    name: 'sidebar.brand.name',
+  }, YootunName))
 }
