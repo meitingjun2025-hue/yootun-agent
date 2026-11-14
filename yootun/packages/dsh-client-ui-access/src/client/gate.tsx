@@ -1,7 +1,7 @@
 /** 全屏激活门禁（分册 05 §3.3）：旧阻断语义全保留（root.inert + 滚动锁、Tab 钳回、fail-closed），视觉走官方 Modal 材质。 */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { AccessForm, brandStyle } from './form.tsx'
+import { AccessForm } from './form.tsx'
 import { blockApplicationRoot, describeKeyConfigured, isAuthorized, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
 import { BRAND_EYEBROW } from './locales.ts'
 import { BRAND_MARK_URL } from './brand-mark.ts'
@@ -86,7 +86,7 @@ export function AccessGate(props: GateProps): ReactNode {
 
   if (authorized) return null
   return (
-    <div className={css.gate} style={brandStyle}>
+    <div className={css.gate}>
       <section
         ref={cardRef}
         className={css.card}

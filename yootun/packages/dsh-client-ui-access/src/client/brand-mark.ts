@@ -1,5 +1,5 @@
-/** 门禁 header 的品牌 mark：生成脚本从素材分区拷入的本包副本（单一来源 brand/assets）。 */
-import sidebarMarkUrl from './assets/sidebar-mark.png'
+/** 门禁 header 的品牌 mark：yootun 潜水员头像（hero-mark 同源素材，与首屏品牌形象一致）。 */
+import heroMarkUrl from './assets/hero-mark.png'
 
-/** 侧边栏 mark 素材 URL（与侧边栏品牌位同一素材，暗色由 access.module.css 适配）。 */
-export const BRAND_MARK_URL: string = sidebarMarkUrl
+/** 门禁品牌 mark 素材 URL（暗色主题无需反白：素材自带深色圆底）。 */
+export const BRAND_MARK_URL: string = heroMarkUrl

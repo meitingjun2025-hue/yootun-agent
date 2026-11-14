@@ -1,7 +1,7 @@
 /** 设置页激活管理区块（分册 05 §3.4）：激活状态、更换 Key、移除 Key 三行。 */
 import { useSyncExternalStore, useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { AccessForm, brandStyle, type Translate } from './form.tsx'
+import { AccessForm, type Translate } from './form.tsx'
 import { describeKeyConfigured, isAuthorized, removeAccess, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
 import css from './access.module.css'
 
@@ -57,7 +57,7 @@ export function AccessSection(props: AccessSectionProps): ReactNode {
   }
 
   return (
-    <section className={css.section} style={brandStyle}>
+    <section className={css.section}>
       <h2 className={css.sectionTitle}>{t('nav')}</h2>
       <div className={css.row}>
         <span className={css.rowLabel}>{t('statusTitle')}</span>

@@ -4,7 +4,6 @@ import { Button, Input, Menu, Switch, IconChevronDownOutlineRegular } from '@dee
 import type { GatewayModel } from '../route.ts'
 import { validateAndLoadModels, saveActivation, type AccessForms, type CredentialsFace } from './logic.ts'
 import css from './access.module.css'
-import { BRAND_PRIMARY_DARK, BRAND_PRIMARY_LIGHT } from '../access-constants.ts'
 import type { AccessLocaleKey } from './locales.ts'
 
 /** 词典访问面（locale.bind 返回形态的最小声明）。 */
@@ -20,12 +19,6 @@ export interface AccessFormProps {
   /** 激活成功回调（门禁用它刷新授权判定，设置区块用它收起表单）。 */
   onConfigured?: () => void
 }
-
-/** 品牌强调位变量（分册 05 §2）：palette 值来自生成常量（brand.json 单一来源）。 */
-export const brandStyle = {
-  '--yu-brand-primary-light': BRAND_PRIMARY_LIGHT,
-  '--yu-brand-primary-dark': BRAND_PRIMARY_DARK,
-} as React.CSSProperties
 
 /**
  * 激活表单。失败信息 in-place 呈现（role="alert"）；提交中禁用全部控件；
@@ -185,7 +178,6 @@ export function AccessForm(props: AccessFormProps) {
         <Button
           size="md"
           variant="primary"
-          className={css.primary}
           disabled={interactionBusy || key.trim().length === 0 || modelId.length === 0 || models.length === 0}
           onClick={() => { void save() }}
         >
