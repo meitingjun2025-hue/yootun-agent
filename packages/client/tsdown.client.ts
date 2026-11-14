@@ -843,6 +843,12 @@ function clientConfig(
       // yootun enterprise tier (registered inline change): brand eyebrow follows the
       // injected environment; official builds leave it empty (no tagline rendered).
       'process.env.YOOTUN_BRAND_EYEBROW': JSON.stringify(process.env.YOOTUN_BRAND_EYEBROW ?? ''),
+      // yootun enterprise tier (registered inline change): brand product name and home
+      // tagline follow the injected YOOTUN_ environment (survives the official local-profile
+      // environment closing, unlike DSH_CLIENT_ keys); official builds inline official copy.
+      'process.env.YOOTUN_BRAND_PRODUCT_NAME': JSON.stringify(process.env.YOOTUN_BRAND_PRODUCT_NAME ?? 'DeepSeek Harness'),
+      'process.env.YOOTUN_BRAND_TAGLINE_ZH': JSON.stringify(process.env.YOOTUN_BRAND_TAGLINE_ZH ?? '探索未至之境'),
+      'process.env.YOOTUN_BRAND_TAGLINE_EN': JSON.stringify(process.env.YOOTUN_BRAND_TAGLINE_EN ?? 'Into the Unknown'),
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env.MODE': JSON.stringify(process.env.NODE_ENV ?? 'production'),
       'import.meta.env': JSON.stringify({ MODE: process.env.NODE_ENV ?? 'production' }),

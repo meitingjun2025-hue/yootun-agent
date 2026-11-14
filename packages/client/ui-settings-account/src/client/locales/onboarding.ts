@@ -1,7 +1,7 @@
 /** Chinese first-run copy from the onboarding requirements. */
-/** 品牌产品名：构建环境 DSH_CLIENT_PRODUCT_NAME 内联（官方名缺省；官方 define 按
-    DSH_CLIENT_ 前缀透传，见 scripts/client-build-environment.ts 与 yootun/docs/inline-changes.md）。 */
-const PRODUCT_NAME = process.env.DSH_CLIENT_PRODUCT_NAME ?? 'DeepSeek Harness'
+/** 品牌产品名：构建环境 YOOTUN_BRAND_PRODUCT_NAME 内联（官方名缺省；define 见
+    packages/client/tsdown.client.ts——YOOTUN_ 前缀不被官方环境收口剥离）。 */
+const PRODUCT_NAME = process.env.YOOTUN_BRAND_PRODUCT_NAME ?? 'DeepSeek Harness'
 
 export const onboardingZh = {
   onboardingArtworkLocale: 'zh',
