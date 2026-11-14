@@ -51,3 +51,32 @@
 - [ ] 内联登记簿同步（#4/#6/#7 扩展口径）；review 子代理验证通过。
 
 > macOS 真机目检（侧边栏/首页/标题/About/明暗主题）挂起：维护者无 mac 设备；macOS 与 Windows 同源实现，Windows 复验通过后风险可控，有 mac 条件时补验。
+
+## 五、第二轮真机反馈（2026-11-14，分册 06 真机修复首个出包）
+
+分册 06 修复的已生效面：安装器圆标 yootun 素材、卸载页 yootun logo（浅灰卡待去，见 6）、包名去 `-unsigned` 后缀、hero 品牌头像/eyebrow、渐变 0.08。以下为仍未生效面与新要求，已逐项核实根因。
+
+| # | 现象 | 根因（已核实） | 修复 |
+|---|---|---|---|
+| 1 | 欢迎窗主标题「欢迎使用 DeepSeek Harness」、描述句产品名 | 欢迎窗内容是 client Web 页（onboarding 流程），文案在 `ui-settings-account/src/client/locales/onboarding.ts`（`onboardingBrand`/`onboardingIntroduction` 等词条硬编码官方名）——分册 06 未覆盖该文件 | 词条品牌收口：产品名词条用品牌名常量/构建键，介绍句改品牌 mission 语义（并入内联 #7 扩展） |
+| 2 | 首页标题「探索未至之境」未替换 | TAGLINE 构建期内联断点：`ui-conversation` 的 `hero.headline` 消费 `process.env.DSH_CLIENT_TAGLINE_*`，但 client 产物运行时无 `process.env`（永远 fallback 官方值）；桌面 Web 产物构建链（`apps/web/vite.config.ts`，已消费 client-build-environment 处理 TITLE）未 define TAGLINE | `apps/web/vite.config.ts` define 增 `DSH_CLIENT_TAGLINE_ZH/EN`（读构建环境记录），并入内联 #6 |
+| 3 | 托盘右键菜单/tooltip 显示「DeepSeek Harness」 | `locale.ts` 托盘菜单与 tooltip 词条硬编码官方名（8 语言 × hide/quit/open/quitTitle/startupFailed 等约 40 处）——原「长尾分期」升级为本批必修（托盘为高频可见面） | 全部词条模板化为品牌产品名（并入内联 #7 扩展） |
+| 4 | 卸载页 yootun logo 外的浅灰圆角卡突兀（卸载页白底） | 生成脚本给 uninstaller-sidebar 加了浅灰圆角卡；卸载页为浅色主题，卡与底色冲突（安装页深色底不受影响） | 生成脚本分图：`uninstaller-sidebar` 改白底纯 logo（融白底），`installer-sidebar` 保留深色卡版（安装页深色底）；`electron-builder-config` 的 installerSidebar/uninstallerSidebar 分指两张 |
+| 5 | 首页渐变 0.08 仍显淡蓝，定案改纯白跟随侧边栏底色 | 设计决策更新（用户 2026-11-14 复议：0.08 在浅色底仍突兀） | 移除渐变着色（glow 透明化或删除），`brand.json` accentGradient 同步清空；eyebrow 落款保留 |
+| 6 | 侧边栏 mark 显示异常（第二轮仍为官方鱼） | 分册 06 已改 `<img>` 形态仍未生效 → 嫌疑收敛到 slot 注册层（写法与声明均与官方 ui-brand-official 同构）；hero.brand.mark 同包生效证明包加载正常 | 诊断项（见第三节），按诊断结论修注册 |
+| 7 | 首页右上角 X 无法关闭窗口（第二轮复现） | 待诊断：hero 装饰层均 `pointer-events: none` 理论不拦截窗口 chrome；需 devtools console 与菜单退出/Alt+F4 对照 | 诊断项（见第三节） |
+
+### 诊断步骤（维护者在 Windows 本机 dev 模式执行）
+
+1. 按「本地 dev 启动」流程起桌面（品牌环境注入 + `pnpm run dev:desktop`）；
+2. devtools console 查：sidebar slot 注册是否有报错/警告；`document.querySelector` 侧边栏 mark 元素的实际 DOM（是 `<img class=mark>` 还是 fallback FishLogo svg）；
+3. X 失效复现：点击 X 时观察 console、进程是否退出、应用菜单「退出」与 Alt+F4 对照；
+4. 结论回填本节表格后实施对应修复。
+
+## 六、验收补充（第二轮，并入第四节复验）
+
+- [ ] 欢迎窗：主标题与描述句品牌化（onboarding 词条收口后）；
+- [ ] 首页标题：品牌标语（构建期内联经 Web 构建链验证生效）；
+- [ ] 托盘右键菜单与 tooltip：全部品牌名（明暗与多语言抽查）；
+- [ ] 卸载页：无浅灰卡（白底融图）；安装页深色卡观感不变；
+- [ ] 首页底色跟随宿主（浅色白/暗色深灰），无蓝色渐变。
