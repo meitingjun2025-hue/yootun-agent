@@ -61,6 +61,14 @@ it('escapes literal NSIS syntax without changing translated text', () => {
     .toContain('"$\\"$$name$\\"$\\nnext$\\rline"')
 })
 
+it('brands product-name mentions while retaining official default rendering', () => {
+  const locales = readInstallerLocales()
+  expect(renderInstallerStrings(locales)).toContain('DeepSeek Harness')
+  const branded = renderInstallerStrings(locales, 'Yootun-Agent')
+  expect(branded).toContain('Yootun-Agent')
+  expect(branded).not.toContain('DeepSeek Harness')
+})
+
 it('uses the real electron-builder language identifiers and English fallback', () => {
   const require = createRequire(import.meta.url)
   const { LangConfigurator, createAddLangsMacro } = require('app-builder-lib/out/targets/nsis/nsisLang.js') as {

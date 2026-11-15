@@ -6,6 +6,11 @@ $installerRoot = Join-Path $PSScriptRoot '../installer'
 # yootun enterprise tier (registered inline change): the raster-asset source directory follows
 # the brand environment; the official installer assets are the default.
 $assetSource = if ($env:YOOTUN_BRAND_INSTALLER_ASSETS) { $env:YOOTUN_BRAND_INSTALLER_ASSETS } else { Join-Path $installerRoot 'assets' }
+# yootun enterprise tier (registered inline change): the native restart banner and its
+# status-window title follow the brand environment; official builds keep the official title.
+$productName = if ($env:YOOTUN_BRAND_PRODUCT_NAME) { $env:YOOTUN_BRAND_PRODUCT_NAME } else { 'DeepSeek Harness' }
+if ($productName -notmatch '^[\p{L}\p{N}][\p{L}\p{N} ._-]*$') { throw 'Windows installer preparation: YOOTUN_BRAND_PRODUCT_NAME may contain only Unicode letters, numbers, spaces, periods, hyphens, and underscores.' }
+$productDefine = '/DINSTALLER_PRODUCT_NAME=L"' + $productName + '"'
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot '../.desktop-build/targets/win-x64/installer-ui' }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force $output | Out-Null
@@ -17,7 +22,7 @@ $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudi
 if (-not $visualStudio) { throw 'Visual Studio C++ Build Tools are missing.' }
 $vcvars = Join-Path $visualStudio 'VC/Auxiliary/Build/vcvars32.bat'
 $compileScript = Join-Path $output 'compile-frame.cmd'
-$compileLines = @('@echo off', ('call "{0}" >nul' -f $vcvars), 'if errorlevel 1 exit /b %errorlevel%', ('cl /nologo /LD /MT /O1 /W4 /WX /EHsc "{0}" /Fo"{1}" /link /OUT:"{2}" /IMPLIB:"{3}" user32.lib gdi32.lib comctl32.lib dwmapi.lib gdiplus.lib ole32.lib shell32.lib uuid.lib advapi32.lib' -f $source, (Join-Path $output 'window-frame.obj'), $library, (Join-Path $output 'window-frame.lib')))
+$compileLines = @('@echo off', ('call "{0}" >nul' -f $vcvars), 'if errorlevel 1 exit /b %errorlevel%', ('cl /nologo /LD /MT /O1 /W4 /WX /EHsc {4} "{0}" /Fo"{1}" /link /OUT:"{2}" /IMPLIB:"{3}" user32.lib gdi32.lib comctl32.lib dwmapi.lib gdiplus.lib ole32.lib shell32.lib uuid.lib advapi32.lib' -f $source, (Join-Path $output 'window-frame.obj'), $library, (Join-Path $output 'window-frame.lib'), $productDefine)))
 [IO.File]::WriteAllLines($compileScript, $compileLines, [Text.Encoding]::Default)
 & $env:ComSpec /d /c $compileScript
 if ($LASTEXITCODE -ne 0) { throw 'Native installer helper compilation failed.' }
