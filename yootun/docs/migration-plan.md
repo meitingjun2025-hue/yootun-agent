@@ -173,8 +173,9 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
 - 插件本体迁移含 0.1.7→0.2.2 适配（图标集/slot/客户端注入包名，
   有 0.1.6 删图标致 React #130 崩溃先例），用 docker-helm 的
   `desktop-compat` 契约测试与能力矩阵审计脚本护航（一并移植到 `yootun/scripts/`）。
-- 插件 UI/UX 一律按 `yootun/docs/1110/05-ui-ux.md` 规范重做（2026-11-10 定为
-  长期规范）：旧插件的样式实现与视觉不迁移，只迁移交互逻辑与数据面；验收含
+- 插件 UI/UX 一律按 `yootun/docs/1110/05-ui-ux.md` 与
+  `yootun/docs/plugin-ui-ux-standard.md` 规范重做（2026-11-10 基础规范、
+  2026-11-15 插件扩展规范）：旧插件的样式实现与视觉不迁移，只迁移交互逻辑与数据面；验收含
   设计合规检查。
 - 用户自选插件走官方插件管理器，官方行为原样。
 - 官方插件能力原样保留（Plugins 页管理与会话创建插件）；实验性 Discover 自定义索引

@@ -27,6 +27,7 @@
 
 - [docs/inline-changes.md](docs/inline-changes.md) — 第 2 层内联改动登记簿：官方目录允许触碰的全部位置，先登记后动工；
 - [docs/upstream-sync.md](docs/upstream-sync.md) — 上游同步 SOP、官方 gate 波及结论、历次同步记录。
+- [docs/plugin-ui-ux-standard.md](docs/plugin-ui-ux-standard.md) — 后续业务插件的统一 UI/UX 规范：官方底盘、yootun 复合组件、插件场景层与助手 Dock / 图表模式。
 
 ## 红线摘要（逐条标注出处，全文见总纲与分册）
 
