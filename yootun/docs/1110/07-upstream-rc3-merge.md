@@ -87,3 +87,5 @@
 ## 七、rc3 tag 首跑补充记录（2026-11-15）
 
 首个 `yootun-v0.2.2-rc.3` tag 在 Windows 打包阶段失败：同步前的升级横幅品牌化修复为 `prepare-windows-installer.ps1` 的编译命令多写入一个右括号，PowerShell 在执行前解析失败；该缺陷在 rc3 合并前已存在，合并本身未改这行。修复为删除多余括号，并把 PowerShell 字符串/注释外的分组括号平衡检查加入 `yootun/scripts/self-test.mjs`，避免同类语法错误只等到 Windows runner 才暴露。已有远端 tag 指向失败提交；修复提交推送后需由维护者决定重新移动该 tag 或另打修复 tag，不得擅自改写已发布 tag。
+
+`yootun-v0.2.2-rc.3.1` 的 Windows job 进一步失败在原生 helper 编译：品牌产品名此前经 `/DINSTALLER_PRODUCT_NAME=L"value"` 传入，Windows 参数解析链会在编译器看到宏值前消费引号，C++ 收到无效 token。修复为生成 `installer-product.h`（宏值保持 `L"Yootun-Agent"`）并以 `cl /FI` 强制包含；自有 workflow 在打包前运行 `yootun/scripts/self-test.mjs`，静态禁止再使用该 `/D` 形态。macOS job 成功，说明失败面仅 Windows 原生 helper 编译。

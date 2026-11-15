@@ -160,7 +160,13 @@ test('Windows 安装器准备脚本保持可解析的分组括号', () => {
   const balance = countPowerShellParentheses(installerScript)
   assert.equal(balance.depth, 0)
   assert.ok(balance.minimumDepth >= 0)
-  assert.match(installerScript, /\$productDefine\)\)/u)
+  // The Windows argument-parsing chain consumes the quotes in `/DNAME=L"value"` before cl sees the macro.
+  // Generate a forced-include header instead so the C++ token is always L"value".
+  assert.doesNotMatch(installerScript, /\/DINSTALLER_PRODUCT_NAME=/u)
+  assert.match(installerScript, /\$productHeader = Join-Path \$output 'installer-product\.h'/u)
+  assert.match(installerScript, /#define INSTALLER_PRODUCT_NAME L"/u)
+  assert.match(installerScript, /\$productInclude = '\/FI"\{0\}"' -f \$productHeader/u)
+  assert.match(installerScript, /'cl \/nologo[^\r\n]*\{4\} "\{0\}"[^\r\n]*\$productInclude\)\)/u)
 })
 
 test('品牌环境出口覆盖全部收口键（批次 5 起含 feed 定稿四键）', async () => {
