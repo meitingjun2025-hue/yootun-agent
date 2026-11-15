@@ -83,3 +83,7 @@
 - 上游删除包后 `constraints` 报“expected a package here”时，先检查合并索引是否仍跟踪该路径；无追踪则运行官方 `pnpm run clean`，不要手工绕过 gate。
 - Client bundle 机制变化后，同步必须执行完整 `pnpm run build` 与 `pnpm --filter '@yootun/*' run build`，不能只跑 TypeScript 编译。
 - 官方升级 guide 是同步必读材料；新增包导出、client metadata、publisher workspace 或 workflow 变化时，同步本文的“上游变化—决策”表。
+
+## 七、rc3 tag 首跑补充记录（2026-11-15）
+
+首个 `yootun-v0.2.2-rc.3` tag 在 Windows 打包阶段失败：同步前的升级横幅品牌化修复为 `prepare-windows-installer.ps1` 的编译命令多写入一个右括号，PowerShell 在执行前解析失败；该缺陷在 rc3 合并前已存在，合并本身未改这行。修复为删除多余括号，并把 PowerShell 字符串/注释外的分组括号平衡检查加入 `yootun/scripts/self-test.mjs`，避免同类语法错误只等到 Windows runner 才暴露。已有远端 tag 指向失败提交；修复提交推送后需由维护者决定重新移动该 tag 或另打修复 tag，不得擅自改写已发布 tag。

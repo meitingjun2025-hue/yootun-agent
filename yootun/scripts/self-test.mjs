@@ -13,6 +13,49 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const brandRoot = join(repositoryRoot, 'yootun', 'brand')
 const brandConfig = JSON.parse(readFileSync(join(brandRoot, 'brand.json'), 'utf8'))
 
+/** Count PowerShell grouping parentheses outside strings and comments. */
+function countPowerShellParentheses(source) {
+  let depth = 0
+  let minimumDepth = 0
+  let state = 'code'
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index]
+    const next = source[index + 1]
+    if (state === 'code') {
+      if (character === '<' && next === '#') {
+        state = 'block-comment'
+        index += 1
+      } else if (character === '#') {
+        state = 'line-comment'
+      } else if (character === "'") {
+        state = 'single-quote'
+      } else if (character === '"') {
+        state = 'double-quote'
+      } else if (character === '(') {
+        depth += 1
+      } else if (character === ')') {
+        depth -= 1
+        minimumDepth = Math.min(minimumDepth, depth)
+      }
+    } else if (state === 'block-comment') {
+      if (character === '#' && next === '>') {
+        state = 'code'
+        index += 1
+      }
+    } else if (state === 'line-comment') {
+      if (character === '\n') state = 'code'
+    } else if (state === 'single-quote') {
+      if (character === "'" && next === "'") index += 1
+      else if (character === "'") state = 'code'
+    } else if (state === 'double-quote') {
+      if (character === '`') index += 1
+      else if (character === '"' && next === '"') index += 1
+      else if (character === '"') state = 'code'
+    }
+  }
+  return { depth, minimumDepth }
+}
+
 test('brand.json 承载全部品牌身份定案值', () => {
   assert.equal(brandConfig.name, 'Yootun-Agent')
   assert.equal(brandConfig.appId, 'ai.yootun.agent')
@@ -110,6 +153,14 @@ test('官方打包脚本按「品牌环境 ?? 官方缺省」收口', () => {
   // 分册 06 第二轮「供给端直通」定案：headline 直接消费 YOOTUN_BRAND_TAGLINE_* define（八语言档同型，缺省为各语言官方标语）。
   assert.equal(conversationLocales.match(/process\.env\.YOOTUN_BRAND_TAGLINE_ZH \?\?/gu)?.length, 1)
   assert.equal(conversationLocales.match(/process\.env\.YOOTUN_BRAND_TAGLINE_EN \?\?/gu)?.length, 7)
+})
+
+test('Windows 安装器准备脚本保持可解析的分组括号', () => {
+  const installerScript = readFileSync(join(repositoryRoot, 'apps', 'desktop', 'scripts', 'prepare-windows-installer.ps1'), 'utf8')
+  const balance = countPowerShellParentheses(installerScript)
+  assert.equal(balance.depth, 0)
+  assert.ok(balance.minimumDepth >= 0)
+  assert.match(installerScript, /\$productDefine\)\)/u)
 })
 
 test('品牌环境出口覆盖全部收口键（批次 5 起含 feed 定稿四键）', async () => {
