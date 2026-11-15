@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-client-ui-access",
   "description": "yootun 企业接入层：key 激活门禁、激活表单与设置页区块（host 半承载 yootun-access 设置 namespace 与同源激活 API 路由）",
-  "version": "0.2.2-rc.2",
+  "version": "0.2.2-rc.3",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

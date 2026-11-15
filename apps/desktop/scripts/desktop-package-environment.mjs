@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readDesktopPackageSettings as readSettings } from './desktop-file-settings.mjs'
 import { resolveDesktopAppId, resolveMacOSNotarizationEnvironment, resolveMacOSSigningEnvironment, resolveNpmRegistry } from './desktop-release-environment.mjs'
-import { resolveDesktopAutoUpdateConfig } from './desktop-auto-update-environment.mjs'
+import { resolveDesktopAutoUpdateConfig } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
 import { createWindowsTokenSigner } from './windows-sign.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
 import { validateMacOSSignatureCacheDirectory } from './macos-signature-cache-directory.mjs'
@@ -24,19 +24,21 @@ const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDA
  * Select local macOS test defaults without reading dotenv files or inheriting release settings.
  * @param {NodeJS.ProcessEnv} environment Parent environment, retained for build tools and networking.
  * @returns {NodeJS.ProcessEnv} Unsigned build environment with the application identifier
- *   (brand-overridable) and the update deployment key passed through when present.
+ *   (brand-overridable) and the brand update deployment key passed through when present.
  */
 export function localMacOSPackageEnvironment(environment = process.env) {
   // yootun enterprise tier (registered inline change): the ambient strip removes the
   // update deployment key, so a brand unsigned macOS build could never resolve its
   // production feed (electron-builder-config reads the brand feed origin to opt in).
-  // Pass the deployment through explicitly — same shape as the Windows loader's
-  // UPDATE_CHANNEL passthrough — and let the brand application id override the
+  // Pass the deployment through only for that brand build — an unbranded build still
+  // strips inherited release settings — and let the brand application id override the
   // default, which is what the Windows dotenv path already supplies.
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
     DSH_DESKTOP_APP_ID: environment.YOOTUN_BRAND_APP_ID ?? 'com.deepseek.harness',
-    ...(environment.DSH_DESKTOP_AUTO_UPDATE_ENV === undefined ? {} : { DSH_DESKTOP_AUTO_UPDATE_ENV: environment.DSH_DESKTOP_AUTO_UPDATE_ENV }),
+    ...(environment.YOOTUN_BRAND_FEED_ORIGIN !== undefined && environment.DSH_DESKTOP_AUTO_UPDATE_ENV !== undefined
+      ? { DSH_DESKTOP_AUTO_UPDATE_ENV: environment.DSH_DESKTOP_AUTO_UPDATE_ENV }
+      : {}),
     DSH_DESKTOP_UNSIGNED: '1',
   }
 }

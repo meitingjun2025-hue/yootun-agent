@@ -4,7 +4,7 @@
 
 ## 一、同步 SOP（每 2–4 周一次，官方 rc 趋稳后跟进；大版本升级先通读 upgrade-guide 全集再排期）
 
-1. `git fetch upstream && git checkout -b sync/upstream-<date> main && git merge upstream/master`；
+1. `git fetch upstream`，在 `master` 上 fast-forward 官方 `upstream/master`，再回到本地 `main` 执行 `git merge --no-ff master`（同步集成直接停在本地 main，推送仍由维护者确认）；
 2. 按第二节冲突预期清单逐处解决；
 3. 读官方新增 `docs/upgrade-guide/v<version>/*`，按指南适配第 1 层资产（slot/`dsh.client.inject`/PLATFORM_MODULES 等预稳定面变化）；
 4. `pnpm install && pnpm run build`；
@@ -17,7 +17,7 @@
 |---|---|
 | `vendor/` | 只接受官方版本，fork 不改 vendor |
 | `pnpm-workspace.yaml` | 保留 `yootun/packages/*` 自有行 |
-| 第 2 层 7 处内联改动（见 [inline-changes.md](inline-changes.md) 登记簿） | 按登记簿逐处重放；其中品牌 4 处（#4 与 #7 相关面）改完跑品牌环境脚本自动生成 |
+| 第 2 层 8 处内联改动（见 [inline-changes.md](inline-changes.md) 登记簿） | 按登记簿逐处重放；其中品牌面改完跑品牌环境脚本自动生成；上游 rename 时先确认定制是否随迁，再更新登记簿与自检路径 |
 | 其余 | 应为空；出现即停下调查 |
 
 上游同步后必须重跑：`pnpm install`（lockfile）与第三节 gate 结论中「是/部分」各行，确认波及结论未因官方 gate 实现变化而漂移；结论变化时修订第三节并记入第四节。
@@ -42,7 +42,7 @@
 
 | 日期 | 基线（同步前 → 后） | 分支 | 波及结论漂移 | 备注 |
 |---|---|---|---|---|
-| — | — | — | — | 尚无同步记录 |
+| 2026-11-15 | 官方 0.2.2-rc.2 → 0.2.2-rc.3 | `main`（本地 `--no-ff` 合并官方镜像 `master`） | 无漂移：constraints 仍部分扫描 workspace，lint 仍全仓扫描，install 仍校验 lockfile | Git 无文本冲突；#5 随上游迁移到 `apps/desktop-publisher/src/`，自检路径同步；上游删除 Python PTC 包后本机残留经官方 clean 清理。详见 [1110/07-upstream-rc3-merge.md](1110/07-upstream-rc3-merge.md) |
 
 ## 附录 A：批次 1 gate 实测记录（2026-11-13）
 

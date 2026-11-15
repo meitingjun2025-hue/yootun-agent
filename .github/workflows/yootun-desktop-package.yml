@@ -17,9 +17,9 @@ on:
       build_version:
         # 可选版本号抬升（仅 dispatch 验证用）：合法形态为产品版本的 build 扩展
         # （官方 validateDesktopBuildVersion 校验 `<workspace 版本>.<日期>.<序列>`，
-        # 如 0.2.2-rc.2.20261114.1）；经 CLI --build-version 转发（打包入口唯一
+        # 如 0.2.2-rc.3.20261115.1）；经 CLI --build-version 转发（打包入口唯一
         # 消费通道）。tag 触发的正式发版不带此输入，包版本一律取 workspace 版本。
-        description: 'Build version extension for update-chain verification only, e.g. 0.2.2-rc.2.20261114.1'
+        description: 'Build version extension for update-chain verification only, e.g. 0.2.2-rc.3.20261115.1'
         required: false
         type: string
   push:

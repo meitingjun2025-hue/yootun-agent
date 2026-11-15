@@ -121,6 +121,24 @@ describe('Desktop local packaging configuration', () => {
     expect(parent.DSH_DESKTOP_APP_ID).toBe('com.example.release')
   })
 
+  it('passes the update deployment for a brand macOS unsigned build', () => {
+    const parent = {
+      PATH: 'build-tools',
+      YOOTUN_BRAND_FEED_ORIGIN: 'https://download.example.invalid',
+      YOOTUN_BRAND_APP_ID: 'ai.example.agent',
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      APPLE_API_KEY: 'stale-key',
+    }
+    expect(localMacOSPackageEnvironment(parent)).toEqual({
+      PATH: 'build-tools',
+      YOOTUN_BRAND_FEED_ORIGIN: 'https://download.example.invalid',
+      YOOTUN_BRAND_APP_ID: 'ai.example.agent',
+      DSH_DESKTOP_APP_ID: 'ai.example.agent',
+      DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
+      DSH_DESKTOP_UNSIGNED: '1',
+    })
+  })
+
   it('takes cache concurrency from the Windows file and defaults to four without ambient overrides', async () => {
     await withDirectory(async (directory) => {
       const parent = { DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY: '8' }
