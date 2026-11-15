@@ -1,8 +1,8 @@
-/** 全屏激活门禁（分册 05 §3.3）：旧阻断语义全保留（root.inert + 滚动锁、Tab 钳回、fail-closed），视觉走官方 Modal 材质。 */
+/** 全屏激活门禁（分册 05 §3.3）：全屏阻断层 + 滚动锁、Tab 钳回、fail-closed；授权兜底清除历史 inert 残留。 */
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { AccessForm } from './form.tsx'
-import { blockApplicationRoot, describeKeyConfigured, isAuthorized, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
+import { blockApplicationScroll, describeKeyConfigured, isAuthorized, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
 import { BRAND_EYEBROW } from './locales.ts'
 import { BRAND_MARK_URL } from './brand-mark.ts'
 import css from './access.module.css'
@@ -39,9 +39,11 @@ export function AccessGate(props: GateProps): ReactNode {
 
   const authorized = isAuthorized(settings, configured)
 
-  // 应用阻断跟随授权状态：授权成立强制解除（不依赖捕获引用——多窗口/升级
-  // 重入场景引用可能错位，直接清除 root.inert 与滚动锁兜底）；未授权（含
-  // 设置页移除 Key 回门禁态）重新申请。
+  // 应用阻断跟随授权状态。门禁层自身覆盖启动期应用内容点击路径，不再申请 root.inert：
+  // 官方 onboarding loading 层会在启动瞬间捕获并恢复该属性，与门禁的
+  // fail-closed 锁并发时会形成“授权解锁后被旧快照恢复为 true”的竞态。
+  // 授权成立仍直接清除 inert，作为升级前版本残留的兜底；未授权（含设置页
+  // 移除 Key 回门禁态）重新申请滚动锁。
   useEffect(() => {
     if (authorized) {
       const root = document.getElementById('root')
@@ -51,7 +53,7 @@ export function AccessGate(props: GateProps): ReactNode {
       releaseApplication = undefined
       return
     }
-    releaseApplication = blockApplicationRoot()
+    releaseApplication = blockApplicationScroll()
   }, [authorized])
 
   useEffect(() => {
@@ -123,8 +125,8 @@ let releaseApplication: (() => void) | undefined
 
 /**
  * Mount the mandatory gate in its own React root appended to the document
- * body, inerting the application root while unauthorized (旧
- * installMandatoryGate 语义).
+ * body, locking scrolling while unauthorized; the fixed gate layer owns
+ * pointer blocking and the card owns the focus trap.
  * @param props - the gate's injected face.
  * @returns the disposer unmounting the gate and releasing the application.
  */

@@ -52,7 +52,7 @@
 
 ### 3.3 激活门禁（批次 4，全屏阻断卡片）
 
-- 阻断机制沿用旧逻辑层资产（全部保留）：`root.inert` + body 滚动锁、focus trap（Tab 钳回）、fail-closed 凭据探测、「授权最后提交」写入顺序、settings CAS 冲突重试、30s 超时。
+- 阻断机制沿用旧逻辑层资产（2026-11-15 修订）：全屏门禁层阻断点击 + body 滚动锁、focus trap（Tab 钳回）、fail-closed 凭据探测、「授权最后提交」写入顺序、settings CAS 冲突重试、30s 超时。门禁不再申请 `root.inert`——官方 onboarding loading 层的 inert 恢复快照会与 fail-closed 锁竞态，导致升级启动后授权页被重新锁死；授权时保留清除历史残留的兜底。
 - 视觉层全部重做，改用官方 Modal 材质语言：
   - 背板：官方 modal mask（`--dsw-alias-bg-mask-1`，无 blur——官方设置确认弹窗同款）；旧 `blur(10px)+color-mix` 背板抛弃；
   - 卡片：R28 + `--dsw-alias-bg-layer-2` + `--dsw-elevation-prominent`，宽度 `min(380px,100%)` 官方 Modal 档（旧 680px 宽卡抛弃），进场动画 token 化 + reduced-motion 守卫；

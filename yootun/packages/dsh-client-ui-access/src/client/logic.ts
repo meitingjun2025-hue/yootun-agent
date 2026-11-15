@@ -132,15 +132,11 @@ export async function describeKeyConfigured(credentials: CredentialsFace): Promi
   }
 }
 
-/** Inert the application root and lock body scroll; the disposer restores both. */
-export function blockApplicationRoot(): () => void {
-  const root = document.getElementById('root')
-  const previousInert = root?.inert
+/** Lock body scroll; the fixed gate layer owns pointer blocking, so no root.inert claim can race official startup overlays. */
+export function blockApplicationScroll(): () => void {
   const previousOverflow = document.body.style.overflow
-  if (root !== null) root.inert = true
   document.body.style.overflow = 'hidden'
   return () => {
-    if (root !== null) root.inert = previousInert ?? false
     document.body.style.overflow = previousOverflow
   }
 }

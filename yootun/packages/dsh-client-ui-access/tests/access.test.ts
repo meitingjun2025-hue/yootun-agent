@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { parseModelCatalog } from '../src/route.ts'
-import { isAuthorized } from '../src/client/logic.ts'
+import { blockApplicationScroll, isAuthorized } from '../src/client/logic.ts'
 import { TENANT, TENANT_ID, VALIDATION_VERSION } from '../src/access-constants.ts'
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -50,6 +50,27 @@ test('isAuthorized 对每个缺失面 fail-closed，版本必须精确一致', (
   assert.equal(isAuthorized({ ...authorized, setupComplete: false }, true), false)
   assert.equal(isAuthorized({ ...authorized, validationVersion: Number(VALIDATION_VERSION) + 1 }, true), false)
   assert.equal(isAuthorized({ ...authorized, validationVersion: 0 }, true), false)
+})
+
+test('门禁滚动锁不申请 root.inert，避免与官方启动 overlay 的恢复快照竞态', () => {
+  const root = { inert: false }
+  const bodyStyle = { overflow: '' }
+  const previousDocument = globalThis.document
+  const fakeDocument = {
+    getElementById: () => root,
+    body: { style: bodyStyle },
+  } as Document
+  globalThis.document = fakeDocument
+
+  try {
+    const release = blockApplicationScroll()
+    assert.equal(root.inert, false)
+    assert.equal(bodyStyle.overflow, 'hidden')
+    release()
+    assert.equal(bodyStyle.overflow, '')
+  } finally {
+    globalThis.document = previousDocument
+  }
 })
 
 test('生成常量与 brand.json 的租户与版本单一来源一致', () => {
