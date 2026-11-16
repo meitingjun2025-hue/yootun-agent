@@ -20368,9 +20368,9 @@ importers:
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:../../../packages/mcp/mcp-client
-      '@deepseek-ai/schemastery':
-        specifier: link:../../../vendor/schemastery
-        version: link:../../../vendor/schemastery
+      '@yootun/dsh-client-ui-access':
+        specifier: workspace:*
+        version: link:../../packages/dsh-client-ui-access
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~
@@ -20399,9 +20399,6 @@ importers:
       '@modelcontextprotocol/server':
         specifier: 2.2.0
         version: 2.2.0
-      '@yootun/dsh-client-ui-access':
-        specifier: workspace:*
-        version: link:../../packages/dsh-client-ui-access
       tsdown:
         specifier: ^0.22.2
         version: 0.22.2(oxc-resolver@11.20.0)(publint@0.3.24)(tsx@4.23.13)(typescript@5.9.3)
@@ -20439,6 +20436,9 @@ importers:
 
   yootun/plugins/dsh-workbench-mcp:
     dependencies:
+      '@deepseek-ai/dsh-timeout':
+        specifier: workspace:*
+        version: link:../../../packages/util/timeout
       '@deepseek-ai/schemastery':
         specifier: link:../../../vendor/schemastery
         version: link:../../../vendor/schemastery
@@ -20455,12 +20455,24 @@ importers:
       '@deepseek-ai/dsh-settings':
         specifier: workspace:*
         version: link:../../../packages/settings/settings
+      '@modelcontextprotocol/node':
+        specifier: 2.0.0
+        version: 2.0.0(@modelcontextprotocol/server@2.2.0)(hono@4.13.7)
+      '@modelcontextprotocol/server':
+        specifier: 2.2.0
+        version: 2.2.0
+      '@yootun/dsh-client-ui-access':
+        specifier: workspace:*
+        version: link:../../packages/dsh-client-ui-access
       tsdown:
         specifier: ^0.22.2
         version: 0.22.2(oxc-resolver@11.20.0)(publint@0.3.24)(tsx@4.23.13)(typescript@5.9.3)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+      zod:
+        specifier: 4.6.6
+        version: 4.6.6
 
 packages:
 

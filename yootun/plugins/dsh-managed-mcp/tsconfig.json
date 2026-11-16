@@ -12,9 +12,6 @@
       "path": "../../../vendor/cordis"
     },
     {
-      "path": "../../../vendor/schemastery"
-    },
-    {
       "path": "../../../packages/credentials/credentials"
     },
     {
@@ -25,6 +22,9 @@
     },
     {
       "path": "../../../packages/settings/settings"
+    },
+    {
+      "path": "../../packages/dsh-client-ui-access"
     }
   ]
 }
