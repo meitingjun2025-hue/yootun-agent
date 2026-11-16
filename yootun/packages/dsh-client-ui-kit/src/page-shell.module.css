@@ -1,0 +1,53 @@
+/* PluginPageShell: the workbench page container. The container query context
+   (`yootun-kit-page`) drives dock placement and responsive grids for every
+   kit component inside; widths are panel widths, never window widths. */
+
+.shell {
+  container: yootun-kit-page / inline-size;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.body {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: clip;
+  /* Desktop 20px, narrow 16px, mobile 12px page padding (分册规范 §三). */
+  padding: 0 20px 32px;
+}
+
+.content {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+  /* 横向滚动只发生在表格/图表内部（§2.2）。 */
+  overflow-x: clip;
+  overflow-y: auto;
+  padding-top: 16px;
+}
+
+@container yootun-kit-page (max-width: 879px) {
+  .body {
+    padding: 0 16px 32px;
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .body {
+    padding: 0 12px 32px;
+  }
+}
