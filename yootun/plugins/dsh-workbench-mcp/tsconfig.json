@@ -19,6 +19,12 @@
     },
     {
       "path": "../../../packages/settings/settings"
+    },
+    {
+      "path": "../../../packages/util/timeout"
+    },
+    {
+      "path": "../../packages/dsh-client-ui-access"
     }
   ]
 }
