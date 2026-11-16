@@ -1,0 +1,52 @@
+{
+  "name": "@yootun/dsh-workbench-mcp",
+  "description": "yootun 三个工作台 Host 共享的私有 Workbench MCP 连接器（yootun-workbench）：90 项白名单、按调用方分组约束，不注册 ctx.tools",
+  "version": "0.2.2-rc.3",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown",
+    "test": "node --test tests/workbench-mcp.test.ts"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-settings": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-credentials": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-settings": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@modelcontextprotocol/client": "2.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-credentials": "workspace:*",
+    "@deepseek-ai/dsh-settings": "workspace:*",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.3"
+  }
+}
