@@ -29,6 +29,7 @@
 - [docs/upstream-sync.md](docs/upstream-sync.md) — 上游同步 SOP、官方 gate 波及结论、历次同步记录。
 - [docs/plugin-ui-ux-standard.md](docs/plugin-ui-ux-standard.md) — 后续业务插件的统一 UI/UX 规范：官方底盘、yootun 复合组件、插件场景层与助手 Dock / 图表模式。
 - [docs/1110/08-plugin-mcp.md](docs/1110/08-plugin-mcp.md) — 三个内置工作台与 yootun v1 MCP 的桌面接入方案：Agent 面、Workbench 私有面、Catalog 能力发现面、媒体上传与安全边界。
+- [docs/1110/09-workbench-migration-plan.md](docs/1110/09-workbench-migration-plan.md) — 三个内置工作台的固定迁移顺序与开发批次：桌面基础设施、视频号、小红书、抖音、集成出包。
 
 ## 红线摘要（逐条标注出处，全文见总纲与分册）
 

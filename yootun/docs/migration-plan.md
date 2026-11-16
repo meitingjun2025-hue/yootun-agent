@@ -178,7 +178,7 @@ remote: upstream = https://github.com/deepseek-ai/deepseek-harness.git
   2026-11-15 插件扩展规范）：旧插件的样式实现与视觉不迁移，只迁移交互逻辑与数据面；验收含
   设计合规检查。首批三个工作台与 yootun v1 MCP（Agent / Workbench / Catalog
   三面）的接入边界见
-  `yootun/docs/1110/08-plugin-mcp.md`（2026-11-16）。
+  `yootun/docs/1110/08-plugin-mcp.md` 与执行计划 `yootun/docs/1110/09-workbench-migration-plan.md`（2026-11-16，顺序为视频号 → 小红书 → 抖音）。
 - 用户自选插件走官方插件管理器，官方行为原样。
 - 官方插件能力原样保留（Plugins 页管理与会话创建插件）；实验性 Discover 自定义索引
   保持官方默认关闭（2026-11-13 定案，见 1110 分册 03 F 部分）；DeepSeek 官方 key

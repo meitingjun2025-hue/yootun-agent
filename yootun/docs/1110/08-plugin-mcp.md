@@ -2,7 +2,7 @@
 
 ## 0. 定位与依赖
 
-本册是第三步「三个内置工作台迁移」的开发依据，覆盖普通会话 MCP、三个工作台 Host 的私有 MCP 通道、媒体上传能力和桌面插件接入边界。UI 实施以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 为准；本册只定义产品能力、Host 架构、凭证、权限、迁移批次和验收。
+本册是第三步「三个内置工作台迁移」的总体契约，覆盖普通会话 MCP、三个工作台 Host 的私有 MCP 通道、媒体上传能力和桌面插件接入边界。UI 实施以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 为准；本册只定义产品能力、Host 架构、凭证、权限、迁移批次和验收。固定执行顺序、逐批实施阶段和验收记录要求见 [09-workbench-migration-plan.md](09-workbench-migration-plan.md)。
 
 Tools 服务端的详细契约、工具清单、代码健壮性约束和测试矩阵见 `tools.dofe.ai` dev 分支的 `docs/1116/yootun-mcp.md`。该文档是服务端单一事实源；本文不复制完整 90 项 Workbench 映射，只维护桌面消费边界。
 
@@ -447,9 +447,10 @@ object key
 ```text
 tools.dofe.ai dev
 └─ docs/1116/yootun-mcp.md 已评审、实现并部署
+   Agent 36 项 / Workbench 90 项 / Catalog 5 项
 ```
 
-后续按该文档实现 Legacy / Yootun 双 registry、Agent 36 项、Workbench 90 项、Catalog 5 个 `yootun_business_*` 元工具和测试。桌面侧不先伪造 endpoint。
+桌面侧从 P1 开始实现连接器与工作台，不伪造服务端契约。
 
 ### 批次 P1：桌面基础设施
 
