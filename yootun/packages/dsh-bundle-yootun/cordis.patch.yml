@@ -66,25 +66,21 @@
     # 与同源激活 API 路由，client 半挂全屏门禁与设置页区块。
     - id: yootun-access
       name: '@yootun/dsh-client-ui-access'
+    # P1 桌面共用基础设施（分册 08 §4/§5/§6，2026-11-16）：Agent 面管理 MCP
+    # （未激活零连接）、Workbench 私有连接器（不注册 ctx.tools）、媒体上传。
+    # 三个业务工作台插件随 P2–P4 批次再插入；Catalog 面默认不挂载。
+    - id: yootun-managed-mcp
+      name: '@yootun/dsh-managed-mcp'
+    - id: yootun-workbench-mcp
+      name: '@yootun/dsh-workbench-mcp'
+    - id: yootun-media-upload
+      name: '@yootun/dsh-media-upload'
 
-# managed MCP patch 格式定稿（分册 03 D 部分）。本批不注册真实路由；真实
-# 路由随插件勾选清单在后续批次逐条补入本文件（客户端侧清单单一来源）。
-# 凭证模板 ${credential:REF} 运行期经 credentials 服务解析并在诊断中脱敏
-# （expandTemplates: true），凭证轮换无需重建插件实例。serverName 保持短名
-# （<32 字符），规避旧桌面 64 字符工具名截断问题。
-# 会话权限边界 = 挂载清单（分册 03 E 部分）：未激活不挂任何 MCP；挂载即模型
-# 可见，「会话只读」策略落地时写/采集类路由不进本文件或经服务端 mcp-gateway
-# 裁剪 tools/list（服务端改造另立项）。插件页面全能力通道由各业务插件的
-# ctx.webServer.register 同源路由承载（随插件批次迁移）。
-#
-# - insert:
-#     - id: mcp-yootun-<route>
-#       name: '@deepseek-ai/dsh-mcp-client'
-#       config:
-#         transport: streamable-http
-#         serverName: <32 字符内短名>
-#         url: https://ixicai.cn/mcp/<route>
-#         expandTemplates: true
-#         headers:
-#           Authorization: ${credential:MODELS_API_KEY}
-#           X-Company-Code: yootun
+# Agent 面 MCP 的挂载自 P1 起由 `@yootun/dsh-managed-mcp` 承载（分册 08 §4）：
+# 插件按激活门禁动态挂载官方 dsh-mcp-client（yootun-agent），未激活零连接；
+# transport headers 固定为 Authorization: ${credential:MODELS_API_KEY} 与
+# X-Company-Code: yootun（expandTemplates 展开、诊断脱敏），key 轮换由插件
+# 销毁重建。本 patch 不再直接插入 mcp-client 路由条目；会话权限边界由该
+# 插件的 tools/pre-execute guard 约束（读允许、任务写 ask、未识别 deny）。
+# 插件页面全能力通道由各业务插件的 ctx.webServer.register 同源路由承载
+# （随插件批次迁移）。
