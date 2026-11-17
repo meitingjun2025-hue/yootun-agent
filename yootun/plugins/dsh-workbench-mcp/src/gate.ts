@@ -55,6 +55,12 @@ export async function isActivated(services: ActivationServices): Promise<boolean
   const snapshot = readAccessSnapshot(descriptor?.value)
   if (snapshot === undefined || !snapshot.setupComplete) return false
   if (snapshot.validationVersion !== Number(VALIDATION_VERSION)) return false
-  const resolved = await services.credentials.resolve(credentialRef(ACCESS_CREDENTIAL_REF))
+  let resolved
+  try {
+    resolved = await services.credentials.resolve(credentialRef(ACCESS_CREDENTIAL_REF))
+  } catch {
+    // provider 存储层异常按未激活处理（fail-closed），原始错误不外抛。
+    return false
+  }
   return resolved !== undefined && resolved.value !== ''
 }

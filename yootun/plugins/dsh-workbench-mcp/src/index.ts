@@ -38,9 +38,11 @@ export interface WorkbenchConfig {
   callTimeoutMs: number
 }
 
-/** One caller-supplied signal wrapped with the call budget. */
+/** One caller-supplied signal wrapped with the call budget, plus its settle handle. */
 interface InFlight {
   controller: AbortController
+  /** Resolves when the call leaves the pipeline (success, projection, or abort). */
+  done: Promise<void>
 }
 
 /**
@@ -79,6 +81,8 @@ export default class YootunWorkbenchMcp extends Service {
    */
   * [Service.init](): Generator<() => Promise<void> | void, void, void> {
     const owner = this.ctx
+    // Teardown 顺序：停新调用 → abort 已接调用 → 等 in-flight 稳定 settle →
+    // 关闭底层连接（dispose 的 Promise 在这一切完成后才 resolve）。
     yield async () => {
       this.stopped = true
       await this.invalidate()
@@ -105,13 +109,18 @@ export default class YootunWorkbenchMcp extends Service {
    */
   async callTool(caller: WorkbenchCaller, domain: WorkbenchDomain, name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallOutcome> {
     if (this.stopped) throw new WorkbenchMcpError('workbench_unavailable', 'the workbench connector is disposed')
-    // 1. 调用方分组与白名单：组外或白名单外一律拒绝，不发起调用。
+    // 1. 调用方分组与白名单：未知 caller/domain 或组外一律拒绝，不发起调用。
+    //    caller/domain 运行时可能越出类型面（JS 调用方），先判存在再取属性。
+    const domains = CALLER_DOMAINS[caller]
+    if (domains === undefined || !domains.includes(domain) || !WORKBENCH_GROUP_TOOLS[domain].has(name)) {
+      throw new WorkbenchMcpError('workbench_tool_denied', `workbench tool "${name}" is outside ${caller}'s whitelist`)
+    }
     let allowed = this.callerTools.get(caller)
     if (allowed === undefined) {
       allowed = allowedToolsFor(caller) ?? new Set<string>()
       this.callerTools.set(caller, allowed)
     }
-    if (!CALLER_DOMAINS[caller].includes(domain) || !WORKBENCH_GROUP_TOOLS[domain].has(name) || !allowed.has(name)) {
+    if (!allowed.has(name)) {
       throw new WorkbenchMcpError('workbench_tool_denied', `workbench tool "${name}" is outside ${caller}'s whitelist`)
     }
     // 2. 激活门禁。
@@ -122,7 +131,8 @@ export default class YootunWorkbenchMcp extends Service {
     // 连接在途期间发生失效/卸载：本次调用作废，调用方带新状态重试。
     if (this.stopped) throw new WorkbenchMcpError('workbench_unavailable', 'the workbench connector was disposed during connect')
     // 4. 调用：显式超时 + 调用方取消。
-    const inFlight: InFlight = { controller: new AbortController() }
+    const settle = Promise.withResolvers<void>()
+    const inFlight: InFlight = { controller: new AbortController(), done: settle.promise }
     this.inFlight.add(inFlight)
     const callerSignal = signal === undefined
       ? inFlight.controller.signal
@@ -131,6 +141,7 @@ export default class YootunWorkbenchMcp extends Service {
       return await callTool(connection, name, args, this.config.callTimeoutMs, callerSignal)
     } finally {
       this.inFlight.delete(inFlight)
+      settle.resolve()
     }
   }
 
@@ -145,7 +156,9 @@ export default class YootunWorkbenchMcp extends Service {
     const opening = this.connecting
     this.connection = undefined
     this.connecting = undefined
+    // 先中止已接调用并等它们稳定 settle，再关闭底层连接。
     for (const entry of [...this.inFlight]) entry.controller.abort()
+    await Promise.allSettled([...this.inFlight].map(entry => entry.done))
     if (current !== undefined) await closeWorkbench(current).catch(() => undefined)
     // 在途 open 的产物自检关闭；这里再兜底等待其结束，避免卸载后悬挂。
     if (opening !== undefined) await opening.catch(() => undefined)
@@ -174,7 +187,13 @@ export default class YootunWorkbenchMcp extends Service {
     const generation = this.generation
     const { credentials } = activationServices(this.ctx)
     if (credentials === undefined) throw new WorkbenchMcpError('workbench_not_activated', 'no credentials provider in this composition')
-    const resolved = await credentials.resolve(credentialRef(ACCESS_CREDENTIAL_REF))
+    let resolved
+    try {
+      resolved = await credentials.resolve(credentialRef(ACCESS_CREDENTIAL_REF))
+    } catch {
+      // provider 存储层异常：稳定投影，原始错误不进入 message。
+      throw new WorkbenchMcpError('workbench_credential_unavailable', 'the credential provider failed to resolve MODELS_API_KEY')
+    }
     if (resolved === undefined || resolved.value === '') throw new WorkbenchMcpError('workbench_not_activated', 'MODELS_API_KEY is not configured')
     const connection = await connectWorkbench(resolved.value, { timeoutMs: this.config.callTimeoutMs })
     if (this.stopped || generation !== this.generation) {

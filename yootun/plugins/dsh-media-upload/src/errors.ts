@@ -68,13 +68,17 @@ const SERVER_CODE_MAP: ReadonlyArray<readonly [string, MediaUploadErrorCode]> = 
 
 /**
  * Map a Workbench business failure to a public code from the server's stable
- * envelope code. Free text is never scanned.
+ * envelope code. The Tools contract nests it at `error.code`
+ * (`{ error: { code, message, retryable, requestId } }`); a bare top-level
+ * `code` is accepted for tolerance. Free text is never scanned.
  * @param structuredContent - the server error envelope.
  * @returns the mapped public code.
  */
 export function mapServerErrorCode(structuredContent: unknown): MediaUploadErrorCode {
   if (typeof structuredContent === 'object' && structuredContent !== null) {
-    const code = (structuredContent as { code?: unknown }).code
+    const record = structuredContent as { code?: unknown; error?: { code?: unknown } }
+    const nested = typeof record.error === 'object' && record.error !== null ? record.error.code : undefined
+    const code = typeof nested === 'string' && nested !== '' ? nested : record.code
     if (typeof code === 'string') {
       for (const [serverCode, publicCode] of SERVER_CODE_MAP) {
         if (serverCode === code) return publicCode

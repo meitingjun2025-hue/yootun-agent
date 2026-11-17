@@ -9,6 +9,7 @@
 /** Stable machine codes the Host clients switch on. */
 export type WorkbenchErrorCode =
   | 'workbench_not_activated'
+  | 'workbench_credential_unavailable'
   | 'workbench_tool_denied'
   | 'workbench_call_timeout'
   | 'workbench_call_cancelled'
@@ -39,12 +40,17 @@ export class WorkbenchMcpError extends Error {
 
 /**
  * Extract the server's stable error code from a tool result's structured
- * envelope. Only a string `code` field counts; free text is never scanned.
+ * envelope. The Tools contract nests it at `error.code`
+ * (`{ error: { code, message, retryable, requestId } }`); a bare top-level
+ * `code` is accepted for tolerance. Only string codes count; free text is
+ * never scanned.
  * @param structuredContent - the CallToolResult's structuredContent.
  * @returns the stable code, or `undefined` when the envelope has none.
  */
 export function serverErrorCodeOf(structuredContent: unknown): string | undefined {
   if (typeof structuredContent !== 'object' || structuredContent === null) return undefined
-  const code = (structuredContent as { code?: unknown }).code
+  const record = structuredContent as { code?: unknown; error?: { code?: unknown } }
+  const nested = typeof record.error === 'object' && record.error !== null ? record.error.code : undefined
+  const code = typeof nested === 'string' && nested !== '' ? nested : record.code
   return typeof code === 'string' && code !== '' ? code : undefined
 }

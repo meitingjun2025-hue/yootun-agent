@@ -6,6 +6,8 @@
  * 运行：`pnpm --filter @yootun/dsh-media-upload test`。
  */
 import assert from 'node:assert/strict'
+import { readdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { createServer } from 'node:http'
 import { test, after } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
@@ -885,5 +887,328 @@ test('authorize 无 structuredContent 时回退解析 content blocks', async () 
   } finally {
     await h.close()
     await tos.close()
+  }
+})
+
+test('真实 Tools error.code 嵌套 envelope 的稳定映射', async () => {
+  // mapServerErrorCode：UNAUTHORIZED → storage_auth_failed。
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UNAUTHORIZED', message: 'x', retryable: false, requestId: null } }), 'storage_auth_failed')
+  // UPLOAD_SIZE_EXCEEDED → file_too_large。
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UPLOAD_SIZE_EXCEEDED', message: 'x', retryable: false, requestId: null } }), 'file_too_large')
+  // STORAGE_UNAVAILABLE → storage_unavailable。
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'STORAGE_UNAVAILABLE', message: 'x', retryable: true, requestId: null } }), 'storage_unavailable')
+  // 未知 code 安全 fallback。
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'SOMETHING_NEW', message: 'x', retryable: false, requestId: null } }), 'upload_authorization_invalid')
+  // 顶层 code 兼容保留。
+  assert.equal(MediaUpload.mapServerErrorCode({ code: 'UNAUTHORIZED' }), 'storage_auth_failed')
+
+  // 集成：嵌套 UNAUTHORIZED envelope → 授权失败 → storage_auth_failed。
+  const tos = await startFakeTos()
+  const h = await harness({
+    workbench: fakeWorkbench({ tos, reject: { code: 'workbench_call_failed', payload: { error: { code: 'UNAUTHORIZED', message: 'denied', retryable: false, requestId: null } } } }),
+  })
+  try {
+    const pick = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })).json() as { uploadId: string }
+    const bytes = pngBytes(128)
+    await clientFetch(h.origin, '/_dsh/uploader/uploadStart', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-yootun-upload-id': pick.uploadId,
+        'x-yootun-filename': 'photo.png',
+        'x-yootun-content-type': 'image/png',
+        'x-yootun-size': String(bytes.byteLength),
+      },
+      body: bytes,
+    })
+    let snapshot: MediaUpload.UploadSnapshot | undefined
+    for (let i = 0; i < 40; i += 1) {
+      snapshot = h.state.registry.snapshot(pick.uploadId)
+      if (snapshot?.state === 'failed') break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert.equal(snapshot?.state, 'failed')
+    assert.equal(snapshot?.error, 'storage_auth_failed')
+  } finally {
+    await h.close()
+    await tos.close()
+  }
+})
+
+test('pick-file 与 uploadStatus 拒绝未知字段（正反两向）', async () => {
+  const h = await harness()
+  try {
+    // 正向：合法体通过。
+    const ok = await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })
+    assert.equal(ok.status, 200)
+    // 负向：未知字段拒绝。
+    const extra = await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image', path: '/etc/passwd' }),
+    })
+    assert.equal(extra.status, 400)
+    assert.deepEqual(await extra.json(), { error: 'invalid_request' })
+    const pick = await ok.json() as { uploadId: string }
+    // uploadStatus 正向。
+    const statusOk = await clientFetch(h.origin, '/_dsh/uploader/uploadStatus', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: pick.uploadId }),
+    })
+    assert.equal(statusOk.status, 200)
+    // uploadStatus 负向：未知字段拒绝。
+    const statusExtra = await clientFetch(h.origin, '/_dsh/uploader/uploadStatus', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: pick.uploadId, verbose: true }),
+    })
+    assert.equal(statusExtra.status, 400)
+    assert.deepEqual(await statusExtra.json(), { error: 'invalid_request' })
+  } finally {
+    await h.close()
+  }
+})
+
+test('media_upload 输出 schema 收紧为 additionalProperties:false', async () => {
+  const tos = await startFakeTos()
+  const ctx = new Context()
+  const wb = fakeWorkbench({ tos })
+  const state = MediaUpload.createUploaderState(() => ORIGIN, wb, { maxUploadBytes: 1024 * 1024 }, undefined)
+  const deps = { ...state.deps, transport: 'loopback-test' } as UploaderDeps
+  ctx.reflect.provide('webServer', { getOrigin: () => ORIGIN, register: () => () => undefined })
+  ctx.reflect.provide('yootunWorkbench', wb)
+  try {
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+    // 捕获注册定义，断言 output.schema 与导出常量同一引用（防止未来换回
+    // 内联 additionalProperties:true 字面量而测试仍绿）。
+    const registeredDefinitions: Array<{ name: string; output: { schema: unknown } }> = []
+    const originalRegister = ctx.tools.register.bind(ctx.tools)
+    const capturingRegister = (definition: Parameters<typeof originalRegister>[0]): (() => void) => {
+      registeredDefinitions.push(definition)
+      return originalRegister(definition)
+    }
+    ctx.tools.register = capturingRegister as typeof ctx.tools.register
+    await ctx.plugin({ inject: ['tools'], apply: scope => { MediaUpload.applyUploaderWiring(scope, deps, 30_000) } })
+    const definition = registeredDefinitions.find(entry => entry.name === 'media_upload')
+    assert.ok(definition !== undefined, 'media_upload 定义被捕获')
+    assert.equal(definition.output.schema, MediaUpload.MEDIA_UPLOAD_OUTPUT_SCHEMA, 'output.schema 与导出常量同一引用')
+    assert.equal(MediaUpload.MEDIA_UPLOAD_OUTPUT_SCHEMA.additionalProperties, false)
+    assert.deepEqual(Object.keys(MediaUpload.MEDIA_UPLOAD_OUTPUT_SCHEMA.properties).sort(), ['contentType', 'error', 'name', 'ok', 'size', 'url'])
+  } finally {
+    state.registry.destroy()
+    await state.staging.destroy()
+    await ctx.fiber.dispose()
+    await tos.close()
+  }
+})
+
+test('插件 dispose 等待异步清理：真实 apply 路由可用、暂存目录被删除', async () => {
+  // 生产组合（真实 ctx.plugin(MediaUpload)，含生产 disposal effect）：
+  // fake webServer 捕获插件注册的路由并起本地 server 供浏览器侧调用；
+  // 悬挂 TOS 让暂存文件在卸载时仍存在，dispose 的 Promise 必须等到暂存
+  // 删除完成（若生产 wiring 回退为不等待，本测试即失败）。
+  const tos = await makeHangingTos()
+  const ctx = new Context()
+  const wb = fakeWorkbench({ tos })
+  const registeredRoutes: Array<{ path: string; handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void> }> = []
+  const before = stagingDirs()
+  ctx.reflect.provide('webServer', {
+    getOrigin: () => ORIGIN,
+    register: (route: { path: string; handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => Promise<void> }) => {
+      registeredRoutes.push(route)
+      return () => undefined
+    },
+  })
+  ctx.reflect.provide('yootunWorkbench', wb)
+  let browser: Awaited<ReturnType<typeof startRouteServer>> | undefined
+  try {
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(MediaUpload)
+    assert.equal(registeredRoutes.length, 4, '真实 apply 注册四条上传路由')
+    // 路由捕获完成后才起本地 server。
+    browser = await startRouteServer(registeredRoutes)
+    const pick = await (await clientFetch(browser.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })).json() as { uploadId: string }
+    const bytes = pngBytes(256)
+    await clientFetch(browser.origin, '/_dsh/uploader/uploadStart', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-yootun-upload-id': pick.uploadId,
+        'x-yootun-filename': 'photo.png',
+        'x-yootun-content-type': 'image/png',
+        'x-yootun-size': String(bytes.byteLength),
+      },
+      body: bytes,
+    })
+    // 悬挂 PUT 期间：生产链路产生的暂存目录存在。
+    const during = stagingDirs().filter(dir => !before.includes(dir))
+    assert.equal(during.length, 1, '暂存目录在卸载前存在')
+    // dispose：fiber 卸载 await 生产异步清理；返回时暂存目录必须已被删除。
+    await ctx.fiber.dispose()
+    const after = stagingDirs().filter(dir => !before.includes(dir))
+    assert.equal(after.length, 0, 'dispose 完成后暂存目录已删除（无孤儿）')
+  } finally {
+    if (browser !== undefined) await browser.close()
+    await tos.close()
+  }
+})
+
+/** 扫描系统临时目录下的 yootun-media-* 前缀目录。 */
+function stagingDirs(): string[] {
+  return readdirSync(tmpdir()).filter(name => name.startsWith('yootun-media-')).map(name => `${tmpdir()}/${name}`)
+}
+
+test('dispose 等 staging 在途请求 settle：handler-settled 先于 dispose-done', async () => {
+  // 真实 apply 组合（生产 disposal effect）；uploadStart 用异步 body：
+  // 先发 PNG 头部让 handler 卡在 staging.stage()，期间启动 dispose，
+  // 再释放剩余 body——destroy 的 admission 等待保证 handler 先 settle。
+  const tos = await startFakeTos()
+  const ctx = new Context()
+  const wb = fakeWorkbench({ tos })
+  const before = stagingDirs()
+  const registeredRoutes: MediaUpload.UploadRoute[] = []
+  // 捕获会话稳定投影：abort 销毁 socket 后 409 响应不可达（res.statusCode
+  // 在 close 时仍是缺省 200），会话投影码才是 handler 的真实落点。
+  const settleCodes: string[] = []
+  const regProto = MediaUpload.UploadSessionRegistry.prototype as unknown as {
+    settleFailed: (session: unknown, code: string) => void
+  }
+  const trueSettle = regProto.settleFailed
+  regProto.settleFailed = function (session: unknown, code: string) {
+    settleCodes.push(code)
+    trueSettle.call(this, session, code)
+  }
+  // 测试结束恢复原型（P2：patch 不得泄漏到其他用例）。
+  const restoreSettle = (): void => { regProto.settleFailed = trueSettle }
+  ctx.reflect.provide('webServer', {
+    getOrigin: () => ORIGIN,
+    register: (route: MediaUpload.UploadRoute) => {
+      registeredRoutes.push(route)
+      return () => undefined
+    },
+  })
+  ctx.reflect.provide('yootunWorkbench', wb)
+  const { createServer, request: httpRequest } = await import('node:http')
+  // 懒查找：server 先起、路由在插件注册后生效；uploadStart 在服务端分发后
+  // 握手（beginRequest 已同步准入），随后才启动 dispose。
+  let arriveResolve: (() => void) | undefined
+  const arrived = new Promise<void>(resolve => { arriveResolve = resolve })
+  const server = createServer((req, res) => {
+    const path = req.url?.split('?')[0] ?? ''
+    const route = registeredRoutes.find(candidate => candidate.path === path)
+    if (route === undefined) { res.statusCode = 404; res.end(); return }
+    const dispatched = route.handler(req as import('node:http').IncomingMessage, res as import('node:http').ServerResponse)
+    if (path === '/_dsh/uploader/uploadStart') {
+      arriveResolve?.()
+      // handler 落定在服务端响应 finish/close 时刻（abort 会销毁 socket，
+      // 客户端不可达，必须在服务端观测）。
+      res.on('finish', () => { events.push('handler-settled'); handlerResolve({ statusCode: res.statusCode, body: { error: 'observed' } }) })
+      res.on('close', () => { events.push('handler-settled'); handlerResolve({ statusCode: res.statusCode, body: { error: 'observed' } }) })
+    }
+    void dispatched.catch(() => undefined)
+  })
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+  const port = (server.address() as { port: number }).port
+  const origin = `http://127.0.0.1:${String(port)}`
+  const events: string[] = []
+  let arrivalWired = false
+  let handlerResolve: (value: { statusCode: number | undefined; body: Record<string, unknown> }) => void = () => undefined
+  const handlerSettled = new Promise<{ statusCode: number | undefined; body: Record<string, unknown> }>(resolve => { handlerResolve = resolve })
+  try {
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(MediaUpload)
+    assert.equal(registeredRoutes.length, 4)
+
+    // 1. pick-file 创建会话。
+    const pick = await (await clientFetch(origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })).json() as { uploadId: string }
+
+    // 2-3. uploadStart 异步 body：只发 PNG 头部（8 字节），handler 卡在 stage。
+    const bytes = pngBytes(256)
+    const req = httpRequest({
+      host: '127.0.0.1', port, method: 'POST', path: '/_dsh/uploader/uploadStart',
+      headers: {
+        origin: ORIGIN, 'sec-fetch-site': 'same-origin', 'content-type': 'application/octet-stream',
+        'x-yootun-upload-id': pick.uploadId, 'x-yootun-filename': 'photo.png',
+        'x-yootun-content-type': 'image/png', 'x-yootun-size': String(bytes.byteLength),
+        'content-length': String(bytes.byteLength),
+      },
+    })
+    req.on('error', () => undefined)
+    req.write(bytes.subarray(0, 8))
+    // 4. 服务端准入后启动 dispose（不 await）；stage 此刻卡在等剩余字节。
+    void arrived.then(async () => {
+      if (arrivalWired) return
+      arrivalWired = true
+      const disposePromise = ctx.fiber.dispose().then(() => { events.push('dispose-done') })
+      // 5. 释放剩余 body（流可能已被中止销毁，错误已吞）。
+      await new Promise(resolve => setTimeout(resolve, 50))
+      req.end(bytes.subarray(8))
+      await disposePromise
+    })
+
+    // 6. 顺序断言：handler-settled 先于 dispose-done。
+    const outcome = await handlerSettled
+    await new Promise(resolve => setTimeout(resolve, 50))
+    assert.deepEqual(events, ['handler-settled', 'dispose-done'])
+
+    // 7. handler 稳定投影：会话被 dispose 中止 → upload_cancelled（409
+    //    语义），不得变成 upload_failed（500 语义）。socket 已被中止销毁，
+    //    响应不可达；settleFailed 的会话投影码即 handler 的落点。
+    assert.equal(settleCodes.includes('upload_cancelled'), true, 'dispose 中止投影 upload_cancelled')
+    assert.equal(settleCodes.includes('upload_failed'), false, '不得退化为 upload_failed')
+    void outcome
+
+    // 8. dispose 完成后暂存目录为 0（等待发生在 disposal effect 内）。
+    const after = stagingDirs().filter(dir => !before.includes(dir))
+    assert.equal(after.length, 0, 'dispose 完成后暂存目录已删除（无孤儿）')
+  } finally {
+    // 第一行同步恢复原型：即使后续 close 抛错，settleFailed patch 也不泄漏。
+    restoreSettle()
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    await tos.close()
+  }
+})
+
+test('admission 生命周期：release 即出集合，destroy 后拒绝新请求', async () => {
+  const staging = new MediaUpload.StagingArea()
+  const registry = new MediaUpload.UploadSessionRegistry({ staging, sweepMs: 0 })
+  try {
+    // 三次 begin/release（uploadStatus 轮询形态）：每次 begin 计 1、release 归零。
+    for (let i = 0; i < 3; i += 1) {
+      const admission = registry.beginRequest()
+      assert.ok(admission !== undefined)
+      assert.equal(registry.activeRequestCount, 1)
+      admission.release()
+      assert.equal(registry.activeRequestCount, 0)
+    }
+    // 未 release 的 admission 计 1，release 后归零。
+    const pending = registry.beginRequest()
+    assert.ok(pending !== undefined)
+    assert.equal(registry.activeRequestCount, 1)
+    pending.release()
+    assert.equal(registry.activeRequestCount, 0)
+    // release 幂等：重复释放不重复 resolve、不复活计数。
+    const once = registry.beginRequest()
+    once?.release()
+    once?.release()
+    assert.equal(registry.activeRequestCount, 0)
+
+    // destroy 后 beginRequest 拒绝新请求。
+    await registry.destroy()
+    assert.equal(registry.beginRequest(), undefined)
+    assert.equal(registry.activeRequestCount, 0)
+    await staging.destroy()
+  } finally {
+    registry.destroy()
+    await staging.destroy()
   }
 })

@@ -58,6 +58,8 @@ export interface UploadSession {
   /** Idempotent terminal transition. */
   settle: (state: 'done' | 'failed', patch?: SettlePatch) => void
   controller: AbortController
+  /** The in-flight upload pipeline (set by the route once the background run starts). */
+  pipeline: Promise<void> | undefined
 }
 
 /** Registry options; timings are deployment-varying and injected. */
@@ -82,6 +84,13 @@ export const DEFAULT_ORPHAN_MS = 30 * 60_000
 export const DEFAULT_AWAITING_MS = 10 * 60_000
 export const DEFAULT_SWEEP_MS = 30_000
 
+/** One admitted in-flight request; `release` runs in the handler's finally. */
+export interface Admission {
+  /** Resolves when the request settles. */
+  done: Promise<void>
+  release: () => void
+}
+
 /** Bounded session registry for one plugin lifetime. */
 export class UploadSessionRegistry {
   private readonly sessions = new Map<string, UploadSession>()
@@ -93,6 +102,8 @@ export class UploadSessionRegistry {
   private readonly idFactory: () => string
   private readonly now: () => number
   private destroyed = false
+  /** 已接受的在途请求（路由 handler 与工具 execute）：destroy 等它们全部 settle。 */
+  private readonly admissions = new Set<Admission>()
 
   /**
    * @param options - staging area, budgets, and test seams.
@@ -109,8 +120,9 @@ export class UploadSessionRegistry {
       this.sweepTimer = setInterval(() => {
         try {
           this.sweep()
-        } catch {
+        } catch (error: unknown) {
           // 清理失败不影响主流程；下一轮继续。
+          void error
         }
       }, sweepMs)
       this.sweepTimer.unref?.()
@@ -150,9 +162,36 @@ export class UploadSessionRegistry {
         completion.resolve()
       },
       controller: new AbortController(),
+      pipeline: undefined,
     }
     this.sessions.set(session.id, session)
     return session
+  }
+
+  /**
+   * Admit one in-flight request (route handler or tool execute) into the
+   * registry's lifecycle. `undefined` after {@link destroy}: the caller must
+   * answer with a stable refusal (`uploader_not_configured`) without touching
+   * sessions, staging, or the Workbench face.
+   * @returns the admission whose `release` runs in the handler's finally, or `undefined` when closed.
+   */
+  beginRequest(): Admission | undefined {
+    if (this.destroyed) return undefined
+    const { promise: done, resolve } = Promise.withResolvers<void>()
+    const admission: Admission = { done, release: () => undefined }
+    // release 先把 admission 移出集合再 resolve：released 请求不得滞留在
+    // set 里（uploadStatus 轮询是高频入口，滞留即无界累积）。
+    admission.release = () => {
+      if (!this.admissions.delete(admission)) return
+      resolve()
+    }
+    this.admissions.add(admission)
+    return admission
+  }
+
+  /** 在途（已准入未释放）请求数；诊断用只读快照。 */
+  get activeRequestCount(): number {
+    return this.admissions.size
   }
 
   /**
@@ -221,18 +260,34 @@ export class UploadSessionRegistry {
     session.settle('failed', { errorCode: code })
   }
 
-  /** Abort every live upload and drop every session (plugin disposal). */
-  destroy(): void {
+  /**
+   * Abort every live upload, wait for the in-flight pipelines to settle
+   * (their catch paths drop the staged files), then drop every session.
+   * Awaiting here is what makes the plugin's async disposal deterministic:
+   * `staging.destroy()` afterwards never races a late `discard`.
+   */
+  /**
+   * Abort every live upload, wait for the in-flight upload pipelines AND the
+   * admitted in-flight requests (handlers may still be draining a request
+   * body through `staging.stage` — awaiting their admissions keeps their
+   * settle inside the disposal), then drop every session. Only after all of
+   * that settle is it safe for the caller to run `staging.destroy()`.
+   */
+  async destroy(): Promise<void> {
     if (this.destroyed) return
     this.destroyed = true
     if (this.sweepTimer !== undefined) clearInterval(this.sweepTimer)
+    const pipelines: Array<Promise<unknown>> = []
     for (const session of this.sessions.values()) {
       if (session.state === 'uploading' || session.state === 'awaiting') {
         session.controller.abort()
         this.settleFailed(session, 'upload_cancelled')
       }
-      void this.staging.discard(session.staged)
+      if (session.pipeline !== undefined) pipelines.push(session.pipeline.catch(() => undefined))
     }
+    await Promise.allSettled(pipelines)
+    await Promise.allSettled([...this.admissions].map(admission => admission.done))
+    this.admissions.clear()
     this.sessions.clear()
   }
 

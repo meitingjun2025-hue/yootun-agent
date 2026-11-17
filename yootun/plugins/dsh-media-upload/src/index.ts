@@ -38,24 +38,28 @@ export type { UploaderDeps } from './deps.ts'
 export function createUploaderState(
   getExpectedOrigin: () => string,
   workbench: UploaderDeps['workbench'],
-  config: { maxUploadBytes: number },
+  config: { maxUploadBytes: number; awaitingMs?: number | undefined },
   logger?: { warn(message: string): void } | undefined,
-  registry?: UploadSessionRegistry | undefined,
 ): { deps: UploaderDeps; registry: UploadSessionRegistry; staging: StagingArea } {
+  // 单一构建路径：staging 与 registry 在这里配对生成，路由暂存与卸载清理
+  // 关闭同一个实例（历史上曾因双实例导致卸载删错对象、暂存目录泄漏）。
   const staging = new StagingArea()
-  const owned = registry ?? new UploadSessionRegistry({ staging })
+  const registry = new UploadSessionRegistry({
+    staging,
+    ...(config.awaitingMs !== undefined ? { awaitingMs: config.awaitingMs } : {}),
+  })
   const deps: UploaderDeps = {
     getExpectedOrigin,
-    registry: owned,
+    registry,
     staging,
     workbench,
     maxUploadBytes: config.maxUploadBytes,
     logger,
   }
-  return { deps, registry: owned, staging }
+  return { deps, registry, staging }
 }
 export { runUpload } from './run-upload.ts'
-export { registerMediaUploadTool } from './tool.ts'
+export { MEDIA_UPLOAD_OUTPUT_SCHEMA, registerMediaUploadTool } from './tool.ts'
 
 /** Cordis function-plugin name. */
 export const name = 'yootun-media-upload'
@@ -89,20 +93,21 @@ export const Config = z.object({
  * @param config - loader-provided limits.
  */
 export function apply(ctx: Context, config: Config): void {
-  const staging = new StagingArea()
-  // awaiting 预算与工具人工回环预算同源（§6 会话在未绑定字节前的有效等待）。
-  const registry = new UploadSessionRegistry({ staging, awaitingMs: config.toolTimeoutMs })
-  const { deps } = createUploaderState(
+  const { deps, registry, staging } = createUploaderState(
     () => ctx.webServer.getOrigin(),
     ctx.yootunWorkbench,
-    config,
+    // awaiting 预算与工具人工回环预算同源（§6 会话在未绑定字节前的有效等待）。
+    { maxUploadBytes: config.maxUploadBytes, awaitingMs: config.toolTimeoutMs },
     { warn: (message: string) => { ctx.logger.warn(message) } },
-    registry,
   )
   applyUploaderWiring(ctx, deps, config.toolTimeoutMs)
-  ctx.effect(() => () => {
-    registry.destroy()
-    void staging.destroy()
+  // 卸载：await registry.destroy（abort 全部会话并等在途管线 settle、
+  // 暂存文件落盘删除完成），再 await staging.destroy 删除目录——返回
+  // Promise 让 fiber 卸载 await 它（异步 cleanup 等待语义），rm -rf 不与
+  // 在途 discard 竞态。
+  ctx.effect(() => async () => {
+    await registry.destroy()
+    await staging.destroy()
   }, 'yootun-media-upload: disposal')
 }
 

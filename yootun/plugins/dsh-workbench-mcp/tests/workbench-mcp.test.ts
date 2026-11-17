@@ -9,7 +9,7 @@ import { after, test } from 'node:test'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { Context } from '@deepseek-ai/cordis'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
-import WorkbenchMcp, { WorkbenchMcpError, WORKBENCH_GROUP_TOOLS, WORKBENCH_TOOL_WHITELIST, CATALOG_TOOL_NAMES, CALLER_DOMAINS, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
+import WorkbenchMcp, { WorkbenchMcpError, serverErrorCodeOf, WORKBENCH_GROUP_TOOLS, WORKBENCH_TOOL_WHITELIST, CATALOG_TOOL_NAMES, CALLER_DOMAINS, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
 import { ACCESS_CREDENTIAL_REF } from '../src/constants.ts'
 import { startWorkbenchFixture, type WorkbenchFixture } from './fixture-workbench-server.ts'
 
@@ -173,14 +173,110 @@ test('Catalog 5 个 yootun_business_* 全部拒绝', async () => {
   assert.equal(booted.fixture.toolCalls.length, 0, 'Catalog 拒绝不发起任何调用')
 })
 
-test('业务错误按稳定 envelope 原样投影', async () => {
+test('业务错误按稳定 envelope 原样投影（真实 Tools error.code 嵌套形态）', async () => {
   const booted = await boot()
   const error = await assertRejects(
     () => booted.service.callTool('xhs-workbench', 'xhs', 'workbench_xhs_task_cancel', { taskId: 't1' }),
     'workbench_call_failed',
     '业务错误投影',
   )
-  assert.deepEqual(error.payload, { code: 'TASK_ALREADY_CANCELLED', ok: false })
+  assert.deepEqual(error.payload, {
+    error: { code: 'TASK_ALREADY_CANCELLED', message: 'task already cancelled', retryable: false, requestId: null },
+  })
+  // serverErrorCodeOf 从嵌套 envelope 读出稳定码。
+  assert.equal(serverErrorCodeOf(error.payload), 'TASK_ALREADY_CANCELLED')
+})
+
+test('未知 caller 与未知 domain 拒绝且不发起请求', async () => {
+  const booted = await boot()
+  const unknownCaller = await assertRejects(
+    () => booted.service.callTool('bogus-caller' as WorkbenchCaller, 'wx', 'workbench_wx_account_list', {}),
+    'workbench_tool_denied',
+    '未知 caller',
+  )
+  const unknownDomain = await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'bogus-domain' as WorkbenchDomain, 'workbench_wx_account_list', {}),
+    'workbench_tool_denied',
+    '已知 caller + 未知 domain',
+  )
+  void unknownCaller
+  void unknownDomain
+  assert.equal(booted.fixture.authorization.length, 0, '拒绝不发起任何网络请求')
+})
+
+test('credential resolve 异常稳定投影（gate fail-closed 与 open 映射）', async () => {
+  // 场景 a：resolve 恒 reject —— 门禁 fail-closed，投影 not_activated 且无原文。
+  const fixture = await startWorkbenchFixture()
+  process.env.YOOTUN_WORKBENCH_MCP_URL = fixture.url
+  const ctx = new Context()
+  ctx.reflect.provide('settings', { describe: () => [{ ns: 'yootun-access', value: ACTIVATED_SNAPSHOT }] })
+  ctx.reflect.provide('credentials', {
+    resolve: async () => {
+      throw new Error('vault backend exploded with sensitive detail')
+    },
+  })
+  await ctx.plugin(WorkbenchMcp, { callTimeoutMs: 900 })
+  try {
+    const error = await assertRejects(
+      () => (ctx.yootunWorkbench as InstanceType<typeof WorkbenchMcp>).callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {}),
+      'workbench_not_activated',
+      'gate fail-closed',
+    )
+    assert.equal(error.message.includes('vault backend exploded'), false, '原始错误不进入 message')
+    assert.equal(fixture.authorization.length, 0)
+  } finally {
+    await ctx.fiber.dispose()
+    await fixture.close()
+  }
+
+  // 场景 b：门禁 resolve 成功、open 阶段 reject —— 新稳定码 credential_unavailable。
+  const fixture2 = await startWorkbenchFixture()
+  process.env.YOOTUN_WORKBENCH_MCP_URL = fixture2.url
+  const ctx2 = new Context()
+  let resolveCount = 0
+  ctx2.reflect.provide('settings', { describe: () => [{ ns: 'yootun-access', value: ACTIVATED_SNAPSHOT }] })
+  ctx2.reflect.provide('credentials', {
+    resolve: async () => {
+      resolveCount += 1
+      if (resolveCount >= 2) throw new Error('hsm session dropped with secret residue')
+      return { source: 'test' as const, value: 'test-model-key' }
+    },
+  })
+  await ctx2.plugin(WorkbenchMcp, { callTimeoutMs: 900 })
+  try {
+    const error = await assertRejects(
+      () => (ctx2.yootunWorkbench as InstanceType<typeof WorkbenchMcp>).callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {}),
+      'workbench_credential_unavailable',
+      'open 阶段异常映射新稳定码',
+    )
+    assert.equal(error.message.includes('hsm session dropped'), false, '原始错误不进入 message')
+    assert.equal(fixture2.toolCalls.length, 0)
+  } finally {
+    await ctx2.fiber.dispose()
+    await fixture2.close()
+  }
+})
+
+test('dispose 等待 in-flight settle 后才完成（teardown 顺序）', async () => {
+  const booted = await boot()
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {})
+  const pending = booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_collect_run_start', {})
+  // 等 tools/call 在途（服务端已收到）再卸载。
+  const deadline = Date.now() + 5_000
+  while (!booted.fixture.toolCalls.includes('workbench_wx_collect_run_start')) {
+    if (Date.now() > deadline) throw new Error('hang tool call never reached the fixture')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  const settleOrder: string[] = []
+  void pending.then(() => { settleOrder.push('call-settled') }, () => { settleOrder.push('call-settled') })
+  await booted.ctx.fiber.dispose()
+  settleOrder.push('dispose-done')
+  // dispose 返回时 in-flight 调用必须已稳定 settle（cancelled 投影）。
+  await assertRejects(() => pending, 'workbench_call_cancelled', 'in-flight 调用被中止')
+  assert.deepEqual(settleOrder, ['call-settled', 'dispose-done'], 'dispose 等 in-flight settle 后才完成')
+  const callsAfterDispose = booted.fixture.toolCalls.length
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.equal(booted.fixture.toolCalls.length, callsAfterDispose, '卸载收尾后无新业务调用')
 })
 
 test('空 key 门禁拒绝与不可达端口网络投影', async () => {

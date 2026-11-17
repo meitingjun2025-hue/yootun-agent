@@ -51,14 +51,34 @@ export class StagingArea {
 
   /**
    * Stream a request body into a fresh 0600-mode file and run the byte-level
-   * checks. Oversized bodies abort mid-stream.
+   * checks. Oversized bodies abort mid-stream; `signal` (the owning session's
+   * controller) destroys the request stream on abort so a client that never
+   * finishes its body cannot pin the staging step past disposal.
    * @param body - the HTTP request body.
    * @param declaredSize - the caller-declared byte count (content-length must agree).
    * @param declaredContentType - the registered Content-Type.
+   * @param signal - owning session cancellation; destroys the body stream on abort.
    * @returns the validated staged file.
    * @throws {MediaUploadError} size/mime validations.
    */
-  async stage(body: IncomingMessage, declaredSize: number, declaredContentType: string): Promise<StagedFile> {
+  async stage(
+    body: IncomingMessage,
+    declaredSize: number,
+    declaredContentType: string,
+    signal?: AbortSignal | undefined,
+  ): Promise<StagedFile> {
+    if (signal?.aborted === true) throw new MediaUploadError('upload_cancelled', 'staging cancelled before start')
+    const onAbort = (): void => { body.destroy() }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      return await this.stageInner(body, declaredSize, declaredContentType)
+    } finally {
+      signal?.removeEventListener('abort', onAbort)
+    }
+  }
+
+  /** The actual streaming body of {@link stage}. */
+  private async stageInner(body: IncomingMessage, declaredSize: number, declaredContentType: string): Promise<StagedFile> {
     const dir = await this.ensureDir()
     const path = join(dir, `${randomUUID()}.staged`)
     let received = 0

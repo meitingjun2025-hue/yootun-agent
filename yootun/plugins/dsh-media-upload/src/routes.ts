@@ -9,7 +9,7 @@
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, PICK_KINDS, KIND_EXTENSIONS, MEDIA_PREVIEW_MIME, ALLOWED_CONTENT_TYPES } from './constants.ts'
-import { MediaUploadError, toPublicCode } from './errors.ts'
+import { MediaUploadError, toPublicCode, type MediaUploadErrorCode } from './errors.ts'
 import { extensionOf, normalizeMime } from './mime.ts'
 import { runUpload } from './run-upload.ts'
 import type { UploadSession } from './sessions.ts'
@@ -55,6 +55,25 @@ export type UploadRouteHandler = (req: IncomingMessage, res: ServerResponse) => 
 export interface UploadRoute {
   path: string
   handler: UploadRouteHandler
+}
+
+/**
+ * Wait until the response settles: 'finish' (bytes flushed to the client) or
+ * 'close' (the client connection died mid-flight — e.g. our own abort
+ * destroyed the request socket). Admission release waits on this so a
+ * disposal that awaits admissions also waits for the in-flight response.
+ * @param res - the server response.
+ * @returns a promise resolving once the response has settled.
+ */
+function responseSettled(res: ServerResponse): Promise<void> {
+  return new Promise(resolve => {
+    if (res.writableFinished || res.destroyed) {
+      resolve()
+      return
+    }
+    res.on('finish', resolve)
+    res.on('close', resolve)
+  })
 }
 
 function finishJson(res: ServerResponse, statusCode: number, value: object): void {
@@ -106,6 +125,68 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   return parsed as Record<string, unknown>
 }
 
+/**
+ * uploadStart 的主体（已在 admission 保护内执行）：校验元数据、同步占位
+ * 会话、流式暂存、后台启动直传。暂存期间会话被中止/过期时，投影会话自身
+ * 的稳定错误码（upload_cancelled / upload_timeout / session_not_found），
+ * 底层 IO 错误（如暂存目录已被卸载清理）不得外泄为 upload_failed。
+ * @param req - incoming request.
+ * @param res - response.
+ * @param deps - uploader wiring.
+ * @param uploadId - the session id from the header.
+ * @param filename - decoded filename from the header.
+ * @param contentType - raw content-type header.
+ * @param size - declared size from the header.
+ * @returns nothing; the response is fully written here.
+ */
+async function handleUploadStartInner(
+  req: IncomingMessage, res: ServerResponse, deps: UploaderDeps,
+  uploadId: string, filename: string, contentType: string, size: number,
+): Promise<void> {
+  const declaredType = normalizeMime(contentType)
+  const session = deps.registry.getLive(uploadId)
+  // 同步占位：staging 在途期间会话已是 uploading，二次并发/重发的
+  // uploadStart 在这里被拒（否则会重复授权、争写进度）。
+  if (session === undefined || session.state !== 'awaiting' || session.staged !== undefined) {
+    return finishJson(res, 400, { error: 'session_not_found' })
+  }
+  // 扩展名 + MIME 白名单双收口（授权前快速失败）。
+  if (!ALLOWED_TYPES.has(declaredType) || !(KIND_EXTENSIONS[session.kind] ?? []).includes(extensionOf(filename))) {
+    return finishJson(res, 400, { error: 'extension_not_allowed' })
+  }
+  if (size > deps.maxUploadBytes) return finishJson(res, 400, { error: 'file_too_large' })
+  const declaredLength = Number(req.headers['content-length'] ?? '-1')
+  if (declaredLength !== size) return finishJson(res, 400, { error: 'invalid_request' })
+  // 声明占用：先绑元数据再暂存；失败回滚到 failed 终态。
+  session.name = filename
+  session.contentType = declaredType
+  session.size = size
+  session.state = 'uploading'
+  session.startedAt = Date.now()
+  try {
+    // 暂存可被会话中止驱动（dispose/过期/取消时销毁请求流，admission 等待有界）。
+    const staged = await deps.staging.stage(req, size, declaredType, session.controller.signal)
+    // 暂存在途发生取消/过期/卸载（终态先行）：丢弃暂存，不复活会话。
+    if (session.state !== 'uploading') {
+      await deps.staging.discard(staged)
+      return finishJson(res, 400, { error: 'session_not_found' })
+    }
+    session.staged = staged
+    // 管线挂到会话：registry.destroy 等它 settle，暂存清理不与卸载竞态。
+    session.pipeline = runUpload(deps, session).catch(() => undefined)
+    return finishJson(res, 200, { uploadId: session.id, name: session.name, size: session.size, contentType: session.contentType })
+  } catch (error: unknown) {
+    // 会话在暂存期间已进入终态（dispose/取消/过期）：投影会话自身的稳定码
+    // （经函数读取，避免 TS 对 await 前状态字面量的窄化误判）。
+    const liveState = (): UploadSession['state'] => session.state
+    const code = liveState() === 'failed' && session.errorCode !== undefined
+      ? session.errorCode as MediaUploadErrorCode
+      : toPublicCode(error)
+    if (liveState() !== 'failed') deps.registry.settleFailed(session, code)
+    return finishJson(res, statusForCode(code), { error: code })
+  }
+}
+
 /** 固定错误码 → HTTP 状态码（迁移旧映射）。 */
 function statusForCode(code: string): number {
   switch (code) {
@@ -120,7 +201,6 @@ function statusForCode(code: string): number {
     case 'user_cancelled':
     case 'upload_cancelled':
       return 409
-    case 'picker_unavailable':
     case 'uploader_not_configured':
       return 503
     case 'upload_timeout':
@@ -213,26 +293,37 @@ export function uploaderRoutes(deps: UploaderDeps): UploadRoute[] {
       handler: async (req, res) => {
         if (req.method !== 'POST') return finishJson(res, 405, { error: 'invalid_request' })
         if (!permitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
-        let kind = 'media'
-        if (req.headers['content-type'] !== undefined) {
-          if (normalizeMime(req.headers['content-type']) !== 'application/json') {
-            return finishJson(res, 415, { error: 'invalid_request' })
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 503, { error: 'uploader_not_configured' })
+        try {
+          let kind = 'media'
+          if (req.headers['content-type'] !== undefined) {
+            if (normalizeMime(req.headers['content-type']) !== 'application/json') {
+              return finishJson(res, 415, { error: 'invalid_request' })
+            }
+            try {
+              const body = await readJson(req)
+              // 未知字段拒绝：pick-file 契约只有 kind。
+              if (Object.keys(body).some(key => key !== 'kind')) {
+                return finishJson(res, 400, { error: 'invalid_request' })
+              }
+              if (typeof body.kind === 'string') kind = body.kind
+            } catch {
+              return finishJson(res, 400, { error: 'invalid_request' })
+            }
           }
-          try {
-            const body = await readJson(req)
-            if (typeof body.kind === 'string') kind = body.kind
-          } catch {
-            return finishJson(res, 400, { error: 'invalid_request' })
-          }
+          if (!PICK_KINDS.has(kind)) return finishJson(res, 400, { error: 'invalid_request' })
+          const session = deps.registry.create(kind)
+          return finishJson(res, 200, {
+            uploadId: session.id,
+            kind,
+            accept: KIND_EXTENSIONS[kind] ?? [],
+            maxBytes: deps.maxUploadBytes,
+          })
+        } finally {
+          await responseSettled(res)
+          admission.release()
         }
-        if (!PICK_KINDS.has(kind)) return finishJson(res, 400, { error: 'invalid_request' })
-        const session = deps.registry.create(kind)
-        return finishJson(res, 200, {
-          uploadId: session.id,
-          kind,
-          accept: KIND_EXTENSIONS[kind] ?? [],
-          maxBytes: deps.maxUploadBytes,
-        })
       },
     },
     {
@@ -240,51 +331,24 @@ export function uploaderRoutes(deps: UploaderDeps): UploadRoute[] {
       handler: async (req, res) => {
         if (req.method !== 'POST') return finishJson(res, 405, { error: 'invalid_request' })
         if (!permitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
-        const uploadId = headerValue(req, UPLOAD_ID_HEADER)
-        const filename = filenameHeaderValue(headerValue(req, FILENAME_HEADER))
-        const contentType = headerValue(req, CONTENT_TYPE_HEADER)
-        const sizeRaw = headerValue(req, SIZE_HEADER)
-        const size = Number(sizeRaw)
-        if (uploadId === undefined || uploadId.length > MAX_UPLOAD_ID_LENGTH
-          || filename === undefined || filename.length === 0 || filename.length > MAX_FILENAME_LENGTH
-          || contentType === undefined
-          || sizeRaw === undefined || !Number.isSafeInteger(size) || size <= 0) {
-          return finishJson(res, 400, { error: 'invalid_request' })
-        }
-        const declaredType = normalizeMime(contentType)
-        const session = deps.registry.getLive(uploadId)
-        // 同步占位：staging 在途期间会话已是 uploading，二次并发/重发的
-        // uploadStart 在这里被拒（否则会重复授权、争写进度）。
-        if (session === undefined || session.state !== 'awaiting' || session.staged !== undefined) {
-          return finishJson(res, 400, { error: 'session_not_found' })
-        }
-        // 扩展名 + MIME 白名单双收口（授权前快速失败）。
-        if (!ALLOWED_TYPES.has(declaredType) || !(KIND_EXTENSIONS[session.kind] ?? []).includes(extensionOf(filename))) {
-          return finishJson(res, 400, { error: 'extension_not_allowed' })
-        }
-        if (size > deps.maxUploadBytes) return finishJson(res, 400, { error: 'file_too_large' })
-        const declaredLength = Number(req.headers['content-length'] ?? '-1')
-        if (declaredLength !== size) return finishJson(res, 400, { error: 'invalid_request' })
-        // 声明占用：先绑元数据再暂存；失败回滚到 failed 终态。
-        session.name = filename
-        session.contentType = declaredType
-        session.size = size
-        session.state = 'uploading'
-        session.startedAt = Date.now()
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 503, { error: 'uploader_not_configured' })
         try {
-          const staged = await deps.staging.stage(req, size, declaredType)
-          // 暂存在途发生取消/过期/卸载（终态先行）：丢弃暂存，不复活会话。
-          if (session.state !== 'uploading') {
-            await deps.staging.discard(staged)
-            return finishJson(res, 400, { error: 'session_not_found' })
+          const uploadId = headerValue(req, UPLOAD_ID_HEADER)
+          const filename = filenameHeaderValue(headerValue(req, FILENAME_HEADER))
+          const contentType = headerValue(req, CONTENT_TYPE_HEADER)
+          const sizeRaw = headerValue(req, SIZE_HEADER)
+          const size = Number(sizeRaw)
+          if (uploadId === undefined || uploadId.length > MAX_UPLOAD_ID_LENGTH
+            || filename === undefined || filename.length === 0 || filename.length > MAX_FILENAME_LENGTH
+            || contentType === undefined
+            || sizeRaw === undefined || !Number.isSafeInteger(size) || size <= 0) {
+            return finishJson(res, 400, { error: 'invalid_request' })
           }
-          session.staged = staged
-          void runUpload(deps, session).catch(() => undefined)
-          return finishJson(res, 200, { uploadId: session.id, name: session.name, size: session.size, contentType: session.contentType })
-        } catch (error: unknown) {
-          const code = toPublicCode(error)
-          deps.registry.settleFailed(session, code)
-          return finishJson(res, statusForCode(code), { error: code })
+          return await handleUploadStartInner(req, res, deps, uploadId, filename, contentType, size)
+        } finally {
+          await responseSettled(res)
+          admission.release()
         }
       },
     },
@@ -293,32 +357,43 @@ export function uploaderRoutes(deps: UploaderDeps): UploadRoute[] {
       handler: async (req, res) => {
         if (req.method !== 'POST') return finishJson(res, 405, { error: 'invalid_request' })
         if (!permitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
-        if (normalizeMime(req.headers['content-type']) !== 'application/json') {
-          return finishJson(res, 415, { error: 'invalid_request' })
-        }
-        let uploadId = ''
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 503, { error: 'uploader_not_configured' })
         try {
-          const body = await readJson(req)
-          if (typeof body.uploadId === 'string') uploadId = body.uploadId
-        } catch {
-          return finishJson(res, 400, { error: 'invalid_request' })
+          if (normalizeMime(req.headers['content-type']) !== 'application/json') {
+            return finishJson(res, 415, { error: 'invalid_request' })
+          }
+          let uploadId = ''
+          try {
+            const body = await readJson(req)
+            // 未知字段拒绝：uploadStatus 契约只有 uploadId。
+            if (Object.keys(body).some(key => key !== 'uploadId')) {
+              return finishJson(res, 400, { error: 'invalid_request' })
+            }
+            if (typeof body.uploadId === 'string') uploadId = body.uploadId
+          } catch {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          if (uploadId === '' || uploadId.length > MAX_UPLOAD_ID_LENGTH) {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          const snapshot = deps.registry.snapshot(uploadId)
+          if (snapshot === undefined) return finishJson(res, 200, { status: 'not_found' })
+          return finishJson(res, 200, {
+            status: snapshot.state === 'awaiting' ? 'waiting' : snapshot.state,
+            progress: snapshot.totalBytes > 0
+              ? Math.min(100, Math.floor((snapshot.bytesSent / snapshot.totalBytes) * 100))
+              : 0,
+            bytesSent: snapshot.bytesSent,
+            bytesTotal: snapshot.totalBytes,
+            attempt: snapshot.attempt,
+            ...(snapshot.state === 'done' && snapshot.url !== undefined ? { url: snapshot.url, name: snapshot.name, size: snapshot.size } : {}),
+            ...(snapshot.state === 'failed' && snapshot.error !== undefined ? { error: snapshot.error } : {}),
+          })
+        } finally {
+          await responseSettled(res)
+          admission.release()
         }
-        if (uploadId === '' || uploadId.length > MAX_UPLOAD_ID_LENGTH) {
-          return finishJson(res, 400, { error: 'invalid_request' })
-        }
-        const snapshot = deps.registry.snapshot(uploadId)
-        if (snapshot === undefined) return finishJson(res, 200, { status: 'not_found' })
-        return finishJson(res, 200, {
-          status: snapshot.state === 'awaiting' ? 'waiting' : snapshot.state,
-          progress: snapshot.totalBytes > 0
-            ? Math.min(100, Math.floor((snapshot.bytesSent / snapshot.totalBytes) * 100))
-            : 0,
-          bytesSent: snapshot.bytesSent,
-          bytesTotal: snapshot.totalBytes,
-          attempt: snapshot.attempt,
-          ...(snapshot.state === 'done' && snapshot.url !== undefined ? { url: snapshot.url, name: snapshot.name, size: snapshot.size } : {}),
-          ...(snapshot.state === 'failed' && snapshot.error !== undefined ? { error: snapshot.error } : {}),
-        })
       },
     },
     {
@@ -326,32 +401,39 @@ export function uploaderRoutes(deps: UploaderDeps): UploadRoute[] {
       handler: async (req, res) => {
         if (req.method !== 'GET') return finishJson(res, 405, { error: 'invalid_request' })
         if (!mediaPermitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
-        let uploadId = ''
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 400, { error: 'invalid_request' })
         try {
-          const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-          if (url.pathname !== MEDIA_PATH) return finishJson(res, 400, { error: 'invalid_request' })
-          uploadId = url.searchParams.get('uploadId') ?? ''
-        } catch {
-          return finishJson(res, 400, { error: 'invalid_request' })
+          let uploadId = ''
+          try {
+            const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+            if (url.pathname !== MEDIA_PATH) return finishJson(res, 400, { error: 'invalid_request' })
+            uploadId = url.searchParams.get('uploadId') ?? ''
+          } catch {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          if (uploadId === '' || uploadId.length > MAX_UPLOAD_ID_LENGTH) {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          const session = deps.registry.getLive(uploadId)
+          if (session === undefined || session.staged === undefined) {
+            return finishJson(res, 403, { error: 'forbidden' })
+          }
+          const range = parseSingleRange(req.headers.range, session.staged.size)
+          if (range === undefined) {
+            res.statusCode = 416
+            res.setHeader('content-range', `bytes */${String(session.staged.size)}`)
+            res.setHeader('content-length', '0')
+            res.setHeader('cache-control', 'no-store')
+            res.setHeader('x-content-type-options', 'nosniff')
+            res.end()
+            return
+          }
+          return await pipeMedia(res, session, range ?? undefined)
+        } finally {
+          await responseSettled(res)
+          admission.release()
         }
-        if (uploadId === '' || uploadId.length > MAX_UPLOAD_ID_LENGTH) {
-          return finishJson(res, 400, { error: 'invalid_request' })
-        }
-        const session = deps.registry.getLive(uploadId)
-        if (session === undefined || session.staged === undefined) {
-          return finishJson(res, 403, { error: 'forbidden' })
-        }
-        const range = parseSingleRange(req.headers.range, session.staged.size)
-        if (range === undefined) {
-          res.statusCode = 416
-          res.setHeader('content-range', `bytes */${String(session.staged.size)}`)
-          res.setHeader('content-length', '0')
-          res.setHeader('cache-control', 'no-store')
-          res.setHeader('x-content-type-options', 'nosniff')
-          res.end()
-          return
-        }
-        return pipeMedia(res, session, range ?? undefined)
       },
     },
   ]

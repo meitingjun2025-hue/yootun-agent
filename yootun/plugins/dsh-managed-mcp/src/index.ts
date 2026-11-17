@@ -68,8 +68,7 @@ async function sessionGuard(exec: { name: string }, next: () => Promise<PreToolD
 export function apply(ctx: Context): void {
   ctx.on('tools/pre-execute', sessionGuard)
   const supervisor: AgentSupervisor = createSupervisor(ctx)
-  ctx.effect(() => () => {
-    void supervisor.dispose()
-  }, 'yootun-managed-mcp: agent supervisor')
+  // 返回 dispose 的 Promise：fiber 卸载 await 它，等子实例与连接释放完成。
+  ctx.effect(() => () => supervisor.dispose(), 'yootun-managed-mcp: agent supervisor')
   supervisor.reevaluate('plugin activation')
 }
