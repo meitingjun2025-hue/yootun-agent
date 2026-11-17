@@ -1,0 +1,171 @@
+/* FilterBar: search + clearable chips + trailing controls; wraps on narrow
+   panels. Chips read as filter state, never as content tags. */
+
+.bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.search {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+}
+
+.search input {
+  appearance: none;
+  width: 220px;
+}
+
+.clearButton {
+  box-sizing: border-box;
+  position: absolute;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--dsw-radius-xs);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.clearButton:hover {
+  background: var(--dsw-alias-bg-multi-select);
+  color: var(--dsw-alias-label-primary);
+}
+
+.clearButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+.clearButton:active {
+  background: var(--dsw-alias-button-ghost-active-fill);
+}
+
+.chips {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border: 1px solid var(--dsw-alias-border-l3);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.chipLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.chipCount {
+  padding: 2px 6px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-multi-select);
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chipClear,
+.clearAll {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.chipClear {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--dsw-radius-xs);
+  font-size: 14px;
+}
+
+.chipClear:hover,
+.clearAll:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.chipClear:focus-visible,
+.clearAll:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+.chipClear:active {
+  background: var(--dsw-alias-button-ghost-active-fill);
+}
+
+.clearAll {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.trailing {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .search input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .search {
+    flex: 1 1 100%;
+  }
+
+  /* 窄容器把小清除件扩到 44px 触达热区（§2.3）。 */
+  .clearButton,
+  .chipClear {
+    width: 44px;
+    height: 44px;
+  }
+
+  .chip {
+    height: 44px;
+  }
+}

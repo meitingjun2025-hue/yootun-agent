@@ -245,3 +245,28 @@ test('安装器位图规格逐项对齐官方素材与安装器 ICO 帧清单', 
   assert.match(welcomeSvg, /viewBox="0 0 472 40"/u)
   assert.match(welcomeSvg, /data:image\/png;base64,/u)
 })
+
+// ---------------------------------------------------------------------------
+// P1 桌面共用基础设施（2026-11-16）：插件分区与包验收的自检入口。这里的
+// 静态断言零依赖；各包的行为测试由各包 test 脚本承载（见 P1 批次验收报告），
+// 通过 `pnpm --filter '@yootun/*' test` 分批执行。
+
+test('插件分区 workspace 登记与 bundle 插入对齐 P1 交付面', () => {
+  const workspace = readFileSync(join(repositoryRoot, 'pnpm-workspace.yaml'), 'utf8')
+  assert.match(workspace, /- yootun\/packages\/\*/u)
+  assert.match(workspace, /- yootun\/plugins\/\*/u, 'inline #1 扩展的插件分区 glob')
+  const patch = readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-bundle-yootun', 'cordis.patch.yml'), 'utf8')
+  // P1 插入的三个 Host 基础插件。
+  for (const name of ['@yootun/dsh-managed-mcp', '@yootun/dsh-workbench-mcp', '@yootun/dsh-media-upload']) {
+    assert.ok(patch.includes(`name: '${name}'`), `bundle patch 插入 ${name}`)
+  }
+  // P1 不插业务工作台，也不挂 Catalog。
+  for (const absent of ['dsh-wx-channels-workbench', 'dsh-xhs-workbench', 'dsh-douyin-workbench', 'yootun-catalog']) {
+    assert.ok(!patch.includes(absent), `P1 bundle 不插入 ${absent}`)
+  }
+  const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-bundle-yootun', 'package.json'), 'utf8'))
+  // bare 插件必须出现在 resolver manifest 的 dependencies（加载器解析面）。
+  for (const dependency of ['@yootun/dsh-managed-mcp', '@yootun/dsh-workbench-mcp', '@yootun/dsh-media-upload']) {
+    assert.equal(manifest.dependencies[dependency], 'workspace:*', `bundle dependencies 含 ${dependency}`)
+  }
+})

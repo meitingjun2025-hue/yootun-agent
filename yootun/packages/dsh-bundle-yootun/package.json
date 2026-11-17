@@ -25,7 +25,10 @@
   },
   "dependencies": {
     "@yootun/dsh-client-ui-access": "workspace:*",
-    "@yootun/dsh-client-ui-brand": "workspace:*"
+    "@yootun/dsh-client-ui-brand": "workspace:*",
+    "@yootun/dsh-managed-mcp": "workspace:*",
+    "@yootun/dsh-media-upload": "workspace:*",
+    "@yootun/dsh-workbench-mcp": "workspace:*"
   },
   "license": "MIT",
   "peerDependencies": {

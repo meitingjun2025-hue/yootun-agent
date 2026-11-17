@@ -1,0 +1,79 @@
+/* KpiCard: number-forward tile; tabular numerals, 20-24px value, 12-13px label.
+   Row layout (two tiles per 640-879px container, up to six per row wide) is the
+   caller's grid; this tile only guarantees it wraps and truncates safely. */
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-layer-2);
+  min-width: 0;
+}
+
+.card[data-disabled] {
+  opacity: 0.55;
+}
+
+.label {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delta {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.deltaArrow {
+  font-size: 12px;
+}
+
+.delta.up {
+  color: var(--yt-chart-positive, var(--dsw-static-green-500));
+}
+
+.delta.down {
+  color: var(--yt-chart-negative, var(--dsw-static-amber-600));
+}
+
+.delta.flat {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.footnote {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-caption);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

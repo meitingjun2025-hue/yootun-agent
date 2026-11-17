@@ -1,0 +1,92 @@
+/* DataState: shape-matched loading skeletons plus empty/error/partial notices.
+   Skeleton surfaces use the official skeleton alias; notices use label aliases. */
+
+.notice {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 64px;
+  padding: 16px;
+  text-align: center;
+}
+
+.noticeText {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.partial {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.partialNote {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-label);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rowSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowLine,
+.blockSkeleton,
+.valueSkeleton,
+.chartSkeleton {
+  box-sizing: border-box;
+  display: block;
+  background: var(--dsw-alias-bg-skeleton);
+  border-radius: var(--dsw-radius-sm);
+}
+
+.rowLine {
+  height: 20px;
+}
+
+.blockSkeleton {
+  height: 64px;
+  border-radius: var(--dsw-radius-md);
+}
+
+.valueSkeleton {
+  width: 96px;
+  height: 28px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.chartSkeleton {
+  height: 100%;
+  min-height: 120px;
+  border-radius: var(--dsw-radius-md);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

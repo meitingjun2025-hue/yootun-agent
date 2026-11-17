@@ -6,7 +6,7 @@
 
 | # | 文件 | 改动 | 状态 | 落实 | 同步策略 |
 |---|---|---|---|---|---|
-| 1 | `pnpm-workspace.yaml` | `packages:` 列表追加 `yootun/packages/*` 一行 glob | 已落实 | 批次 1（2026-11-13） | 冲突时保留自有行 |
+| 1 | `pnpm-workspace.yaml` | `packages:` 列表追加 `yootun/packages/*` 一行 glob；P1 批次（2026-11-16）扩展为同时追加 `yootun/plugins/*` 一行 glob（插件分区，先扩展本簿再动 workspace） | 已落实 | 批次 1（2026-11-13）+ P1 批次（2026-11-16） | 冲突时保留自有行 |
 | 8 | `apps/desktop/scripts/desktop-package-environment.mjs` + `apps/desktop/tests/desktop-package-environment.spec.ts`（品牌/无品牌双态行为测试） | `localMacOSPackageEnvironment`（mac unsigned 本地打包环境构造）品牌收口：仅当品牌 feed 环境存在时透传 `DSH_DESKTOP_AUTO_UPDATE_ENV`（官方 ambient 过滤剥离该键，品牌 unsigned mac 包解析 production feed 必失败——批次 5 review P0-1 修复，2026-11-14；上游 rc3 同步时补品牌门控，保证无品牌构建继续剥离 ambient release 键，2026-11-15）；`DSH_DESKTOP_APP_ID` 品牌可覆盖（`YOOTUN_BRAND_APP_ID ?? 'com.deepseek.harness'`，顺带修复批次 3 的 mac 包品牌 appId 遗漏）。官方无品牌环境构建行为原样 | 已落实 | 批次 5（2026-11-14，用户确认登记）+ 上游 rc3 同步（2026-11-15） | 重放（appId 覆盖 + 品牌 feed 门控透传） |
 | 2 | `apps/desktop/src/project-manager.ts` | profile bundles 列表追加 yootun bundle（`DESKTOP_BUNDLES` 常量） | 已落实 | 批次 3（2026-11-13） | 重放（一行） |
 | 3 | `apps/desktop/scripts/prepare-package-set.ts`（含配套测试闭包 fixture 更新）+ `apps/desktop/scripts/pack-local-packages.ts` | 打包闭包接入完整形态：ROOT_PACKAGES 追加 yootun bundle（选择）+ unsigned 本地 pack 后追加 `--filter=@yootun/*` pack 进同一 staging 目录（产出——dsh family 只选 @deepseek-ai 包，yootun 包须单独 stage；CI 实测补齐，2026-11-13） | 已落实 | 批次 3（2026-11-13） | 重放（两处小改 + 测试 fixture 同步） |
