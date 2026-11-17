@@ -36,6 +36,32 @@ const OPEN_TIMEOUT_MS = 60_000
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
+/**
+ * Race `promise` against a timeout, always clearing the timer once settled:
+ * when the promise finishes first, no `Timeout` stays active behind it（输掉的
+ * setTimeout 会把进程/event loop 挂到超时为止）; when the timer wins, deliver
+ * `onTimeout()`'s result; a rejection propagates unchanged. Deliberately no
+ * `unref()` —— 修复手段是清掉 timer，不是把它从 event loop 摘除。
+ * @param promise - the operation to await.
+ * @param timeoutMs - the timeout budget in milliseconds.
+ * @param onTimeout - builds the timeout outcome (same type as the promise);
+ *   it runs inside a timer callback, so it must not throw（同步抛出会绕过本函数
+ *   的 try，成为 uncaughtException 而非 rejection）.
+ * @returns the promise's outcome, or `onTimeout()` on timeout.
+ */
+export async function raceWithTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () => T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeoutPromise = new Promise<T>(resolve => { timer = setTimeout(() => resolve(onTimeout()), timeoutMs) })
+  // promise 输掉 race 之后才 reject 时，拒绝必须被旁路消费，否则成为
+  // unhandled rejection；race 本身看到的仍是原 promise，语义不变。
+  promise.catch(() => undefined)
+  try {
+    return await Promise.race([promise, timeoutPromise])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Playwright Page 满足采集器的最小页面面（结构化兼容）。 */
 export function asCollectorPage(page: Page): CollectorPage {
   return page as unknown as CollectorPage
@@ -339,10 +365,11 @@ export async function probeSession(options: {
     ;({ context } = await chromeFactory({ headless: true, profileDir }))
     const page = context.pages()[0] ?? await context.newPage()
     await page.goto(ASSISTANT_ORIGIN, { waitUntil: 'domcontentloaded', timeout: PROBE_TIMEOUT_MS })
-    const probe = await Promise.race([
+    const probe = await raceWithTimeout(
       fetchAuthData(asCollectorPage(page)).then(profile => ({ profile, error: null as string | null })).catch((error: unknown) => ({ profile: null, error: error instanceof SessionInvalidError ? (error.reason || 'session_invalid') : 'auth_data_unavailable' })),
-      sleep(PROBE_TIMEOUT_MS).then(() => ({ profile: null, error: 'auth_data_unavailable' })),
-    ])
+      PROBE_TIMEOUT_MS,
+      () => ({ profile: null, error: 'auth_data_unavailable' }),
+    )
     // storage_state 探活后落盘刷新（会话续期；0600）。
     if (probe.profile !== null) await saveStorageState(accountId, context, root)
     await context.close().catch(() => undefined)

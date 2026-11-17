@@ -499,3 +499,42 @@ test('profile 锁原语：tryWithProfileLocks 任一占用即整体失败，已�
     assert.equal(profileLockWaiters('pa'), 0)
   })
 })
+
+// --- probeSession 的 45s race timer 泄漏回归（profile lock 测试暴露：每次成功
+// probe 泄漏一个 45s Timeout，把测试进程挂住约 45 秒） ---
+
+function countActiveTimeouts(): number {
+  return process.getActiveResourcesInfo().filter(name => name === 'Timeout').length
+}
+
+test('probeSession 成功探活后不遗留 Timeout（race timer 必须被清除）', async () => {
+  const root = makeEnv('wx-pl-timer', [{ id: 'acc1' }])
+  const { probeSession } = await import('../src/session.ts')
+  const factory = makeFactory({ acc1: {} })
+  const before = countActiveTimeouts()
+  const probe = await probeSession({ accountId: 'acc1', root, chromeFactory: factory })
+  assert.equal(probe.status, 'ok')
+  // 方向性断言（after <= before）：泄漏时 after=before+1 必失败；背景中早期
+  // 测试遗留的护栏 timer 恰好到期（after=before-1）不应误报。
+  assert.ok(countActiveTimeouts() <= before, `成功 probe 后活跃 Timeout 数不得增加（45s race timer 未清除）: before=${String(before)} after=${String(countActiveTimeouts())}`)
+  cleanup(root)
+})
+
+test('raceWithTimeout：promise 先完成清 timer；超时分支交付 onTimeout；拒绝原样保留且无 timer 残留', async () => {
+  const { raceWithTimeout } = await import('../src/session.ts')
+  const before = countActiveTimeouts()
+
+  // promise 先完成：拿到结果，活跃 Timeout 数不增（60s timer 已被清除）。
+  assert.equal(await raceWithTimeout(sleep(5).then(() => 'ok'), 60_000, () => 'timeout'), 'ok')
+  assert.ok(countActiveTimeouts() <= before, `promise 赢得 race 后 timer 未清除: before=${String(before)} after=${String(countActiveTimeouts())}`)
+
+  // 超时赢得 race：交付 onTimeout 的结果。
+  assert.equal(await raceWithTimeout(new Promise<string>(() => {}), 10, () => 'timeout'), 'timeout')
+
+  // promise 拒绝：原始 rejection 原样保留，settle 后无 timer 残留。
+  await assert.rejects(
+    raceWithTimeout(Promise.reject(new Error('boom')), 60_000, () => 'timeout'),
+    /boom/,
+  )
+  assert.ok(countActiveTimeouts() <= before, `promise 拒绝后 timer 未清除: before=${String(before)} after=${String(countActiveTimeouts())}`)
+})
