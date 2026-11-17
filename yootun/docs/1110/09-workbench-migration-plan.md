@@ -353,8 +353,10 @@ account.removeLocal
 account.removeRemote
 collect.start
 collect.status
+collect.cancel
 collectAll.start
 collectAll.status
+collectAll.cancel
 run.get
 works.list
 work.get

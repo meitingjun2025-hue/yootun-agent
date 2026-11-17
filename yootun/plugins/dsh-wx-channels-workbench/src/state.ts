@@ -5,7 +5,7 @@
  * 响应、日志、tools 参数或审计。
  * @module
  */
-import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, constants, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -67,12 +67,25 @@ export function safeSegment(value: string): string {
   return cleaned || 'account'
 }
 
+/**
+ * Atomic 0600 write: tmp(pid+rand) in the same directory → rename → chmod.
+ * 固定 tmp 在同机多实例并发写时会被交错覆盖（P3-1：桌面+CLI 各跑一份），
+ * pid+rand 隔离；rename 保证半截文件永不出现在最终路径。
+ */
+async function atomicWrite0600(file: string, data: string): Promise<void> {
+  const tmp = `${file}.tmp-${String(process.pid)}-${String(Math.random()).slice(2, 8)}`
+  await writeFile(tmp, data, { mode: 0o600 })
+  await rename(tmp, file)
+  await chmod(file, 0o600).catch(() => undefined)
+}
+
 async function ensureDir(dir: string, mode = 0o700): Promise<void> {
   await mkdir(dir, { recursive: true, mode })
   try {
     await chmod(dir, mode)
-  } catch {
+  } catch (error: unknown) {
     // Windows 上 chmod 语义有限，忽略。
+    void error
   }
 }
 
@@ -90,6 +103,10 @@ export interface AccountRecord {
   runAttemptId?: string | undefined
   runId?: string | undefined
   lastCollectedAt?: string | undefined
+  lastLoginAt?: string | undefined
+  promotedFrom?: string | undefined
+  vaultRef?: string | undefined
+  isMasterFinder?: boolean | undefined
 }
 
 /** The persisted accounts document. */
@@ -145,7 +162,7 @@ export async function writeAccounts(state: AccountsState, root: string = stateRo
   return withRootLock(root, async () => {
     const file = paths(root).accountsFile
     await ensureDir(dirname(file))
-    await writeFile(file, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+    await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
   })
 }
 
@@ -184,7 +201,7 @@ export async function updateAccount(accountId: string, patch: Partial<AccountRec
     const previous: AccountRecord = state.accounts[accountId] ?? { accountId }
     const merged: AccountRecord = { ...previous, ...patch, accountId }
     state.accounts[accountId] = merged
-    await writeFile(file, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+    await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
     return merged
   })
 }
@@ -212,7 +229,7 @@ export async function bumpSessionSeq(accountId: string, root: string = stateRoot
     const previous: AccountRecord = accounts[accountId] ?? { accountId }
     const next = Number(previous.sessionSeq ?? 0) + 1
     accounts[accountId] = { ...previous, sessionSeq: next, accountId }
-    await writeFile(file, `${JSON.stringify({ version: STATE_VERSION, accounts }, null, 2)}\n`, { mode: 0o600 })
+    await atomicWrite0600(file, `${JSON.stringify({ version: STATE_VERSION, accounts }, null, 2)}\n`)
     return next
   })
 }
@@ -227,6 +244,44 @@ export async function bumpSessionSeq(accountId: string, root: string = stateRoot
 export async function nextSessionSeq(accountId: string, root: string = stateRoot()): Promise<number> {
   const record = await getAccount(accountId, root).catch(() => undefined)
   return Number(record?.sessionSeq ?? 0) + 1
+}
+
+/**
+ * Bump the sequence while applying a profile patch in the same locked write
+ * (login/promote: 两次 RMW 会让 seq 回退，定序与资料必须同锁)；`floor` 下限对齐
+ * 多设备远端 seq。
+ * @param accountId - account id.
+ * @param patch - profile patch applied together with the sequence bump.
+ * @param floor - minimum sequence (remote floor).
+ * @param root - state root directory.
+ * @returns the patched record and the new sequence.
+ */
+export async function bumpSessionSeqWith(
+  accountId: string,
+  patch: Partial<AccountRecord>,
+  floor = 0,
+  root: string = stateRoot(),
+): Promise<{ record: AccountRecord; seq: number }> {
+  return withRootLock(root, async () => {
+    const file = paths(root).accountsFile
+    let accounts: Record<string, AccountRecord> = {}
+    try {
+      const raw = await readFile(file, 'utf8')
+      const parsed: unknown = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (parsed as { accounts?: unknown }).accounts) {
+        accounts = (parsed as { accounts: Record<string, AccountRecord> }).accounts
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const previous: AccountRecord = accounts[accountId] ?? { accountId }
+    const previousSeq = Number(previous.sessionSeq ?? 0)
+    const seq = Math.max(previousSeq, floor) + 1
+    const record: AccountRecord = { ...previous, ...patch, sessionSeq: seq, accountId }
+    accounts[accountId] = record
+    await atomicWrite0600(file, `${JSON.stringify({ version: STATE_VERSION, accounts }, null, 2)}\n`)
+    return { record, seq }
+  })
 }
 
 /**
@@ -257,7 +312,9 @@ async function copyTree(from: string, to: string): Promise<void> {
 async function readdirSafe(dir: string): Promise<string[]> {
   try {
     return await import('node:fs').then(fs => fs.readdirSync(dir))
-  } catch {
+  } catch (error: unknown) {
+    // 目录不存在/不可读：视为空（profile 尚未创建是正常态）。
+    void error
     return []
   }
 }
@@ -273,15 +330,39 @@ export async function moveProfile(fromAccountId: string, toAccountId: string, ro
   const from = layout.profileDir(fromAccountId)
   const to = layout.profileDir(toAccountId)
   try {
-    await rename(from, to)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EXDEV') {
-      await copyTree(from, to)
-      await rm(from, { recursive: true, force: true })
-      return
+    await access(from, constants.X_OK)
+  } catch (error: unknown) {
+    // 源不存在：无可迁移（与旧版 ENOENT 分支一致）。
+    void error
+    return
+  }
+  // 目标已存在（对已有账号重新扫码/重试 promote）：备份→迁移→失败回滚
+  // （旧 state.js P3-24：POSIX rename 到非空目录抛 ENOTEMPTY，直接抛会让登录
+  // 半途失败并遗留 pending 目录）。
+  const backup = `${to}.bak-${String(Date.now())}`
+  let moved = false
+  try {
+    try {
+      await access(to, constants.X_OK)
+      await rename(to, backup)
+    } catch (backupError) {
+      if ((backupError as NodeJS.ErrnoException).code !== 'ENOENT') throw backupError
     }
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-    throw error
+    try {
+      await rename(from, to)
+      moved = true
+    } catch (moveError) {
+      if ((moveError as NodeJS.ErrnoException).code === 'EXDEV') {
+        await copyTree(from, to)
+        await rm(from, { recursive: true, force: true })
+        moved = true
+      } else {
+        throw moveError
+      }
+    }
+  } finally {
+    if (moved) await rm(backup, { recursive: true, force: true }).catch(() => undefined)
+    else await rename(backup, to).catch(() => undefined) // 回滚：保留原账号 profile。
   }
 }
 
@@ -333,8 +414,10 @@ export async function saveStorageState(accountId: string, context: { storageStat
 export async function hasStorageState(accountId: string, root: string = stateRoot()): Promise<boolean> {
   try {
     const info = await stat(paths(root).storageStatePath(accountId))
-    return info.isFile()
-  } catch {
+    return info.isFile() && info.size > 0
+  } catch (error: unknown) {
+    // 不存在即无凭证（删除前置检查的否定分支）。
+    void error
     return false
   }
 }
@@ -349,12 +432,14 @@ export async function hasStorageState(accountId: string, root: string = stateRoo
  */
 export async function clearLocalCredentials(accountId: string, root: string = stateRoot()): Promise<void> {
   const layout = paths(root)
+  // 逐项 force 删除；单项失败不阻断其余清理与记录删除（P2-3：避免「storage 已删、
+  // profile 残留但记录仍在」的漂移——hasStorageState=false 时记录必须已同步移除）。
   await rm(layout.storageStatePath(accountId), { force: true })
-  await rm(layout.profileDir(accountId), { recursive: true, force: true })
+  await rm(layout.profileDir(accountId), { recursive: true, force: true }).catch(() => undefined)
   await withRootLock(root, async () => {
     const state = await readAccounts(root).catch(() => emptyState())
     if (state.accounts[accountId] === undefined) return
     delete state.accounts[accountId]
-    await writeFile(layout.accountsFile, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+    await atomicWrite0600(layout.accountsFile, `${JSON.stringify(state, null, 2)}\n`)
   })
 }

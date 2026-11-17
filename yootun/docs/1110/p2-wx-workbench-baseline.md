@@ -17,7 +17,9 @@
 | account.promote | pending- 账号提升（探活后改名迁移 profile/storage_state） | 同 |
 | account.removeLocal | 本地凭证与 profile 清理 | 同 |
 | account.removeRemote | 本地 storage_state 仍存在 → 拒绝（LOCAL_CLEARED_REQUIRED）；再远端 remove（confirm+localCleared+幂等键） | 同；远端经 workbench |
-| collect.start | 互斥（collectBusy/batch running/batchReserved 三态）；readiness 检查；会话实测上报；单槽 collectRecord 投影；newAttempt 语义 | 增加 run 记录持久化（runs.json）与取消（AbortSignal） |
+| collect.start | 互斥（collectBusy/batch running/batchReserved 三态同步守卫）；readiness 检查；会话实测上报；单槽 collectRecord 投影；newAttempt 语义 | 增加 run 记录持久化（runs.json）、取消（AbortSignal）与同步互斥预留（TOCTOU 修复） |
+| collect.cancel（新增） | 旧插件无取消入口 | AbortController 中止当前采集；远端补偿 run_cancel 用独立 cleanup signal（不复用已 aborted 的调用 signal）；已完成批次保留，本地投影 cancelled |
+| collectAll.cancel（新增） | 旧插件一期无批量取消 | 停止当前账号、后续账号标 skipped(cancelled)；批量 controller stop/dispose 语义 |
 | collect.status | busy + collectRecord 投影 | 增加持久化 run 恢复投影 |
 | collectAll.start | batchReserved 同步预留防 TOCTOU（P2-6）；非 pending 账号列表串行采集 | 同 |
 | collectAll.status | batchController.status 投影；重启后回 ready | 同 |
@@ -70,4 +72,4 @@
 
 ## 7. Playwright 依赖口径
 
-`playwright ^1.49.0`（lockfile 生态已有）作为本包 dependencies；`chromium.launch({ channel: 'chrome' })` 只用系统 Chrome，不下载浏览器——与旧合规基线一致。
+`playwright-core ^1.49.0` 作为本包 dependencies（**不是** `playwright`——避免完整 playwright 的浏览器下载管理器进入桌面生产闭包）；`chromium.launch({ channel: 'chrome' })` 只用系统 Chrome，不下载浏览器——与旧合规基线一致。

@@ -58,7 +58,9 @@ async function isExecutable(file: string): Promise<boolean> {
   try {
     await access(file, constants.X_OK)
     return true
-  } catch {
+  } catch (error: unknown) {
+    // 不可执行/不存在：探测否定分支。
+    void error
     return false
   }
 }
@@ -111,11 +113,18 @@ export interface BrowserStatus {
 export async function browserStatus(): Promise<BrowserStatus> {
   try {
     await resolveSystemChrome()
-    return { chrome: 'available', driver: 'available' }
   } catch (error) {
     if ((error as { code?: unknown }).code === 'PLAYWRIGHT_DRIVER_MISSING') {
       return { chrome: 'available', driver: 'missing' }
     }
-    return { chrome: 'missing', driver: 'available' }
+    return { chrome: 'missing', driver: 'missing' }
+  }
+  // Chrome 可用后真实探测 playwright-core 驱动可解析（不能在只找到 Chrome 时
+  // 直接假设 driver available——复审 P1-3）。
+  try {
+    await import('playwright-core')
+    return { chrome: 'available', driver: 'available' }
+  } catch {
+    return { chrome: 'available', driver: 'missing' }
   }
 }

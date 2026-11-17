@@ -16,22 +16,28 @@
       "path": "../../../packages/client/locale/tsconfig.client.json"
     },
     {
-      "path": "../../../packages/client/ui-layout"
-    },
-    {
       "path": "../../../packages/client/ui-primitives"
     },
     {
       "path": "../../../packages/client/ui-slots"
     },
     {
+      "path": "../../../packages/client/ui-layout"
+    },
+    {
+      "path": "../../../packages/client/ui-renderer"
+    },
+    {
+      "path": "../../../packages/client/ui-sidebar"
+    },
+    {
+      "path": "../../../packages/util/brand"
+    },
+    {
       "path": "../../../packages/host/webserver"
     },
-    {
-      "path": "../../packages/dsh-client-ui-kit"
-    },
-    {
-      "path": "../../plugins/dsh-workbench-mcp"
-    }
   ]
+  // @yootun/dsh-client-ui-kit 与 @yootun/dsh-workbench-mcp 不进 references：
+  // 经 node_modules symlink 解析到各自已构建的 lib/types（与 access→brand 同口径），
+  // 避免 rootDir/outDir 相对路径重写不安全（TS2878）。
 }

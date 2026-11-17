@@ -75,6 +75,9 @@
       name: '@yootun/dsh-workbench-mcp'
     - id: yootun-media-upload
       name: '@yootun/dsh-media-upload'
+    # P2 视频号工作台（分册 09 §4）：内置启用，不恢复激活页勾选。
+    - id: yootun-wx-workbench
+      name: '@yootun/dsh-wx-channels-workbench'
 
 # Agent 面 MCP 的挂载自 P1 起由 `@yootun/dsh-managed-mcp` 承载（分册 08 §4）：
 # 插件按激活门禁动态挂载官方 dsh-mcp-client（yootun-agent），未激活零连接；

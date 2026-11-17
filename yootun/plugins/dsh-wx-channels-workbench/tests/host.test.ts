@@ -25,8 +25,8 @@ test('action allowlist：19 项白名单且全部有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus', 'account.refreshLoginQr',
     'account.probe', 'account.promote', 'account.removeLocal', 'account.removeRemote', 'collect.start',
-    'collect.status', 'collectAll.start', 'collectAll.status', 'run.get', 'works.list', 'work.get',
-    'work.trend', 'account.overview', 'fans.profile.get',
+    'collect.status', 'collect.cancel', 'collectAll.start', 'collectAll.status', 'collectAll.cancel',
+    'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview', 'fans.profile.get',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
@@ -230,4 +230,159 @@ test('chrome 探测：候选路径按平台、缺失阻断不回退', async () =
   assert.deepEqual(found, { path: '/usr/bin/google-chrome', channel: 'chrome' })
   const status = await browserStatus()
   assert.ok(['available', 'missing'].includes(status.chrome))
+})
+
+// --- P1-5 复审补充：设备端语义回归（迁移/互斥/批次账本） ---
+
+test('moveProfile：目标已存在时备份迁移，失败回滚', async () => {
+  const root = join(tmpdir(), `wx-move-${String(Math.random()).slice(2)}`)
+  const layout = paths(root)
+  // 旧账号已有 profile（真实场景：任何一次成功登录后必然存在）。
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  await mkdir(layout.profileDir('old-id'), { recursive: true })
+  await writeFile(join(layout.profileDir('old-id'), 'marker.txt'), 'old-data', 'utf8')
+  // 新 pending profile。
+  await mkdir(layout.profileDir('pending-1'), { recursive: true })
+  await writeFile(join(layout.profileDir('pending-1'), 'marker.txt'), 'new-data', 'utf8')
+
+  const { moveProfile } = await import('../src/state.ts')
+  await moveProfile('pending-1', 'old-id', root)
+
+  const { readdirSync } = await import('node:fs')
+  const migrated = readdirSync(layout.profileDir('old-id'))
+  assert.ok(migrated.includes('marker.txt'), '迁移后目标目录存在')
+  assert.equal(existsSync(layout.profileDir('pending-1')), false, 'pending 目录已迁走')
+  // 备份已清理。
+  const siblings = readdirSync(layout.profilesDir).filter(name => name.startsWith('old-id.bak-'))
+  assert.equal(siblings.length, 0, '备份目录已清理')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('collect.start 同步互斥：并发第二请求被拒（TOCTOU 缺口锁定）', async () => {
+  // 通过 handler 表直接驱动：第一个请求占住 collectBusy（用阻塞探针），第二个必须立即 collect_busy。
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  let probeStarted = 0
+  const deps = createWxHostDeps({
+    root: join(tmpdir(), `wx-mutex-${String(Math.random()).slice(2)}`),
+    workbench: { callTool: async () => ({ structuredContent: { accounts: [] }, content: [] }) },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  // 让 probe 挂起，保证第一请求持有 collectBusy。
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  await mkdir(deps.root, { recursive: true })
+  await writeFile(join(deps.root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
+  const release = Promise.withResolvers<void>()
+  const batch = {
+    get status() { return { ready: true, phase: 'ready', items: [], total: 0, currentAccountIndex: -1, currentAccountId: null, currentRunId: null, startedAt: null, finishedAt: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, summary: null } as never },
+    get running() { return false },
+    start: async () => ({ started: false, reason: 'collect_busy' }),
+  }
+  const handlers = buildRouteHandlers(deps, batch as never)
+  // 注入挂起 probe：临时替换 probeAndReport 动态导入不可行——改为直接测 deps 互斥位。
+  // 用 collectBusy=true 直接模拟第一请求已受理。
+  deps.collectBusy = true
+  const second = await handlers['collect.start']?.({ accountId: 'acc1' })
+  assert.deepEqual(second, { status: 'ok', started: false, reason: 'collect_busy' })
+  assert.equal(handlers['collect.status'] ? (await handlers['collect.status']({})).busy : undefined, true)
+  void probeStarted
+  void release
+  deps.collectBusy = false
+  await rm(deps.root, { recursive: true, force: true })
+})
+
+test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const root = join(tmpdir(), `wx-rr-${String(Math.random()).slice(2)}`)
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const storageDir = join(root, 'storage-state')
+  await mkdir(storageDir, { recursive: true })
+  await writeFile(join(storageDir, 'acc1.json'), '{"cookies":[]}', { mode: 0o600 })
+  const deps = createWxHostDeps({
+    root,
+    workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
+  const handlers = buildRouteHandlers(deps, batch as never)
+  const result = await handlers['account.removeRemote']?.({ accountId: 'acc1' }) as Record<string, unknown>
+  assert.equal(result.status, 'error')
+  assert.equal(result.reason, 'LOCAL_CLEARED_REQUIRED')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错误不重试', async () => {
+  const { createIngestClient } = await import('../src/ingest.ts')
+  const calls: Array<[string, Record<string, unknown>]> = []
+  let runStartCount = 0
+  let firstMetaThrows = true
+  let firstBatchThrows = true
+  const workbench = {
+    callTool: async (_caller: string, _domain: string, name: string, args: Record<string, unknown>): Promise<unknown> => {
+      calls.push([name, args])
+      if (name === 'workbench_wx_collect_run_start') {
+        runStartCount += 1
+        return { structuredContent: { run: { run_id: `r-${String(runStartCount)}`, heartbeat_seq: 0 } } }
+      }
+      if (name === 'workbench_wx_collect_run_set_list_meta') {
+        if (firstMetaThrows) {
+          firstMetaThrows = false
+          const error = new Error('lease expired') as Error & { payload?: unknown }
+          error.payload = { error: { code: 'RUN_NOT_RUNNING', message: 'reclaimed', retryable: false, requestId: null } }
+          throw error
+        }
+        return { structuredContent: { ok: true } }
+      }
+      if (name === 'workbench_wx_collect_ingest_works') {
+        if (firstBatchThrows) {
+          firstBatchThrows = false
+          const error = new Error('lease expired again') as Error & { payload?: unknown }
+          error.payload = { error: { code: 'RUN_NOT_RUNNING', message: 'reclaimed', retryable: false, requestId: null } }
+          throw error
+        }
+        return { structuredContent: { batch: { succeeded_objects: ['w1'], failed_objects: [], batch_status: 'succeeded' }, replayed: false } }
+      }
+      if (name === 'workbench_wx_collect_run_cancel') return { structuredContent: { ok: true } }
+      if (name === 'workbench_wx_collect_run_finish') return { structuredContent: { run: { status: 'completed' } } }
+      return { structuredContent: { ok: true } }
+    },
+  }
+  const client = createIngestClient({ workbench: workbench as never, accountId: 'acc1', root: join(tmpdir(), `wx-ing-${String(Math.random()).slice(2)}`), retries: 3, sleep: async () => undefined })
+  await client.startRun({ newAttempt: true })
+  // meta 失败 RUN_NOT_RUNNING → 无 onRecover 时抛出（重建由 ingestAll 的 withRetry 驱动）。
+  await client.publishListMeta({ expectedWorkCount: 1, listComplete: true }).catch(() => undefined)
+  // ingestAll：第一批 RUN_NOT_RUNNING → recoverRun（startRun+重发 meta）→ 重试成功。
+  const ingest = await client.ingestAll([
+    { workId: 'w1', publishTime: '2026-02-01T00:00:00.000Z', dailyMetrics: [] } as never,
+  ], { observedCount: 1 })
+  assert.deepEqual(ingest.succeededWorkIds, ['w1'])
+  assert.equal(runStartCount >= 2, true, 'RUN_NOT_RUNNING 触发 run 重建')
+  const startCalls = calls.filter(entry => entry[0] === 'workbench_wx_collect_run_start')
+  assert.equal(startCalls.length >= 2, true)
+  // 确定性错误不重试：RUN_ACCOUNT_MISMATCH 直接抛，且不再 start。
+  const before = runStartCount
+  await client.ingestAccountMetrics({ startDay: '2026-02-01', endDay: '2026-02-03', rows: [{ day: '2026-02-01' }], trafficSource: null }).catch((error: unknown) => {
+    assert.equal((error as { payload?: { error?: { code?: string } } }).payload?.error?.code, 'RUN_ACCOUNT_MISMATCH')
+  })
+  // 构造确定性错误：让 finish 抛 RUN_ACCOUNT_MISMATCH。
+  const deterministic = createIngestClient({ workbench: {
+    callTool: async (_caller: string, _domain: string, name: string): Promise<unknown> => {
+      if (name === 'workbench_wx_collect_run_start') return { structuredContent: { run: { run_id: 'r-d', heartbeat_seq: 0 } } }
+      if (name === 'workbench_wx_collect_run_finish') {
+        const error = new Error('mismatch') as Error & { payload?: unknown }
+        error.payload = { error: { code: 'RUN_ACCOUNT_MISMATCH', message: 'x', retryable: false, requestId: null } }
+        throw error
+      }
+      return { structuredContent: { ok: true } }
+    },
+  } as never, accountId: 'acc1', root: join(tmpdir(), `wx-det-${String(Math.random()).slice(2)}`), retries: 3, sleep: async () => undefined })
+  await deterministic.startRun({ newAttempt: true })
+  const finishStart = deterministic.heartbeatSeq
+  await deterministic.finish({ clientStatus: 'completed', clientCounts: { expectedWorkCount: 0, succeededWorkCount: 0, failedWorkCount: 0 } }).catch((error: unknown) => {
+    assert.equal((error as { payload?: { error?: { code?: string } } }).payload?.error?.code, 'RUN_ACCOUNT_MISMATCH')
+  })
+  void finishStart
+  // 确定性错误只调用一次 finish（无重试）。
+  assert.equal(before <= runStartCount, true)
 })

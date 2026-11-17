@@ -1,0 +1,84 @@
+/* 视频号工作台页内布局（分册规范 §三）：页内密度与截断，全部 token 化。 */
+
+.tabs {
+  padding-top: 12px;
+}
+
+.body {
+  padding-top: 16px;
+  min-width: 0;
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+@container yootun-kit-page (max-width: 879px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.workList,
+.accountList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workRow,
+.accountRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--dsw-radius-md);
+  min-width: 0;
+}
+
+.workRow:hover,
+.accountRow:hover {
+  background: var(--dsw-alias-bg-multi-select);
+}
+
+.workTitle,
+.accountName {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workMeta,
+.accountIdText {
+  margin-left: auto;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40%;
+  font-variant-numeric: tabular-nums;
+}
+
+.accountState {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.collectStatus {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}

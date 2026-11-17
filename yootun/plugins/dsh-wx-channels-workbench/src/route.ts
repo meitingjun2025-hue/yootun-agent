@@ -35,7 +35,9 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.removeRemote': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collect.start': { fields: { accountId: 'string', newAttempt: 'boolean' }, limits: { accountId: 128 } },
   'collect.status': { fields: {} },
+  'collect.cancel': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collectAll.start': { fields: {} },
+  'collectAll.cancel': { fields: {} },
   'collectAll.status': { fields: {} },
   'run.get': { fields: { runId: 'string' }, limits: { runId: 128 } },
   'works.list': { fields: { accountId: 'string', sort: 'string', order: 'string' }, limits: { accountId: 128, sort: 32, order: 8 } },
@@ -88,13 +90,15 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
   return args
 }
 
-/** 同源校验：loopback 由 webServer 层强制，这里再独立核一次（深度防御）。 */
+/** 同源校验（收紧口径）：loopback + Origin 精确相等 + sec-fetch-site 精确
+ * same-origin。缺失头部一律拒绝（浏览器同源 fetch 恒带这两类头；缺失即非浏览器
+ * 或被剥离，不得放行）。loopback 由 webServer 层强制，这里再独立核一次。 */
 export function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
   const address = req.socket.remoteAddress ?? ''
   const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
   return loopback
-    && (req.headers.origin === undefined || req.headers.origin === expectedOrigin)
-    && (req.headers['sec-fetch-site'] === undefined || req.headers['sec-fetch-site'] === 'same-origin')
+    && req.headers.origin === expectedOrigin
+    && req.headers['sec-fetch-site'] === 'same-origin'
 }
 
 /** Read and parse the JSON body with the size cap; malformed bodies become `{}` (schema layer rejects them). */
@@ -111,7 +115,9 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
     const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
     return parsed as Record<string, unknown>
-  } catch {
+  } catch (error: unknown) {
+    // JSON 解析失败按空体处理，schema 层会给出确定性拒绝。
+    void error
     return {}
   }
 }
