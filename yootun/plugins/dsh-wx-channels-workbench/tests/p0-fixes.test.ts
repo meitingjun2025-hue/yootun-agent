@@ -1,8 +1,9 @@
 /**
  * P2 三次复审 P0 修复的确定性测试（node --test）：
  * 1. profile lock 死锁：同账号嵌套锁不得挂起；
- * 2. runs.json 并发写：两条并发 upsert 都保留；
- * 3. login abort：abort 后 profiles 目录无 pending-* 残留。
+ * 2. login abort：abort 后 profiles 目录无 pending-* 残留（含 factory 晚 resolve）；
+ * 3. 集成：account.probe / collect.start 经 buildRouteHandlers 注入不死锁。
+ * runs.json 状态机测试见 tests/runs.test.ts。
  * 运行：`node --test tests/p0-fixes.test.ts`
  */
 import assert from 'node:assert/strict'
@@ -11,7 +12,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { withProfileLock } from '../src/locks.ts'
-import { readRuns, upsertRun } from '../src/runs.ts'
 
 // --- 1. profile lock 死锁 ---
 
@@ -53,50 +53,7 @@ test('profile lock：同账号并发调用串行（不同账号并发不阻塞�
   assert.equal(b, 'B')
 })
 
-// --- 2. runs.json 并发写 ---
-
-test('runs.json：并发 upsertRun 两条都保留（不丢写）', async () => {
-  const root = join(tmpdir(), `wx-runs-${String(Math.random()).slice(2)}`)
-  mkdirSync(root, { recursive: true })
-
-  // 并发 upsert 两条不同 runId 的记录。
-  await Promise.all([
-    upsertRun(root, { accountId: 'a', runId: 'run-1', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} }),
-    upsertRun(root, { accountId: 'b', runId: 'run-2', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} }),
-  ])
-
-  const runs = await readRuns(root)
-  assert.ok(runs['run-1'] !== undefined, 'run-1 保留')
-  assert.ok(runs['run-2'] !== undefined, 'run-2 保留')
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('runs.json：同一 runId 二次 upsert 覆盖（不产生重复）', async () => {
-  const root = join(tmpdir(), `wx-runs-${String(Math.random()).slice(2)}`)
-  mkdirSync(root, { recursive: true })
-
-  await upsertRun(root, { accountId: 'a', runId: 'run-1', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
-  await upsertRun(root, { accountId: 'a', runId: 'run-1', status: 'completed', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: null, progress: {} })
-
-  const runs = await readRuns(root)
-  assert.equal(Object.keys(runs).length, 1)
-  assert.equal(runs['run-1']?.status, 'completed')
-  rmSync(root, { recursive: true, force: true })
-})
-
-test('runs.json：recoverInterruptedRuns 将 running → interrupted', async () => {
-  const root = join(tmpdir(), `wx-runs-${String(Math.random()).slice(2)}`)
-  mkdirSync(root, { recursive: true })
-  const { recoverInterruptedRuns } = await import('../src/runs.ts')
-  await upsertRun(root, { accountId: 'a', runId: 'run-1', status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
-  const count = await recoverInterruptedRuns(root)
-  assert.equal(count, 1)
-  const runs = await readRuns(root)
-  assert.equal(runs['run-1']?.status, 'interrupted')
-  rmSync(root, { recursive: true, force: true })
-})
-
-// --- 3. login abort 清理 ---
+// --- 2. login abort 清理 ---
 
 test('loginWithQrCode abort 后 profiles 目录无 pending-* 残留', async () => {
   const root = join(tmpdir(), `wx-login-abort-${String(Math.random()).slice(2)}`)

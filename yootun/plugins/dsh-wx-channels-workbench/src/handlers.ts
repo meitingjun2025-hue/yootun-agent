@@ -14,7 +14,7 @@ import { isPendingAccountId, loginWithQrCode, type ChromeFactory } from './sessi
 import { tryWithProfileLock } from './locks.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
 import { checkCollectionReadiness, progressFromEvent } from './runner.ts'
-import { upsertRun, readRuns, removeRun, type RunRecord } from './runs.ts'
+import { createAttemptId, readRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
 import type { BatchStatus } from './collect-all.ts'
 import type { WxWorkbenchFace } from './ingest.ts'
 import type { ActionArgs, ActionHandler } from './route.ts'
@@ -101,13 +101,6 @@ function filterUndefined(record: Record<string, unknown>): Record<string, unknow
     if (value !== undefined && value !== '') result[key] = value
   }
   return result
-}
-
-/** fire-and-forget 落盘 run 记录：失败只告警不断采集主流程（复审观察 1：裸 void 会 unhandled rejection）。 */
-function recordRun(root: string, logger: { warn(message: string): void }, record: RunRecord): void {
-  void upsertRun(root, record).catch((error: unknown) => {
-    logger.warn(`wx runs.json upsert failed (${record.runId}): ${safeCode(error)}`)
-  })
 }
 
 export function buildRouteHandlers(deps: WxHostDeps, batch: {
@@ -350,11 +343,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
       if (!attempt.acquired) return { status: 'ok', removed: false, reason: 'collect_busy' }
       const result = attempt.result
-      // 清理 runs.json 中该账号的记录。
-      const runs = await readRuns(deps.root).catch(() => ({}) as Record<string, { accountId?: string }>)
-      for (const [runId, run] of Object.entries(runs)) {
-        if (run?.accountId === accountId) await removeRun(deps.root, runId).catch(() => undefined)
-      }
+      // 清理 runs.json 中该账号全部 run 记录：root 队列内一次性原子清理，
+      // 无「队列外 readRuns 快照 + 逐条 removeRun」的漏删/竞态窗口。
+      await removeAccountRuns(deps.root, accountId).catch((error: unknown) => {
+        deps.logger.warn(`wx runs.json cleanup failed (${accountId}): ${safeCode(error)}`)
+      })
       return { status: 'ok', ...result }
     },
 
@@ -379,10 +372,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       }
       deps.collectBusy = true
       deps.collectRecord = {
-        accountId, status: 'not_started', startedAt: new Date().toISOString(),
+        accountId, attemptId: null, status: 'not_started', startedAt: new Date().toISOString(),
         finishedAt: null, error: null, progress: { phase: 'probing' }, result: null,
       }
       let started = false
+      let attemptId = ''
       try {
         const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
         if (!readiness.ready) {
@@ -392,20 +386,24 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         if (session.sessionStatus !== 'ok') {
           return { status: 'ok', started: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
         }
+        // 稳定 attemptId：内存 collectRecord 与 runs.json 从此引用同一条记录。
+        attemptId = createAttemptId(accountId)
         const controller = new AbortController()
         deps.collectSignals.set(accountId, controller)
         const record = deps.collectRecord as Record<string, unknown>
+        record.attemptId = attemptId
         record.status = 'running'
         record.startedAt = new Date().toISOString()
         started = true
-        recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
+        // runs.json 的唯一写入方是 runner（running 记录在采集锁内启动时创建，
+        // progress/终态更新同一条）；这里只维护内存实时态。
         void runCollection({
-          workbench: deps.workbench, accountId, root: deps.root,
+          workbench: deps.workbench, accountId, root: deps.root, attemptId,
           chromeFactory: deps.chromeFactory,
           newAttempt: args.newAttempt === true,
           onProgress: event => {
             const progress = progressFromEvent(event)
-            if (progress !== null) { record.progress = progress; recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: '', finishedAt: null, error: null, progress }) }
+            if (progress !== null) record.progress = progress
           },
           logger: deps.logger,
           signal: controller.signal,
@@ -414,12 +412,15 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
           record.error = record.status === 'failed' ? result.reason ?? 'collect_failed' : null
           record.result = { runId: result.runId, works: result.works ?? 0 }
           record.finishedAt = new Date().toISOString()
-          recordRun(deps.root, deps.logger, { accountId, runId: result.runId ?? `pending-${accountId}`, status: record.status as 'completed' | 'partial' | 'failed' | 'cancelled', startedAt: String(record.startedAt), finishedAt: new Date().toISOString(), error: record.error as string | null, progress: record.progress as Record<string, unknown> })
         }).catch((error: unknown) => {
           record.status = 'failed'
           record.error = safeCode(error)
           record.finishedAt = new Date().toISOString()
-          recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'failed', startedAt: '', finishedAt: new Date().toISOString(), error: safeCode(error), progress: {} })
+          // 兜底终态（runner 自身已 catch 一切；此处只覆盖磁盘级穿透）。
+          // 写失败再 warn：终态可见性不允许静默。
+          void updateRun(deps.root, accountId, attemptId, { status: 'failed', finishedAt: new Date().toISOString(), error: record.error as string | null }).catch((persistError: unknown) => {
+            deps.logger.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(persistError)}`)
+          })
         }).finally(() => {
           deps.collectBusy = false
           deps.collectSignals.delete(accountId)
@@ -440,7 +441,16 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       }
     },
 
-    'collect.status': async () => ({ status: 'ok', busy: deps.collectBusy, collect: deps.collectRecord }),
+    'collect.status': async () => {
+      // 合并内存实时态与持久化态：lastRun 是 runs.json 中最近启动的一条完整
+      // 记录——进程重启后内存 collectRecord 为 null，lastRun 提供上次 run 的
+      // 终态投影（attemptId/runId/status/finishedAt/error）。
+      const runs = await readRuns(deps.root).catch(() => ({}) as Record<string, RunRecord>)
+      const lastRun = Object.values(runs)
+        .filter(record => record.startedAt !== '')
+        .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0] ?? null
+      return { status: 'ok', busy: deps.collectBusy, collect: deps.collectRecord, lastRun }
+    },
 
     'collect.cancel': async args => {
       const accountId = asString(args, 'accountId')

@@ -13,7 +13,7 @@ import type { WxWorkbenchFace } from './ingest.ts'
 import { SessionInvalidError, shanghaiDayFromTs } from './parse.ts'
 import { getAccount, hasStorageState, paths, stateRoot } from './state.ts'
 import { withProfileLock } from './locks.ts'
-import { upsertRun } from './runs.ts'
+import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import { asCollectorPage, launchChrome, refreshSessionState, type ChromeFactory } from './session.ts'
 import { markSessionExpired, markSessionOk, reportSessionStatus } from './probe.ts'
 import { accountSaveIdempotencyKey } from './idempotency.ts'
@@ -109,6 +109,7 @@ export async function runCollection(options: {
   workbench: WxWorkbenchFace
   accountId: string
   root?: string
+  attemptId?: string
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   newAttempt?: boolean
@@ -117,18 +118,24 @@ export async function runCollection(options: {
   signal?: AbortSignal | undefined
 }): Promise<CollectResult> {
   const root = options.root ?? stateRoot()
-  return withProfileLock(options.accountId, () => runCollectionWithinProfileLock({ ...options, root }))
+  // attemptId 是这次采集在 runs.json 的稳定 key：调用方（collect.start）传入
+  // 以便内存态与持久化态引用同一条记录；未传入时在此生成。
+  const attemptId = options.attemptId ?? createAttemptId(options.accountId)
+  return withProfileLock(options.accountId, () => runCollectionWithinProfileLock({ ...options, root, attemptId }))
 }
 
 /**
  * runCollection 的锁内实现：调用方必须已持有 accountId 的 profile 锁，因此
  * 这里直接调用无锁的 refreshSessionState（不得再经带锁的 probeAndReport，
- * 否则同账号嵌套锁死锁）。
+ * 否则同账号嵌套锁死锁）。runs.json 的唯一写入方：running 记录在启动时创建，
+ * progress 随事件合并，六条 return 路径（probe 失败/入库失败/成功/取消/
+ * 会话失效/异常）全部落终态。
  */
 async function runCollectionWithinProfileLock(options: {
   workbench: WxWorkbenchFace
   accountId: string
   root: string
+  attemptId: string
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   newAttempt?: boolean
@@ -138,8 +145,30 @@ async function runCollectionWithinProfileLock(options: {
 }): Promise<CollectResult> {
   const root = options.root
   const accountId = options.accountId
+  const attemptId = options.attemptId
   const signal = options.signal
-  const emit = (event: Record<string, unknown>): void => { options.onProgress?.(event) }
+  const emit = (event: Record<string, unknown>): void => {
+    options.onProgress?.(event)
+    // 进度落盘（白名单投影；fire-and-forget：updateRun 内部 root 队列串行不丢
+    // 写，失败只告警）。run_persist_failed 由终态失败路径直接 emit，不再触发
+    // 落盘（终态写失败的失败不递归）。
+    if (event.phase === 'run_persist_failed') return
+    const progress = progressFromEvent(event)
+    if (progress !== null) {
+      void updateRun(root, accountId, attemptId, { progress }).catch((error: unknown) => {
+        options.logger?.warn(`wx runs.json progress update failed (${attemptId}): ${safeCode(error)}`)
+      })
+    }
+  }
+  /** 终态落盘：失败必须可见（warn + run_persist_failed 进度事件），不影响已确定的 run 结果。 */
+  const persistFinalRun = async (patch: { runId?: string | null; status: RunRecord['status']; error: string | null }): Promise<void> => {
+    try {
+      await updateRun(root, accountId, attemptId, { ...patch, finishedAt: new Date().toISOString() })
+    } catch (error) {
+      options.logger?.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(error)}`)
+      options.onProgress?.({ phase: 'run_persist_failed', reason: safeCode(error) })
+    }
+  }
   let context: import('playwright-core').BrowserContext | null = null
   try {
     // 1) 会话探测（本地实测优先）：远端状态只是展示参考，读不到不阻断。
@@ -157,7 +186,9 @@ async function runCollectionWithinProfileLock(options: {
     const session = await refreshSessionState({ accountId: options.accountId, root, chromeFactory: options.chromeFactory })
     await reportSessionStatus(options.workbench, options.accountId, session)
     if (session.sessionStatus !== 'ok') {
-      return { status: 'failed', runId: null, reason: session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed' }
+      const reason = session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed'
+      await persistFinalRun({ status: 'failed', error: reason })
+      return { status: 'failed', runId: null, reason }
     }
 
     // 1.5) 远端账号自愈（失败不阻断）。
@@ -253,6 +284,7 @@ async function runCollectionWithinProfileLock(options: {
       signal,
     })
     if (result.error !== null) {
+      await persistFinalRun({ runId: result.runId, status: 'failed', error: result.error })
       return { status: 'failed', runId: result.runId, reason: result.error, works: enriched.length }
     }
     const okState = await markSessionOk({ accountId: options.accountId, root, floorSessionSeq })
@@ -264,10 +296,9 @@ async function runCollectionWithinProfileLock(options: {
           expected: list.totalCount ?? enriched.length,
           ingest: result.ingest ?? { succeededWorkIds: [], failedWorkIds: [] },
         })
-    // fire-and-forget 落盘：失败只告警，不覆盖已成功的采集结果。
-    void upsertRun(root, { accountId, runId: result.runId, status: status as 'completed', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: null, progress: {} }).catch((error: unknown) => {
-      options.logger?.warn(`wx runs.json upsert failed (${result.runId ?? 'unknown'}): ${safeCode(error)}`)
-    })
+    // 终态落盘：await 保证 handler 收尾时已持久；写失败经 warn + 进度事件可见，
+    // 不覆盖已成功的采集结果。
+    await persistFinalRun({ runId: result.runId, status: status as RunRecord['status'], error: null })
     return { status, runId: result.runId, finish: result.finish, works: enriched.length }
   } catch (error) {
     // 取消：远端补偿 run_cancel 用独立 cleanup signal（不复用已 aborted 的
@@ -284,15 +315,20 @@ async function runCollectionWithinProfileLock(options: {
         // best-effort：取消失败不覆盖原始原因（本地仍投影 collect_cancelled）。
         void cleanupError
       }
+      await persistFinalRun({ status: 'cancelled', error: 'collect_cancelled' })
       return { status: 'failed', runId: null, reason: 'collect_cancelled' }
     }
     if (error instanceof SessionInvalidError) {
       const expired = await markSessionExpired({ accountId: options.accountId, root, reason: error.reason })
       await reportSessionStatus(options.workbench, options.accountId, expired)
-      return { status: 'failed', runId: null, reason: error.reason || 'session_expired' }
+      const reason = error.reason || 'session_expired'
+      await persistFinalRun({ status: 'failed', error: reason })
+      return { status: 'failed', runId: null, reason }
     }
     options.logger?.warn(`wx collect ${options.accountId}: ${safeCode(error)}`)
-    return { status: 'failed', runId: null, reason: safeCode(error) }
+    const reason = safeCode(error)
+    await persistFinalRun({ status: 'failed', error: reason })
+    return { status: 'failed', runId: null, reason }
   } finally {
     if (context !== null) await context.close().catch(() => undefined)
   }
@@ -333,6 +369,8 @@ export function progressFromEvent(event: Record<string, unknown>): Record<string
       return { phase: 'ingest', batchNo: event.batchNo, totalBatches: event.totalBatches, succeeded: event.succeeded, failed: event.failed, expected: event.expected }
     case 'finished':
       return { phase: 'finishing' }
+    case 'run_persist_failed':
+      return { phase: 'run_persist_failed', reason: event.reason }
     default:
       return null
   }

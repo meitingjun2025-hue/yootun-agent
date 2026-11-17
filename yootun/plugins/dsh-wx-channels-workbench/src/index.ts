@@ -117,6 +117,6 @@ export { loginWithQrCode, waitForSessionCookie, waitStableIdentity, probeSession
 export { reportSessionStatus, markSessionOk, markSessionExpired } from './probe.ts'
 export { COLLECT_SINCE_DAY, PAGE_SIZE, MAX_PAGES, splitIngestBatches, planFansTrendWindow, collectWorkList, collectWorkDetail, collectAccountMetrics, collectFansTrend, collectFansPortrait, fetchAuthData } from './collector.ts'
 export { parseAuthData, parsePostListPage, parseDailySeries, parseFansTrend, parseFansPortrait, parseJsonPreservingIds, latestCompletedDay, SessionInvalidError, type WorkItem } from './parse.ts'
-export { upsertRun, readRuns, recoverInterruptedRuns, type RunRecord } from './runs.ts'
+export { createAttemptId, readRuns, updateRun, removeAccountRuns, recoverInterruptedRuns, type RunRecord } from './runs.ts'
 export { withProfileLock, tryWithProfileLock, withProfileLocks, tryWithProfileLocks, isProfileLocked, profileLockWaiters, type ProfileLockAttempt } from './locks.ts'
 export type { WxWorkbenchFace } from './ingest.ts'
