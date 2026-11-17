@@ -11,6 +11,7 @@ import {
   accountRemoveIdempotencyKey, accountSaveIdempotencyKey, sessionIdempotencyKey,
 } from './idempotency.ts'
 import { isPendingAccountId, loginWithQrCode, type ChromeFactory } from './session.ts'
+import { tryWithProfileLock } from './locks.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
 import { checkCollectionReadiness, progressFromEvent } from './runner.ts'
 import { upsertRun, readRuns, removeRun, type RunRecord } from './runs.ts'
@@ -338,13 +339,17 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
 
     'account.promote': async args => {
       const { promotePendingAccount } = await import('./session.ts')
-      return { status: 'ok', ...await promotePendingAccount({ accountId: asString(args, 'accountId'), root: deps.root }) }
+      return { status: 'ok', ...await promotePendingAccount({ accountId: asString(args, 'accountId'), root: deps.root, chromeFactory: deps.chromeFactory }) }
     },
 
     'account.removeLocal': async args => {
       const accountId = asString(args, 'accountId')
       const { removeLocalAccount } = await import('./session.ts')
-      const result = await removeLocalAccount({ accountId, root: deps.root })
+      // try 锁：collect/登录迁移持有 profile 时立即返回 collect_busy，不排队等
+      // 长采集，也不删除任何本地凭证（先检查后执行不可靠，必须由锁原子裁决）。
+      const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
+      if (!attempt.acquired) return { status: 'ok', removed: false, reason: 'collect_busy' }
+      const result = attempt.result
       // 清理 runs.json 中该账号的记录。
       const runs = await readRuns(deps.root).catch(() => ({}) as Record<string, { accountId?: string }>)
       for (const [runId, run] of Object.entries(runs)) {
@@ -396,6 +401,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
         void runCollection({
           workbench: deps.workbench, accountId, root: deps.root,
+          chromeFactory: deps.chromeFactory,
           newAttempt: args.newAttempt === true,
           onProgress: event => {
             const progress = progressFromEvent(event)

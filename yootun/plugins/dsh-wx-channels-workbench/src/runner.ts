@@ -97,14 +97,19 @@ export interface RunnerDeps {
 }
 
 /**
- * 单账号采集全流程。取消语义：AbortSignal 中止浏览器链路后 run 显式 cancel，
- * 已入库批次保留（服务端账本），本地投影 failed/cancelled。
+ * 单账号采集全流程：全程持有账号 profile 锁——会话探测、Chrome launch、
+ * page.goto、列表/详情/账号级采集与 context.close 都在使用账号 profile，
+ * 锁必须覆盖整个使用期（而非仅 Chrome launch），同账号 probe/promote/remove
+ * 才不会与采集并发打开或删除 profile。
+ *
+ * 取消语义：AbortSignal 中止浏览器链路后 run 显式 cancel，已入库批次保留
+ * （服务端账本），本地投影 failed/cancelled；abort 后锁随 finally 释放。
  */
 export async function runCollection(options: {
   workbench: WxWorkbenchFace
   accountId: string
   root?: string
-  chromeFactory?: ChromeFactory
+  chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   newAttempt?: boolean
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
@@ -112,6 +117,26 @@ export async function runCollection(options: {
   signal?: AbortSignal | undefined
 }): Promise<CollectResult> {
   const root = options.root ?? stateRoot()
+  return withProfileLock(options.accountId, () => runCollectionWithinProfileLock({ ...options, root }))
+}
+
+/**
+ * runCollection 的锁内实现：调用方必须已持有 accountId 的 profile 锁，因此
+ * 这里直接调用无锁的 refreshSessionState（不得再经带锁的 probeAndReport，
+ * 否则同账号嵌套锁死锁）。
+ */
+async function runCollectionWithinProfileLock(options: {
+  workbench: WxWorkbenchFace
+  accountId: string
+  root: string
+  chromeFactory?: ChromeFactory | undefined
+  maxPages?: number
+  newAttempt?: boolean
+  onProgress?: ((event: Record<string, unknown>) => void) | undefined
+  logger?: { warn(message: string): void } | undefined
+  signal?: AbortSignal | undefined
+}): Promise<CollectResult> {
+  const root = options.root
   const accountId = options.accountId
   const signal = options.signal
   const emit = (event: Record<string, unknown>): void => { options.onProgress?.(event) }
@@ -139,13 +164,11 @@ export async function runCollection(options: {
     await ensureRemoteAccount(options.workbench, options.accountId, { root, onProgress: emit })
     if (signal?.aborted) throw new SessionInvalidError('cancelled')
 
-    // 2) 无头系统 Chrome（独立 Profile + storage_state，per-account lock 防并发）。
+    // 2) 无头系统 Chrome（独立 Profile + storage_state；外层已持账号 profile 锁，
+    //    launch 只是全程临界区的第一段，不再单独包锁）。
     const profileDir = paths(root).profileDir(options.accountId)
     const factory = options.chromeFactory ?? launchChrome
-    ;({ context } = await withProfileLock(options.accountId, async () => {
-      const launched = await factory({ headless: true, profileDir })
-      return launched
-    }))
+    ;({ context } = await factory({ headless: true, profileDir }))
     const page = context.pages()[0] ?? await context.newPage()
     const surface = asCollectorPage(page)
     await page.goto(ASSISTANT_ORIGIN, { waitUntil: 'domcontentloaded', timeout: OPEN_TIMEOUT_MS })

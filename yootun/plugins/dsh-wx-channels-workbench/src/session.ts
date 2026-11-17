@@ -17,6 +17,7 @@ import {
   bumpSessionSeqWith, clearLocalCredentials, ensureProfileDir, getAccount, hasStorageState,
   moveProfile, moveStorageState, paths, saveStorageState, stateRoot, type AccountRecord,
 } from './state.ts'
+import { tryWithProfileLocks, withProfileLock, withProfileLocks } from './locks.ts'
 
 /** 登录会话 Cookie 名（只记录名，不记录值，永不外发）。 */
 export const SESSION_COOKIE_NAMES = ['sessionid', 'wxuin']
@@ -234,20 +235,8 @@ export async function loginWithQrCode(options: {
     checkAbort()
     const profile = stableIdentity
     const resolvedId = profile.accountId || tempId
-    await saveStorageState(resolvedId, context, root)
-    await context.close()
+    await commitLoginIdentity({ tempId, resolvedId, profile, context, root })
     context = null
-    if (resolvedId !== tempId) await moveProfile(tempId, resolvedId, root)
-    await bumpSessionSeqWith(resolvedId, {
-      nickname: profile.nickname ?? undefined,
-      avatar: profile.avatar ?? undefined,
-      followerTotalCount: profile.fansCount ?? undefined,
-      feedCount: profile.feedsCount ?? undefined,
-      isMasterFinder: profile.isMasterFinder ?? undefined,
-      sessionStatus: 'ok',
-      sessionCheckedAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString(),
-    }, 0, root)
     return { status: 'ok', accountId: resolvedId, profile }
   } catch (error) {
     if (context !== null) await context.close().catch(() => undefined)
@@ -257,6 +246,42 @@ export async function loginWithQrCode(options: {
     const reason = safeCode(error)
     return { status: 'failed', reason: reason === 'WX_TOOL_UNAVAILABLE' ? 'login_failed' : reason }
   }
+}
+
+/**
+ * 登录成果提交（resolvedId 确定后的迁移临界区）：同时持有 tempId 与 resolvedId
+ * 两把账号 profile 锁（排序获取防死锁），在锁内完成 storage_state 落盘（0600）、
+ * context 关闭、profile 迁移到真实名下与 seq 推进——与 realId 的
+ * probe/collect/remove/promote 严格串行，迁移期间它们不可能并发使用 profile。
+ * 失败时异常向调用方传播（loginWithQrCode 统一清理 tempId，永不触碰 realId）。
+ * @param options - tempId（登录期临时目录）、resolvedId（真实账号）、身份资料、
+ *   仍打开着的登录 context 与状态根目录。
+ * @returns the resolved account id.
+ */
+export async function commitLoginIdentity(options: {
+  tempId: string
+  resolvedId: string
+  profile: AuthProfile
+  context: BrowserContext
+  root: string
+}): Promise<{ accountId: string }> {
+  const profile = options.profile
+  await withProfileLocks([options.tempId, options.resolvedId], async () => {
+    await saveStorageState(options.resolvedId, options.context, options.root)
+    await options.context.close()
+    if (options.resolvedId !== options.tempId) await moveProfile(options.tempId, options.resolvedId, options.root)
+    await bumpSessionSeqWith(options.resolvedId, {
+      nickname: profile.nickname ?? undefined,
+      avatar: profile.avatar ?? undefined,
+      followerTotalCount: profile.fansCount ?? undefined,
+      feedCount: profile.feedsCount ?? undefined,
+      isMasterFinder: profile.isMasterFinder ?? undefined,
+      sessionStatus: 'ok',
+      sessionCheckedAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+    }, 0, options.root)
+  })
+  return { accountId: options.resolvedId }
 }
 
 /** 登录期没能解析出 finderUsername 时重读资料（官方 SPA 未就绪会短暂失败）。 */
@@ -385,41 +410,71 @@ export async function refreshSessionState(options: {
   return { sessionStatus: 'unknown', reason: probe.reason, sessionSeq: probe.sessionSeq, checkedAt: probe.checkedAt, vaultRef, accountId, sessionStatusReported: false }
 }
 
-/** 占位账号提升：用已存登录态重新探测，迁移到真实 finderUsername 名下（单调定序）。 */
+/** promotePendingAccount 的结果（promoted=false 时 reason 说明稳定原因）。 */
+export type PromoteResult = {
+  promoted: boolean
+  accountId: string
+  fromAccountId?: string
+  reason?: string
+  profile?: AuthProfile
+  record?: AccountRecord
+}
+
+/**
+ * 占位账号提升（两阶段锁）：阶段 1 持 pending 锁探测出真实 id（pending 不参与
+ * collect，等待者只有同类 probe/promote，等待语义不会长挂）；阶段 2 以 try 语义
+ * 同时锁 pending + realId（排序获取防死锁），realId 正被 collect/probe/remove
+ * 使用时立即返回 collect_busy，绝不排队等长采集，也不执行任何迁移。阶段 1 释放
+ * pending 锁后状态可能已变，迁移前重新核对 storage_state 仍在。
+ */
 export async function promotePendingAccount(options: {
   accountId: string
   root?: string
   chromeFactory?: ChromeFactory | undefined
-}): Promise<{ promoted: boolean; accountId: string; fromAccountId?: string; reason?: string; profile?: AuthProfile; record?: AccountRecord }> {
+}): Promise<PromoteResult> {
   const { accountId } = options
   const root = options.root ?? stateRoot()
   if (!isPendingAccountId(accountId)) return { promoted: false, accountId, reason: 'not_pending' }
-  const probe = await probeSession({ accountId, root, chromeFactory: options.chromeFactory }).catch((error: unknown) => ({
+  const probe = await withProfileLock(accountId, () =>
+    probeSession({ accountId, root, chromeFactory: options.chromeFactory }),
+  ).catch((error: unknown) => ({
     status: 'unknown' as const, reason: safeCode(error), profile: null as AuthProfile | null, sessionSeq: 0, checkedAt: new Date().toISOString(),
   }))
-  if (probe.status !== 'ok' || probe.profile === null) {
+  const probeProfile = probe.profile
+  // pending 账号的 storage 身份是登录期未能解析的占位：探活读出真实身份时
+  // probeSession 以 account_mismatch 拒绝（串号防线）——这正是 promote 要接手的
+  // 迁移场景；其余失败（profile 读不出）原样返回。
+  if (probeProfile === null) {
     return { promoted: false, accountId, reason: probe.reason ?? 'profile_unavailable' }
   }
-  const realId = probe.profile.accountId
-  if (realId === accountId) return { promoted: false, accountId, reason: 'already_resolved' }
-
-  const previous = await getAccount(accountId, root)
-  const existing = await getAccount(realId, root)
-  await moveStorageState(accountId, realId, root)
-  await moveProfile(accountId, realId, root)
-  const floorSeq = Math.max(Number(previous?.sessionSeq ?? 0), Number(existing?.sessionSeq ?? 0))
-  const { record } = await bumpSessionSeqWith(realId, {
-    sessionStatus: 'ok',
-    sessionCheckedAt: new Date().toISOString(),
-    promotedFrom: accountId,
-    nickname: probe.profile.nickname ?? existing?.nickname ?? previous?.nickname ?? undefined,
-    avatar: probe.profile.avatar ?? existing?.avatar ?? previous?.avatar ?? undefined,
-    followerTotalCount: probe.profile.fansCount ?? existing?.followerTotalCount ?? previous?.followerTotalCount ?? undefined,
-    feedCount: probe.profile.feedsCount ?? existing?.feedCount ?? previous?.feedCount ?? undefined,
-    lastLoginAt: previous?.lastLoginAt,
-  }, floorSeq, root)
-  await clearLocalCredentials(accountId, root)
-  return { promoted: true, accountId: realId, fromAccountId: accountId, profile: probe.profile, record }
+  const realId = probeProfile.accountId
+  if (realId === accountId) {
+    return { promoted: false, accountId, reason: probe.status === 'ok' ? 'already_resolved' : probe.reason ?? 'profile_unavailable' }
+  }
+  const attempt = await tryWithProfileLocks([accountId, realId], async (): Promise<PromoteResult> => {
+    if (!(await hasStorageState(accountId, root))) {
+      return { promoted: false, accountId, reason: 'storage_state_missing' }
+    }
+    const previous = await getAccount(accountId, root)
+    const existing = await getAccount(realId, root)
+    await moveStorageState(accountId, realId, root)
+    await moveProfile(accountId, realId, root)
+    const floorSeq = Math.max(Number(previous?.sessionSeq ?? 0), Number(existing?.sessionSeq ?? 0))
+    const { record } = await bumpSessionSeqWith(realId, {
+      sessionStatus: 'ok',
+      sessionCheckedAt: new Date().toISOString(),
+      promotedFrom: accountId,
+      nickname: probeProfile.nickname ?? existing?.nickname ?? previous?.nickname ?? undefined,
+      avatar: probeProfile.avatar ?? existing?.avatar ?? previous?.avatar ?? undefined,
+      followerTotalCount: probeProfile.fansCount ?? existing?.followerTotalCount ?? previous?.followerTotalCount ?? undefined,
+      feedCount: probeProfile.feedsCount ?? existing?.feedCount ?? previous?.feedCount ?? undefined,
+      lastLoginAt: previous?.lastLoginAt,
+    }, floorSeq, root)
+    await clearLocalCredentials(accountId, root)
+    return { promoted: true, accountId: realId, fromAccountId: accountId, profile: probeProfile, record }
+  })
+  if (!attempt.acquired) return { promoted: false, accountId, reason: 'collect_busy' }
+  return attempt.result
 }
 
 /** removeLocal：本地凭证与 profile 清理（远端删除的前置步骤）。 */
