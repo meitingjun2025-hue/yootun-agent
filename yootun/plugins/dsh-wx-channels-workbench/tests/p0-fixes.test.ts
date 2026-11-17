@@ -144,6 +144,60 @@ test('loginWithQrCode abort 后 profiles 目录无 pending-* 残留', async () =
   rmSync(root, { recursive: true, force: true })
 })
 
+test('loginWithQrCode abort 后 factory 晚 resolve：close + 二次清理，无 pending-* 残留', async () => {
+  const root = join(tmpdir(), `wx-late-${String(Math.random()).slice(2)}`)
+  const profilesDir = join(root, 'profiles')
+  mkdirSync(profilesDir, { recursive: true })
+
+  const controller = new AbortController()
+  const { loginWithQrCode } = await import('../src/session.ts')
+  let closeCalled = false
+  let lateResolved = false
+
+  // 确定性时序：factory 等 abort 赢得 race 后，才创建 pending-* profile 并
+  // resolve 一个可 close 的 context（模拟 Chrome persistent context 慢启动）。
+  const pending = loginWithQrCode({
+    root,
+    chromeFactory: async options => {
+      const signal = controller.signal
+      while (!signal.aborted) await new Promise(resolve => setTimeout(resolve, 5))
+      mkdirSync(options.profileDir, { recursive: true })
+      writeFileSync(join(options.profileDir, 'late-marker'), 'x', { mode: 0o600 })
+      lateResolved = true
+      return { context: { close: async () => { closeCalled = true } } as never }
+    },
+    signal: controller.signal,
+  })
+
+  await new Promise(resolve => setTimeout(resolve, 10))
+  controller.abort()
+
+  const result = await Promise.race([
+    pending.catch((error: unknown) => ({ status: 'failed', reason: (error as Error)?.message ?? 'unknown' })),
+    new Promise<{ status: string; reason?: string }>((_, reject) => setTimeout(() => reject(new Error('login abort timeout')), 5000)),
+  ])
+  assert.equal(result.status, 'failed')
+  assert.equal(result.reason, 'login_aborted')
+
+  // 等 factory 晚 resolve（abort 后才创建 profile + resolve）。
+  const lateDeadline = Date.now() + 3000
+  while (!lateResolved && Date.now() < lateDeadline) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.ok(lateResolved, 'factory 应在 abort 后晚 resolve')
+
+  // 等晚 resolve 钩子 close + 二次清理完成：profiles 目录不得残留 pending-*。
+  const cleanDeadline = Date.now() + 3000
+  let leftover: string[] = []
+  do {
+    leftover = existsSync(profilesDir) ? readdirSync(profilesDir).filter(name => name.startsWith('pending-')) : []
+    if (leftover.length === 0) break
+    await new Promise(resolve => setTimeout(resolve, 20))
+  } while (Date.now() < cleanDeadline)
+  assert.equal(leftover.length, 0, `pending-* 应已被晚 resolve 钩子清理，实际残留: ${JSON.stringify(leftover)}`)
+  assert.equal(closeCalled, true, '晚 resolve 的 context 应被 close')
+
+  rmSync(root, { recursive: true, force: true })
+})
+
 // --- 集成测试：account.probe / collect.start 不死锁 ---
 
 /** 注入的 Chrome factory：进入探活锁路径后立刻失败（确定性，不依赖真机 Chrome）。 */

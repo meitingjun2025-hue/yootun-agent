@@ -181,22 +181,32 @@ export async function loginWithQrCode(options: {
   }
   try {
     checkAbort()
-    // 捕获 factory promise：abort 赢了 race 后 factory 晚 resolve 的 context 必须关闭。
+    // 捕获 factory promise：abort 赢得 race 后 factory 晚 resolve 时，context 可能在
+    // abort 之后才创建/写入 pending-* profile——close 完成后必须再清一次临时凭证
+    // （主 catch 的清理可能发生在 factory 创建目录之前）。
     const factoryPromise = chromeFactory({ headless: false, profileDir })
-    void factoryPromise.then(result => {
-      if (signal?.aborted === true) void result.context.close().catch(() => undefined)
+    void factoryPromise.then(async result => {
+      if (signal?.aborted !== true) return
+      await result.context.close().catch(() => undefined)
+      await clearLocalCredentials(tempId, root).catch(() => undefined)
     }).catch(() => undefined)
+    let rejectLaunch: ((reason: Error) => void) | null = null
+    const onLaunchAbort = (): void => { rejectLaunch?.(new Error('login_aborted')) }
     const launchOrAbort = signal !== undefined
       ? Promise.race([
           factoryPromise,
           new Promise<never>((_, reject) => {
-            signal.addEventListener('abort', () => {
-              reject(new Error('login_aborted'))
-            }, { once: true })
+            rejectLaunch = reject
+            signal.addEventListener('abort', onLaunchAbort, { once: true })
           }),
         ])
       : factoryPromise
-    ;({ context } = await launchOrAbort)
+    try {
+      ;({ context } = await launchOrAbort)
+    } finally {
+      // race 结束即移除 listener：正常完成后不得继续挂在 signal 上。
+      if (signal !== undefined) signal.removeEventListener('abort', onLaunchAbort)
+    }
     const page = context.pages()[0] ?? await context.newPage()
     if (options.onPage !== undefined) await options.onPage(page)
     checkAbort()
