@@ -181,19 +181,21 @@ export async function loginWithQrCode(options: {
   }
   try {
     checkAbort()
-    // chromeFactory 与 abort 竞争：abort 先到则不启动 Chrome。
-    const launchOrAbort = signal !== undefined && signal.aborted
-      ? Promise.reject(new Error('login_aborted'))
-      : signal !== undefined
-        ? Promise.race([
-            chromeFactory({ headless: false, profileDir }),
-            new Promise<never>((_, reject) => {
-              signal.addEventListener('abort', () => {
-                reject(new Error('login_aborted'))
-              }, { once: true })
-            }),
-          ])
-        : chromeFactory({ headless: false, profileDir })
+    // 捕获 factory promise：abort 赢了 race 后 factory 晚 resolve 的 context 必须关闭。
+    const factoryPromise = chromeFactory({ headless: false, profileDir })
+    void factoryPromise.then(result => {
+      if (signal?.aborted === true) void result.context.close().catch(() => undefined)
+    }).catch(() => undefined)
+    const launchOrAbort = signal !== undefined
+      ? Promise.race([
+          factoryPromise,
+          new Promise<never>((_, reject) => {
+            signal.addEventListener('abort', () => {
+              reject(new Error('login_aborted'))
+            }, { once: true })
+          }),
+        ])
+      : factoryPromise
     ;({ context } = await launchOrAbort)
     const page = context.pages()[0] ?? await context.newPage()
     if (options.onPage !== undefined) await options.onPage(page)

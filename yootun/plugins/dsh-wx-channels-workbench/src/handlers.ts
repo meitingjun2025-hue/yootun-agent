@@ -10,11 +10,10 @@ import { safeCode } from './errors.ts'
 import {
   accountRemoveIdempotencyKey, accountSaveIdempotencyKey, sessionIdempotencyKey,
 } from './idempotency.ts'
-import { isPendingAccountId, loginWithQrCode } from './session.ts'
+import { isPendingAccountId, loginWithQrCode, type ChromeFactory } from './session.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
 import { checkCollectionReadiness, progressFromEvent } from './runner.ts'
-import { withProfileLock } from './locks.ts'
-import { upsertRun, readRuns, removeRun } from './runs.ts'
+import { upsertRun, readRuns, removeRun, type RunRecord } from './runs.ts'
 import type { BatchStatus } from './collect-all.ts'
 import type { WxWorkbenchFace } from './ingest.ts'
 import type { ActionArgs, ActionHandler } from './route.ts'
@@ -41,6 +40,8 @@ export interface WxHostDeps {
   workbench: WxWorkbenchFace
   browserStatusFn: () => Promise<BrowserStatus>
   logger: { warn(message: string): void }
+  /** Chrome launcher seam（测试注入；undefined = launchChrome 真实实现）。 */
+  chromeFactory: ChromeFactory | undefined
   loginRuns: Map<string, LoginRun>
   collectBusy: boolean
   collectLeaseHeld: boolean
@@ -53,12 +54,13 @@ export interface WxHostDeps {
   onDispose: ((abortAll: () => void, settle: Promise<void>) => void) | undefined
 }
 
-export function createWxHostDeps(options: { root: string; workbench: WxWorkbenchFace; browserStatusFn: () => Promise<BrowserStatus>; logger: { warn(message: string): void } }): WxHostDeps {
+export function createWxHostDeps(options: { root: string; workbench: WxWorkbenchFace; browserStatusFn: () => Promise<BrowserStatus>; logger: { warn(message: string): void }; chromeFactory?: ChromeFactory }): WxHostDeps {
   return {
     root: options.root,
     workbench: options.workbench,
     browserStatusFn: options.browserStatusFn,
     logger: options.logger,
+    chromeFactory: options.chromeFactory,
     loginRuns: new Map(),
     collectBusy: false,
     collectLeaseHeld: false,
@@ -98,6 +100,13 @@ function filterUndefined(record: Record<string, unknown>): Record<string, unknow
     if (value !== undefined && value !== '') result[key] = value
   }
   return result
+}
+
+/** fire-and-forget 落盘 run 记录：失败只告警不断采集主流程（复审观察 1：裸 void 会 unhandled rejection）。 */
+function recordRun(root: string, logger: { warn(message: string): void }, record: RunRecord): void {
+  void upsertRun(root, record).catch((error: unknown) => {
+    logger.warn(`wx runs.json upsert failed (${record.runId}): ${safeCode(error)}`)
+  })
 }
 
 export function buildRouteHandlers(deps: WxHostDeps, batch: {
@@ -323,7 +332,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
 
     'account.probe': async args => {
       const { probeAndReport } = await import('./probe.ts')
-      const probe = await withProfileLock(asString(args, 'accountId'), () => probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root))
+      const probe = await probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root, deps.chromeFactory)
       return { status: 'ok', sessionStatus: probe.sessionStatus, reason: probe.reason, reported: probe.reported }
     },
 
@@ -370,11 +379,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       }
       let started = false
       try {
-        const readiness = await withProfileLock(accountId, () => checkCollectionReadiness({ accountId, root: deps.root, busy: false }))
+        const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
         if (!readiness.ready) {
           return { status: 'ok', started: false, reason: readiness.reason ?? 'session_required' }
         }
-        const session = await withProfileLock(accountId, () => probeAndReport(deps.workbench, accountId, deps.root))
+        const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory)
         if (session.sessionStatus !== 'ok') {
           return { status: 'ok', started: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
         }
@@ -384,13 +393,13 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         record.status = 'running'
         record.startedAt = new Date().toISOString()
         started = true
-        void upsertRun(deps.root, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
+        recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, error: null, progress: {} })
         void runCollection({
           workbench: deps.workbench, accountId, root: deps.root,
           newAttempt: args.newAttempt === true,
           onProgress: event => {
             const progress = progressFromEvent(event)
-            if (progress !== null) { record.progress = progress; void upsertRun(deps.root, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: '', finishedAt: null, error: null, progress }) }
+            if (progress !== null) { record.progress = progress; recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'running', startedAt: '', finishedAt: null, error: null, progress }) }
           },
           logger: deps.logger,
           signal: controller.signal,
@@ -399,12 +408,12 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
           record.error = record.status === 'failed' ? result.reason ?? 'collect_failed' : null
           record.result = { runId: result.runId, works: result.works ?? 0 }
           record.finishedAt = new Date().toISOString()
-          void upsertRun(deps.root, { accountId, runId: result.runId ?? `pending-${accountId}`, status: record.status as 'completed' | 'partial' | 'failed' | 'cancelled', startedAt: String(record.startedAt), finishedAt: new Date().toISOString(), error: record.error as string | null, progress: record.progress as Record<string, unknown> })
+          recordRun(deps.root, deps.logger, { accountId, runId: result.runId ?? `pending-${accountId}`, status: record.status as 'completed' | 'partial' | 'failed' | 'cancelled', startedAt: String(record.startedAt), finishedAt: new Date().toISOString(), error: record.error as string | null, progress: record.progress as Record<string, unknown> })
         }).catch((error: unknown) => {
           record.status = 'failed'
           record.error = safeCode(error)
           record.finishedAt = new Date().toISOString()
-          void upsertRun(deps.root, { accountId, runId: `pending-${accountId}`, status: 'failed', startedAt: '', finishedAt: new Date().toISOString(), error: safeCode(error), progress: {} })
+          recordRun(deps.root, deps.logger, { accountId, runId: `pending-${accountId}`, status: 'failed', startedAt: '', finishedAt: new Date().toISOString(), error: safeCode(error), progress: {} })
         }).finally(() => {
           deps.collectBusy = false
           deps.collectSignals.delete(accountId)

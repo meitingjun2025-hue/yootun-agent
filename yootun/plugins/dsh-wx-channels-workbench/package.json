@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown",
-    "test": "node --test tests/host.test.ts && vitest run"
+    "test": "node --test tests/host.test.ts && node --test tests/p0-fixes.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {

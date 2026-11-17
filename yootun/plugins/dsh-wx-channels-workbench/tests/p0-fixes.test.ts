@@ -143,3 +143,83 @@ test('loginWithQrCode abort 后 profiles 目录无 pending-* 残留', async () =
 
   rmSync(root, { recursive: true, force: true })
 })
+
+// --- 集成测试：account.probe / collect.start 不死锁 ---
+
+/** 注入的 Chrome factory：进入探活锁路径后立刻失败（确定性，不依赖真机 Chrome）。 */
+function chromeMissingFactory(): never {
+  throw Object.assign(new Error('chrome missing'), { code: 'GOOGLE_CHROME_MISSING' })
+}
+
+test('account.probe 真实 handler 在限定时间内完成（无嵌套锁死锁）', async () => {
+  const root = join(tmpdir(), `wx-probe-${String(Math.random()).slice(2)}`)
+  mkdirSync(root, { recursive: true })
+  const storageDir = join(root, 'storage-state')
+  mkdirSync(storageDir, { recursive: true })
+  writeFileSync(join(storageDir, 'acc1.json'), '{"cookies":[]}', { mode: 0o600 })
+  writeFileSync(join(root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
+
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const deps = createWxHostDeps({
+    root,
+    workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+    chromeFactory: chromeMissingFactory,
+  })
+  const batch = {
+    get status() { return {} as never },
+    get running() { return false },
+    start: async () => ({ started: false }),
+    stop: () => undefined,
+  }
+  const handlers = buildRouteHandlers(deps, batch as never)
+
+  // 修复前：外层包 lock + probe 内层再包 lock → 永久挂起；修复后 3 秒内返回。
+  const result = await Promise.race([
+    handlers['account.probe']?.({ accountId: 'acc1' }) as Promise<Record<string, unknown>>,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('account.probe 挂起')), 3000)),
+  ])
+  assert.equal(result.status, 'ok')
+  // 注入 factory 失败 → 探活 unknown（证明锁路径真实执行过而非短路）。
+  assert.equal(result.sessionStatus, 'unknown')
+  rmSync(root, { recursive: true, force: true })
+})
+
+test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async () => {
+  const root = join(tmpdir(), `wx-col-${String(Math.random()).slice(2)}`)
+  mkdirSync(root, { recursive: true })
+  const storageDir = join(root, 'storage-state')
+  mkdirSync(storageDir, { recursive: true })
+  writeFileSync(join(storageDir, 'acc1.json'), '{"cookies":[]}', { mode: 0o600 })
+  writeFileSync(join(root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
+
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const deps = createWxHostDeps({
+    root,
+    workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+    chromeFactory: chromeMissingFactory,
+  })
+  const batch = {
+    get status() { return {} as never },
+    get running() { return false },
+    start: async () => ({ started: false }),
+    stop: () => undefined,
+  }
+  const handlers = buildRouteHandlers(deps, batch as never)
+
+  const first = await Promise.race([
+    handlers['collect.start']?.({ accountId: 'acc1' }) as Promise<Record<string, unknown>>,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('collect.start 挂起')), 3000)),
+  ])
+  assert.equal(first.status, 'ok')
+  assert.equal(first.started, false)
+  assert.equal(first.reason, 'probe_failed', `实际: ${JSON.stringify(first)}`)
+
+  // 失败路径复位互斥：第二次调用不被 collect_busy 拒绝。
+  const second = await handlers['collect.start']?.({ accountId: 'acc1' }) as Record<string, unknown>
+  assert.notEqual(second.reason, 'collect_busy')
+  rmSync(root, { recursive: true, force: true })
+})

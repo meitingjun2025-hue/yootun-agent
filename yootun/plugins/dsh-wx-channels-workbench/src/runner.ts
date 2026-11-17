@@ -241,7 +241,10 @@ export async function runCollection(options: {
           expected: list.totalCount ?? enriched.length,
           ingest: result.ingest ?? { succeededWorkIds: [], failedWorkIds: [] },
         })
-    void upsertRun(root, { accountId, runId: result.runId, status: status as 'completed', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: null, progress: {} })
+    // fire-and-forget 落盘：失败只告警，不覆盖已成功的采集结果。
+    void upsertRun(root, { accountId, runId: result.runId, status: status as 'completed', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: null, progress: {} }).catch((error: unknown) => {
+      options.logger?.warn(`wx runs.json upsert failed (${result.runId ?? 'unknown'}): ${safeCode(error)}`)
+    })
     return { status, runId: result.runId, finish: result.finish, works: enriched.length }
   } catch (error) {
     // 取消：远端补偿 run_cancel 用独立 cleanup signal（不复用已 aborted 的
