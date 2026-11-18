@@ -317,7 +317,8 @@ function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
         <MetaTerm t={t} label='run.label.failed' value={formatCount(run.failedWorkCount)} />
       </dl>
       {run.batches.length > 0 && (
-        <div className={css.batchTableWrap}>
+        // 窄容器横向滚动区域纳入 Tab 顺序（键盘可达滚动），带 localized 可访问名。
+        <div className={css.batchTableWrap} role='region' aria-label={t('run.batchTable.label')} tabIndex={0}>
           <table className={css.batchTable}>
             <thead>
               <tr>
@@ -348,20 +349,23 @@ function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
   )
 }
 
-/** 已知 batch_type 枚举 → 文案；未知值原样展示（不猜语义）。 */
+/** 已知 batch_type 枚举（works / account_metrics / fans_trend / fans_profile）→ 文案；未知值原样展示。 */
 function batchTypeText(value: string | null, t: Translate): string {
   switch (value) {
     case 'works': return t('run.batchType.works')
+    case 'account_metrics': return t('run.batchType.accountMetrics')
+    case 'fans_trend': return t('run.batchType.fansTrend')
+    case 'fans_profile': return t('run.batchType.fansProfile')
     case null: return '—'
     default: return value
   }
 }
 
-/** 已知 batch_status 枚举 → 文案；未知值原样展示（不猜语义）。 */
+/** 已知 batch_status 枚举（pending / succeeded / failed）→ 文案；「部分成功」由 succeeded 行的失败对象计数表达，不是服务端枚举。 */
 function batchStatusText(value: string | null, t: Translate): string {
   switch (value) {
+    case 'pending': return t('run.batchStatus.pending')
     case 'succeeded': return t('run.batchStatus.succeeded')
-    case 'partial': return t('run.batchStatus.partial')
     case 'failed': return t('run.batchStatus.failed')
     case null: return '—'
     default: return value

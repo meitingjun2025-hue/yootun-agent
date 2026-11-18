@@ -537,8 +537,11 @@ describe('采集页 collect / run.get', () => {
           finished_at: '2026-11-18T08:20:00.000Z',
         },
         batches: [
-          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: [] },
-          { batch_no: 2, batch_type: 'works', batch_status: 'partial', item_count: 20, succeeded_objects: ['c'], failed_objects: ['d'] },
+          // 「部分成功」的真实表达：batch_status='succeeded' 且 failed_objects 非空。
+          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: ['d'] },
+          { batch_no: 2, batch_type: 'account_metrics', batch_status: 'failed', item_count: 1, succeeded_objects: [], failed_objects: ['x'] },
+          { batch_no: 3, batch_type: 'fans_trend', batch_status: 'pending', item_count: 30, succeeded_objects: [], failed_objects: [] },
+          { batch_no: 4, batch_type: 'fans_profile', batch_status: 'pending', item_count: 1, succeeded_objects: [], failed_objects: [] },
         ],
       }),
     }))
@@ -553,20 +556,30 @@ describe('采集页 collect / run.get', () => {
     expect(screen.getByText(t('run.label.expected'))).not.toBeNull()
     expect(screen.getByText('45')).not.toBeNull()
     expect(screen.getByText('40')).not.toBeNull()
-    expect(screen.getByText('3')).not.toBeNull()
+    // 「3」是失败作品计数 dd 与批次 3 的 batch_no（≥2 处）。
+    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(2)
+    // 滚动容器键盘可达：tabIndex=0 + role=region + localized 可访问名。
+    const wrap = screen.getByRole('region', { name: t('run.batchTable.label') })
+    expect(wrap.getAttribute('tabindex')).toBe('0')
     // 批次表：batch_no / batch_type / batch_status / item_count / 成功失败对象数；
-    // 枚举走字典。批次单元格在表内断言（避免与 tab / KPI 的 Works 等重名）。
-    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
+    // 四种 batch_type 与三种 batch_status 全部走字典。单元格在表内断言
+    // （避免与 tab / KPI 的 Works 等重名）。
+    const table = within(wrap as HTMLElement).getByText(t('run.batch.batchNo')).closest('table')
     expect(table).not.toBeNull()
     const batchTable = within(table as HTMLElement)
-    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(2)
-    // 表内「Succeeded」2 处：批次表头 + 批次 1 状态。
+    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(1)
+    expect(batchTable.getByText(t('run.batchType.accountMetrics'))).not.toBeNull()
+    expect(batchTable.getByText(t('run.batchType.fansTrend'))).not.toBeNull()
+    expect(batchTable.getByText(t('run.batchType.fansProfile'))).not.toBeNull()
+    // 批次状态枚举：pending ×2、succeeded ×1、failed ×1（另有表头各一）。
+    expect(batchTable.getAllByText(t('run.batchStatus.pending')).length).toBe(2)
     expect(batchTable.getAllByText(t('run.batchStatus.succeeded')).length).toBe(2)
-    expect(batchTable.getByText(t('run.batchStatus.partial'))).not.toBeNull()
-    // 「Succeeded」总出现 3 处：运行字段 label + 批次表头 + 批次 1 状态。
-    expect(screen.getAllByText(t('run.batchStatus.succeeded')).length).toBe(3)
-    // 「2」是批次 2 的 batch_no 与批次 1 的成功对象数（共 2 处）。
-    expect(screen.getAllByText('2').length).toBe(2)
+    expect(batchTable.getAllByText(t('run.batchStatus.failed')).length).toBe(2)
+    // 「部分成功」由批次 1 的 succeeded + 失败对象计数 1 表达，无 partial 枚举。
+    const row1 = batchTable.getByText(t('run.batchType.works')).closest('tr')
+    expect(row1).not.toBeNull()
+    expect(within(row1 as HTMLElement).getByText(t('run.batchStatus.succeeded'))).not.toBeNull()
+    expect(within(row1 as HTMLElement).getAllByText('1').length).toBe(2)
     const runCall = calls.find(call => call.action === 'run.get')
     expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
   })

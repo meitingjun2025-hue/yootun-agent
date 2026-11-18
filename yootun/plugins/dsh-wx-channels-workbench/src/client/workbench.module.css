@@ -441,10 +441,16 @@
   min-width: 0;
 }
 
-/* 六列批次表在窄容器内横向滚动（滚动只发生在表格内部）。 */
+/* 六列批次表在窄容器内横向滚动（滚动只发生在表格内部；容器键盘可达）。 */
 .batchTableWrap {
   overflow-x: auto;
   min-width: 0;
+}
+
+.batchTableWrap:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-md);
 }
 
 .batchTable {
