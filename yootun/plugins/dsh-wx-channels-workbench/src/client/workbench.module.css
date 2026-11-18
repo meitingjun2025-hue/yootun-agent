@@ -1,4 +1,5 @@
-/* 视频号工作台页内布局（分册规范 §三）：页内密度与截断，全部 token 化。 */
+/* 视频号工作台页内布局（分册规范 §三）：页内密度与截断，全部 token 化。
+   断点以插件面板容器宽度计（yootun-kit-page），覆盖 640 / 880 / 1120 三档。 */
 
 .tabs {
   padding-top: 12px;
@@ -16,11 +17,267 @@
   margin-bottom: 20px;
 }
 
-@container yootun-kit-page (max-width: 879px) {
-  .kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+/* 浏览器状态条 / 阻断门 / 提示条 */
+
+.browserBar {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
+
+.blockingGate {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 20px;
+  margin-top: 16px;
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.blockingGate p {
+  margin: 0;
+}
+
+.reasonBanner {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.reasonText {
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+
+/* 登录卡 */
+
+.loginCard {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.loginReason {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  word-break: break-all;
+}
+
+/* 工具行：账号选择 + 时间窗 + availability */
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.fieldLabel {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fieldText {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.accountSelect {
+  min-width: 0;
+  max-width: 220px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.accountSelect:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+.availability {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.availability[data-kind='partial'],
+.availability[data-kind='no_data'] {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 图表 marks */
+
+.portraitBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.plotLayer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.plotSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.plotGrid {
+  stroke: var(--yt-chart-grid);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.plotLine {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.plotDot {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  cursor: pointer;
+}
+
+.plotDot:hover,
+.plotDot:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+  background: var(--dsw-alias-bg-multi-select);
+}
+
+/* 缺失值点：置顶弱化呈现，tooltip/aria 标注为 —（不按 0 计）。 */
+.plotDotMissing {
+  border: 1px dashed var(--yt-chart-grid);
+  cursor: default;
+}
+
+.barList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: minmax(72px, 30%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-md);
+  min-width: 0;
+  cursor: default;
+}
+
+.barRow:hover {
+  background: var(--dsw-alias-bg-multi-select);
+}
+
+.barRow:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+  background: var(--dsw-alias-bg-multi-select);
+}
+
+.barLabel {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: end;
+}
+
+.barTrack {
+  min-width: 0;
+  height: 12px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  overflow: clip;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.barCount {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 作品列表与详情 */
 
 .workList,
 .accountList {
@@ -29,21 +286,29 @@
   list-style: none;
 }
 
-.workRow,
-.accountRow {
+.workRowButton {
   display: flex;
   flex-direction: row;
   align-items: center;
   gap: 8px;
+  width: 100%;
   min-height: 36px;
   padding: 4px 8px;
+  border: none;
   border-radius: var(--dsw-radius-md);
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
   min-width: 0;
 }
 
-.workRow:hover,
-.accountRow:hover {
+.workRowButton:hover {
   background: var(--dsw-alias-bg-multi-select);
+}
+
+.workRowButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
 }
 
 .workTitle,
@@ -57,9 +322,30 @@
   text-overflow: ellipsis;
 }
 
+.accountName {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: start;
+}
+
+.accountName:hover,
+.accountName:focus-visible {
+  outline: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.accountName:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+  border-radius: var(--dsw-radius-sm);
+}
+
 .workMeta,
 .accountIdText {
   margin-left: auto;
+  flex-shrink: 1;
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-tertiary);
@@ -70,6 +356,155 @@
   font-variant-numeric: tabular-nums;
 }
 
+.linkButton {
+  border: none;
+  background: transparent;
+  padding: 2px 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+  border-radius: var(--dsw-radius-sm);
+}
+
+.linkButton:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+.detailBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  min-width: 0;
+}
+
+.detailTitle:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 2px;
+  border-radius: var(--dsw-radius-sm);
+}
+
+/* 键值网格（详情字段 / 运行记录字段） */
+
+.metaGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+  min-width: 0;
+}
+
+.metaItem {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.metaTerm {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.metaValue {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.metaError {
+  color: var(--yt-chart-negative);
+}
+
+/* 采集页 */
+
+.collectControls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.collectStatus {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.collectStatus p {
+  margin: 0 0 4px;
+}
+
+.runLookup {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.runLookupInput {
+  flex: 1 1 240px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--dsw-radius-md);
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.runLookupInput::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.runLookupInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+/* 账号页 */
+
+.accountRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: var(--dsw-radius-md);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.accountRow:hover {
+  background: var(--dsw-alias-bg-multi-select);
+}
+
 .accountState {
   flex-shrink: 0;
   font-size: 12px;
@@ -77,8 +512,94 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.collectStatus {
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
+.accountActions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.dangerButton:hover {
+  color: var(--yt-chart-negative);
+}
+
+.deleteFlow {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.deleteWarning {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.deleteActions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 容器断点：1120 双列图表带、880 KPI 两列、640 单列 */
+
+@container yootun-kit-page (min-width: 1120px) {
+  .chartGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    align-items: start;
+  }
+}
+
+@container yootun-kit-page (max-width: 879px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metaGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .availability {
+    margin-left: 0;
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .kpis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .accountSelect {
+    max-width: none;
+  }
+
+  .workMeta,
+  .accountIdText {
+    max-width: 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plotDot,
+  .barRow,
+  .workRowButton,
+  .accountRow {
+    transition: none;
+  }
 }
