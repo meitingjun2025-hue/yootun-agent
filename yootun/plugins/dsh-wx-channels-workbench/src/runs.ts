@@ -9,6 +9,7 @@
  */
 import { readFile, rename, writeFile, chmod, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { WxError } from './errors.ts'
 
 /** 一条采集 run 的持久化记录（白名单投影，无凭证/路径）。 */
 export interface RunRecord {
@@ -36,41 +37,83 @@ export function createAttemptId(accountId: string): string {
   return `${accountId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-/** 记录规范化：缺字段兜底（兼容手工编辑/旧数据），attemptId 以 key 为准。 */
-function normalizeRunRecord(key: string, value: unknown): RunRecord {
-  const record = value && typeof value === 'object' && !Array.isArray(value) ? value as Partial<RunRecord> : {}
+/**
+ * 记录语义校验：结构非法（缺必填字段/类型不符/未知 status）抛
+ * `run_state_corrupt`——绝不静默修补（把非法记录改写回文件会掩盖真实状态）。
+ * 合法旧字段可兼容：runId/finishedAt/progress/error 缺失按空值语义补齐；
+ * attemptId 恒以 key 为准（与 updateRun 的写入语义一致，记录内值不采信）。
+ */
+function parseRunRecord(key: string, value: unknown): RunRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new WxError('run_state_corrupt', `runs.json record "${key}" is not an object`)
+  }
+  const record = value as Record<string, unknown>
+  if (typeof record.accountId !== 'string') {
+    throw new WxError('run_state_corrupt', `runs.json record "${key}": accountId must be a string`)
+  }
+  if (typeof record.startedAt !== 'string') {
+    throw new WxError('run_state_corrupt', `runs.json record "${key}": startedAt must be a string`)
+  }
   const status = record.status
+  if (status !== 'running' && status !== 'completed' && status !== 'partial' && status !== 'failed' && status !== 'cancelled' && status !== 'interrupted') {
+    throw new WxError('run_state_corrupt', `runs.json record "${key}": unknown status ${JSON.stringify(status)}`)
+  }
+  for (const field of ['attemptId', 'runId', 'finishedAt', 'error'] as const) {
+    const raw = record[field]
+    if (raw !== undefined && raw !== null && typeof raw !== 'string') {
+      throw new WxError('run_state_corrupt', `runs.json record "${key}": ${field} must be a string or null`)
+    }
+  }
+  const progress = record.progress
+  if (progress !== undefined && (!progress || typeof progress !== 'object' || Array.isArray(progress))) {
+    throw new WxError('run_state_corrupt', `runs.json record "${key}": progress must be an object`)
+  }
+  const runId = typeof record.runId === 'string' && record.runId !== '' ? record.runId : null
   return {
-    accountId: typeof record.accountId === 'string' ? record.accountId : '',
+    accountId: record.accountId,
     attemptId: key,
-    runId: typeof record.runId === 'string' && record.runId !== '' ? record.runId : null,
-    status: status === 'running' || status === 'completed' || status === 'partial' || status === 'failed' || status === 'cancelled' || status === 'interrupted' ? status : 'failed',
-    startedAt: typeof record.startedAt === 'string' ? record.startedAt : '',
+    runId,
+    status,
+    startedAt: record.startedAt,
     finishedAt: typeof record.finishedAt === 'string' ? record.finishedAt : null,
-    progress: record.progress && typeof record.progress === 'object' && !Array.isArray(record.progress) ? record.progress : {},
+    progress: progress && typeof progress === 'object' && !Array.isArray(progress) ? progress as Record<string, unknown> : {},
     error: typeof record.error === 'string' ? record.error : null,
   }
 }
 
-/** 读全部 run 记录（文件不存在返回空 map；损坏抛错不改写）。 */
+/**
+ * 读全部 run 记录。文件不存在返回空 map（正常态）；JSON 语法错误、顶层
+ * shape 无法识别、runs 非对象、任何记录结构非法 → 抛 `run_state_corrupt`
+ * 稳定错误，原文件保持原样（updateRun / recoverInterruptedRuns /
+ * removeAccountRuns 因此全部失败，绝不覆盖损坏文件）。
+ */
 export async function readRuns(root: string): Promise<Record<string, RunRecord>> {
   const file = runsFilePath(root)
+  let raw: string
   try {
-    const raw = await readFile(file, 'utf8')
-    const parsed: unknown = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !(parsed as { runs?: unknown }).runs) {
-      return {}
-    }
-    const rawRuns = (parsed as { runs: Record<string, unknown> }).runs
-    const runs: Record<string, RunRecord> = {}
-    for (const [key, value] of Object.entries(rawRuns)) {
-      runs[key] = normalizeRunRecord(key, value)
-    }
-    return runs
+    raw = await readFile(file, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
     throw error
   }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch (error) {
+    throw new WxError('run_state_corrupt', `runs.json is not valid JSON: ${String(error instanceof Error ? error.message : error)}`)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || (parsed as { runs?: unknown }).runs === undefined) {
+    throw new WxError('run_state_corrupt', 'runs.json top-level shape is not recognized (missing "runs")')
+  }
+  const rawRuns = (parsed as { runs: unknown }).runs
+  if (!rawRuns || typeof rawRuns !== 'object' || Array.isArray(rawRuns)) {
+    throw new WxError('run_state_corrupt', 'runs.json "runs" must be an object')
+  }
+  const runs: Record<string, RunRecord> = {}
+  for (const [key, value] of Object.entries(rawRuns)) {
+    runs[key] = parseRunRecord(key, value)
+  }
+  return runs
 }
 
 /** 原子 0600 写全部 run 记录。 */

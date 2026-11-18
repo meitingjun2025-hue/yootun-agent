@@ -12,12 +12,15 @@
  * 运行：`node --test tests/runs.test.ts`
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createAttemptId, readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun } from '../src/runs.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
+import { progressFromEvent } from '../src/runner.ts'
+import { createIngestClient, ingestCollectedData, type WxWorkbenchFace } from '../src/ingest.ts'
+import { safeCode } from '../src/errors.ts'
 import type { ChromeFactory } from '../src/session.ts'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
@@ -107,10 +110,10 @@ function makeFactory(scripts: Record<string, AccountScript>): ChromeFactory {
   }
 }
 
-function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { warnings: string[] }): { deps: ReturnType<typeof createWxHostDeps>; handlers: Record<string, (args: Record<string, string>) => Promise<object>> } {
+function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { warnings: string[] }, workbench?: WxWorkbenchFace): { deps: ReturnType<typeof createWxHostDeps>; handlers: Record<string, (args: Record<string, string>) => Promise<object>> } {
   const deps = createWxHostDeps({
     root,
-    workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+    workbench: workbench ?? { callTool: async () => ({ structuredContent: {}, content: [] }) },
     browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
     logger: logger ? { warn: (message: string) => { logger.warnings.push(message) } } : { warn: () => undefined },
     chromeFactory,
@@ -122,6 +125,22 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     stop: () => undefined,
   }
   return { deps, handlers: buildRouteHandlers(deps, batch as never) as Record<string, (args: Record<string, string>) => Promise<object>> }
+}
+
+/** 按工具名分发的 fake workbench：run_start 返回固定远端 runId。 */
+function makeIngestWorkbench(options: { runId: string; onFinish?: () => void; finishGate?: Promise<void> }): WxWorkbenchFace {
+  return {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_collect_run_start') return { structuredContent: { run: { run_id: options.runId } }, content: [] }
+      if (name === 'workbench_wx_collect_ingest_works') return { structuredContent: { batch: { batch_status: 'succeeded', succeeded_objects: ['w1'], failed_objects: [] } }, content: [] }
+      if (name === 'workbench_wx_collect_run_finish') {
+        options.onFinish?.()
+        if (options.finishGate !== undefined) await options.finishGate
+        return { structuredContent: { run: { status: 'completed' } }, content: [] }
+      }
+      return { structuredContent: {}, content: [] }
+    },
+  }
 }
 
 async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string> = {}): Promise<Record<string, unknown>> {
@@ -358,5 +377,204 @@ test('终态写失败必须可见：warn 日志 + run_persist_failed 进度事�
   assert.equal(memory.progress.phase, 'run_persist_failed', '进度事件必须暴露终态写失败')
   assert.ok(logger.warnings.some(message => message.includes('final state write failed')), `终态写失败必须产生 warn 日志，实际: ${JSON.stringify(logger.warnings)}`)
   assert.equal(status.lastRun, null, '持久化写失败时 lastRun 不可得（诚实反映）')
+  cleanup(root)
+})
+
+// --- 6. 远端 runId 立即持久化 + ingest 进度持久化 ---
+
+test('ingestCollectedData 正常事件流（run_started/batch_done/finished）经投影全部落盘', async () => {
+  const root = makeRoot('wx-runs-ingest')
+  const attempt = createAttemptId('acc1')
+  const phases: string[] = []
+  const persisting: Array<Promise<unknown>> = []
+  const result = await ingestCollectedData({
+    client: createIngestClient({ workbench: makeIngestWorkbench({ runId: 'remote-run-x' }), accountId: 'acc1', root }),
+    works: [{ workId: 'w1', exportId: null, title: null, description: null, coverUrl: null, publishTime: null, mediaType: null, durationS: null, width: null, height: null, visibility: null, playCount: null, likeCount: null, favoriteCount: null, commentCount: null, forwardCount: null, shareCount: null, followCount: null, wecomLinkClickCount: null, wecomLinkClickUv: null, wecomContactAddCount: null, wecomContactAddUv: null, ringsetCount: null, statusCoverCount: null, statusRefCount: null, completionRatePct: null, dailyMetrics: [] } as never],
+    listComplete: true,
+    expectedWorkCount: 1,
+    newAttempt: true,
+    // 与 runner emit 相同的投影桥接：run_started 事件单独落盘 runId，其余
+    // 事件经白名单投影落盘 progress。
+    onProgress: event => {
+      phases.push(String(event.phase))
+      if (event.phase === 'run_started' && typeof event.runId === 'string' && event.runId !== '') {
+        persisting.push(updateRun(root, 'acc1', attempt, { runId: event.runId }))
+        return
+      }
+      const progress = progressFromEvent(event)
+      if (progress !== null) persisting.push(updateRun(root, 'acc1', attempt, { progress }))
+    },
+    signal: undefined,
+  })
+  await Promise.all(persisting)
+
+  assert.equal(result.error, null)
+  assert.equal(result.runId, 'remote-run-x')
+  assert.deepEqual(phases, ['run_started', 'batch_done', 'finished'], `事件流: ${JSON.stringify(phases)}`)
+  const record = (await readRuns(root))[attempt]
+  assert.ok(record !== undefined)
+  assert.equal(record.runId, 'remote-run-x', 'run_started 事件落盘远端 runId')
+  assert.equal(record.progress.phase, 'finishing', 'finished 事件最后落盘')
+  assert.equal(record.status, 'running', '单元测试只发进度，无终态')
+  cleanup(root)
+})
+
+test('远端 run_start 返回后、采集未完成前，runs.json 已含真实 runId；终态保留 runId 与进度', async () => {
+  const root = makeEnv('wx-runs-runid', 'acc1')
+  const finishEntered = deferred<void>()
+  const finishGate = deferred<void>()
+  const workbench = makeIngestWorkbench({ runId: 'remote-run-42', onFinish: finishEntered.resolve, finishGate: finishGate.promise })
+  const { handlers } = buildHandlers(root, makeFactory({ acc1: {} }), undefined, workbench)
+
+  const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
+  assert.equal(collect.started, true)
+  try {
+    // 等采集流程走到 client.finish（list 重试 + 账号级接口约数秒）。
+    await Promise.race([finishEntered.promise, timeoutReject(20000, '采集未到达 finish 阶段')])
+    // run_started / finished 事件已 emit：等 fire-and-forget 落盘完成。
+    await waitForCondition(async () => {
+      const record = Object.values(await readRuns(root))[0]
+      return record?.runId === 'remote-run-42' && record?.progress.phase === 'finishing'
+    }, 3000)
+  } finally {
+    // 无论如何解除 gate：断言失败时 runCollection 不得永挂拖住测试进程。
+    finishGate.resolve()
+  }
+  // client.finish 挂起窗口：runId 必须已落盘（run_started 即时持久化），
+  // finished 进度也已落盘，状态仍是 running（采集未完成）。
+  const running = Object.values(await readRuns(root))[0]
+  assert.equal(running?.runId, 'remote-run-42')
+  assert.equal(running?.status, 'running', '采集未完成时仍是 running')
+  assert.equal(running?.progress.phase, 'finishing')
+
+  finishGate.resolve()
+  await waitForCondition(async () => {
+    const status = await callHandler(handlers, 'collect.status')
+    return status.busy === false && (status.lastRun as { status: string } | null)?.status !== 'running'
+  }, 5000)
+  const status = await callHandler(handlers, 'collect.status')
+  const lastRun = status.lastRun as { runId: string | null; status: string; progress: { phase?: string } }
+  assert.equal(lastRun.runId, 'remote-run-42', '终态保留远端 runId')
+  assert.ok(lastRun.status === 'completed' || lastRun.status === 'partial', `实际: ${String(lastRun.status)}`)
+  assert.equal(lastRun.progress.phase, 'finishing', '终态不得覆盖最后进度')
+  const runs = await readRuns(root)
+  assert.equal(Object.keys(runs).length, 1)
+  cleanup(root)
+})
+
+test('run_start 后取消：cancelled 终态保留 runId 与最后进度', async () => {
+  const root = makeEnv('wx-runs-cancel-runid', 'acc1')
+  const finishEntered = deferred<void>()
+  let rejectFinish!: (error: Error) => void
+  const finishGate = new Promise<void>((_, reject) => { rejectFinish = reject })
+  const workbench = makeIngestWorkbench({ runId: 'remote-run-77', onFinish: finishEntered.resolve, finishGate })
+  const { handlers } = buildHandlers(root, makeFactory({ acc1: {} }), undefined, workbench)
+
+  const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
+  assert.equal(collect.started, true)
+  try {
+    // 等采集流程走到 client.finish 且 run_started / finished 已落盘。
+    await Promise.race([finishEntered.promise, timeoutReject(20000, '采集未到达 finish 阶段')])
+    await waitForCondition(async () => {
+      const record = Object.values(await readRuns(root))[0]
+      return record?.runId === 'remote-run-77' && record?.progress.phase === 'finishing'
+    }, 3000)
+  } finally {
+    // 无论如何解除 finish gate（reject 使 client.finish 抛错）：断言失败时
+    // runCollection 不得永挂拖住测试进程。
+    rejectFinish(new Error('test cleanup'))
+  }
+
+  // 取消：client.finish 拒绝 → ingest 兜底 cancel → runner 取消分支读本地
+  // record.runId 写 cancelled 终态。
+  await callHandler(handlers, 'collect.cancel', { accountId: 'acc1' })
+  rejectFinish(new Error('finish aborted'))
+  await waitForCondition(async () => {
+    const status = await callHandler(handlers, 'collect.status')
+    return (status.lastRun as { status: string } | null)?.status === 'cancelled'
+  }, 5000)
+  const status = await callHandler(handlers, 'collect.status')
+  const lastRun = status.lastRun as { runId: string | null; status: string; error: string | null; progress: { phase?: string } }
+  assert.equal(lastRun.status, 'cancelled')
+  assert.equal(lastRun.error, 'collect_cancelled')
+  assert.equal(lastRun.runId, 'remote-run-77', '取消终态必须保留远端 runId')
+  assert.equal(lastRun.progress.phase, 'finishing', '取消终态保留最后进度')
+  cleanup(root)
+})
+
+// --- 7. runs.json 语义校验（非法即抛、绝不覆盖） ---
+
+test('runs.json 语义非法：readRuns 抛 run_state_corrupt 且文件字节不变', async () => {
+  const root = makeRoot('wx-runs-corrupt')
+  const file = join(root, 'runs.json')
+  const cases = [
+    'not json at all',
+    '{"version":1}',
+    '{"version":1,"runs":[]}',
+    '{"version":1,"runs":{"a":{"startedAt":"2026-01-01T00:00:00Z","status":"running"}}}',
+    '{"version":1,"runs":{"a":{"accountId":"a","startedAt":"x","status":"weird"}}}',
+    '{"version":1,"runs":{"a":{"accountId":9,"startedAt":"x","status":"running"}}}',
+    '{"version":1,"runs":{"a":{"accountId":"a","startedAt":5,"status":"running"}}}',
+    '{"version":1,"runs":{"a":{"accountId":"a","startedAt":"x","status":"running","runId":7}}}',
+    '{"version":1,"runs":{"a":"broken"}}',
+  ]
+  for (const [index, content] of cases.entries()) {
+    writeFileSync(file, content, 'utf8')
+    const before = readFileSync(file)
+    await assert.rejects(readRuns(root), (error: unknown) => {
+      assert.equal(safeCode(error), 'run_state_corrupt', `case ${String(index)} 错误码`)
+      return true
+    }, `case ${String(index)} 应抛 run_state_corrupt`)
+    assert.ok(before.equals(readFileSync(file)), `case ${String(index)} 文件字节不变`)
+  }
+  cleanup(root)
+})
+
+test('非法 runs.json：updateRun / recoverInterruptedRuns / removeAccountRuns 全部失败且不覆盖文件', async () => {
+  const root = makeRoot('wx-runs-corrupt-guard')
+  const file = join(root, 'runs.json')
+  const content = '{"version":1,"runs":{"a":{"accountId":"a","startedAt":"x","status":"weird"}},"extra":"keep"}'
+  writeFileSync(file, content, 'utf8')
+  const before = readFileSync(file)
+  await assert.rejects(updateRun(root, 'a', 'a', { progress: { phase: 'x' } }), (error: unknown) => {
+    assert.equal(safeCode(error), 'run_state_corrupt')
+    return true
+  })
+  await assert.rejects(recoverInterruptedRuns(root), (error: unknown) => {
+    assert.equal(safeCode(error), 'run_state_corrupt')
+    return true
+  })
+  await assert.rejects(removeAccountRuns(root, 'a'), (error: unknown) => {
+    assert.equal(safeCode(error), 'run_state_corrupt')
+    return true
+  })
+  assert.equal(readFileSync(file, 'utf8'), content, '非法文件必须原样保留')
+  cleanup(root)
+})
+
+test('runs.json 合法旧字段兼容：缺 attemptId/runId 等可空字段正常读取且不魔改 status', async () => {
+  const root = makeRoot('wx-runs-legacy')
+  const file = join(root, 'runs.json')
+  writeFileSync(file, '{"version":1,"runs":{"legacy-1":{"accountId":"a","startedAt":"2026-01-01T00:00:00Z","status":"failed","error":"probe_failed"}}}', 'utf8')
+  const runs = await readRuns(root)
+  const record = runs['legacy-1']
+  assert.ok(record !== undefined)
+  assert.equal(record.attemptId, 'legacy-1', 'attemptId 以 key 为准')
+  assert.equal(record.runId, null)
+  assert.equal(record.status, 'failed', 'status 不被魔改')
+  assert.equal(record.error, 'probe_failed')
+  assert.equal(record.finishedAt, null)
+  assert.deepEqual(record.progress, {})
+  cleanup(root)
+})
+
+test('collect.status 对语义非法 runs.json 暴露 run_state_corrupt reason，不伪装空记录', async () => {
+  const root = makeEnv('wx-runs-status-corrupt', 'acc1')
+  writeFileSync(join(root, 'runs.json'), '{"version":1}', 'utf8')
+  const { handlers } = buildHandlers(root, makeFactory({ acc1: {} }))
+  const status = await callHandler(handlers, 'collect.status')
+  assert.equal(status.busy, false)
+  assert.equal(status.lastRun, null)
+  assert.equal(status.reason, 'run_state_corrupt', `实际: ${JSON.stringify(status)}`)
   cleanup(root)
 })

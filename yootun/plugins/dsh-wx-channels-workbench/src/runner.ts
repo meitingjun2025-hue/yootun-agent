@@ -153,6 +153,14 @@ async function runCollectionWithinProfileLock(options: {
     // 写，失败只告警）。run_persist_failed 由终态失败路径直接 emit，不再触发
     // 落盘（终态写失败的失败不递归）。
     if (event.phase === 'run_persist_failed') return
+    // 远端 runId 立即持久化：run_start 返回后（采集未完成前）崩溃/取消，
+    // runs.json 也能关联远端 run。失败 warn 不阻塞采集。
+    if (event.phase === 'run_started' && typeof event.runId === 'string' && event.runId !== '') {
+      void updateRun(root, accountId, attemptId, { runId: event.runId }).catch((error: unknown) => {
+        options.logger?.warn(`wx runs.json runId persist failed (${attemptId}): ${safeCode(error)}`)
+      })
+      return
+    }
     const progress = progressFromEvent(event)
     if (progress !== null) {
       void updateRun(root, accountId, attemptId, { progress }).catch((error: unknown) => {
@@ -279,7 +287,9 @@ async function runCollectionWithinProfileLock(options: {
       listComplete: list.listComplete,
       expectedWorkCount: list.totalCount ?? enriched.length,
       newAttempt: options.newAttempt ?? true,
-      onProgress: options.onProgress,
+      // ingest 阶段事件必须经 emit（内存 + runs.json 同步）；直传
+      // options.onProgress 会绕过落盘。
+      onProgress: emit,
       accountLevel,
       signal,
     })
@@ -304,10 +314,15 @@ async function runCollectionWithinProfileLock(options: {
     // 取消：远端补偿 run_cancel 用独立 cleanup signal（不复用已 aborted 的
     // caller signal——P1 connector 会在本地取消导致 tools/call 次数为 0）。
     if (signal?.aborted === true) {
+      // 本地 record 里的 runId 是 startRun 持久化的本次远端 run——取消终态必须
+      // 带上（restart 后可关联远端）；仅在有值时写入，避免覆盖 run_started 已
+      // 落盘的 runId。
+      let cancelledRunId: string | null = null
       try {
         const client = createIngestClient({ workbench: options.workbench, accountId: options.accountId, root })
         const record = await getAccount(options.accountId, root).catch(() => undefined)
         if (record?.runId !== undefined && record.runAttemptId !== undefined) {
+          cancelledRunId = record.runId
           await client.startRun({ newAttempt: false })
           await client.cancel(undefined)
         }
@@ -315,7 +330,9 @@ async function runCollectionWithinProfileLock(options: {
         // best-effort：取消失败不覆盖原始原因（本地仍投影 collect_cancelled）。
         void cleanupError
       }
-      await persistFinalRun({ status: 'cancelled', error: 'collect_cancelled' })
+      await persistFinalRun(cancelledRunId !== null
+        ? { runId: cancelledRunId, status: 'cancelled', error: 'collect_cancelled' }
+        : { status: 'cancelled', error: 'collect_cancelled' })
       return { status: 'failed', runId: null, reason: 'collect_cancelled' }
     }
     if (error instanceof SessionInvalidError) {
@@ -367,6 +384,8 @@ export function progressFromEvent(event: Record<string, unknown>): Record<string
       return { phase: 'details', done: event.done, total: event.total, detailFailed: event.detailFailed }
     case 'batch_done':
       return { phase: 'ingest', batchNo: event.batchNo, totalBatches: event.totalBatches, succeeded: event.succeeded, failed: event.failed, expected: event.expected }
+    case 'run_started':
+      return { phase: 'run_started', runId: event.runId }
     case 'finished':
       return { phase: 'finishing' }
     case 'run_persist_failed':

@@ -395,6 +395,9 @@ export async function ingestCollectedData(options: {
   const expectedWorkCount = options.expectedWorkCount ?? options.works.length
   const started = await client.startRun({ newAttempt: options.newAttempt ?? true, signal })
   const runId = typeof started.run.run_id === 'string' ? started.run.run_id : ''
+  // run_started 事件：消费方（runner）借此在 run_start 返回后立即持久化远端
+  // runId——此后崩溃/取消，runs.json 都能关联远端 run。
+  if (runId !== '') emit({ phase: 'run_started', runId })
   try {
     try {
       await client.publishListMeta({ expectedWorkCount, listComplete: options.listComplete, signal })
@@ -412,6 +415,19 @@ export async function ingestCollectedData(options: {
     const ingest = options.works.length
       ? await client.ingestAll(options.works, { observedCount: expectedWorkCount, signal })
       : { runId, batches: [], succeededWorkIds: [], failedWorkIds: [] }
+    // 批次进度补发：ingestAll 返回后按批各发一个 batch_done（总批数与
+    // succeeded/failed 全局值在返回后才可知，故非实时逐批；空 works 无批次
+    // 事件）。进度投影语义为「最后事件生效」，落盘结果与实时逐批一致。
+    for (const batch of ingest.batches) {
+      emit({
+        phase: 'batch_done',
+        batchNo: batch.batchNo,
+        totalBatches: ingest.batches.length,
+        succeeded: ingest.succeededWorkIds.length,
+        failed: ingest.failedWorkIds.length,
+        expected: expectedWorkCount,
+      })
+    }
 
     const segmentStatus = { accountMetricStatus: 'not_collected', fansTrendStatus: 'not_collected', fansProfileStatus: 'not_collected' }
     const accountLevel = options.accountLevel
@@ -461,6 +477,8 @@ export async function ingestCollectedData(options: {
     }
 
     const clientStatus = resolveClientStatus({ listComplete: options.listComplete, expected: expectedWorkCount, ingest })
+    // finish 前的收尾事件（消费方投影为 finishing 进度）。
+    emit({ phase: 'finished' })
     const finish = await client.finish({
       clientStatus,
       clientCounts: {

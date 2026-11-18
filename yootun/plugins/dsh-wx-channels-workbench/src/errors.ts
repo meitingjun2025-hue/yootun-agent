@@ -47,6 +47,7 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'WX_ROUTE_PAYLOAD_TOO_LARGE',
   'WX_ROUTE_REFUSED',
   'WX_RUN_INTERRUPTED',
+  'run_state_corrupt',
   'login_timeout',
   'login_failed',
   'collect_busy',

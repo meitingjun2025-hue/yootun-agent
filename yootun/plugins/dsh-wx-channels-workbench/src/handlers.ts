@@ -444,12 +444,19 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     'collect.status': async () => {
       // 合并内存实时态与持久化态：lastRun 是 runs.json 中最近启动的一条完整
       // 记录——进程重启后内存 collectRecord 为 null，lastRun 提供上次 run 的
-      // 终态投影（attemptId/runId/status/finishedAt/error）。
-      const runs = await readRuns(deps.root).catch(() => ({}) as Record<string, RunRecord>)
-      const lastRun = Object.values(runs)
-        .filter(record => record.startedAt !== '')
-        .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0] ?? null
-      return { status: 'ok', busy: deps.collectBusy, collect: deps.collectRecord, lastRun }
+      // 终态投影（attemptId/runId/status/finishedAt/error）。读失败（如
+      // runs.json 语义损坏）不伪装成空记录：稳定 reason 暴露给调用方。
+      let lastRun: RunRecord | null = null
+      let reason: string | null = null
+      try {
+        const runs = await readRuns(deps.root)
+        lastRun = Object.values(runs)
+          .filter(record => record.startedAt !== '')
+          .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0] ?? null
+      } catch (error) {
+        reason = safeCode(error)
+      }
+      return { status: 'ok', busy: deps.collectBusy, collect: deps.collectRecord, lastRun, ...(reason !== null ? { reason } : {}) }
     },
 
     'collect.cancel': async args => {
