@@ -128,16 +128,47 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
 }
 
 /** 按工具名分发的 fake workbench：run_start 返回固定远端 runId。 */
-function makeIngestWorkbench(options: { runId: string; onFinish?: () => void; finishGate?: Promise<void> }): WxWorkbenchFace {
+function makeIngestWorkbench(options: { runId: string; onFinish?: () => void; finishGate?: Promise<void>; onListMeta?: () => Promise<void> }): WxWorkbenchFace {
   return {
     callTool: async (_caller: string, _domain: string, name: string) => {
       if (name === 'workbench_wx_collect_run_start') return { structuredContent: { run: { run_id: options.runId } }, content: [] }
+      if (name === 'workbench_wx_collect_run_set_list_meta') {
+        if (options.onListMeta !== undefined) await options.onListMeta()
+        return { structuredContent: {}, content: [] }
+      }
       if (name === 'workbench_wx_collect_ingest_works') return { structuredContent: { batch: { batch_status: 'succeeded', succeeded_objects: ['w1'], failed_objects: [] } }, content: [] }
       if (name === 'workbench_wx_collect_run_finish') {
         options.onFinish?.()
         if (options.finishGate !== undefined) await options.finishGate
         return { structuredContent: { run: { status: 'completed' } }, content: [] }
       }
+      return { structuredContent: {}, content: [] }
+    },
+  }
+}
+
+/** 最小 WorkItem（全空指标字段 + dailyMetrics 空数组）。 */
+function makeWork(id: string): Record<string, unknown> {
+  return { workId: id, exportId: null, title: null, description: null, coverUrl: null, publishTime: null, mediaType: null, durationS: null, width: null, height: null, visibility: null, playCount: null, likeCount: null, favoriteCount: null, commentCount: null, forwardCount: null, shareCount: null, followCount: null, wecomLinkClickCount: null, wecomLinkClickUv: null, wecomContactAddCount: null, wecomContactAddUv: null, ringsetCount: null, statusCoverCount: null, statusRefCount: null, completionRatePct: null, dailyMetrics: [] }
+}
+
+/** 按批次 gate 的 fake workbench（21 works → 2 批；ingest_works 按入参 batchNo 挂起）。 */
+function makeBatchWorkbench(options: {
+  runId: string
+  batchGates: Map<number, Promise<void>>
+  onBatchEntered?: (batchNo: number) => void
+}): WxWorkbenchFace {
+  return {
+    callTool: async (_caller: string, _domain: string, name: string, args: unknown) => {
+      if (name === 'workbench_wx_collect_run_start') return { structuredContent: { run: { run_id: options.runId } }, content: [] }
+      if (name === 'workbench_wx_collect_ingest_works') {
+        const batchNo = typeof (args as { batchNo?: unknown })?.batchNo === 'number' ? (args as { batchNo: number }).batchNo : 0
+        options.onBatchEntered?.(batchNo)
+        const gate = options.batchGates.get(batchNo)
+        if (gate !== undefined) await gate
+        return { structuredContent: { batch: { batch_status: 'succeeded', succeeded_objects: [], failed_objects: [] } }, content: [] }
+      }
+      if (name === 'workbench_wx_collect_run_finish') return { structuredContent: { run: { status: 'completed' } }, content: [] }
       return { structuredContent: {}, content: [] }
     },
   }
@@ -393,14 +424,11 @@ test('ingestCollectedData 正常事件流（run_started/batch_done/finished）�
     listComplete: true,
     expectedWorkCount: 1,
     newAttempt: true,
-    // 与 runner emit 相同的投影桥接：run_started 事件单独落盘 runId，其余
-    // 事件经白名单投影落盘 progress。
+    // 与 runner 相同的桥接：runId 落盘只走 onRunStart barrier；onProgress 对
+    // 事件只做白名单投影落盘 progress。
+    onRunStart: runId => { persisting.push(updateRun(root, 'acc1', attempt, { runId })) },
     onProgress: event => {
       phases.push(String(event.phase))
-      if (event.phase === 'run_started' && typeof event.runId === 'string' && event.runId !== '') {
-        persisting.push(updateRun(root, 'acc1', attempt, { runId: event.runId }))
-        return
-      }
       const progress = progressFromEvent(event)
       if (progress !== null) persisting.push(updateRun(root, 'acc1', attempt, { progress }))
     },
@@ -423,7 +451,17 @@ test('远端 run_start 返回后、采集未完成前，runs.json 已含真实 r
   const root = makeEnv('wx-runs-runid', 'acc1')
   const finishEntered = deferred<void>()
   const finishGate = deferred<void>()
-  const workbench = makeIngestWorkbench({ runId: 'remote-run-42', onFinish: finishEntered.resolve, finishGate: finishGate.promise })
+  let listMetaSawRunId: boolean | null = null
+  const workbench = makeIngestWorkbench({
+    runId: 'remote-run-42',
+    onFinish: finishEntered.resolve,
+    finishGate: finishGate.promise,
+    // 落盘 barrier 断言：ingest 流程中途（publishListMeta 时）runId 必已落盘。
+    onListMeta: async () => {
+      const record = Object.values(await readRuns(root))[0]
+      listMetaSawRunId = record?.runId === 'remote-run-42'
+    },
+  })
   const { handlers } = buildHandlers(root, makeFactory({ acc1: {} }), undefined, workbench)
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
@@ -448,6 +486,7 @@ test('远端 run_start 返回后、采集未完成前，runs.json 已含真实 r
   assert.equal(running?.progress.phase, 'finishing')
 
   finishGate.resolve()
+  assert.equal(listMetaSawRunId, true, 'publishListMeta（barrier 之后的第一步）时 runId 必须已落盘')
   await waitForCondition(async () => {
     const status = await callHandler(handlers, 'collect.status')
     return status.busy === false && (status.lastRun as { status: string } | null)?.status !== 'running'
@@ -576,5 +615,150 @@ test('collect.status 对语义非法 runs.json 暴露 run_state_corrupt reason�
   assert.equal(status.busy, false)
   assert.equal(status.lastRun, null)
   assert.equal(status.reason, 'run_state_corrupt', `实际: ${JSON.stringify(status)}`)
+  cleanup(root)
+})
+
+// --- 8. 逐批实时进度 / runId 落盘 barrier 失败路径 / version 校验 ---
+
+test('ingest 批次实时进度：第二批挂起时 runs.json 已是第一批 batch_done（batchNo=1）', async () => {
+  const root = makeRoot('wx-runs-batch')
+  const attempt = createAttemptId('acc1')
+  const batch1Gate = deferred<void>()
+  const batch2Entered = deferred<void>()
+  const batch2Gate = deferred<void>()
+  const workbench = makeBatchWorkbench({
+    runId: 'remote-run-9',
+    batchGates: new Map([[1, batch1Gate.promise], [2, batch2Gate.promise]]),
+    onBatchEntered: batchNo => { if (batchNo === 2) batch2Entered.resolve() },
+  })
+  const phases: string[] = []
+  const persisting: Array<Promise<unknown>> = []
+  // 21 works → splitIngestBatches 切成 2 批（每批上限 20）。
+  const promise = ingestCollectedData({
+    client: createIngestClient({ workbench, accountId: 'acc1', root }),
+    works: Array.from({ length: 21 }, (_, index) => makeWork(`w${String(index + 1)}`)) as never,
+    listComplete: true,
+    expectedWorkCount: 21,
+    newAttempt: true,
+    onRunStart: runId => { persisting.push(updateRun(root, 'acc1', attempt, { runId })) },
+    // runId 落盘只走 onRunStart barrier；onProgress 对 run_started 只投影
+    // progress（与 runner emit 一致）。
+    onProgress: event => {
+      phases.push(String(event.phase))
+      const progress = progressFromEvent(event)
+      if (progress !== null) persisting.push(updateRun(root, 'acc1', attempt, { progress }))
+    },
+    signal: undefined,
+  })
+
+  // 第一批 gate 放行 → batch_done(1) 发出 → 第二批进入并挂起。
+  batch1Gate.resolve()
+  await Promise.race([batch2Entered.promise, timeoutReject(5000, '第二批未进入')])
+  // 第二批仍挂起时：第一批 batch_done 必须已落盘（逐批实时，非补发）。
+  await waitForCondition(async () => {
+    const record = (await readRuns(root))[attempt]
+    return record?.progress.phase === 'ingest' && record?.progress.batchNo === 1
+  }, 3000)
+  const mid = (await readRuns(root))[attempt]
+  assert.equal(mid?.progress.totalBatches, 2)
+  assert.equal(mid?.progress.batchNo, 1)
+
+  // 释放第二批：batch_done(2) → finished → 完成。
+  batch2Gate.resolve()
+  await Promise.race([promise, timeoutReject(5000, 'ingestCollectedData 未完成')])
+  await Promise.all(persisting)
+  assert.deepEqual(phases, ['run_started', 'batch_done', 'batch_done', 'finished'], `事件流: ${JSON.stringify(phases)}`)
+  const final = (await readRuns(root))[attempt]
+  // 最终 progress 是 finished 的投影（覆盖 batch_done；第二批发出由 phases 序列证明）。
+  assert.equal(final?.progress.phase, 'finishing')
+  cleanup(root)
+})
+
+test('ingest 批次间取消：runs.json 保留已落盘的 batchNo=1 进度与远端 runId', async () => {
+  const root = makeRoot('wx-runs-batch-cancel')
+  const attempt = createAttemptId('acc1')
+  const controller = new AbortController()
+  const batch1Gate = deferred<void>()
+  const batch2Entered = deferred<void>()
+  let rejectBatch2!: (error: Error) => void
+  const batch2Gate = new Promise<void>((_, reject) => { rejectBatch2 = reject })
+  const workbench = makeBatchWorkbench({
+    runId: 'remote-run-8',
+    batchGates: new Map([[1, batch1Gate.promise], [2, batch2Gate]]),
+    onBatchEntered: batchNo => { if (batchNo === 2) batch2Entered.resolve() },
+  })
+  const persisting: Array<Promise<unknown>> = []
+  const promise = ingestCollectedData({
+    client: createIngestClient({ workbench, accountId: 'acc1', root }),
+    works: Array.from({ length: 21 }, (_, index) => makeWork(`w${String(index + 1)}`)) as never,
+    listComplete: true,
+    expectedWorkCount: 21,
+    newAttempt: true,
+    onRunStart: runId => { persisting.push(updateRun(root, 'acc1', attempt, { runId })) },
+    // runId 落盘只走 onRunStart barrier；onProgress 对 run_started 只投影
+    // progress（与 runner emit 一致）。
+    onProgress: event => {
+      const progress = progressFromEvent(event)
+      if (progress !== null) persisting.push(updateRun(root, 'acc1', attempt, { progress }))
+    },
+    signal: controller.signal,
+  })
+
+  batch1Gate.resolve()
+  await Promise.race([batch2Entered.promise, timeoutReject(5000, '第二批未进入')])
+  await waitForCondition(async () => {
+    const record = (await readRuns(root))[attempt]
+    return record?.runId === 'remote-run-8' && record?.progress.batchNo === 1
+  }, 3000)
+
+  // 第二批挂起时取消：abort + gate 拒绝 → ingestAll 抛 → 兜底 cancel → 传播。
+  controller.abort()
+  rejectBatch2(new Error('ingest aborted'))
+  await assert.rejects(promise)
+  await Promise.all(persisting)
+  const record = (await readRuns(root))[attempt]
+  assert.equal(record?.runId, 'remote-run-8', '取消后远端 runId 保留')
+  assert.equal(record?.progress.batchNo, 1, '取消后最后批次进度保留')
+  assert.equal(record?.status, 'running', '单元路径无 runner 终态（cancelled 终态由 runner 写，见集成取消测试）')
+  cleanup(root)
+})
+
+test('runId 落盘失败：warn 可见、采集继续、终态仍尝试写入并暴露失败', async () => {
+  const root = makeEnv('wx-runs-runid-fail', 'acc1')
+  // runs.json 位置被目录占用：runId barrier 与终态写入确定性失败。
+  mkdirSync(join(root, 'runs.json'), { recursive: true })
+  const logger = { warnings: [] as string[] }
+  const workbench = makeIngestWorkbench({ runId: 'remote-run-5' })
+  const { handlers } = buildHandlers(root, makeFactory({ acc1: {} }), logger, workbench)
+
+  const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
+  assert.equal(collect.started, true)
+  // 采集继续到收尾（完整流程约数秒；30s 防挂护栏）。
+  await waitForCondition(async () => {
+    const status = await callHandler(handlers, 'collect.status')
+    return status.busy === false
+  }, 30000)
+  assert.ok(logger.warnings.some(message => message.includes('runId persist failed')), `runId 落盘失败必须 warn，实际: ${JSON.stringify(logger.warnings)}`)
+  assert.ok(logger.warnings.some(message => message.includes('final state write failed')), '终态写入仍会尝试并暴露失败')
+  cleanup(root)
+})
+
+test('runs.json version 校验：缺 version / version=99 / 类型错均抛 run_state_corrupt 且文件不变', async () => {
+  const root = makeRoot('wx-runs-version')
+  const file = join(root, 'runs.json')
+  const cases = [
+    '{"runs":{}}',
+    '{"version":99,"runs":{}}',
+    '{"version":"1","runs":{}}',
+  ]
+  for (const [index, content] of cases.entries()) {
+    writeFileSync(file, content, 'utf8')
+    const before = readFileSync(file)
+    await assert.rejects(readRuns(root), (error: unknown) => {
+      assert.equal(safeCode(error), 'run_state_corrupt', `case ${String(index)} 错误码`)
+      return true
+    }, `case ${String(index)} 应抛 run_state_corrupt`)
+    assert.ok(before.equals(readFileSync(file)), `case ${String(index)} 文件字节不变`)
+  }
   cleanup(root)
 })

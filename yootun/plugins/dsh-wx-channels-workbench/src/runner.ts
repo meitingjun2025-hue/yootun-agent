@@ -150,17 +150,10 @@ async function runCollectionWithinProfileLock(options: {
   const emit = (event: Record<string, unknown>): void => {
     options.onProgress?.(event)
     // 进度落盘（白名单投影；fire-and-forget：updateRun 内部 root 队列串行不丢
-    // 写，失败只告警）。run_persist_failed 由终态失败路径直接 emit，不再触发
-    // 落盘（终态写失败的失败不递归）。
+    // 写，失败只告警）。run_persist_failed 由终态/runId 失败路径直接 emit，
+    // 不再触发落盘（写失败的失败不递归）；runId 落盘走 ingest 的 onRunStart
+    // barrier（await），不经此 fire-and-forget 路径。
     if (event.phase === 'run_persist_failed') return
-    // 远端 runId 立即持久化：run_start 返回后（采集未完成前）崩溃/取消，
-    // runs.json 也能关联远端 run。失败 warn 不阻塞采集。
-    if (event.phase === 'run_started' && typeof event.runId === 'string' && event.runId !== '') {
-      void updateRun(root, accountId, attemptId, { runId: event.runId }).catch((error: unknown) => {
-        options.logger?.warn(`wx runs.json runId persist failed (${attemptId}): ${safeCode(error)}`)
-      })
-      return
-    }
     const progress = progressFromEvent(event)
     if (progress !== null) {
       void updateRun(root, accountId, attemptId, { progress }).catch((error: unknown) => {
@@ -174,6 +167,19 @@ async function runCollectionWithinProfileLock(options: {
       await updateRun(root, accountId, attemptId, { ...patch, finishedAt: new Date().toISOString() })
     } catch (error) {
       options.logger?.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(error)}`)
+      options.onProgress?.({ phase: 'run_persist_failed', reason: safeCode(error) })
+    }
+  }
+  /**
+   * runId 落盘 barrier（ingest onRunStart）：await 返回前 ingest 不会进入
+   * publishListMeta/ingest——run_start 后进程崩溃，runs.json 必已含 runId。
+   * 写失败 warn + 进度事件可见，采集继续（不把未落盘伪装为成功）。
+   */
+  const persistRunId = async (runId: string): Promise<void> => {
+    try {
+      await updateRun(root, accountId, attemptId, { runId })
+    } catch (error) {
+      options.logger?.warn(`wx runs.json runId persist failed (${attemptId}): ${safeCode(error)}`)
       options.onProgress?.({ phase: 'run_persist_failed', reason: safeCode(error) })
     }
   }
@@ -288,8 +294,9 @@ async function runCollectionWithinProfileLock(options: {
       expectedWorkCount: list.totalCount ?? enriched.length,
       newAttempt: options.newAttempt ?? true,
       // ingest 阶段事件必须经 emit（内存 + runs.json 同步）；直传
-      // options.onProgress 会绕过落盘。
+      // options.onProgress 会绕过落盘。onRunStart 是 runId 落盘 barrier。
       onProgress: emit,
+      onRunStart: persistRunId,
       accountLevel,
       signal,
     })

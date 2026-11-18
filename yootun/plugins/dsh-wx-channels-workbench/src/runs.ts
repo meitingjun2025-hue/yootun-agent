@@ -83,9 +83,10 @@ function parseRunRecord(key: string, value: unknown): RunRecord {
 
 /**
  * 读全部 run 记录。文件不存在返回空 map（正常态）；JSON 语法错误、顶层
- * shape 无法识别、runs 非对象、任何记录结构非法 → 抛 `run_state_corrupt`
- * 稳定错误，原文件保持原样（updateRun / recoverInterruptedRuns /
- * removeAccountRuns 因此全部失败，绝不覆盖损坏文件）。
+ * shape 无法识别、version 缺失/类型错/不等于 {@link RUNS_VERSION}、runs 非
+ * 对象、任何记录结构非法 → 抛 `run_state_corrupt` 稳定错误，原文件保持
+ * 原样（updateRun / recoverInterruptedRuns / removeAccountRuns 因此全部
+ * 失败，绝不覆盖损坏文件）。
  */
 export async function readRuns(root: string): Promise<Record<string, RunRecord>> {
   const file = runsFilePath(root)
@@ -102,8 +103,12 @@ export async function readRuns(root: string): Promise<Record<string, RunRecord>>
   } catch (error) {
     throw new WxError('run_state_corrupt', `runs.json is not valid JSON: ${String(error instanceof Error ? error.message : error)}`)
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || (parsed as { runs?: unknown }).runs === undefined) {
-    throw new WxError('run_state_corrupt', 'runs.json top-level shape is not recognized (missing "runs")')
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new WxError('run_state_corrupt', 'runs.json top-level shape is not recognized (not an object)')
+  }
+  const version = (parsed as { version?: unknown }).version
+  if (version !== RUNS_VERSION) {
+    throw new WxError('run_state_corrupt', `runs.json version must be ${String(RUNS_VERSION)}, got ${JSON.stringify(version)}`)
   }
   const rawRuns = (parsed as { runs: unknown }).runs
   if (!rawRuns || typeof rawRuns !== 'object' || Array.isArray(rawRuns)) {

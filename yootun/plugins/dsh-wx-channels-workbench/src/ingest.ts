@@ -57,7 +57,7 @@ function payloadOf(outcome: { structuredContent: unknown }): Record<string, unkn
 export interface IngestClient {
   startRun(options: { newAttempt?: boolean; signal?: AbortSignal | undefined }): Promise<{ run: Record<string, unknown>; reused: boolean; reclaimedRunId: string | null }>
   publishListMeta(options: { expectedWorkCount: number; listComplete: boolean; signal: AbortSignal | undefined }): Promise<Record<string, unknown>>
-  ingestAll(works: Array<WorkItem & { dailyMetrics?: unknown[] }>, options: { observedCount?: number; signal: AbortSignal | undefined }): Promise<IngestAllResult>
+  ingestAll(works: Array<WorkItem & { dailyMetrics?: unknown[] }>, options: { observedCount?: number; signal: AbortSignal | undefined; onBatchDone?: ((event: { batchNo: number; totalBatches: number; succeeded: number; failed: number }) => void) | undefined }): Promise<IngestAllResult>
   ingestAccountMetrics(payload: { startDay: string; endDay: string; rows: DailyMetricRowIn[]; trafficSource?: unknown; signal: AbortSignal | undefined }): Promise<Record<string, unknown>>
   ingestFansTrend(payload: { startDay: string; endDay: string; rows: FansTrendRowIn[]; sourceTrend?: unknown; signal: AbortSignal | undefined }): Promise<Record<string, unknown>>
   ingestFansProfile(payload: Record<string, unknown> & { day: string; signal: AbortSignal | undefined }): Promise<Record<string, unknown>>
@@ -184,11 +184,17 @@ export function createIngestClient(options: {
    * 分批写入全部作品：切批后逐批重试；带失败对象批次同号 :retry{n} 重投；批次级
    * 传输失败不计入客户端 failed（否则 finish RUN_COUNT_MISMATCH 卡死 run）。
    */
-  async function ingestAll(works: Array<WorkItem & { dailyMetrics?: unknown[] }>, options: { observedCount?: number; signal: AbortSignal | undefined }): Promise<IngestAllResult> {
+  async function ingestAll(works: Array<WorkItem & { dailyMetrics?: unknown[] }>, options: {
+    observedCount?: number
+    signal: AbortSignal | undefined
+    /** 每个批次最终 settle（成功或失败）后立即调用，再进入下一批；计数为该时刻的累计值。 */
+    onBatchDone?: ((event: { batchNo: number; totalBatches: number; succeeded: number; failed: number }) => void) | undefined
+  }): Promise<IngestAllResult> {
     const observedCount = options.observedCount ?? works.length
     const signal = options.signal
     if (runId === null) throw new WxError('WX_RUN_INTERRUPTED', 'run_not_started')
     const batches = splitIngestBatches(works)
+    const totalBatches = batches.length
     const succeeded = new Set<string>()
     const failed = new Set<string>()
     const batchResults: IngestAllResult['batches'] = []
@@ -208,6 +214,7 @@ export function createIngestClient(options: {
       } catch (error) {
         if (signal?.aborted === true) throw error
         batchResults.push({ batchNo, status: 'failed', replayed: false, failedObjects: [] })
+        options.onBatchDone?.({ batchNo, totalBatches, succeeded: succeeded.size, failed: failed.size })
         continue
       }
       let payload = result.batch && typeof result.batch === 'object' ? result.batch as Record<string, unknown> : {}
@@ -241,6 +248,7 @@ export function createIngestClient(options: {
         replayed: result.replayed === true,
         failedObjects: Array.isArray(payload.failed_objects) ? payload.failed_objects as unknown[] : [],
       })
+      options.onBatchDone?.({ batchNo, totalBatches, succeeded: succeeded.size, failed: failed.size })
     }
 
     return { runId: runId as string, batches: batchResults, succeededWorkIds: [...succeeded], failedWorkIds: [...failed] }
@@ -383,6 +391,8 @@ export async function ingestCollectedData(options: {
   expectedWorkCount?: number
   newAttempt?: boolean
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
+  /** run_start 返回后的落盘 barrier：await 返回前不进入 publishListMeta/ingest。 */
+  onRunStart?: ((runId: string) => Promise<void> | void) | undefined
   accountLevel?: {
     accountMetrics: { startDay: string; endDay: string; rows: DailyMetricRowIn[]; trafficSource?: unknown } | null
     fansTrend: { daily: FansTrendRowIn[]; sourceTrend?: unknown } | null
@@ -395,9 +405,18 @@ export async function ingestCollectedData(options: {
   const expectedWorkCount = options.expectedWorkCount ?? options.works.length
   const started = await client.startRun({ newAttempt: options.newAttempt ?? true, signal })
   const runId = typeof started.run.run_id === 'string' ? started.run.run_id : ''
-  // run_started 事件：消费方（runner）借此在 run_start 返回后立即持久化远端
-  // runId——此后崩溃/取消，runs.json 都能关联远端 run。
-  if (runId !== '') emit({ phase: 'run_started', runId })
+  if (runId !== '') {
+    // run_started 事件（内存投影）+ onRunStart barrier：run_start 返回后必须
+    // 先 await 持久化远端 runId（写失败由实现方 catch 并 warn），然后才能继续
+    // publishListMeta / ingest——barrier 之后进程崩溃，runs.json 必已含 runId。
+    emit({ phase: 'run_started', runId })
+    try {
+      await options.onRunStart?.(runId)
+    } catch (error) {
+      // onRunStart 实现方通常自行 catch；此处兜底，不让失败静默。
+      emit({ phase: 'run_persist_failed', reason: stableCodeOf(error) })
+    }
+  }
   try {
     try {
       await client.publishListMeta({ expectedWorkCount, listComplete: options.listComplete, signal })
@@ -413,21 +432,13 @@ export async function ingestCollectedData(options: {
     }
 
     const ingest = options.works.length
-      ? await client.ingestAll(options.works, { observedCount: expectedWorkCount, signal })
+      ? await client.ingestAll(options.works, {
+          observedCount: expectedWorkCount,
+          signal,
+          // 逐批实时进度：批次 settle 后立即转发（计数为该时刻累计值），再进入下一批。
+          onBatchDone: batch => emit({ phase: 'batch_done', batchNo: batch.batchNo, totalBatches: batch.totalBatches, succeeded: batch.succeeded, failed: batch.failed, expected: expectedWorkCount }),
+        })
       : { runId, batches: [], succeededWorkIds: [], failedWorkIds: [] }
-    // 批次进度补发：ingestAll 返回后按批各发一个 batch_done（总批数与
-    // succeeded/failed 全局值在返回后才可知，故非实时逐批；空 works 无批次
-    // 事件）。进度投影语义为「最后事件生效」，落盘结果与实时逐批一致。
-    for (const batch of ingest.batches) {
-      emit({
-        phase: 'batch_done',
-        batchNo: batch.batchNo,
-        totalBatches: ingest.batches.length,
-        succeeded: ingest.succeededWorkIds.length,
-        failed: ingest.failedWorkIds.length,
-        expected: expectedWorkCount,
-      })
-    }
 
     const segmentStatus = { accountMetricStatus: 'not_collected', fansTrendStatus: 'not_collected', fansProfileStatus: 'not_collected' }
     const accountLevel = options.accountLevel
