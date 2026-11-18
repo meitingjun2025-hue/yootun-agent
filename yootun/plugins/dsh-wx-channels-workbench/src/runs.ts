@@ -142,6 +142,17 @@ function withRootLock<T>(root: string, task: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * 在 per-root 串行队列内运行 `task`（组合多步 runs 操作的公开入口；当前主要
+ * 供测试占住队列构造确定性挂起场景）。
+ * @param root - state root.
+ * @param task - the exclusive operation.
+ * @returns the task's result.
+ */
+export function runInRootQueue<T>(root: string, task: () => Promise<T>): Promise<T> {
+  return withRootLock(root, task)
+}
+
+/**
  * 一次采集的统一写入入口：read-modify-write 走 root 串行队列。记录不存在时以
  * running 语义创建（accountId/attemptId 必填，startedAt 取当前时间）；存在时
  * 只合并 patch 提供的字段，其余（startedAt 等）原样保留——start/progress/

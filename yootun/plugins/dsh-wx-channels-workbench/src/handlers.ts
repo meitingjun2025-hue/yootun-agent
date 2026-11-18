@@ -10,7 +10,7 @@ import { safeCode } from './errors.ts'
 import {
   accountRemoveIdempotencyKey, accountSaveIdempotencyKey, sessionIdempotencyKey,
 } from './idempotency.ts'
-import { isPendingAccountId, loginWithQrCode, type ChromeFactory } from './session.ts'
+import { isPendingAccountId, loginWithQrCode, removeLocalAccount, type ChromeFactory } from './session.ts'
 import { tryWithProfileLock } from './locks.ts'
 import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
@@ -356,7 +356,10 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
 
     'account.removeLocal': async args => {
       const accountId = asString(args, 'accountId')
-      const { removeLocalAccount } = await import('./session.ts')
+      // 危险写操作前置复查：dispose 开始后不得进入新的删除副作用（已在途的
+      // handler 由 guard 层 runTracked 登记等待）。复查与 tryWithProfileLock
+      // 之间保持同步（removeLocalAccount 为静态导入），无 await 窗口。
+      if (deps.disposing) return { status: 'error', reason: 'plugin_disposing' }
       // try 锁：collect/登录迁移持有 profile 时立即返回 collect_busy，不排队等
       // 长采集，也不删除任何本地凭证（先检查后执行不可靠，必须由锁原子裁决）。
       const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
@@ -375,6 +378,8 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       if (await hasStorageState(accountId, deps.root)) {
         return { status: 'error', reason: 'LOCAL_CLEARED_REQUIRED' }
       }
+      // 远端删除前置复查：dispose 开始后不得进入新的远端副作用。
+      if (deps.disposing) return { status: 'error', reason: 'plugin_disposing' }
       const result = await callWx(deps, 'workbench_wx_account_remove', {
         accountId, confirm: true, localCleared: true,
         idempotencyKey: accountRemoveIdempotencyKey(accountId),
@@ -405,8 +410,9 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         if (session.sessionStatus !== 'ok') {
           return { status: 'ok', started: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
         }
-        // dispose 可能在 probe（已登记等待）期间完成：启动前复查，避免
-        // 「dispose 返回后采集才启动——abort 丢失且无人等待」的竞态窗口。
+        // dispose 可能在 probe 期间完成（probe 经 guard 统一登记，dispose 会等
+        // 它 settle）：启动前复查 disposing，避免「dispose 返回后采集才启动——
+        // abort 丢失且无人等待」的竞态窗口。
         if (deps.disposing) return { status: 'ok', started: false, reason: 'plugin_disposing' }
         // 稳定 attemptId：内存 collectRecord 与 runs.json 从此引用同一条记录。
         attemptId = createAttemptId(accountId)
@@ -527,12 +533,14 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     'account.overview': args => runPassthrough('account.overview', args),
     'fans.profile.get': args => runPassthrough('fans.profile.get', args),
   }
-  // dispose 开始后统一稳定拒绝新 action；在途 action 由 abort + 登记表等待收口。
+  // dispose 开始后统一稳定拒绝新 action（不登记）；已通过 guard 的在途 action
+  // 一律经 runTracked 登记——dispose 等待其 settle（collect/login 另有 abort
+  // 链路，probe/promote/读路径/远端调用被等待收敛）。
   const guarded: Record<string, ActionHandler> = {}
   for (const [action, handler] of Object.entries(handlers)) {
     guarded[action] = async (args: ActionArgs) => {
       if (deps.disposing) return { status: 'error', reason: 'plugin_disposing' }
-      return handler(args)
+      return deps.taskRegistry.runTracked(() => handler(args))
     }
   }
   return guarded

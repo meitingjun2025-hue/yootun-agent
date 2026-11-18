@@ -324,8 +324,11 @@ test('dispose：横跨 dispose 全程的 collect.start 在 probe 后被复查拦
 
   const collect = callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   await probeEntered.promise
-  // dispose 启动（disposing 已置位）并等待被登记的 probe settle。
+  // dispose 启动（disposing 已置位）并等待被 guard 登记的 probe settle：
+  // gate 释放前 dispose 不得返回，且 probe 必须已在登记表中。
   const disposePromise = disposeHostTasks({ deps, batch: { stop() {} } })
+  assert.equal(await isSettled(disposePromise), false, 'probe 未 settle 前 dispose 不得返回')
+  assert.ok(deps.taskRegistry.activeCount >= 1, '在途 probe 必须已被 guard 登记等待')
   probeGate.resolve()
   await Promise.race([disposePromise, timeoutReject(5000, 'dispose 未收敛')])
   const result = await collect
@@ -349,6 +352,141 @@ test('dispose：新 Host action 稳定拒绝（plugin_disposing）', async () =>
   assert.equal(status.reason, 'plugin_disposing')
   const begin = await callHandler(handlers, 'account.beginLogin', { accountId: 'acc1' })
   assert.equal(begin.reason, 'plugin_disposing')
+  const accounts = await callHandler(handlers, 'accounts.list', {})
+  assert.equal(accounts.reason, 'plugin_disposing')
+  const works = await callHandler(handlers, 'works.list', { accountId: 'acc1' })
+  assert.equal(works.reason, 'plugin_disposing')
+  const rmRemote = await callHandler(handlers, 'account.removeRemote', { accountId: 'acc1' })
+  assert.equal(rmRemote.reason, 'plugin_disposing')
+  cleanup(root)
+})
+
+// --- 4.5 在途读/写 action 被 dispose 等待（guard 层 runTracked 登记） ---
+
+test('dispose：accounts.list 远端调用挂起时 dispose 等待其 settle', async () => {
+  const root = makeEnv('wx-dp-list', [{ id: 'acc1' }])
+  const listEntered = deferred<void>()
+  const listGate = deferred<void>()
+  const workbench: WxWorkbenchFace = {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_account_list') {
+        listEntered.resolve()
+        await listGate.promise
+        return { structuredContent: { accounts: [] }, content: [] }
+      }
+      return { structuredContent: {}, content: [] }
+    },
+  }
+  const { deps, handlers } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined), undefined, workbench)
+
+  const listPromise = callHandler(handlers, 'accounts.list', {})
+  await listEntered.promise
+  const disposePromise = disposeHostTasks({ deps, batch: { stop() {} } })
+  assert.equal(await isSettled(disposePromise), false, '远端调用未 settle 前 dispose 不得返回')
+  assert.ok(deps.taskRegistry.activeCount >= 1, '在途 accounts.list 必须已被登记等待')
+  listGate.resolve()
+  await Promise.race([disposePromise, timeoutReject(3000, 'dispose 未收敛')])
+  await listPromise
+  assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
+  cleanup(root)
+})
+
+test('dispose：works.list / run.get passthrough 挂起时 dispose 等待其 settle', async () => {
+  const root = makeEnv('wx-dp-pass', [{ id: 'acc1' }])
+  const workListEntered = deferred<void>()
+  const workListGate = deferred<void>()
+  const runGetEntered = deferred<void>()
+  const runGetGate = deferred<void>()
+  const workbench: WxWorkbenchFace = {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_work_list') {
+        workListEntered.resolve()
+        await workListGate.promise
+        return { structuredContent: { works: [] }, content: [] }
+      }
+      if (name === 'workbench_wx_collect_run_get') {
+        runGetEntered.resolve()
+        await runGetGate.promise
+        return { structuredContent: { run: {} }, content: [] }
+      }
+      return { structuredContent: {}, content: [] }
+    },
+  }
+  const { deps, handlers } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined), undefined, workbench)
+
+  const worksPromise = callHandler(handlers, 'works.list', { accountId: 'acc1' })
+  const runPromise = callHandler(handlers, 'run.get', { runId: 'r-1' })
+  await workListEntered.promise
+  await runGetEntered.promise
+  const disposePromise = disposeHostTasks({ deps, batch: { stop() {} } })
+  assert.equal(await isSettled(disposePromise), false, 'passthrough 未 settle 前 dispose 不得返回')
+  assert.ok(deps.taskRegistry.activeCount >= 2, '两个在途 passthrough 必须均已登记等待')
+  workListGate.resolve()
+  runGetGate.resolve()
+  await Promise.race([disposePromise, timeoutReject(3000, 'dispose 未收敛')])
+  await worksPromise
+  await runPromise
+  assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
+  cleanup(root)
+})
+
+test('dispose：removeRemote 远端删除挂起时 dispose 等待其 settle', async () => {
+  const root = makeEnv('wx-dp-rmremote', [{ id: 'acc1', storage: false }])
+  const removeEntered = deferred<void>()
+  const removeGate = deferred<void>()
+  const workbench: WxWorkbenchFace = {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_account_remove') {
+        removeEntered.resolve()
+        await removeGate.promise
+        return { structuredContent: { deleted: true }, content: [] }
+      }
+      return { structuredContent: {}, content: [] }
+    },
+  }
+  const { deps, handlers } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined), undefined, workbench)
+
+  const rmPromise = callHandler(handlers, 'account.removeRemote', { accountId: 'acc1' })
+  await removeEntered.promise
+  const disposePromise = disposeHostTasks({ deps, batch: { stop() {} } })
+  assert.equal(await isSettled(disposePromise), false, '远端删除未 settle 前 dispose 不得返回')
+  assert.ok(deps.taskRegistry.activeCount >= 1, '在途 removeRemote 必须已被登记等待')
+  removeGate.resolve()
+  await Promise.race([disposePromise, timeoutReject(3000, 'dispose 未收敛')])
+  const result = await rmPromise
+  assert.equal(result.status, 'ok')
+  assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
+  cleanup(root)
+})
+
+test('dispose：removeLocal 的 runs 清理在 root 队列挂起时 dispose 等待其 settle', async () => {
+  const root = makeEnv('wx-dp-rmlocal', [{ id: 'acc1' }])
+  mkdirSync(join(root, 'profiles', 'acc1'), { recursive: true })
+  const queueEntered = deferred<void>()
+  const queueGate = deferred<void>()
+  const { runInRootQueue } = await import('../src/runs.ts')
+  // 占住 runs.json 的 root 队列：removeLocal 的 removeAccountRuns 排队挂起
+  // （clearLocalCredentials 的记录删除走 state.ts 独立队列，不受影响）。
+  const hold = runInRootQueue(root, async () => {
+    queueEntered.resolve()
+    await queueGate.promise
+  })
+  await queueEntered.promise
+
+  const { deps, handlers } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined))
+  const rmPromise = callHandler(handlers, 'account.removeLocal', { accountId: 'acc1' })
+  // removeLocalAccount 完成（storage_state 已删）后挂在 removeAccountRuns
+  // 的 runs 队列排队上（被 hold 占住）。
+  await waitForCondition(() => !existsSync(join(root, 'storage-state', 'acc1.json')), 3000)
+  const disposePromise = disposeHostTasks({ deps, batch: { stop() {} } })
+  assert.equal(await isSettled(disposePromise), false, 'removeLocal 未 settle 前 dispose 不得返回')
+  assert.ok(deps.taskRegistry.activeCount >= 1, '在途 removeLocal 必须已被登记等待')
+  queueGate.resolve()
+  await Promise.race([disposePromise, timeoutReject(3000, 'dispose 未收敛')])
+  const result = await rmPromise
+  assert.equal(result.removed, true)
+  await hold
+  assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
   cleanup(root)
 })
 
