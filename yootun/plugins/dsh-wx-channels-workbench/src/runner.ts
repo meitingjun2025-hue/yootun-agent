@@ -14,6 +14,7 @@ import { SessionInvalidError, shanghaiDayFromTs } from './parse.ts'
 import { getAccount, hasStorageState, paths, stateRoot } from './state.ts'
 import { withProfileLock } from './locks.ts'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
+import type { TaskRegistry } from './lifecycle.ts'
 import { asCollectorPage, launchChrome, refreshSessionState, type ChromeFactory } from './session.ts'
 import { markSessionExpired, markSessionOk, reportSessionStatus } from './probe.ts'
 import { accountSaveIdempotencyKey } from './idempotency.ts'
@@ -116,6 +117,8 @@ export async function runCollection(options: {
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
   logger?: { warn(message: string): void } | undefined
   signal?: AbortSignal | undefined
+  /** 任务登记：runs.json 写盘（runId barrier/进度/终态）纳入 dispose 等待。 */
+  taskRegistry?: TaskRegistry | undefined
 }): Promise<CollectResult> {
   const root = options.root ?? stateRoot()
   // attemptId 是这次采集在 runs.json 的稳定 key：调用方（collect.start）传入
@@ -142,11 +145,14 @@ async function runCollectionWithinProfileLock(options: {
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
   logger?: { warn(message: string): void } | undefined
   signal?: AbortSignal | undefined
+  taskRegistry?: TaskRegistry | undefined
 }): Promise<CollectResult> {
   const root = options.root
   const accountId = options.accountId
   const attemptId = options.attemptId
   const signal = options.signal
+  /** runs.json 写盘纳入 dispose 等待（registry 等待层吞 rejection，调用方各自处理）。 */
+  const trackWrite = (write: Promise<unknown>): void => { options.taskRegistry?.track(write) }
   const emit = (event: Record<string, unknown>): void => {
     options.onProgress?.(event)
     // 进度落盘（白名单投影；fire-and-forget：updateRun 内部 root 队列串行不丢
@@ -156,15 +162,17 @@ async function runCollectionWithinProfileLock(options: {
     if (event.phase === 'run_persist_failed') return
     const progress = progressFromEvent(event)
     if (progress !== null) {
-      void updateRun(root, accountId, attemptId, { progress }).catch((error: unknown) => {
+      trackWrite(updateRun(root, accountId, attemptId, { progress }).catch((error: unknown) => {
         options.logger?.warn(`wx runs.json progress update failed (${attemptId}): ${safeCode(error)}`)
-      })
+      }))
     }
   }
   /** 终态落盘：失败必须可见（warn + run_persist_failed 进度事件），不影响已确定的 run 结果。 */
   const persistFinalRun = async (patch: { runId?: string | null; status: RunRecord['status']; error: string | null }): Promise<void> => {
+    const write = updateRun(root, accountId, attemptId, { ...patch, finishedAt: new Date().toISOString() })
+    trackWrite(write)
     try {
-      await updateRun(root, accountId, attemptId, { ...patch, finishedAt: new Date().toISOString() })
+      await write
     } catch (error) {
       options.logger?.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(error)}`)
       options.onProgress?.({ phase: 'run_persist_failed', reason: safeCode(error) })
@@ -176,8 +184,10 @@ async function runCollectionWithinProfileLock(options: {
    * 写失败 warn + 进度事件可见，采集继续（不把未落盘伪装为成功）。
    */
   const persistRunId = async (runId: string): Promise<void> => {
+    const write = updateRun(root, accountId, attemptId, { runId })
+    trackWrite(write)
     try {
-      await updateRun(root, accountId, attemptId, { runId })
+      await write
     } catch (error) {
       options.logger?.warn(`wx runs.json runId persist failed (${attemptId}): ${safeCode(error)}`)
       options.onProgress?.({ phase: 'run_persist_failed', reason: safeCode(error) })

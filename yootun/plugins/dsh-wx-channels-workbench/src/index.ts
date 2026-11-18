@@ -13,6 +13,7 @@ import type {} from '@yootun/dsh-workbench-mcp'
 import type { WxWorkbenchFace } from './ingest.ts'
 import { createBatchCollectController } from './collect-all.ts'
 import { buildRouteHandlers, createWxHostDeps, type WxHostDeps } from './handlers.ts'
+import { disposeHostTasks } from './lifecycle.ts'
 import { ROUTE_PATH, createRouteHandler } from './route.ts'
 import { browserStatus } from './chrome.ts'
 import { stateRoot } from './state.ts'
@@ -51,48 +52,37 @@ export function apply(ctx: Context, config: Config): void {
     logger: { warn: (message: string) => { ctx.logger.warn(message) } },
   })
 
-  // 任务注册表：dispose 等 allSettled。
-  const pendingTasks = new Set<Promise<unknown>>()
-  const track = (promise: Promise<unknown>): Promise<unknown> => {
-    pendingTasks.add(promise)
-    void promise.finally(() => { pendingTasks.delete(promise) })
-    return promise
-  }
-  /** dispose 用的全局 abort。 */
-  const pluginAbort = new AbortController()
+  // 任务登记表（deps 持有同一实例）：登录/采集/probe/promote/晚 factory 清理/
+  // runs 写盘/批量整次 run 全部纳入，dispose 统一等 settle。
+  const registry = deps.taskRegistry
 
-  // 启动时标记 interrupted runs（崩溃恢复）。
-  void recoverInterruptedRuns(root).catch((error: unknown) => {
+  // 启动时标记 interrupted runs（崩溃恢复）；登记以便 dispose 等待完成。
+  registry.track(recoverInterruptedRuns(root).catch((error: unknown) => {
     ctx.logger.warn('wx-workbench: runs.json recovery failed', error)
-  })
+  }))
 
   const batch = createBatchCollectController({
     collect: async input => {
       const { runCollection } = await import('./runner.ts')
-      const promise = runCollection({
+      return registry.track(runCollection({
         workbench, accountId: input.accountId, root,
         onProgress: input.onProgress, logger: deps.logger,
-        signal: input.signal,
-      })
-      void track(promise)
-      return promise
+        signal: input.signal, taskRegistry: registry,
+      }))
     },
     probe: async accountId => {
       const { probeAndReport } = await import('./probe.ts')
-      return probeAndReport(workbench, accountId, root)
+      return registry.runTracked(() => probeAndReport(workbench, accountId, root))
     },
     logger: deps.logger,
+    trackRun: promise => { registry.track(promise) },
   })
   deps.setBatch(batch)
 
-  // 卸载：abort 全部登录/采集/批量 → 等所有登记任务 settle → 完成。
+  // 卸载：route 拒绝新请求 → abort 全部登录/采集信号 → batch.stop → 等所有
+  // 登记任务 settle（含晚 factory 清理与 runs 写盘）→ 清理 controllers。
   ctx.effect(() => async () => {
-    pluginAbort.abort()
-    batch.stop()
-    for (const controller of deps.loginSignals.values()) controller.abort()
-    for (const controller of deps.collectSignals.values()) controller.abort()
-    // 等所有后台任务 settle 后再完成卸载。
-    await Promise.allSettled([...pendingTasks])
+    await disposeHostTasks({ deps, batch })
   }, 'yootun-wx-workbench: dispose abort')
 
   ctx.effect(
@@ -113,6 +103,7 @@ export { browserStatus, resolveSystemChrome, chromeCandidates, LAUNCH_ARGS, Chro
 export { checkCollectionReadiness, ensureRemoteAccount, runCollection, progressFromEvent, BATCH_SKIP_REASONS, DEFAULT_MAX_PAGES, type CollectResult } from './runner.ts'
 export { createIngestClient, ingestCollectedData, resolveClientStatus, type IngestClient, type IngestAllResult } from './ingest.ts'
 export { createBatchCollectController, type BatchStatus, type BatchItem, type BatchController } from './collect-all.ts'
+export { createTaskRegistry, disposeHostTasks, type TaskRegistry } from './lifecycle.ts'
 export { loginWithQrCode, waitForSessionCookie, waitStableIdentity, probeSession, refreshSessionState, promotePendingAccount, commitLoginIdentity, removeLocalAccount, isPendingAccountId, PENDING_ACCOUNT_PREFIX, launchChrome, SESSION_COOKIE_NAMES, type LoginResult, type ProbeResult, type RefreshedSession, type PromoteResult } from './session.ts'
 export { reportSessionStatus, markSessionOk, markSessionExpired } from './probe.ts'
 export { COLLECT_SINCE_DAY, PAGE_SIZE, MAX_PAGES, splitIngestBatches, planFansTrendWindow, collectWorkList, collectWorkDetail, collectAccountMetrics, collectFansTrend, collectFansPortrait, fetchAuthData } from './collector.ts'

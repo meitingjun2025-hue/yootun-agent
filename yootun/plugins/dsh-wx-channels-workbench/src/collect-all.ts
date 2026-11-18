@@ -72,6 +72,8 @@ export function createBatchCollectController(options: {
   collect: (input: { accountId: string; signal: AbortSignal | undefined; onProgress?: ((event: Record<string, unknown>) => void) | undefined }) => Promise<CollectResult>
   probe: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null }>
   logger?: { warn(message: string): void } | undefined
+  /** 整次 batch run promise 交给调用方任务登记；dispose 等待它。 */
+  trackRun?: ((promise: Promise<void>) => void) | undefined
 }): BatchController {
   let state: BatchState | null = null
   let stopRequested = false
@@ -127,8 +129,9 @@ export function createBatchCollectController(options: {
         stopRequested: false,
         controller,
       }
-      // 必须挂 catch：未捕获 rejection 会让批量停在非终态。
-      void this.run().catch((error: unknown) => {
+      // 必须挂 catch：未捕获 rejection 会让批量停在非终态。整次 run promise
+      // 交给调用方登记（dispose 等待当前账号与全部后续账号收敛）。
+      const runPromise = this.run().catch((error: unknown) => {
         const reason = safeCode(error)
         options.logger?.warn(`wx batch ${state?.batchId}: unhandled ${reason}`)
         if (state !== null) {
@@ -145,6 +148,7 @@ export function createBatchCollectController(options: {
           }
         }
       })
+      options.trackRun?.(runPromise)
       return { started: true, batchId: state.batchId, accounts: accountIds.length }
     },
 

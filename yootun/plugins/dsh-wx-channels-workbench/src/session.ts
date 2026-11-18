@@ -192,9 +192,11 @@ export async function loginWithQrCode(options: {
   accountId?: string
   root?: string
   timeoutMs?: number
-  chromeFactory?: ChromeFactory
+  chromeFactory?: ChromeFactory | undefined
   onPage?: ((page: Page) => Promise<void> | void) | undefined
   signal?: AbortSignal | undefined
+  /** 晚 factory 清理 promise（abort 后 close+二次清理）交给调用方任务登记；dispose 等待它。 */
+  trackCleanup?: ((promise: Promise<void>) => void) | undefined
 }): Promise<LoginResult> {
   const root = options.root ?? stateRoot()
   const chromeFactory = options.chromeFactory ?? launchChrome
@@ -212,11 +214,15 @@ export async function loginWithQrCode(options: {
     // abort 之后才创建/写入 pending-* profile——close 完成后必须再清一次临时凭证
     // （主 catch 的清理可能发生在 factory 创建目录之前）。
     const factoryPromise = chromeFactory({ headless: false, profileDir })
-    void factoryPromise.then(async result => {
+    // 晚 factory 清理（abort 赢得 race 后 close + close 后二次清理临时凭证）：
+    // promise 交给调用方任务登记（dispose 等待），行为不变——正常成功登录
+    // （signal 未 aborted）直接 return，不会误删正式账号。
+    const cleanupPromise = factoryPromise.then(async result => {
       if (signal?.aborted !== true) return
       await result.context.close().catch(() => undefined)
       await clearLocalCredentials(tempId, root).catch(() => undefined)
     }).catch(() => undefined)
+    options.trackCleanup?.(cleanupPromise)
     let rejectLaunch: ((reason: Error) => void) | null = null
     const onLaunchAbort = (): void => { rejectLaunch?.(new Error('login_aborted')) }
     const launchOrAbort = signal !== undefined
