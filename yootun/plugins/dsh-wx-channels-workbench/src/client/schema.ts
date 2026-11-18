@@ -169,14 +169,9 @@ export function readWorkRows(payload: Record<string, unknown>): WorkRow[] {
   return rows
 }
 
-/** work.get / work.trend 共用：`{ work }` 包装或顶层平铺的行对象。 */
-function workRowOf(payload: Record<string, unknown>): Record<string, unknown> | undefined {
-  return recordOf(payload.work) ?? payload
-}
-
-/** work.get → 单行 WorkRow（缺失 work_id 返回 null）。 */
+/** work.get → 单行 WorkRow（tools 真实形状 `{ work }`；无 work 对象即无效载荷，返回 null）。 */
 export function readWorkDetail(payload: Record<string, unknown>): WorkRow | null {
-  const record = workRowOf(payload)
+  const record = recordOf(payload.work)
   if (record === undefined) return null
   const workId = textOf(pick(record, 'work_id'))
   if (workId === null) return null
@@ -256,22 +251,24 @@ export function readWorkTrend(payload: Record<string, unknown>): WorkTrendData {
   return { points }
 }
 
-/** 一条批次行：batch_no / batch_type / batch_status / item_count / 对象数组取长度。 */
+/** 一条批次行：batch_no / batch_type / batch_status / item_count / 对象数组取长度；契约保证 batch_no，缺失即无效行丢弃。 */
 function runBatchRow(entry: unknown): RunBatchRow | null {
   const record = recordOf(entry)
   if (record === undefined) return null
+  const batchNo = numberOf(record.batch_no)
+  if (batchNo === null) return null
   const objects = (key: string): number | null => {
     const value = record[key]
     return Array.isArray(value) ? value.length : null
   }
-  const batchNo = numberOf(record.batch_no)
-  const batchType = textOf(record.batch_type)
-  const batchStatus = textOf(record.batch_status)
-  const itemCount = numberOf(record.item_count)
-  const succeeded = objects('succeeded_objects')
-  const failed = objects('failed_objects')
-  if (batchNo === null && batchType === null && batchStatus === null) return null
-  return { batchNo, batchType, batchStatus, itemCount, succeededCount: succeeded, failedCount: failed }
+  return {
+    batchNo,
+    batchType: textOf(record.batch_type),
+    batchStatus: textOf(record.batch_status),
+    itemCount: numberOf(record.item_count),
+    succeededCount: objects('succeeded_objects'),
+    failedCount: objects('failed_objects'),
+  }
 }
 
 /**

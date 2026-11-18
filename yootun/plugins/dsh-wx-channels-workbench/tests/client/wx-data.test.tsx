@@ -149,16 +149,50 @@ describe('总览页 account.overview', () => {
           { day: '2026-11-16', follower_total_count: 100, follower_net_count: 2 },
           { day: '2026-11-17', follower_total_count: 107, follower_net_count: 7 },
         ] },
+        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'ok' },
       }),
       'fans.profile.get': () => ({ ...OK, fans_profile: { device: [{ key: 'ios', label: 'iOS', count: 1 }] } }),
     }))
     await waitFor(() => expect(screen.getByText('1234')).not.toBeNull())
     expect(screen.getByText('56')).not.toBeNull()
     expect(screen.getByText('7')).not.toBeNull()
-    // availability：全部源就绪 → ok。
+    // availability：全部源 ok → ok。
     expect(screen.getByText(t('overview.availability.ok'))).not.toBeNull()
     // 折线点：粉丝总数逐日点可聚焦（aria-label = day: value）。
     expect(screen.getByRole('button', { name: '2026-11-17: 107' })).not.toBeNull()
+  })
+
+  it('KPI 按源定态：account_metrics=no_data 而 fans_trend=ok 时关注变化不被误清', async () => {
+    await renderPage(baseHandlers({
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: {} },
+        fans_trend: { totals: { follower_net_count: 9 }, daily: [] },
+        availability: { account_metrics: 'no_data', fans_trend: 'ok', fans_profile: 'no_data' },
+      }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    // 关注变化按 fans_trend 源：ok → 数值可见（修复前会被 account_metrics 的
+    // no_data 连带清空，数值不渲染）。
+    expect(await screen.findByText('9')).not.toBeNull()
+    // 页面标注：ok 与 no_data 混合 → partial。
+    expect(screen.getByText(t('overview.availability.partial'))).not.toBeNull()
+  })
+
+  it('任一源加载中不显示结论性可用性标注', async () => {
+    let resolveOverview: ((payload: Payload) => void) | undefined
+    mockHost(baseHandlers({
+      'account.overview': () => new Promise<Payload>(resolve => { resolveOverview = resolve }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(await screen.findByRole('tab', { name: en['tab.overview'] }))
+    // 加载期间：三种结论性标注都不得出现。
+    expect(screen.queryByText(t('overview.availability.ok'))).toBeNull()
+    expect(screen.queryByText(t('overview.availability.partial'))).toBeNull()
+    expect(screen.queryByText(t('overview.availability.no_data'))).toBeNull()
+    resolveOverview?.({ ...OK, metrics: { totals: { daily_play_count: 5 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } })
+    await screen.findByText(t('overview.availability.partial'))
   })
 
   it('overview 加载失败 → availability partial，错误区可重试', async () => {
@@ -185,8 +219,9 @@ describe('总览页 account.overview', () => {
     }))
     expect(await screen.findByText(t('overview.availability.partial'))).not.toBeNull()
     expect(screen.queryByText(t('overview.availability.ok'))).toBeNull()
-    // 趋势卡 partial：数据 + 警告条同时呈现（kit en 文案）。
-    expect(screen.getByText('Partial data shown; the rest failed to load')).not.toBeNull()
+    // 趋势卡 partial：数据 + 警告条同时呈现（kit en 文案；关注 KPI 同为 partial，
+    // 警告条至少两处）。
+    expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByRole('button', { name: '2026-11-17: 107' })).not.toBeNull()
     // 画像卡按服务端 no_data 呈现空态（不渲染维度选择）。
     expect(screen.queryByText(t('portrait.age'))).toBeNull()
@@ -335,6 +370,45 @@ describe('作品页 works.list / work.get / work.trend', () => {
     expect(trendCall?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
   })
 
+  it('work.get 无 {work} 包装的载荷按无效处理（空态），不吞顶层平铺残片', async () => {
+    await renderPage(trendHandlers({
+      'work.get': () => ({ ...OK, work_id: 'w-flat', title: '平铺残片', play_count: 1, like_count: 1, publish_time: null }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    fireEvent.click(await screen.findByRole('button', { name: '第一条作品' }))
+    // 详情卡呈现空态文案（kit en 'No data'），平铺字段不渲染。
+    expect(await screen.findByText('No data')).not.toBeNull()
+    expect(screen.queryByText('平铺残片')).toBeNull()
+  })
+
+  it('works 列表刷新失败保留已加载数据（partial + 重试），不再清空', async () => {
+    let failNext = false
+    const { calls } = await renderPage(trendHandlers({
+      'works.list': () => {
+        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, ...WORKS }
+      },
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await screen.findByText('第一条作品')
+    // 触发一次会失败的刷新（切排序）。
+    failNext = true
+    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.play') }))
+    // 已加载行保留 + partial 警告条（kit en 文案）+ 重试按钮。
+    expect(await screen.findByText('Partial data shown; the rest failed to load')).not.toBeNull()
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    expect(screen.getByText('第二条')).not.toBeNull()
+    const retry = screen.getByRole('button', { name: t('state.retry') })
+    expect(retry).not.toBeNull()
+    // 重试成功恢复 ready。
+    failNext = false
+    fireEvent.click(retry)
+    await waitFor(() => expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull())
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    const listCalls = calls.filter(call => call.action === 'works.list')
+    expect(listCalls.length).toBeGreaterThanOrEqual(3)
+  })
+
   it('时间窗切换传服务端 publishedFrom/publishedTo（上海已完成自然日）', async () => {
     const { calls } = await renderPage(trendHandlers())
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
@@ -474,23 +548,49 @@ describe('采集页 collect / run.get', () => {
     fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
     expect(await screen.findByText('run-hit')).not.toBeNull()
     expect(screen.getByText('finder-a')).not.toBeNull()
-    expect(screen.getByText('completed')).not.toBeNull()
+    // run.status 走 collect.status.* 字典。
+    expect(screen.getByText(t('collect.status.completed'))).not.toBeNull()
     expect(screen.getByText(t('run.label.expected'))).not.toBeNull()
-    // 「Succeeded」出现在运行字段 label 与批次表头（共 2 处）。
-    expect(screen.getAllByText(t('run.label.succeeded')).length).toBe(2)
     expect(screen.getByText('45')).not.toBeNull()
     expect(screen.getByText('40')).not.toBeNull()
     expect(screen.getByText('3')).not.toBeNull()
-    // 批次表：batch_no / batch_type / batch_status / item_count / 成功失败对象数。
-    expect(screen.getByText(t('run.batch.batchNo'))).not.toBeNull()
-    expect(screen.getByText(t('run.batch.type'))).not.toBeNull()
-    expect(screen.getAllByText('works').length).toBe(2)
-    expect(screen.getByText('succeeded')).not.toBeNull()
-    expect(screen.getByText('partial')).not.toBeNull()
+    // 批次表：batch_no / batch_type / batch_status / item_count / 成功失败对象数；
+    // 枚举走字典。批次单元格在表内断言（避免与 tab / KPI 的 Works 等重名）。
+    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
+    expect(table).not.toBeNull()
+    const batchTable = within(table as HTMLElement)
+    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(2)
+    // 表内「Succeeded」2 处：批次表头 + 批次 1 状态。
+    expect(batchTable.getAllByText(t('run.batchStatus.succeeded')).length).toBe(2)
+    expect(batchTable.getByText(t('run.batchStatus.partial'))).not.toBeNull()
+    // 「Succeeded」总出现 3 处：运行字段 label + 批次表头 + 批次 1 状态。
+    expect(screen.getAllByText(t('run.batchStatus.succeeded')).length).toBe(3)
     // 「2」是批次 2 的 batch_no 与批次 1 的成功对象数（共 2 处）。
     expect(screen.getAllByText('2').length).toBe(2)
     const runCall = calls.find(call => call.action === 'run.get')
     expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
+  })
+
+  it('批次行缺 batch_no（契约破坏）被丢弃，不渲染占位行', async () => {
+    await renderPage(baseHandlers({
+      'run.get': () => ({
+        ...OK,
+        run: { run_id: 'run-x', status: 'running' },
+        batches: [
+          { batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
+          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
+        ],
+      }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
+    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
+    fireEvent.change(input, { target: { value: 'run-x' } })
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText('run-x')).not.toBeNull()
+    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
+    expect(table).not.toBeNull()
+    // 表头一行 + 仅 batch_no=1 的有效行。
+    expect(within(table as HTMLElement).getAllByRole('row').length).toBe(2)
   })
 
   it('run.get 未命中（RUN_NOT_FOUND）呈现空态；服务失败以失败态呈现，不伪装成未找到', async () => {
@@ -554,7 +654,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     // 第一步确认出现（warning + confirm + cancel），尚未调用任何删除。
     expect(screen.getByText(en['account.removeWarning'])).not.toBeNull()
     expect(calls.some(call => call.action.startsWith('account.remove'))).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     await waitFor(() => expect(screen.getByText(t('account.removeSuccess'))).not.toBeNull())
     const localIndex = calls.findIndex(call => call.action === 'account.removeLocal')
     const remoteIndex = calls.findIndex(call => call.action === 'account.removeRemote')
@@ -569,12 +669,12 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(`${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
     expect(calls.some(call => call.action === 'account.removeRemote')).toBe(false)
     // 重试回到确认步。
     fireEvent.click(screen.getByRole('button', { name: t('state.retry') }))
-    expect(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` })).not.toBeNull()
+    expect(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` })).not.toBeNull()
     expect(calls.filter(call => call.action === 'account.removeLocal').length).toBe(1)
   })
 
@@ -584,7 +684,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(en['account.delete.localFailed'], { exact: false })).not.toBeNull()
     expect(calls.some(call => call.action === 'account.removeRemote')).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: t('account.delete.retryLocal') }))
@@ -599,7 +699,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(en['account.delete.remoteFailed'], { exact: false })).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: t('account.delete.retryRemote') }))
     await waitFor(() => expect(calls.filter(call => call.action === 'account.removeRemote').length).toBe(2))

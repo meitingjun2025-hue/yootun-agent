@@ -7,7 +7,7 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ChartFrame, ChartLegend, DataCard, FilterBar } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { TrendLineChart } from './charts.tsx'
@@ -15,7 +15,7 @@ import { formatCount, formatDateTime, shanghaiCompletedDay, type Translate } fro
 import css from './workbench.module.css'
 import { readWorkDetail, readWorkRows, readWorkTrend, type WorkRow, type WorkTrendData } from './schema.ts'
 
-type LoadState = 'loading' | 'ready' | 'empty' | 'error'
+type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'partial'
 type SortKey = 'publish_time' | 'play_count'
 type WindowKey = 'all' | 'yesterday' | 'last_7d' | 'last_30d'
 
@@ -51,6 +51,7 @@ export function WorksTab(props: WorksTabProps): ReactNode {
   const listSeqRef = useRef(0)
   const detailSeqRef = useRef(0)
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
+  const worksRowsRef = useRef<WorkRow[]>([])
 
   const loadWorks = useCallback(async (accountId: string, sortKey: SortKey, winKey: WindowKey): Promise<void> => {
     // 请求代次守卫：账号/排序/时间窗快速切换时旧响应不得覆盖新选择。
@@ -64,12 +65,14 @@ export function WorksTab(props: WorksTabProps): ReactNode {
         ...(winKey === 'all' ? {} : windowRange(winKey)),
       })
       if (listSeqRef.current !== seq) return
-      setWorks(readWorkRows(res))
+      const rows = readWorkRows(res)
+      worksRowsRef.current = rows
+      setWorks(rows)
       setWorksState('ready')
     } catch {
       if (listSeqRef.current !== seq) return
-      setWorks([])
-      setWorksState('error')
+      // 失败列表保留已加载数据：有旧行呈现 partial（列表 + 警告条 + 重试），否则标准 error 态。
+      setWorksState(worksRowsRef.current.length > 0 ? 'partial' : 'error')
     }
   }, [])
 
@@ -146,8 +149,13 @@ export function WorksTab(props: WorksTabProps): ReactNode {
         title={t('works.title')}
         state={worksState === 'ready' ? (filtered.length > 0 ? 'ready' : 'empty') : worksState}
         onRetry={() => { if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort, win) }}
+        actions={worksState === 'partial' ? (
+          <Button variant='outline' size='sm' onClick={() => { if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort, win) }}>
+            {t('state.retry')}
+          </Button>
+        ) : undefined}
       >
-        {worksState === 'ready' && filtered.length > 0 && (
+        {(worksState === 'ready' || worksState === 'partial') && filtered.length > 0 && (
           <ul className={css.workList}>
             {filtered.map(row => {
               const title = row.title ?? row.workId

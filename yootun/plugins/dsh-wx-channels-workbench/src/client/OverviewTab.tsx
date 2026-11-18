@@ -56,6 +56,7 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
   const [profile, setProfile] = useState<FansProfileData | null>(null)
   const [profileError, setProfileError] = useState(false)
   const [overviewState, setOverviewState] = useState<LoadState>('loading')
+  const [followState, setFollowState] = useState<LoadState>('loading')
   const [profileState, setProfileState] = useState<LoadState>('loading')
   const loadSeqRef = useRef(0)
 
@@ -74,13 +75,16 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
       setOverview(next)
       setAvailability(server)
       setOverviewError(false)
-      setOverviewState(serverState(server.accountMetrics, overviewHasData(next), false))
+      // 三个源分开定态：播放/点赞/作品数按 account_metrics，关注变化按 fans_trend。
+      setOverviewState(serverState(server.accountMetrics, metricsHasData(next), false))
+      setFollowState(serverState(server.fansTrend, followHasData(next), false))
     } catch {
       if (loadSeqRef.current !== seq) return
       setOverview(null)
       setAvailability({ accountMetrics: null, fansTrend: null, fansProfile: null })
       setOverviewError(true)
       setOverviewState('error')
+      setFollowState('error')
     }
     try {
       const res = await hostAction('fans.profile.get', { accountId })
@@ -147,9 +151,12 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
           onSelect={props.onSelectAccount}
         />
         <SegmentedTabs items={windowTabs} value={timeWindow} onChange={setTimeWindow} label={windowLabel} size='sm' />
-        <span className={css.availability} data-kind={pageAvailability} role='status'>
-          {t(`overview.availability.${pageAvailability}`)}
-        </span>
+        {/* 任一源仍在加载时不给结论性可用性（不得短暂伪成 no_data）。 */}
+        {overviewState !== 'loading' && profileState !== 'loading' && (
+          <span className={css.availability} data-kind={pageAvailability} role='status'>
+            {t(`overview.availability.${pageAvailability}`)}
+          </span>
+        )}
       </div>
       <div className={css.kpis}>
         <KpiCard label={t('kpi.play')} value={formatCount(totals?.dailyPlayCount ?? null)}
@@ -158,7 +165,7 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
         <KpiCard label={t('kpi.like')} value={formatCount(totals?.dailyLikeCount ?? null)}
           state={kpiState(overviewState, totals?.dailyLikeCount)} footnote={windowLabel} />
         <KpiCard label={t('kpi.follow')} value={formatCount(totals?.followerNetCount ?? null)}
-          state={kpiState(overviewState, totals?.followerNetCount)} footnote={windowLabel} />
+          state={kpiState(followState, totals?.followerNetCount)} footnote={windowLabel} />
         <KpiCard label={t('kpi.works')}
           value={formatCount(totals?.workCount ?? account?.feedCount ?? null)}
           state={kpiState(overviewState, totals?.workCount ?? account?.feedCount ?? null)}
@@ -240,13 +247,21 @@ function AccountSelect(props: { t: Translate; accounts: AccountRow[]; activeAcco
   )
 }
 
-/** KPI 总量是否有任一真实值（fansTrend 行也算数据）。 */
+/** KPI 总量是否有任一真实值（fansTrend 行也算数据；页面级回退推导用）。 */
 function overviewHasData(overview: OverviewData | null): boolean {
   if (overview === null) return false
+  return metricsHasData(overview) || followHasData(overview)
+}
+
+/** account_metrics 源是否有数据：播放 / 点赞 / 作品数任一非 null。 */
+function metricsHasData(overview: OverviewData): boolean {
   const totals = overview.totals
-  return totals.dailyPlayCount !== null || totals.dailyLikeCount !== null
-    || totals.followerNetCount !== null || totals.workCount !== null
-    || overview.fansTrend.length > 0
+  return totals.dailyPlayCount !== null || totals.dailyLikeCount !== null || totals.workCount !== null
+}
+
+/** fans_trend 源是否有数据：关注变化非 null 或趋势日行非空。 */
+function followHasData(overview: OverviewData): boolean {
+  return overview.totals.followerNetCount !== null || overview.fansTrend.length > 0
 }
 
 /**

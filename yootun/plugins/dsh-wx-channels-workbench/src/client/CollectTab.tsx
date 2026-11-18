@@ -299,7 +299,7 @@ export function CollectTab(props: CollectTabProps): ReactNode {
   )
 }
 
-/** run.get 命中结果：run 字段 + batches 批次表（tools 真实形状）。 */
+/** run.get 命中结果：run 字段 + batches 批次表（tools 真实形状；枚举走字典）。 */
 function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
   const t = props.t
   const run = props.run
@@ -308,8 +308,8 @@ function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
       <dl className={css.metaGrid}>
         <MetaTerm t={t} label='collect.label.runId' value={run.runId ?? '—'} />
         <MetaTerm t={t} label='run.label.account' value={run.accountId ?? '—'} />
-        {run.status !== null && <MetaTerm t={t} label='collect.label.status' value={run.status} />}
-        {run.errorCode !== null && <MetaTerm t={t} label='run.label.errorCode' value={run.errorCode} emphasis />}
+        {run.status !== null && <MetaTerm t={t} label='collect.label.status' value={statusText(run.status, t)} />}
+        {run.errorCode !== null && <MetaTerm t={t} label='run.label.errorCode' value={reasonText(run.errorCode, t)} emphasis />}
         <MetaTerm t={t} label='collect.label.startedAt' value={formatDateTime(run.startedAt) ?? '—'} />
         {run.finishedAt !== null && <MetaTerm t={t} label='collect.label.finishedAt' value={formatDateTime(run.finishedAt) ?? run.finishedAt} />}
         <MetaTerm t={t} label='run.label.expected' value={formatCount(run.expectedWorkCount)} />
@@ -317,33 +317,55 @@ function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
         <MetaTerm t={t} label='run.label.failed' value={formatCount(run.failedWorkCount)} />
       </dl>
       {run.batches.length > 0 && (
-        <table className={css.batchTable}>
-          <thead>
-            <tr>
-              <th scope='col' className={css.batchTh}>{t('run.batch.batchNo')}</th>
-              <th scope='col' className={css.batchTh}>{t('run.batch.type')}</th>
-              <th scope='col' className={css.batchTh}>{t('run.batch.status')}</th>
-              <th scope='col' className={css.batchTh}>{t('run.batch.items')}</th>
-              <th scope='col' className={css.batchTh}>{t('run.batch.succeeded')}</th>
-              <th scope='col' className={css.batchTh}>{t('run.batch.failed')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {run.batches.map((batch, index) => (
-              <tr key={batch.batchNo ?? index} className={css.batchTr}>
-                <td className={css.batchTd}>{batch.batchNo ?? '—'}</td>
-                <td className={css.batchTd}>{batch.batchType ?? '—'}</td>
-                <td className={css.batchTd}>{batch.batchStatus ?? '—'}</td>
-                <td className={css.batchTd}>{formatCount(batch.itemCount)}</td>
-                <td className={css.batchTd}>{formatCount(batch.succeededCount)}</td>
-                <td className={css.batchTd}>{formatCount(batch.failedCount)}</td>
+        <div className={css.batchTableWrap}>
+          <table className={css.batchTable}>
+            <thead>
+              <tr>
+                <th scope='col' className={css.batchTh}>{t('run.batch.batchNo')}</th>
+                <th scope='col' className={css.batchTh}>{t('run.batch.type')}</th>
+                <th scope='col' className={css.batchTh}>{t('run.batch.status')}</th>
+                <th scope='col' className={css.batchTh}>{t('run.batch.items')}</th>
+                <th scope='col' className={css.batchTh}>{t('run.batch.succeeded')}</th>
+                <th scope='col' className={css.batchTh}>{t('run.batch.failed')}</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {run.batches.map(batch => (
+                <tr key={batch.batchNo} className={css.batchTr}>
+                  <td className={css.batchTd}>{batch.batchNo}</td>
+                  <td className={css.batchTd}>{batchTypeText(batch.batchType, t)}</td>
+                  <td className={css.batchTd}>{batchStatusText(batch.batchStatus, t)}</td>
+                  <td className={css.batchTd}>{formatCount(batch.itemCount)}</td>
+                  <td className={css.batchTd}>{formatCount(batch.succeededCount)}</td>
+                  <td className={css.batchTd}>{formatCount(batch.failedCount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )
+}
+
+/** 已知 batch_type 枚举 → 文案；未知值原样展示（不猜语义）。 */
+function batchTypeText(value: string | null, t: Translate): string {
+  switch (value) {
+    case 'works': return t('run.batchType.works')
+    case null: return '—'
+    default: return value
+  }
+}
+
+/** 已知 batch_status 枚举 → 文案；未知值原样展示（不猜语义）。 */
+function batchStatusText(value: string | null, t: Translate): string {
+  switch (value) {
+    case 'succeeded': return t('run.batchStatus.succeeded')
+    case 'partial': return t('run.batchStatus.partial')
+    case 'failed': return t('run.batchStatus.failed')
+    case null: return '—'
+    default: return value
+  }
 }
 
 /** 已知状态 → collect.status.* 文案；未知状态原样展示（不猜语义）。 */
