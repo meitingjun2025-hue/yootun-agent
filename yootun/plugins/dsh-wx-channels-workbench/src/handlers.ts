@@ -126,7 +126,13 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
   const asString = (args: ActionArgs, key: string): string => (typeof args[key] === 'string' ? args[key] as string : '')
 
   const workbenchActions: Record<string, (args: ActionArgs) => [string, Record<string, unknown>]> = {
-    'works.list': args => ['workbench_wx_work_list', filterUndefined({ accountId: asString(args, 'accountId'), sort: asString(args, 'sort'), order: asString(args, 'order') })],
+    'works.list': args => ['workbench_wx_work_list', filterUndefined({
+      accountId: asString(args, 'accountId'),
+      sort: asString(args, 'sort'),
+      order: asString(args, 'order'),
+      publishedFrom: asString(args, 'publishedFrom'),
+      publishedTo: asString(args, 'publishedTo'),
+    })],
     'work.get': args => ['workbench_wx_work_get', { accountId: asString(args, 'accountId'), workId: asString(args, 'workId') }],
     'work.trend': args => ['workbench_wx_work_trend', { accountId: asString(args, 'accountId'), workId: asString(args, 'workId') }],
     'account.overview': args => ['workbench_wx_account_overview', filterUndefined({ accountId: asString(args, 'accountId'), window: asString(args, 'window') })],

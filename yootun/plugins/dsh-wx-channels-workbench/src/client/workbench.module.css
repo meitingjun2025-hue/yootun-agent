@@ -105,39 +105,6 @@
   min-width: 0;
 }
 
-.fieldLabel {
-  display: inline-flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.fieldText {
-  flex-shrink: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.accountSelect {
-  min-width: 0;
-  max-width: 220px;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: var(--dsw-radius-md);
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
-}
-
-.accountSelect:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-selected);
-  outline-offset: 1px;
-}
-
 .availability {
   margin-left: auto;
   flex-shrink: 0;
@@ -433,7 +400,7 @@
 }
 
 .metaError {
-  color: var(--yt-chart-negative);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 /* 采集页 */
@@ -465,26 +432,37 @@
   margin-bottom: 12px;
 }
 
-.runLookupInput {
-  flex: 1 1 240px;
+/* run.get 命中结果与批次表 */
+
+.runResult {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   min-width: 0;
-  height: 30px;
-  padding: 0 8px;
-  border-radius: var(--dsw-radius-md);
-  border: 1px solid var(--dsw-alias-border-l2);
-  background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
-  line-height: 20px;
 }
 
-.runLookupInput::placeholder {
+.batchTable {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.batchTh {
+  padding: 4px 8px;
+  text-align: start;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 400;
   color: var(--dsw-alias-label-tertiary);
 }
 
-.runLookupInput:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-selected);
-  outline-offset: 1px;
+.batchTd {
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
 }
 
 /* 账号页 */
@@ -521,8 +499,13 @@
   flex-shrink: 0;
 }
 
+.dangerButton {
+  color: var(--dsw-alias-state-error-primary);
+}
+
 .dangerButton:hover {
-  color: var(--yt-chart-negative);
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .deleteFlow {
@@ -583,10 +566,6 @@
   .toolbar {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .accountSelect {
-    max-width: none;
   }
 
   .workMeta,

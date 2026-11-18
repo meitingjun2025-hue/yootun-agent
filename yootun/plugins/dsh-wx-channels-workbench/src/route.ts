@@ -40,7 +40,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'collectAll.cancel': { fields: {} },
   'collectAll.status': { fields: {} },
   'run.get': { fields: { runId: 'string' }, limits: { runId: 128 } },
-  'works.list': { fields: { accountId: 'string', sort: 'string', order: 'string' }, limits: { accountId: 128, sort: 32, order: 8 } },
+  'works.list': { fields: { accountId: 'string', sort: 'string', order: 'string', publishedFrom: 'string', publishedTo: 'string' }, limits: { accountId: 128, sort: 32, order: 8, publishedFrom: 10, publishedTo: 10 } },
   'work.get': { fields: { accountId: 'string', workId: 'string' }, limits: { accountId: 128, workId: 128 } },
   'work.trend': { fields: { accountId: 'string', workId: 'string' }, limits: { accountId: 128, workId: 128 } },
   'account.overview': { fields: { accountId: 'string', window: 'string' }, limits: { accountId: 128, window: 16 } },

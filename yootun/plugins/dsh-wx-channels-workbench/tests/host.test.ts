@@ -312,6 +312,33 @@ test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省不携带', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+  const deps = createWxHostDeps({
+    root: join(tmpdir(), `wx-wl-${String(Math.random()).slice(2)}`),
+    workbench: {
+      callTool: async (_caller: string, _domain: string, name: string, args: unknown) => {
+        calls.push({ name, args: args as Record<string, unknown> })
+        return { structuredContent: { works: [] }, content: [] }
+      },
+    },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
+  const handlers = buildRouteHandlers(deps, batch as never)
+  await handlers['works.list']?.({ accountId: 'acc1', sort: 'play_count', order: 'desc', publishedFrom: '2026-11-11', publishedTo: '2026-11-17' })
+  await handlers['works.list']?.({ accountId: 'acc1' })
+  assert.deepEqual(calls[0]?.args, { accountId: 'acc1', sort: 'play_count', order: 'desc', publishedFrom: '2026-11-11', publishedTo: '2026-11-17' })
+  assert.deepEqual(calls[1]?.args, { accountId: 'acc1' })
+  // 路由层：窗口字段长度截断为 10（YYYY-MM-DD），未知字段仍拒绝。
+  const capped = validateActionArgs('works.list', { publishedFrom: '2026-11-11T00:00' })
+  assert.equal(capped.publishedFrom, '2026-11-11')
+  assert.throws(() => validateActionArgs('works.list', { publishedUntil: '2026-11-11' }), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+})
+
 test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错误不重试', async () => {
   const { createIngestClient } = await import('../src/ingest.ts')
   const calls: Array<[string, Record<string, unknown>]> = []

@@ -59,13 +59,14 @@ export function formatCount(value: number | null): string {
 }
 
 /**
- * works 页时间窗粗筛的本地零点起点（服务端聚合仍以上海日窗为准）。
- * @param days - 保留天数（1 = 昨天）。
- * @returns 本地零点时刻。
+ * 上海时区已完成自然日（YYYY-MM-DD）：offsetDays=1 是昨天（运行日不入窗），
+ * 与 parse.ts 的上海日窗口径一致。
+ * @param offsetDays - 距今的天数（1 = 上海昨天）。
+ * @param now - 当前毫秒时刻（测试注入）。
+ * @returns YYYY-MM-DD。
  */
-export function localWindowStart(days: number): number {
-  const bound = new Date()
-  bound.setHours(0, 0, 0, 0)
-  bound.setDate(bound.getDate() - days)
-  return bound.getTime()
+export function shanghaiCompletedDay(offsetDays: number, now: () => number = Date.now): string {
+  const shifted = new Date(now() + 8 * 3600 * 1000)
+  shifted.setUTCDate(shifted.getUTCDate() - offsetDays)
+  return shifted.toISOString().slice(0, 10)
 }

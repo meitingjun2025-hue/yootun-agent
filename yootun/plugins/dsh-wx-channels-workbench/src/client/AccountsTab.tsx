@@ -165,8 +165,9 @@ export function AccountsTab(props: AccountsTabProps): ReactNode {
                   {step.kind === 'confirm' && (
                     <div className={css.deleteActions}>
                       <Button variant='primary' size='sm' className={css.dangerButton}
+                        aria-label={`${t('account.removeConfirm')}：${displayName}`}
                         onClick={() => { void confirmRemoveLocal(row.accountId) }}>
-                        {t('account.removeConfirm')}
+                        {`${t('account.removeConfirm')}：${displayName}`}
                       </Button>
                       <Button variant='ghost' size='sm' onClick={() => { setDelete(row.accountId, { kind: 'idle' }) }}>
                         {t('account.delete.cancel')}

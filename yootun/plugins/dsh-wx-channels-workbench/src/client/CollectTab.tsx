@@ -2,11 +2,12 @@
  * 采集页：单账号 collect.start/status/cancel、全账号 collectAll.start/status/
  * cancel、run.get 查询。展示 attemptId / runId / phase / 批次进度；started:false
  * 的稳定 reason 可见；cancelled / interrupted / failed 状态可见；「当前任务」
- * （内存实时态）与「上次运行」（runs.json 终态投影 lastRun）分卡呈现。
+ * （内存实时态）与「上次运行」（runs.json 终态投影 lastRun）分卡呈现；run.get
+ * 按 tools 真实形状（`{ run, batches }`）渲染并区分「未找到」与「查询失败」。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { formatCount, formatDateTime, reasonText, type Translate } from './format.ts'
@@ -35,18 +36,25 @@ interface LastRunRecord {
   error?: string | null
 }
 
+/** collectAll.status 投影（逐字段读取，不整包断言）。 */
 interface BatchStatusData {
-  ready?: boolean
-  phase?: string
-  batchId?: string | null
-  total?: number
-  currentAccountId?: string | null
-  currentRunId?: string | null
-  completedCount?: number
-  partialCount?: number
-  failedCount?: number
-  skippedCount?: number
+  ready: boolean
+  phase: string | null
+  total: number | null
+  currentAccountId: string | null
+  completedCount: number | null
+  partialCount: number | null
+  failedCount: number | null
+  skippedCount: number | null
 }
+
+/** run.get 查询结果状态：idle / busy / 命中 / 未命中 / 失败（稳定 reason）。 */
+type RunLookupState =
+  | { kind: 'idle' }
+  | { kind: 'busy' }
+  | { kind: 'hit'; run: RunView }
+  | { kind: 'not_found' }
+  | { kind: 'failed'; reason: string }
 
 export interface CollectTabProps {
   t: Translate
@@ -54,6 +62,23 @@ export interface CollectTabProps {
 }
 
 const POLL_MS = 2000
+
+/** 稳定码集合：命中这个集合的查询失败按「未找到」呈现，其余按失败呈现。 */
+const RUN_NOT_FOUND_CODES = new Set(['RUN_NOT_FOUND', 'RUN_ACCOUNT_MISMATCH'])
+
+/** collectAll.status 载荷 → 逐字段投影（未知形态字段为 null，不整包 cast）。 */
+function readBatchStatus(payload: Record<string, unknown>): BatchStatusData {
+  return {
+    ready: payload.ready === true,
+    phase: typeof payload.phase === 'string' ? payload.phase : null,
+    total: typeof payload.total === 'number' && Number.isFinite(payload.total) ? payload.total : null,
+    currentAccountId: typeof payload.currentAccountId === 'string' ? payload.currentAccountId : null,
+    completedCount: typeof payload.completedCount === 'number' && Number.isFinite(payload.completedCount) ? payload.completedCount : null,
+    partialCount: typeof payload.partialCount === 'number' && Number.isFinite(payload.partialCount) ? payload.partialCount : null,
+    failedCount: typeof payload.failedCount === 'number' && Number.isFinite(payload.failedCount) ? payload.failedCount : null,
+    skippedCount: typeof payload.skippedCount === 'number' && Number.isFinite(payload.skippedCount) ? payload.skippedCount : null,
+  }
+}
 
 /** 采集页组件。 */
 export function CollectTab(props: CollectTabProps): ReactNode {
@@ -65,10 +90,10 @@ export function CollectTab(props: CollectTabProps): ReactNode {
   const [batchReady, setBatchReady] = useState(true)
   const [startReason, setStartReason] = useState<string | null>(null)
   const [runQuery, setRunQuery] = useState('')
-  const [runView, setRunView] = useState<RunView | 'empty' | null>(null)
-  const [runLookupBusy, setRunLookupBusy] = useState(false)
+  const [runLookup, setRunLookup] = useState<RunLookupState>({ kind: 'idle' })
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const runLookupSeqRef = useRef(0)
 
   const refreshStatus = useCallback(async (): Promise<void> => {
     const res = await hostAction('collect.status', {})
@@ -79,7 +104,7 @@ export function CollectTab(props: CollectTabProps): ReactNode {
 
   const refreshBatch = useCallback(async (): Promise<void> => {
     const res = await hostAction('collectAll.status', {})
-    setBatch(res as unknown as BatchStatusData)
+    setBatch(readBatchStatus(res))
     setBatchReady(res.ready === true)
   }, [])
 
@@ -133,7 +158,7 @@ export function CollectTab(props: CollectTabProps): ReactNode {
       if (batchPollRef.current !== null) clearInterval(batchPollRef.current)
       batchPollRef.current = setInterval(() => {
         void hostAction('collectAll.status', {}).then(batchRes => {
-          setBatch(batchRes as unknown as BatchStatusData)
+          setBatch(readBatchStatus(batchRes))
           const ready = batchRes.ready === true
           setBatchReady(ready)
           if (ready && batchPollRef.current !== null) {
@@ -154,14 +179,21 @@ export function CollectTab(props: CollectTabProps): ReactNode {
   const lookupRun = useCallback(async (): Promise<void> => {
     const runId = runQuery.trim()
     if (runId === '') return
-    setRunLookupBusy(true)
+    // 请求代次守卫：快速连续查询时旧响应不得覆盖新结果。
+    const seq = ++runLookupSeqRef.current
+    setRunLookup({ kind: 'busy' })
     try {
       const res = await hostAction('run.get', { runId })
-      setRunView(readRunView(res) ?? 'empty')
-    } catch {
-      setRunView('empty')
-    } finally {
-      setRunLookupBusy(false)
+      if (runLookupSeqRef.current !== seq) return
+      const run = readRunView(res)
+      // 无 run 对象（含 RUN_NOT_FOUND 之外的空载荷）同样按未命中呈现。
+      setRunLookup(run === null ? { kind: 'not_found' } : { kind: 'hit', run })
+    } catch (error) {
+      if (runLookupSeqRef.current !== seq) return
+      const reason = error instanceof Error ? error.message : 'unknown'
+      // RUN_NOT_FOUND / RUN_ACCOUNT_MISMATCH 是确定性的「无此运行」；其余
+      // （网络 / 服务失败）必须以失败态呈现，不得伪装成未找到。
+      setRunLookup(RUN_NOT_FOUND_CODES.has(reason) ? { kind: 'not_found' } : { kind: 'failed', reason })
     }
   }, [runQuery])
 
@@ -232,43 +264,84 @@ export function CollectTab(props: CollectTabProps): ReactNode {
         {batch === null
           ? <p className={css.collectStatus}>{t('collect.noCurrent')}</p>
           : <div className={css.collectStatus}>
-              <p>{`${t('collect.label.status')}: ${batchReady ? t('collect.status.completed') : phaseDisplay(batch.phase, t) ?? '—'}`}</p>
+              <p>{`${t('collect.label.status')}: ${batchReady ? t('collect.status.completed') : phaseDisplay(batch.phase ?? undefined, t) ?? '—'}`}</p>
               <p>{`${t('collect.batch.current')}: ${batch.currentAccountId ?? '—'} · ${t('collect.batch.total', { total: batch.total ?? 0 })}`}</p>
               <p>{batchCounts}</p>
             </div>}
       </DataCard>
       <DataCard title={t('collect.runLookup.title')} state='ready'>
         <div className={css.runLookup}>
-          <input
+          <Input
             type='text'
-            className={css.runLookupInput}
             value={runQuery}
             placeholder={t('collect.runLookup.placeholder')}
             aria-label={t('collect.runLookup.placeholder')}
             onChange={event => { setRunQuery(event.target.value) }}
             onKeyDown={event => { if (event.key === 'Enter') void lookupRun() }}
           />
-          <Button variant='outline' size='sm' disabled={runQuery.trim() === '' || runLookupBusy}
+          <Button variant='outline' size='sm' disabled={runQuery.trim() === '' || runLookup.kind === 'busy'}
             onClick={() => { void lookupRun() }}>
             {t('collect.runLookup.action')}
           </Button>
         </div>
-        {runView !== null && (
-          runView === 'empty'
-            ? <p className={css.collectStatus} role='status'>{t('collect.runLookup.empty')}</p>
-            : <RunFields
-                t={t}
-                attemptId={runView.attemptId}
-                runId={runView.runId}
-                status={runView.status}
-                startedAt={runView.startedAt}
-                finishedAt={runView.finishedAt}
-                error={runView.error}
-                worksCount={runView.worksCount}
-                progress={runView.progress}
-              />
+        {runLookup.kind === 'not_found' && (
+          <p className={css.collectStatus} role='status'>{t('collect.runLookup.empty')}</p>
         )}
+        {runLookup.kind === 'failed' && (
+          <div className={css.reasonBanner} role='alert'>
+            <span>{t('collect.runLookup.failed')}</span>
+            <span className={css.reasonText}>{reasonText(runLookup.reason, t)}</span>
+          </div>
+        )}
+        {runLookup.kind === 'hit' && <RunLookupResult t={t} run={runLookup.run} />}
       </DataCard>
+    </div>
+  )
+}
+
+/** run.get 命中结果：run 字段 + batches 批次表（tools 真实形状）。 */
+function RunLookupResult(props: { t: Translate; run: RunView }): ReactNode {
+  const t = props.t
+  const run = props.run
+  return (
+    <div className={css.runResult}>
+      <dl className={css.metaGrid}>
+        <MetaTerm t={t} label='collect.label.runId' value={run.runId ?? '—'} />
+        <MetaTerm t={t} label='run.label.account' value={run.accountId ?? '—'} />
+        {run.status !== null && <MetaTerm t={t} label='collect.label.status' value={run.status} />}
+        {run.errorCode !== null && <MetaTerm t={t} label='run.label.errorCode' value={run.errorCode} emphasis />}
+        <MetaTerm t={t} label='collect.label.startedAt' value={formatDateTime(run.startedAt) ?? '—'} />
+        {run.finishedAt !== null && <MetaTerm t={t} label='collect.label.finishedAt' value={formatDateTime(run.finishedAt) ?? run.finishedAt} />}
+        <MetaTerm t={t} label='run.label.expected' value={formatCount(run.expectedWorkCount)} />
+        <MetaTerm t={t} label='run.label.succeeded' value={formatCount(run.succeededWorkCount)} />
+        <MetaTerm t={t} label='run.label.failed' value={formatCount(run.failedWorkCount)} />
+      </dl>
+      {run.batches.length > 0 && (
+        <table className={css.batchTable}>
+          <thead>
+            <tr>
+              <th scope='col' className={css.batchTh}>{t('run.batch.batchNo')}</th>
+              <th scope='col' className={css.batchTh}>{t('run.batch.type')}</th>
+              <th scope='col' className={css.batchTh}>{t('run.batch.status')}</th>
+              <th scope='col' className={css.batchTh}>{t('run.batch.items')}</th>
+              <th scope='col' className={css.batchTh}>{t('run.batch.succeeded')}</th>
+              <th scope='col' className={css.batchTh}>{t('run.batch.failed')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {run.batches.map((batch, index) => (
+              <tr key={batch.batchNo ?? index} className={css.batchTr}>
+                <td className={css.batchTd}>{batch.batchNo ?? '—'}</td>
+                <td className={css.batchTd}>{batch.batchType ?? '—'}</td>
+                <td className={css.batchTd}>{batch.batchStatus ?? '—'}</td>
+                <td className={css.batchTd}>{formatCount(batch.itemCount)}</td>
+                <td className={css.batchTd}>{formatCount(batch.succeededCount)}</td>
+                <td className={css.batchTd}>{formatCount(batch.failedCount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   )
 }
@@ -287,7 +360,7 @@ function statusText(status: string, t: Translate): string {
   }
 }
 
-/** 运行记录的通用字段投影（当前任务 / 上次运行 / run.get 共用）。 */
+/** 运行记录的通用字段投影（当前任务 / 上次运行共用，attemptId/phase 为本地记录概念）。 */
 function RunFields(props: {
   t: Translate
   attemptId: string | null

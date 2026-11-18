@@ -2,8 +2,8 @@
  * Host action 载荷 → 页面视图模型的投影层：字段名以 tools 真实 schema 为准
  * （snake_case：work_id / play_count / like_count / publish_time /
  * daily_play_count / daily_like_count / follower_net_count / fans_profile
- * envelope）。缺失与非数值一律 null，不补 0；包装形态（`{ work }` / `{ run }` /
- * `{ trend }`）与顶层平铺两种返回形态都被接受。
+ * envelope；work.trend 顶层 snapshots；run.get 顶层 `{ run, batches }`）。
+ * 缺失与非数值一律 null，不补 0。
  * @module
  */
 
@@ -65,16 +65,35 @@ export interface WorkTrendData {
   points: WorkTrendPoint[]
 }
 
-/** run.get / collect 记录共用的运行投影。 */
+/** 远端 run 的一条批次行（workbench_wx_collect_run_get）。 */
+export interface RunBatchRow {
+  batchNo: number | null
+  batchType: string | null
+  batchStatus: string | null
+  itemCount: number | null
+  succeededCount: number | null
+  failedCount: number | null
+}
+
+/** run.get 的运行投影（tools 真实形状：顶层 `{ run, batches }`）。 */
 export interface RunView {
   runId: string | null
-  attemptId: string | null
+  accountId: string | null
   status: string | null
-  progress: Record<string, unknown>
-  error: string | null
+  errorCode: string | null
   startedAt: string | null
   finishedAt: string | null
-  worksCount: number | null
+  expectedWorkCount: number | null
+  succeededWorkCount: number | null
+  failedWorkCount: number | null
+  batches: RunBatchRow[]
+}
+
+/** 服务端 availability 单源取值（缺失为 null，调用方回退本地推导）。 */
+export interface OverviewAvailability {
+  accountMetrics: string | null
+  fansTrend: string | null
+  fansProfile: string | null
 }
 
 /** browser.status 五态（页面级）。 */
@@ -217,42 +236,78 @@ export function readFansProfile(payload: Record<string, unknown>): FansProfileDa
   return hasAny ? data : null
 }
 
-/** work.trend → 趋势日行（形状未定：`{ trend: { daily } }` 或顶层 `daily`，日行 play/like 双命名都接受）。 */
+/**
+ * work.trend → 趋势日行（tools 真实形状：顶层 `{ account_id, work_id,
+ * snapshots: [...] }`，snapshot 行为 day + daily_play_count / daily_like_count）。
+ */
 export function readWorkTrend(payload: Record<string, unknown>): WorkTrendData {
-  const trend = recordOf(payload.trend) ?? payload
-  const daily = Array.isArray(trend.daily) ? trend.daily : []
-  const points = daily.map(entry => {
+  const snapshots = Array.isArray(payload.snapshots) ? payload.snapshots : []
+  const points = snapshots.map(entry => {
     const record = recordOf(entry)
     if (record === undefined) return null
     const day = textOf(pick(record, 'day'))
     if (day === null) return null
     return {
       day,
-      playCount: numberOf(record.daily_play_count ?? record.play_count),
-      likeCount: numberOf(record.daily_like_count ?? record.like_count),
+      playCount: numberOf(pick(record, 'daily_play_count')),
+      likeCount: numberOf(pick(record, 'daily_like_count')),
     }
   }).filter((point): point is WorkTrendPoint => point !== null)
   return { points }
 }
 
-/** run.get → 运行投影（远端形状未定：`{ run }` 包装或顶层平铺，snake/驼峰都接受）。 */
+/** 一条批次行：batch_no / batch_type / batch_status / item_count / 对象数组取长度。 */
+function runBatchRow(entry: unknown): RunBatchRow | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  const objects = (key: string): number | null => {
+    const value = record[key]
+    return Array.isArray(value) ? value.length : null
+  }
+  const batchNo = numberOf(record.batch_no)
+  const batchType = textOf(record.batch_type)
+  const batchStatus = textOf(record.batch_status)
+  const itemCount = numberOf(record.item_count)
+  const succeeded = objects('succeeded_objects')
+  const failed = objects('failed_objects')
+  if (batchNo === null && batchType === null && batchStatus === null) return null
+  return { batchNo, batchType, batchStatus, itemCount, succeededCount: succeeded, failedCount: failed }
+}
+
+/**
+ * run.get → 运行投影（tools 真实形状：顶层 `{ run: {...}, batches: [...] }`；
+ * run 字段为 run_id / account_id / status / error_code / started_at /
+ * finished_at / expected_work_count / succeeded_work_count /
+ * failed_work_count）。无 `run` 对象的载荷返回 null（调用方按未命中处理）。
+ */
 export function readRunView(payload: Record<string, unknown>): RunView | null {
-  const record = recordOf(payload.run) ?? payload
-  const runId = textOf(record.run_id ?? record.runId)
-  const status = textOf(record.status ?? record.run_status)
-  const startedAt = textOf(record.started_at ?? record.startedAt)
-  if (runId === null && status === null && startedAt === null) return null
-  const progress = recordOf(record.progress) ?? {}
-  const result = recordOf(record.result)
+  const run = recordOf(payload.run)
+  if (run === undefined) return null
+  const rawBatches = Array.isArray(payload.batches) ? payload.batches : []
   return {
-    runId,
-    attemptId: textOf(record.attempt_id ?? record.attemptId),
-    status,
-    progress,
-    error: textOf(record.error),
-    startedAt,
-    finishedAt: textOf(record.finished_at ?? record.finishedAt),
-    worksCount: result === undefined ? numberOf(record.works ?? record.works_count) : numberOf(result.works),
+    runId: textOf(pick(run, 'run_id')),
+    accountId: textOf(pick(run, 'account_id')),
+    status: textOf(pick(run, 'status')),
+    errorCode: textOf(pick(run, 'error_code')),
+    startedAt: textOf(pick(run, 'started_at')),
+    finishedAt: textOf(pick(run, 'finished_at')),
+    expectedWorkCount: numberOf(pick(run, 'expected_work_count')),
+    succeededWorkCount: numberOf(pick(run, 'succeeded_work_count')),
+    failedWorkCount: numberOf(pick(run, 'failed_work_count')),
+    batches: rawBatches.map(runBatchRow).filter((row): row is RunBatchRow => row !== null),
+  }
+}
+
+/**
+ * account.overview → 服务端 availability 三源取值（availability.account_metrics
+ * / fans_trend / fans_profile）；字段缺失保留 null（调用方回退本地推导）。
+ */
+export function readOverviewAvailability(payload: Record<string, unknown>): OverviewAvailability {
+  const availability = recordOf(payload.availability)
+  return {
+    accountMetrics: availability === undefined ? null : textOf(pick(availability, 'account_metrics')),
+    fansTrend: availability === undefined ? null : textOf(pick(availability, 'fans_trend')),
+    fansProfile: availability === undefined ? null : textOf(pick(availability, 'fans_profile')),
   }
 }
 

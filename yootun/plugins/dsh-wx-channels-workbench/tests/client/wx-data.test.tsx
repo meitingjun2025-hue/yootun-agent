@@ -8,6 +8,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
+import { shanghaiCompletedDay } from '../../src/client/format.ts'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
 afterEach(() => {
@@ -149,7 +150,7 @@ describe('总览页 account.overview', () => {
           { day: '2026-11-17', follower_total_count: 107, follower_net_count: 7 },
         ] },
       }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: { device: [{ key: 'ios', label: 'iOS', count: 1 }] } }),
     }))
     await waitFor(() => expect(screen.getByText('1234')).not.toBeNull())
     expect(screen.getByText('56')).not.toBeNull()
@@ -169,6 +170,52 @@ describe('总览页 account.overview', () => {
     // 画像来自 envelope（profile 源成功），overview 错误区给重试按钮。
     expect(screen.getByText('18-23 岁')).not.toBeNull()
     expect(screen.getAllByRole('button', { name: t('state.retry') }).length).toBeGreaterThan(0)
+  })
+
+  it('服务端 availability 驱动页面标注：partial 窗口与 no_data 画像不得标成数据完整', async () => {
+    await renderPage(baseHandlers({
+      // KPI 有值、趋势 partial（残缺窗口）、画像 no_data：整体必须是 partial。
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: { daily_play_count: 1234, daily_like_count: 56, work_count: 12 } },
+        fans_trend: { totals: { follower_net_count: 7 }, daily: [{ day: '2026-11-17', follower_total_count: 107, follower_net_count: 7 }] },
+        availability: { account_metrics: 'ok', fans_trend: 'partial', fans_profile: 'no_data' },
+      }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    expect(await screen.findByText(t('overview.availability.partial'))).not.toBeNull()
+    expect(screen.queryByText(t('overview.availability.ok'))).toBeNull()
+    // 趋势卡 partial：数据 + 警告条同时呈现（kit en 文案）。
+    expect(screen.getByText('Partial data shown; the rest failed to load')).not.toBeNull()
+    expect(screen.getByRole('button', { name: '2026-11-17: 107' })).not.toBeNull()
+    // 画像卡按服务端 no_data 呈现空态（不渲染维度选择）。
+    expect(screen.queryByText(t('portrait.age'))).toBeNull()
+  })
+
+  it('总览 stale-write 守卫：切账号后旧账号响应不覆盖新账号数据', async () => {
+    let resolveSlow: ((payload: Payload) => void) | undefined
+    const otherAccount = { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }
+    await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, otherAccount], remoteOk: true }),
+      'account.overview': args => {
+        if (args.accountId === 'finder-b') {
+          return new Promise<Payload>(resolve => { resolveSlow = resolve })
+        }
+        return { ...OK, metrics: { totals: { daily_play_count: 111 } }, fans_trend: { totals: {} } }
+      },
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    expect(await screen.findByText('111')).not.toBeNull()
+    // 切到账号乙（overview 挂起），再切回账号甲（立即返回）。
+    fireEvent.click(screen.getByRole('button', { name: 'Account: 演示账号' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Account: 账号乙' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '演示账号' }))
+    await waitFor(() => expect(screen.getByText('111')).not.toBeNull())
+    // 账号乙的旧响应现在才返回：不得覆盖账号甲的数据。
+    resolveSlow?.({ ...OK, metrics: { totals: { daily_play_count: 999 } }, fans_trend: { totals: {} } })
+    await waitFor(() => expect(screen.queryByText('999')).toBeNull())
+    expect(screen.getByText('111')).not.toBeNull()
   })
 })
 
@@ -215,10 +262,16 @@ describe('作品页 works.list / work.get / work.trend', () => {
   const trendHandlers = (overrides: Record<string, Handler> = {}): Record<string, Handler> => baseHandlers({
     'works.list': () => ({ ...OK, ...WORKS }),
     'work.get': args => ({ ...OK, work: { work_id: args.workId, title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z' } }),
-    'work.trend': () => ({ ...OK, trend: { daily: [
-      { day: '2026-11-16', daily_play_count: 100, daily_like_count: 5 },
-      { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9 },
-    ] } }),
+    // tools 真实形状：顶层 snapshots（account_id / work_id + 日行）。
+    'work.trend': args => ({
+      ...OK,
+      account_id: 'finder-a',
+      work_id: args.workId,
+      snapshots: [
+        { day: '2026-11-16', daily_play_count: 100, daily_like_count: 5 },
+        { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9 },
+      ],
+    }),
     ...overrides,
   })
 
@@ -272,12 +325,65 @@ describe('作品页 works.list / work.get / work.trend', () => {
     expect(detail.getByText('2026-11-17 16:00')).not.toBeNull()
   })
 
-  it('work.trend 折线点从 daily 日行渲染（daily_play_count 主线、点赞进 tooltip）', async () => {
-    await renderPage(trendHandlers())
+  it('work.trend 折线点从顶层 snapshots 渲染（daily_play_count 主线、点赞进 tooltip）', async () => {
+    const { calls } = await renderPage(trendHandlers())
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     fireEvent.click(await screen.findByRole('button', { name: '第一条作品' }))
     expect(await screen.findByRole('button', { name: '2026-11-17: 140' })).not.toBeNull()
     expect(screen.getByRole('button', { name: '2026-11-16: 100' })).not.toBeNull()
+    const trendCall = calls.find(call => call.action === 'work.trend')
+    expect(trendCall?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
+  })
+
+  it('时间窗切换传服务端 publishedFrom/publishedTo（上海已完成自然日）', async () => {
+    const { calls } = await renderPage(trendHandlers())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await screen.findByText('第一条作品')
+    // 全部时间：不传窗口参数。
+    const allCall = [...calls].reverse().find(call => call.action === 'works.list')
+    expect(allCall?.args['publishedFrom']).toBeUndefined()
+    // 近 7 天：from = 上海 7 天前已完成日，to = 上海昨天。
+    fireEvent.click(screen.getByRole('tab', { name: t('works.filter.last_7d') }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args['publishedTo']).toEqual(shanghaiCompletedDay(1))
+      expect(last?.args['publishedFrom']).toEqual(shanghaiCompletedDay(7))
+    })
+    // 昨日：from = to = 上海昨天。
+    fireEvent.click(screen.getByRole('tab', { name: t('works.filter.yesterday') }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args['publishedFrom']).toEqual(shanghaiCompletedDay(1))
+      expect(last?.args['publishedTo']).toEqual(shanghaiCompletedDay(1))
+    })
+  })
+
+  it('stale-write 守卫：排序慢响应晚于新排序返回时不覆盖新数据', async () => {
+    let resolveSlow: ((payload: Payload) => void) | undefined
+    const { calls } = await renderPage({
+      ...trendHandlers(),
+      'works.list': args => {
+        if (args.sort === 'play_count') {
+          return new Promise<Payload>(resolve => { resolveSlow = resolve })
+        }
+        return { ...OK, ...WORKS }
+      },
+    })
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await screen.findByText('第一条作品')
+    // 切到最多播放（挂起），再切回最新发布（立即返回）。
+    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.play') }))
+    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.desc') }))
+    await waitFor(() => expect(screen.getAllByText('第一条作品').length).toBeGreaterThan(0))
+    // 旧的 play_count 响应现在才返回：不得覆盖。
+    resolveSlow?.({ ...OK, works: [{ work_id: 'w-stale', title: '过期数据', play_count: 1, like_count: 1, publish_time: null }] })
+    await waitFor(() => {
+      expect(screen.queryByText('过期数据')).toBeNull()
+      expect(screen.getByText('第一条作品')).not.toBeNull()
+    })
+    // 此时再放行也不会重放旧代次（seq 已前进）。
+    const listCalls = calls.filter(call => call.action === 'works.list')
+    expect(listCalls.length).toBeGreaterThanOrEqual(3)
   })
 })
 
@@ -341,26 +447,73 @@ describe('采集页 collect / run.get', () => {
     expect(screen.getByText(t('collect.errorReason'))).not.toBeNull()
   })
 
-  it('run.get 查询：runId 输入 → 运行字段与批次进度渲染；未命中给空态', async () => {
+  it('run.get 查询：真实形状（run + batches）渲染运行字段与批次表', async () => {
     const { calls } = await renderPage(baseHandlers({
-      'run.get': args => args.runId === 'run-hit'
-        ? { ...OK, run: { run_id: 'run-hit', status: 'completed', started_at: '2026-11-18T08:00:00.000Z', finished_at: '2026-11-18T08:20:00.000Z', progress: { phase: 'ingest', batchNo: 3, totalBatches: 3, succeeded: 40, failed: 0 }, attempt_id: 'finder-a-zzz' } }
-        : { status: 'error', reason: 'RUN_NOT_FOUND' },
+      // tools 真实形状：顶层 { run, batches }。
+      'run.get': () => ({
+        ...OK,
+        run: {
+          run_id: 'run-hit',
+          account_id: 'finder-a',
+          status: 'completed',
+          expected_work_count: 45,
+          succeeded_work_count: 40,
+          failed_work_count: 3,
+          started_at: '2026-11-18T08:00:00.000Z',
+          finished_at: '2026-11-18T08:20:00.000Z',
+        },
+        batches: [
+          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: [] },
+          { batch_no: 2, batch_type: 'works', batch_status: 'partial', item_count: 20, succeeded_objects: ['c'], failed_objects: ['d'] },
+        ],
+      }),
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
     const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
     fireEvent.change(input, { target: { value: 'run-hit' } })
     fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
     expect(await screen.findByText('run-hit')).not.toBeNull()
-    expect(screen.getByText('finder-a-zzz')).not.toBeNull()
-    expect(screen.getByText(t('collect.status.completed'))).not.toBeNull()
-    expect(screen.getByText(t('collect.phase.ingest', { batchNo: 3, totalBatches: 3 }))).not.toBeNull()
+    expect(screen.getByText('finder-a')).not.toBeNull()
+    expect(screen.getByText('completed')).not.toBeNull()
+    expect(screen.getByText(t('run.label.expected'))).not.toBeNull()
+    // 「Succeeded」出现在运行字段 label 与批次表头（共 2 处）。
+    expect(screen.getAllByText(t('run.label.succeeded')).length).toBe(2)
+    expect(screen.getByText('45')).not.toBeNull()
+    expect(screen.getByText('40')).not.toBeNull()
+    expect(screen.getByText('3')).not.toBeNull()
+    // 批次表：batch_no / batch_type / batch_status / item_count / 成功失败对象数。
+    expect(screen.getByText(t('run.batch.batchNo'))).not.toBeNull()
+    expect(screen.getByText(t('run.batch.type'))).not.toBeNull()
+    expect(screen.getAllByText('works').length).toBe(2)
+    expect(screen.getByText('succeeded')).not.toBeNull()
+    expect(screen.getByText('partial')).not.toBeNull()
+    // 「2」是批次 2 的 batch_no 与批次 1 的成功对象数（共 2 处）。
+    expect(screen.getAllByText('2').length).toBe(2)
     const runCall = calls.find(call => call.action === 'run.get')
     expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
-    // 未命中：稳定错误收敛为空态。
+  })
+
+  it('run.get 未命中（RUN_NOT_FOUND）呈现空态；服务失败以失败态呈现，不伪装成未找到', async () => {
+    let failNext = false
+    await renderPage(baseHandlers({
+      'run.get': () => {
+        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { status: 'error', reason: 'RUN_NOT_FOUND' }
+      },
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
+    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
+    // 未命中。
     fireEvent.change(input, { target: { value: 'run-miss' } })
     fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
     expect(await screen.findByText(t('collect.runLookup.empty'))).not.toBeNull()
+    expect(screen.queryByText(t('collect.runLookup.failed'))).toBeNull()
+    // 服务失败：失败态 + 稳定 reason，不得显示「未找到」。
+    failNext = true
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText(t('collect.runLookup.failed'))).not.toBeNull()
+    expect(screen.getByText(`${t('error.WX_TOOL_UNAVAILABLE')}（WX_TOOL_UNAVAILABLE）`)).not.toBeNull()
+    expect(screen.queryByText(t('collect.runLookup.empty'))).toBeNull()
   })
 })
 
@@ -401,7 +554,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     // 第一步确认出现（warning + confirm + cancel），尚未调用任何删除。
     expect(screen.getByText(en['account.removeWarning'])).not.toBeNull()
     expect(calls.some(call => call.action.startsWith('account.remove'))).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: t('account.removeConfirm') }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
     await waitFor(() => expect(screen.getByText(t('account.removeSuccess'))).not.toBeNull())
     const localIndex = calls.findIndex(call => call.action === 'account.removeLocal')
     const remoteIndex = calls.findIndex(call => call.action === 'account.removeRemote')
@@ -416,12 +569,12 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: t('account.removeConfirm') }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
     expect(await screen.findByText(`${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
     expect(calls.some(call => call.action === 'account.removeRemote')).toBe(false)
     // 重试回到确认步。
     fireEvent.click(screen.getByRole('button', { name: t('state.retry') }))
-    expect(screen.getByRole('button', { name: t('account.removeConfirm') })).not.toBeNull()
+    expect(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` })).not.toBeNull()
     expect(calls.filter(call => call.action === 'account.removeLocal').length).toBe(1)
   })
 
@@ -431,7 +584,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: t('account.removeConfirm') }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
     expect(await screen.findByText(en['account.delete.localFailed'], { exact: false })).not.toBeNull()
     expect(calls.some(call => call.action === 'account.removeRemote')).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: t('account.delete.retryLocal') }))
@@ -446,7 +599,7 @@ describe('账号页 probe / promote / 删除两步', () => {
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
-    fireEvent.click(screen.getByRole('button', { name: t('account.removeConfirm') }))
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirm')}：演示账号` }))
     expect(await screen.findByText(en['account.delete.remoteFailed'], { exact: false })).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: t('account.delete.retryRemote') }))
     await waitFor(() => expect(calls.filter(call => call.action === 'account.removeRemote').length).toBe(2))

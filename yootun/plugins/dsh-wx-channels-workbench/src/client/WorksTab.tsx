@@ -1,7 +1,9 @@
 /**
- * 作品页：works.list（服务端排序）+ 时间窗/标题搜索（客户端粗筛）+ 行按钮
- * → work.get 详情 + work.trend 趋势折线。长标题 ellipsis 且 aria-label 保留
- * 完整可访问名称；行有键盘路径（原生 button），打开详情后焦点移到详情标题。
+ * 作品页：works.list（服务端排序 + publishedFrom/publishedTo 上海已完成自然日
+ * 窗口）+ 标题搜索（客户端）+ 行按钮 → work.get 详情 + work.trend 趋势折线
+ * （顶层 snapshots）。长标题 ellipsis 且 aria-label 保留完整可访问名称；行有
+ * 键盘路径（原生 button），打开详情后焦点移到详情标题；账号/排序/详情切换带
+ * 请求代次守卫。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -9,7 +11,7 @@ import { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ChartFrame, ChartLegend, DataCard, FilterBar } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { TrendLineChart } from './charts.tsx'
-import { formatCount, formatDateTime, localWindowStart, type Translate } from './format.ts'
+import { formatCount, formatDateTime, shanghaiCompletedDay, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { readWorkDetail, readWorkRows, readWorkTrend, type WorkRow, type WorkTrendData } from './schema.ts'
 
@@ -25,10 +27,12 @@ export interface WorksTabProps {
   activeAccountId: string
 }
 
-const WINDOW_DAYS: Readonly<Record<Exclude<WindowKey, 'all'>, number>> = {
-  yesterday: 1,
-  last_7d: 7,
-  last_30d: 30,
+/** 时间窗 → 上海已完成自然日的 [from, to]（all 不传）；窗口含 yesterday。 */
+function windowRange(win: Exclude<WindowKey, 'all'>): { publishedFrom: string; publishedTo: string } {
+  return {
+    publishedFrom: shanghaiCompletedDay(win === 'yesterday' ? 1 : win === 'last_7d' ? 7 : 30),
+    publishedTo: shanghaiCompletedDay(1),
+  }
 }
 
 /** 作品页组件。 */
@@ -44,29 +48,38 @@ export function WorksTab(props: WorksTabProps): ReactNode {
   const [detailState, setDetailState] = useState<LoadState>('ready')
   const [trend, setTrend] = useState<WorkTrendData | null>(null)
   const [trendState, setTrendState] = useState<LoadState>('loading')
+  const listSeqRef = useRef(0)
+  const detailSeqRef = useRef(0)
   const detailHeadingRef = useRef<HTMLHeadingElement>(null)
 
-  const loadWorks = useCallback(async (accountId: string, sortKey: SortKey): Promise<void> => {
+  const loadWorks = useCallback(async (accountId: string, sortKey: SortKey, winKey: WindowKey): Promise<void> => {
+    // 请求代次守卫：账号/排序/时间窗快速切换时旧响应不得覆盖新选择。
+    const seq = ++listSeqRef.current
     setWorksState('loading')
     try {
       const res = await hostAction('works.list', {
         accountId,
         sort: sortKey,
         order: 'desc',
+        ...(winKey === 'all' ? {} : windowRange(winKey)),
       })
+      if (listSeqRef.current !== seq) return
       setWorks(readWorkRows(res))
       setWorksState('ready')
     } catch {
+      if (listSeqRef.current !== seq) return
       setWorks([])
       setWorksState('error')
     }
   }, [])
 
   useEffect(() => {
-    if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort)
-  }, [props.activeAccountId, sort, loadWorks])
+    if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort, win)
+  }, [props.activeAccountId, sort, win, loadWorks])
 
   const openDetail = useCallback(async (accountId: string, workId: string): Promise<void> => {
+    // 详情/趋势共用一个代次：快速换行时旧响应整体作废。
+    const seq = ++detailSeqRef.current
     setDetailWorkId(workId)
     setDetailState('loading')
     setTrendState('loading')
@@ -74,25 +87,30 @@ export function WorksTab(props: WorksTabProps): ReactNode {
     setTrend(null)
     try {
       const res = await hostAction('work.get', { accountId, workId })
+      if (detailSeqRef.current !== seq) return
       const row = readWorkDetail(res)
       setDetail(row)
       setDetailState(row === null ? 'empty' : 'ready')
     } catch {
+      if (detailSeqRef.current !== seq) return
       setDetail(null)
       setDetailState('error')
     }
     try {
       const res = await hostAction('work.trend', { accountId, workId })
+      if (detailSeqRef.current !== seq) return
       setTrend(readWorkTrend(res))
       setTrendState('ready')
     } catch {
+      if (detailSeqRef.current !== seq) return
       setTrend(null)
       setTrendState('error')
     }
-    detailHeadingRef.current?.focus()
+    if (detailSeqRef.current === seq) detailHeadingRef.current?.focus()
   }, [])
 
   const closeDetail = useCallback((): void => {
+    detailSeqRef.current += 1
     setDetail(null)
     setDetailWorkId(null)
     setTrend(null)
@@ -100,7 +118,10 @@ export function WorksTab(props: WorksTabProps): ReactNode {
     setTrendState('loading')
   }, [])
 
-  const filtered = filterWorks(works, win, search)
+  const needle = search.trim().toLowerCase()
+  const filtered = needle === ''
+    ? works
+    : works.filter(row => (row.title ?? '').toLowerCase().includes(needle))
   const sortTabs: readonly [SortTab, ...SortTab[]] = [
     { value: 'publish_time', label: t('works.sort.desc'), id: 'wx-sort-time', panelId: 'wx-panel-works' },
     { value: 'play_count', label: t('works.sort.play'), id: 'wx-sort-play', panelId: 'wx-panel-works' },
@@ -123,8 +144,8 @@ export function WorksTab(props: WorksTabProps): ReactNode {
       </FilterBar>
       <DataCard
         title={t('works.title')}
-        state={cardState(worksState, filtered.length)}
-        onRetry={() => { if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort) }}
+        state={worksState === 'ready' ? (filtered.length > 0 ? 'ready' : 'empty') : worksState}
+        onRetry={() => { if (props.activeAccountId !== '') void loadWorks(props.activeAccountId, sort, win) }}
       >
         {worksState === 'ready' && filtered.length > 0 && (
           <ul className={css.workList}>
@@ -186,7 +207,7 @@ export function WorksTab(props: WorksTabProps): ReactNode {
         <ChartFrame
           title={t('works.trend')}
           height={220}
-          state={chartState(trendState, trend?.points.length ?? 0)}
+          state={trendState === 'loading' ? 'loading' : trendState === 'error' ? 'error' : (trend?.points.length ?? 0) > 0 ? 'ready' : 'empty'}
           onRetry={() => { void openDetail(props.activeAccountId, detailWorkId) }}
           legend={<ChartLegend items={[{ id: 'work-play', label: t('kpi.play'), color: '--yt-chart-1' }]} />}
           footnote={t('overview.dataSource')}
@@ -206,32 +227,4 @@ export function WorksTab(props: WorksTabProps): ReactNode {
       )}
     </div>
   )
-}
-
-/** 客户端粗筛：时间窗（publish_time 本地零点）+ 标题包含。 */
-function filterWorks(works: WorkRow[], win: WindowKey, search: string): WorkRow[] {
-  const start = win === 'all' ? null : localWindowStart(WINDOW_DAYS[win])
-  const needle = search.trim().toLowerCase()
-  return works.filter(row => {
-    if (start !== null) {
-      if (row.publishTime === null) return false
-      const published = Date.parse(row.publishTime)
-      if (Number.isNaN(published) || published < start) return false
-    }
-    if (needle !== '' && (row.title ?? '').toLowerCase().includes(needle) === false) return false
-    return true
-  })
-}
-
-/** 卡片状态：ready 且空 → empty。 */
-function cardState(source: LoadState, count: number): 'loading' | 'ready' | 'empty' | 'error' {
-  if (source === 'ready') return count > 0 ? 'ready' : 'empty'
-  return source
-}
-
-/** 图表卡状态。 */
-function chartState(source: LoadState, count: number): 'loading' | 'ready' | 'empty' | 'error' {
-  if (source === 'loading') return 'loading'
-  if (source === 'error') return 'error'
-  return count > 0 ? 'ready' : 'empty'
 }
