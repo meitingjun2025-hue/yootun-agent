@@ -382,14 +382,15 @@ fans.profile.get
 
 ```text
 PluginPageShell
-├─ PluginHeader：账号选择、会话状态、采集按钮
-├─ SegmentedTabs：总览 / 作品 / 采集 / 账号
-├─ FilterBar：时间窗、排序、账号、状态
-├─ KpiRow：播放、点赞、关注变化、作品数
-├─ ChartFrame：作品趋势、粉丝增长、画像构成
-├─ DataCard：作品排行、异常批次、账号状态
+├─ PluginHeader：标题、描述与浏览器 / 全局辅助状态
+├─ SegmentedTabs：作品数据 / 账号总览
+├─ 作品数据：左侧账号管理栏 + 右侧作品工具栏 / 摘要卡 / 作品表格
+├─ 作品详情：双击或 Enter 打开 Modal
+├─ 账号总览：全部视频指标 / 关注者增长 / 关注者画像
 └─ DataState：加载、空态、错误、部分数据
 ```
+
+布局、信息架构和交互动线按 [11-wx-workbench-ui-layout-parity.md](11-wx-workbench-ui-layout-parity.md) 对齐旧插件；视觉、CSS、token、文案和无障碍按新版规范重做。
 
 必须覆盖：
 
@@ -409,6 +410,7 @@ W2 状态与登录：旧目录探测、Chrome profile、扫码、会话探活、
 W3 采集链路：run、心跳、四类入库、finish、cancel、恢复
 W4 数据页：账号、作品、详情、趋势、总览、画像
 W5 集成：真实 Workbench MCP、打包、明暗与三档宽度、真机验收
+W6 布局回正：旧布局与交互动线迁移，新版视觉规范重做
 ```
 
 W5 的本地真实 Tools、真实扫码采集和真实浏览器目检按 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 执行；生产 endpoint 冒烟与 Windows 真机验收仍由本册 §4.6 验收。

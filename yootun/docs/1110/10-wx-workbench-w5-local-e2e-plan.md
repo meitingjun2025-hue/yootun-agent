@@ -182,8 +182,8 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 | 总览 | `account.overview` | KPI 与 `metrics.totals`、`fans_trend.totals` 对齐；关注变化按 fans_trend 源定态 |
 | 画像 | `fans.profile.get` | 只消费 `fans_profile` envelope；无画像显示 no_data，不渲染假分布 |
 | 作品列表 | `works.list` | 真实 `works[]`、snake_case 字段、null 显示占位；排序与日期窗参数进入服务端 |
-| 作品详情 | `work.get` | 只消费 `{ work }`；标题、播放、点赞、发布时间与远端一致 |
-| 作品趋势 | `work.trend` | 只消费顶层 `snapshots[]`；折线点与 `day`、`daily_play_count` 对齐 |
+| 作品详情 | `work.get` | 只消费 `{ work }` 包装；封面、基础信息、核心指标、来源、留存、按日数据和缺口与远端一致 |
+| 作品趋势 | `work.trend` | 只消费顶层 `snapshots[]`；Dialog 内折线点与 `day`、`daily_play_count` 对齐 |
 | run 查询 | `run.get` | 显示 `{ run, batches }` 的字段与批次表；RUN_NOT_FOUND 与服务失败区分 |
 | 账号页 | `accounts.list` | 本地状态、远端资料和会话状态合并一致 |
 
@@ -205,24 +205,24 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 
 ## 11. 真实浏览器视觉与可达性矩阵
 
-对总览、作品、采集、账号四个 tab 执行以下矩阵：
+对作品数据、账号总览两个页面执行以下矩阵：
 
 | 条件 | 截图 |
 |---|---|
-| light + 1120px | 四 tab 各一张 |
-| light + 880px | 四 tab 各一张 |
-| light + 640px | 四 tab 各一张 |
-| dark + 1120px | 四 tab 各一张 |
-| dark + 880px | 四 tab 各一张 |
-| dark + 640px | 四 tab 各一张 |
+| light + 1120px | 两个页面各一张 |
+| light + 880px | 两个页面各一张 |
+| light + 640px | 两个页面各一张 |
+| dark + 1120px | 两个页面各一张 |
+| dark + 880px | 两个页面各一张 |
+| dark + 640px | 两个页面各一张 |
 
 三档宽度以 `yootun-kit-page` 容器查询实际命中为准，不以浏览器 viewport 名称代替；manifest 记录容器宽度和主题状态。另补：
 
-1. 作品详情 + 趋势：light/dark 1120px；
+1. 作品详情 Dialog：light/dark 1120px，双击和 Enter 均可打开；
 2. run 批次表：light/dark 640px，确认横向滚动区域可获得键盘焦点；
 3. 长账号名与长标题：640px light，确认截断与完整 aria-label；
 4. 图表数据点 focus/hover：light 880px；
-5. 键盘路径：tab 导航、ArrowRight/End 切 tab、作品行 Enter 打开详情、图表 mark focus、批次表滚动 region focus；
+5. 键盘与鼠标路径：tab 导航、ArrowRight/End 切 tab、作品行 Enter 与双击打开详情、图表 mark focus、批次表滚动 region focus；
 6. reduced-motion：Playwright `reducedMotion: 'reduce'` 下检查图表点、分布条、作品行和账号行计算样式中的 transition 为 `0s`。
 
 任何布局溢出、焦点丢失、不可读对比度、假数据或错误状态伪装都算失败；不在截图上手工修图。
@@ -258,7 +258,7 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 3. 用户完成真实扫码，账号保存、探活和本地状态迁移通过；
 4. 单账号真实采集完成或得到真实 partial 结果，且本地 run 与远端 run 一致；
 5. 总览、画像、作品、详情、趋势、run 查询均用真实返回对账通过；
-6. 明暗 × 三档宽度 × 四 tab 截图齐全；
+6. 明暗 × 三档宽度 × 两个页面截图齐全；
 7. 键盘路径与 reduced-motion 检查通过；
 8. 删除两步链路通过；
 9. 敏感运行状态与测试账号清理完成；

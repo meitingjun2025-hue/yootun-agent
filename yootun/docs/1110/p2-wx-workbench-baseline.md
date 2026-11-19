@@ -41,7 +41,7 @@
 | runner.js (635) | 单账号编排（readiness/ensureRemoteAccount/身份复核/采集/入库/过期收尾）、进度事件、批量串行控制器 | `src/runner.ts` + `src/collect-all.ts` | 全语义移植 + 取消支持 |
 | tools-client.js (311) | ctx.tools.execute 调用封装、稳定码白名单、幂等键模板 | 删除；改经 `ctx.yootunWorkbench.callTool('wx-workbench','wx',…)`；幂等键模板移入 `src/idempotency.ts`；稳定码映射移入 `src/errors.ts` | 重写 |
 | index.js (584) | 路由分发 | `src/route.ts` + `src/index.ts` | 重写（schema 化加固） |
-| ui-format.js / account-ui.js / work-ui.js / client.js (2.6k) | 旧 UI（sidebar footer 弹层） | **不迁移**；新 client 半按 plugin-ui-ux-standard 重写 | 排除 |
+| ui-format.js / account-ui.js / work-ui.js / client.js (2.6k) | 旧 UI 的布局、信息架构、交互动线与数据口径 | `src/client/*` 按同一布局重写；双击详情、两 tab、账号侧栏、三段总览和五维画像保留 | 布局 / 交互 / 数据结构迁移；`ywc-*` CSS、全局 style、inline style、旧色值和 sidebar footer 弹层不迁移，详见 [11-wx-workbench-ui-layout-parity.md](11-wx-workbench-ui-layout-parity.md) |
 
 ## 3. 稳定错误码基线
 
