@@ -24,6 +24,7 @@ import {
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { OverviewPage } from './OverviewPage.tsx'
 import { WorksPanel } from './WorksPanel.tsx'
+import { DEFAULT_SORT_STATE, SERVER_SORT_KEYS, type SortState } from './works-format.ts'
 
 export type { Translate } from './format.ts'
 
@@ -83,6 +84,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [works, setWorks] = useState<WorkRow[]>([])
   const [worksState, setWorksState] = useState<WorksLoadState>('loading')
+  const [worksSort, setWorksSort] = useState<SortState>(DEFAULT_SORT_STATE)
   const [summary, setSummary] = useState<OverviewData | null>(null)
   const [summaryState, setSummaryState] = useState<LoadState>('loading')
   const [collectBusy, setCollectBusy] = useState(false)
@@ -145,11 +147,15 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   // ---- 作品列表 / 固定 last_7d 摘要（SWR 无缓存直拉；请求代次 + 账号双守卫）----
 
-  const loadWorks = useCallback(async (accountId: string): Promise<void> => {
+  const loadWorks = useCallback(async (accountId: string, sort: SortState): Promise<void> => {
     const seq = ++worksSeqRef.current
     setWorksState('loading')
     try {
-      const res = await hostAction('works.list', { accountId, sort: 'publish_time', order: 'desc' })
+      // 服务端排序白名单键带 sort/order；完播率 / 平均时长服务端不可排序，取
+      // 服务端默认序（发布时间降序）后由面板本地排序。
+      const res = await hostAction('works.list', SERVER_SORT_KEYS.has(sort.key)
+        ? { accountId, sort: sort.key, order: sort.direction }
+        : { accountId })
       // 守卫：序号最新 + 响应账号仍是当前选中账号（采集回调按采集账号刷新，
       // 与当前选中无关，账号不比对会把旧账号数据写进新账号视图）。
       if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return
@@ -192,8 +198,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   }, [selectedAccountId, loadSummary])
 
   useEffect(() => {
-    if (tab === 'works' && selectedAccountId !== null) void loadWorks(selectedAccountId)
-  }, [selectedAccountId, tab, loadWorks])
+    if (tab === 'works' && selectedAccountId !== null) void loadWorks(selectedAccountId, worksSort)
+  }, [selectedAccountId, tab, worksSort, loadWorks])
 
   // ---- 登录流 ----
 
@@ -244,11 +250,11 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   const refreshAfterDataChange = useCallback(async (accountId: string): Promise<void> => {
     await Promise.all([
-      loadWorks(accountId),
+      loadWorks(accountId, worksSort),
       loadSummary(accountId),
       refreshAccounts(),
     ])
-  }, [loadSummary, loadWorks, refreshAccounts])
+  }, [loadSummary, loadWorks, refreshAccounts, worksSort])
 
   const stopCollectPolling = useCallback((): void => {
     if (collectPollRef.current !== null) { clearInterval(collectPollRef.current); collectPollRef.current = null }
@@ -363,7 +369,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     setRefreshFailedParts([])
     void (async () => {
       const results = await Promise.all([
-        loadWorks(accountId).then(() => true).catch(() => false),
+        loadWorks(accountId, worksSort).then(() => true).catch(() => false),
         loadSummary(accountId).then(() => true).catch(() => false),
         refreshAccounts().then(() => true).catch(() => false),
       ])
@@ -376,7 +382,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       if (failed.length > 0) setRefreshFailedParts(failed)
       setRefreshing(false)
     })()
-  }, [loadSummary, loadWorks, refreshAccounts])
+  }, [loadSummary, loadWorks, refreshAccounts, worksSort])
 
   const activeAccountId = selectedAccountId
     ?? accounts.find(row => row.deleteState !== 'remote_deleted')?.accountId
@@ -446,7 +452,9 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                     account={selectedAccount}
                     works={works}
                     worksState={worksState}
-                    onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId) }}
+                    worksSort={worksSort}
+                    onSortChange={setWorksSort}
+                    onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId, worksSort) }}
                     summary={summary}
                     summaryState={summaryState}
                     onRetrySummary={() => { if (activeAccountId !== '') void loadSummary(activeAccountId) }}

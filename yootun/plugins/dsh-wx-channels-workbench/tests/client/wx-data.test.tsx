@@ -68,9 +68,53 @@ const ACCOUNT = {
 
 const WORKS = {
   works: [
-    { work_id: 'w-100', title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z' },
-    { work_id: 'w-101', title: '第二条', play_count: 7, like_count: null, publish_time: null },
+    {
+      work_id: 'w-100',
+      title: '第一条作品',
+      description: null,
+      cover_url: 'https://example.invalid/cover-100.jpg',
+      duration_s: 65,
+      play_count: 1000,
+      like_count: 50,
+      favorite_count: 8,
+      comment_count: 4,
+      share_count: 2,
+      forward_count: 3,
+      follow_count: 1,
+      completion_rate_pct: 8.37,
+      avg_play_duration_s: 6.95,
+      wecom_link_click_count: 5,
+      wecom_link_click_uv: 4,
+      wecom_contact_add_count: 2,
+      wecom_contact_add_uv: 1,
+      publish_time: '2026-11-17T08:00:00.000Z',
+      latest_collected_at: '2026-11-18T16:04:00.000Z',
+      data_gap: { traffic_source: { reason: 'not_exposed' } },
+    },
+    { work_id: 'w-101', title: '第二条', play_count: 7, like_count: null, publish_time: null, data_gap: null },
   ],
+}
+
+/** work.get 的真实详情包装（{ work, traffic_source, retention_trend, daily_metrics, data_gap }）。 */
+function workGetPayload(workId: string): Payload {
+  return {
+    ...OK,
+    work: { ...WORKS.works[0], work_id: workId },
+    traffic_source: {
+      rows: [
+        { sourceType: 1, sourceKey: 'follow', name: '关注', playCount: 0 },
+        { sourceType: 2, sourceKey: 'recommend', name: '推荐', playCount: 173 },
+        { sourceType: 999, sourceKey: 'all', name: '全部', playCount: 500 },
+        { sourceType: 3, sourceKey: 'share', name: '分享', playCount: null },
+      ],
+    },
+    retention_trend: { points: [{ second: 0, rate_pct: 100 }, { second: 3, rate_pct: 22.4 }, { second: 9, ratePct: 14 }] },
+    daily_metrics: [
+      { day: '2026-11-15', daily_play_count: 100, daily_like_count: 5 },
+      { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9, daily_follow_count: 2 },
+    ],
+    data_gap: { traffic_source: { reason: 'not_exposed' } },
+  }
 }
 
 /** 基础 handler 集：browser available + 单账号 + 空总览；各测试按需覆盖。 */
@@ -394,14 +438,187 @@ describe('作品工具栏（单账号采集入口与就地进度）', () => {
   })
 })
 
-describe('作品列表（骨架）', () => {
-  it('真实 schema 渲染：snake_case 字段、null 计数显示占位', async () => {
+describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）', () => {
+  it('真实 schema 渲染：13 列表头、snake_case 字段、null 计数显示占位', async () => {
     const { calls } = await renderPage(baseHandlers())
     expect(await screen.findByText('第一条作品')).not.toBeNull()
-    expect(screen.getByText('第二条')).not.toBeNull()
-    expect(screen.getByText(`${t('col.play')} 1000 · 2026-11-17 16:00`)).not.toBeNull()
+    // 表头 13 列：作品 / 发布时间 / 完播率 / 平均播放时长 / 播放 / 喜欢 / 收藏 /
+    // 评论 / 分享 / 转发聊天和朋友圈 / 关注量 / 企微链接点击 / 添加通讯录。
+    const table = screen.getByRole('table', { name: t('works.table.label') })
+    expect(table.getAttribute('aria-label')).toBe(t('works.table.label'))
+    const headers = within(table as HTMLElement).getAllByRole('columnheader')
+    // 默认态：发布时间降序箭头，其余可排序列为 ↕，不可排序列无箭头。
+    expect(headers.map(header => header.textContent)).toEqual([
+      t('col.work'),
+      `${t('col.publishTime')}↓`,
+      `${t('col.completion')}↕`,
+      `${t('col.avgDuration')}↕`,
+      `${t('col.play')}↕`,
+      `${t('col.like')}↕`,
+      `${t('col.favorite')}↕`,
+      `${t('col.comment')}↕`,
+      `${t('col.share')}↕`,
+      `${t('col.forward')}↕`,
+      `${t('col.follow')}↕`,
+      t('col.wecomClick'),
+      t('col.contactAdd'),
+    ])
+    // 数值列：真实值与缺失占位（不补 0）。
+    const firstRow = screen.getByText('第一条作品').closest('tr')
+    expect(within(firstRow as HTMLElement).getByText('8.37%')).not.toBeNull()
+    expect(within(firstRow as HTMLElement).getByText('6.95 s')).not.toBeNull()
+    expect(within(firstRow as HTMLElement).getByText('5 / 4')).not.toBeNull()
+    const secondRow = screen.getByText('第二条').closest('tr')
+    expect(within(secondRow as HTMLElement).getAllByText('—').length).toBeGreaterThanOrEqual(8)
+    // 封面列渲染 img（http s 源）；缺失封面行渲染占位文本。
+    expect(firstRow?.querySelector('img')).not.toBeNull()
     const listCall = calls.find(call => call.action === 'works.list')
     expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc' })
+  })
+
+  it('固定 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 完播率 / 缺口作品）', async () => {
+    await renderPage(baseHandlers())
+    expect(await screen.findByText(t('summary.worksTotal'))).not.toBeNull()
+    for (const key of ['summary.worksTotal', 'summary.play7d', 'summary.follow7d', 'summary.completion', 'summary.gapWorks'] as const) {
+      expect(screen.getByText(t(key))).not.toBeNull()
+    }
+    // 口径：作品总数取账号 feedCount（12），近7日取固定 last_7d 摘要（1234），
+    // 缺口作品数按核心缺口计数（w-100 有 traffic_source 缺口 → 1）。
+    expect(screen.getByText('12')).not.toBeNull()
+    await screen.findByText('1234')
+    // 完播率同时出现在摘要卡与表格列：限定摘要卡作用域断言。
+    const summaryCard = screen.getByText(t('summary.completion')).closest('section')
+    expect(within(summaryCard as HTMLElement).getByText('8.37%')).not.toBeNull()
+    const gapCard = screen.getByText(t('summary.gapWorks')).closest('section')
+    expect(within(gapCard as HTMLElement).getByText('1')).not.toBeNull()
+  })
+
+  it('表头排序三态循环：新列 desc → asc → 回默认；aria-sort 与箭头一致；比率列本地排序', async () => {
+    const { calls } = await renderPage(baseHandlers())
+    await screen.findByText('第一条作品')
+    const playHeader = screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.default') }) })
+    // 服务端键：新列点击 → desc（带服务端参数）。
+    fireEvent.click(playHeader)
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args).toMatchObject({ sort: 'play_count', order: 'desc' })
+    })
+    // th 的可访问名来自排序按钮的 aria-label；aria-sort 在 th 上。
+    expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('descending')
+    // 同列 → asc。
+    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args).toMatchObject({ sort: 'play_count', order: 'asc' })
+    })
+    expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('ascending')
+    // 再点 → 回默认态（发布时间降序）。
+    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args).toMatchObject({ sort: 'publish_time', order: 'desc' })
+    })
+    // 比率列（服务端不可排序）：不带 sort 参数，本地降序把缺失沉底。
+    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.completion'), order: t('sort.default') }) }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      expect(last?.args['sort']).toBeUndefined()
+    })
+    const rows = screen.getByRole('table', { name: t('works.table.label') }).querySelectorAll('tbody tr')
+    expect(rows[0]?.textContent).toContain('第一条作品')
+    expect(rows[1]?.textContent).toContain('第二条')
+  })
+
+  it('鼠标双击作品行打开详情 Modal：完整四段（基础信息 / 核心指标 / 来源+留存 / 按日趋势 / 缺口）', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'work.get': args => workGetPayload(String(args.workId)),
+      'work.trend': args => ({
+        ...OK,
+        account_id: 'finder-a',
+        work_id: args.workId,
+        snapshots: [{ day: '2026-11-16', daily_play_count: 120, daily_like_count: 6 }],
+      }),
+    }))
+    await screen.findByText('第一条作品')
+    const row = screen.getByText('第一条作品').closest('tr')
+    // 行契约：tabIndex=0 + aria-label 说明双击或 Enter 查看详情。
+    expect(row?.getAttribute('tabindex')).toBe('0')
+    expect(row?.getAttribute('aria-label')).toBe(t('row.detailAria', { title: '第一条作品' }))
+    fireEvent.doubleClick(row as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
+    expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
+    expect(within(dialog as HTMLElement).getByText(t('detail.publishTime', { time: '2026-11-17 16:00' }))).not.toBeNull()
+    expect(within(dialog as HTMLElement).getByText(t('detail.latestCollected', { time: '2026-11-19 00:04' }))).not.toBeNull()
+    // 核心指标 13 卡（指标名与图例同名时以多命中计数）。
+    for (const key of ['col.completion', 'col.avgDuration', 'col.play', 'col.like', 'col.favorite', 'col.comment', 'col.share', 'col.forward', 'col.follow', 'detail.metric.wecomClickCount', 'detail.metric.wecomClickUv', 'detail.metric.contactAddCount', 'detail.metric.contactAddUv'] as const) {
+      expect(within(dialog as HTMLElement).getAllByText(t(key)).length).toBeGreaterThanOrEqual(1)
+    }
+    // 来源分布：排除 999「全部」、按数值降序、缺失保留占位。
+    const trafficSection = within(dialog as HTMLElement).getByRole('region', { name: t('detail.traffic') })
+    const trafficRows = within(trafficSection as HTMLElement).getAllByRole('listitem')
+    expect(trafficRows[0]?.textContent).toContain('推荐')
+    expect(trafficRows.at(-1)?.textContent).toContain('分享')
+    expect(trafficRows.at(-1)?.textContent).toContain('—')
+    // 留存：rate_pct / ratePct 双键兼容，整数百分比。
+    const retentionSection = within(dialog as HTMLElement).getByRole('region', { name: t('detail.retention') })
+    expect(within(retentionSection as HTMLElement).getByText('100%')).not.toBeNull()
+    expect(within(retentionSection as HTMLElement).getByText('22%')).not.toBeNull()
+    expect(within(retentionSection as HTMLElement).getByText('14%')).not.toBeNull()
+    // 按日数据近 7 天：七系列图例 + 日期点（发布日前补 0 由纯函数测试覆盖）。
+    const dailySection = within(dialog as HTMLElement).getByRole('region', { name: t('detail.daily') })
+    expect(within(dailySection as HTMLElement).getByText(t('col.forward'))).not.toBeNull()
+    // 缺口：核心缺口徽标 + 稳定 reason。
+    const gapSection = within(dialog as HTMLElement).getByRole('region', { name: t('detail.gaps') })
+    expect(within(gapSection as HTMLElement).getByText(`${t('gap.traffic_source')} · ${t('gap.reason.not_exposed')}`)).not.toBeNull()
+    expect(calls.find(call => call.action === 'work.get')?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
+    expect(calls.find(call => call.action === 'work.trend')?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
+  })
+
+  it('行内 Enter 打开同一详情（键盘等价路径）；Escape 关闭后焦点回到触发行', async () => {
+    await renderPage(baseHandlers({
+      'work.get': args => workGetPayload(String(args.workId)),
+      'work.trend': () => ({ ...OK, account_id: 'finder-a', work_id: 'w-100', snapshots: [] }),
+    }))
+    await screen.findByText('第一条作品')
+    const row = screen.getByText('第一条作品').closest('tr') as HTMLElement
+    row.focus()
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(await screen.findByRole('dialog', { name: '第一条作品' })).not.toBeNull()
+    fireEvent.keyDown(screen.getByRole('dialog', { name: '第一条作品' }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '第一条作品' })).toBeNull())
+    expect(document.activeElement).toBe(row)
+  })
+
+  it('work.get 无 {work} 包装的载荷按无效处理（空态），不吞顶层平铺残片', async () => {
+    await renderPage(baseHandlers({
+      'work.get': () => ({ ...OK, work_id: 'w-flat', title: '平铺残片', play_count: 1, like_count: 1, publish_time: null }),
+      'work.trend': () => ({ ...OK, account_id: 'finder-a', work_id: 'w-100', snapshots: [] }),
+    }))
+    await screen.findByText('第一条作品')
+    fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
+    // 详情载荷无效：弹层只呈现空态文案，不渲染平铺残片。
+    expect(within(dialog as HTMLElement).getByText('No data')).not.toBeNull()
+    expect(within(dialog as HTMLElement).queryByText('平铺残片')).toBeNull()
+  })
+
+  it('详情查询失败以错误态呈现并可重试，不静默保留空弹层', async () => {
+    let failNext = true
+    await renderPage(baseHandlers({
+      'work.get': () => {
+        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
+        return workGetPayload('w-100')
+      },
+      'work.trend': () => ({ ...OK, account_id: 'finder-a', work_id: 'w-100', snapshots: [] }),
+    }))
+    await screen.findByText('第一条作品')
+    fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
+    const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
+    expect(within(dialog as HTMLElement).getByText('Failed to load')).not.toBeNull()
+    failNext = false
+    fireEvent.click(within(dialog as HTMLElement).getByRole('button', { name: t('state.retry') }))
+    await waitFor(() => expect(within(dialog as HTMLElement).queryByText('Failed to load')).toBeNull())
+    expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
   })
 
   it('works 刷新失败保留已加载数据（partial 警告条），不再清空', async () => {
@@ -417,7 +634,8 @@ describe('作品列表（骨架）', () => {
     failNext = true
     fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
     // partial：已加载行保留 + 警告条（kit 文案），数据不被清空。
-    expect(await screen.findByText('Partial data shown; the rest failed to load')).not.toBeNull()
+    // partial 警告条出现在表格与 partial 状态的摘要卡（≥1 处）；已加载行保留。
+    await waitFor(() => expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(1))
     expect(screen.getByText('第一条作品')).not.toBeNull()
     // 再次刷新成功恢复 ready。
     failNext = false

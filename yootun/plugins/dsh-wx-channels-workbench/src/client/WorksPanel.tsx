@@ -1,24 +1,42 @@
 /**
- * 作品面板（作品数据页右侧）：作品工具栏（采集本账号全部 / 刷新 / 最近采集
- * 时间；采集进度在按钮下方就地呈现，不进顶部通知条）+ 已入库作品列表。
- * 列表 / 详情 / 摘要卡的完整布局在后续提交回正。
+ * 作品面板（作品数据页右侧，对齐旧工作台布局）：作品工具栏（采集本账号全部 /
+ * 刷新 / 最近采集时间；采集进度与刷新提示在按钮下方就地呈现，不进顶部通知条）
+ * → 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率 / 缺口作品）
+ * → 高密度 13 列作品表格（表头排序 button + aria-sort；行 tabIndex=0，鼠标双击
+ * 或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担）。完播率 /
+ * 平均播放时长服务端不可排序，本地排序只作用于已入库数据、缺失值恒沉底。
  * @module
  */
-import { useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard } from '@yootun/dsh-client-ui-kit'
-import { formatCount, formatDateTime, reasonText, type Translate } from './format.ts'
+import { DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
+import { formatCount, formatDateTime, formatPair, formatPct, formatSeconds, reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
-import { latestCollectedAt } from './works-format.ts'
+import {
+  gapWorkCount, latestCollectedAt, nextSortState, SERVER_SORT_KEYS, sortWorkRows, weightedCompletionRate,
+  type SortKey, type SortState,
+} from './works-format.ts'
+import type { TrendRow } from './charts.tsx'
 import { progressTextOf } from './collect-progress.ts'
 import { RunQueryDialog } from './RunQueryDialog.tsx'
+import { WorkCover } from './WorkCover.tsx'
+import { WorkDetailModal } from './WorkDetailModal.tsx'
 import type { AccountRow, SingleCollectRecord } from './WorkbenchPage.tsx'
-import type { OverviewData, WorkRow } from './schema.ts'
-
-/** 刷新失败路 → 词典键。 */
-const REFRESH_PART_KEYS = { works: 'works.refreshPart.works', overview: 'works.refreshPart.overview', accounts: 'works.refreshPart.accounts' } as const
+import {
+  readWorkDetail, readWorkTrend, type OverviewData, type WorkDetailData, type WorkRow,
+} from './schema.ts'
+import { hostAction } from './api.ts'
 
 type WorksLoadState = 'loading' | 'ready' | 'error' | 'partial'
+
+/** 表格列定义（对齐旧工作台 13 列；sortable 列在表头渲染排序按钮）。 */
+interface WorkColumn {
+  labelKey: Parameters<Translate>[0]
+  key: SortKey | null
+  sortable: boolean
+  /** 行单元格渲染（title 仅用于 col.work 封面列等特殊列）。 */
+  cell: (row: WorkRow) => ReactNode
+}
 
 export interface WorksPanelProps {
   t: Translate
@@ -27,8 +45,10 @@ export interface WorksPanelProps {
   account: AccountRow | null
   works: WorkRow[]
   worksState: WorksLoadState
+  worksSort: SortState
+  onSortChange: (next: SortState) => void
   onRetryWorks: () => void
-  /** 固定 last_7d 的账号聚合（摘要卡数据源；当前提交仅驱动加载态占位）。 */
+  /** 固定 last_7d 的账号聚合（摘要卡数据源；不随账号总览页时间窗变化）。 */
   summary: OverviewData | null
   summaryState: 'loading' | 'ready' | 'error'
   onRetrySummary: () => void
@@ -45,10 +65,19 @@ export interface WorksPanelProps {
   browserBlocked: boolean
 }
 
-/** 作品面板组件（骨架版）。 */
+/** 刷新失败路 → 词典键。 */
+const REFRESH_PART_KEYS = { works: 'works.refreshPart.works', overview: 'works.refreshPart.overview', accounts: 'works.refreshPart.accounts' } as const
+
+/** 作品面板组件。 */
 export function WorksPanel(props: WorksPanelProps): ReactNode {
   const t = props.t
   const [runOpen, setRunOpen] = useState(false)
+  const [detailRow, setDetailRow] = useState<WorkRow | null>(null)
+  const [detail, setDetail] = useState<WorkDetailData | null>(null)
+  const [trendPoints, setTrendPoints] = useState<TrendRow[]>([])
+  const [detailState, setDetailState] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading')
+  const detailSeqRef = useRef(0)
+
   const running = props.collectBusy
   const collectHere = props.collectRecord !== null
     && (props.collectRecord.accountId === props.accountId || props.collectRecord.accountId === null)
@@ -58,6 +87,93 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
       ? t('works.refreshPartial', { parts: props.refreshFailedParts.map(part => t(REFRESH_PART_KEYS[part as keyof typeof REFRESH_PART_KEYS])).join('、') })
       : null
   const latest = latestCollectedAt(props.works)
+  const sort = props.worksSort
+  // 服务端白名单键由服务端排序返回；完播率 / 平均时长本地排序（缺失沉底）。
+  const visibleWorks = SERVER_SORT_KEYS.has(sort.key) ? props.works : sortWorkRows(props.works, sort)
+
+  const openDetail = useCallback((row: WorkRow): void => {
+    // 详情/趋势共用一个代次：快速换行时旧响应整体作废。
+    const seq = ++detailSeqRef.current
+    const accountId = props.accountId
+    setDetailRow(row)
+    setDetail(null)
+    setDetailState('loading')
+    try {
+      void hostAction('work.get', { accountId, workId: row.workId }).then(res => {
+        if (detailSeqRef.current !== seq) return
+        const data = readWorkDetail(res)
+        setDetail(data)
+        setDetailState(data.work === null ? 'empty' : 'ready')
+      }).catch(() => {
+        if (detailSeqRef.current !== seq) return
+        setDetail(null)
+        setDetailState('error')
+      })
+      void hostAction('work.trend', { accountId, workId: row.workId }).then(res => {
+        if (detailSeqRef.current !== seq) return
+        const trend = readWorkTrend(res)
+        setTrendPoints(trend.points.map(point => ({
+          day: point.day,
+          values: { playCount: point.playCount, likeCount: point.likeCount },
+        })))
+      }).catch(() => {
+        if (detailSeqRef.current !== seq) return
+        setTrendPoints([])
+      })
+    } catch {
+      // hostAction 同步抛错视为详情失败（请求未发出）。
+      setDetail(null)
+      setDetailState('error')
+    }
+  }, [props.accountId])
+
+  const closeDetail = useCallback((): void => {
+    detailSeqRef.current += 1
+    setDetailRow(null)
+    setDetail(null)
+    setTrendPoints([])
+    setDetailState('loading')
+  }, [])
+
+  const columns = buildColumns(t)
+
+  const summaryCards = (
+    <div className={css.summaryGrid}>
+      <KpiCard
+        label={t('summary.worksTotal')}
+        value={formatCount(props.account?.feedCount ?? null)}
+        footnote={t('summary.worksTotalHint')}
+        state={props.account?.feedCount === null || props.account === null ? 'empty' : 'ready'}
+      />
+      <KpiCard
+        label={t('summary.play7d')}
+        value={formatCount(props.summary?.totals.playCount ?? null)}
+        footnote={t('summary.play7dHint')}
+        state={kpiStateOf(props.summaryState, props.summary?.totals.playCount ?? null)}
+        onRetry={props.onRetrySummary}
+      />
+      <KpiCard
+        label={t('summary.follow7d')}
+        value={formatCount(props.summary?.totals.followCount ?? null)}
+        footnote={t('summary.follow7dHint')}
+        state={kpiStateOf(props.summaryState, props.summary?.totals.followCount ?? null)}
+        onRetry={props.onRetrySummary}
+      />
+      <KpiCard
+        label={t('summary.completion')}
+        value={formatPct(weightedCompletionRate(visibleWorks))}
+        footnote={t('summary.completionHint')}
+        state={props.worksState === 'ready' ? (visibleWorks.length > 0 ? 'ready' : 'empty') : props.worksState}
+      />
+      <KpiCard
+        label={t('summary.gapWorks')}
+        value={formatCount(props.worksState === 'ready' || props.worksState === 'partial' ? gapWorkCount(props.works) : null)}
+        footnote={props.works.length > 0 && gapWorkCount(props.works) > 0 ? t('summary.gapHint') : t('summary.gapComplete')}
+        state={props.worksState === 'ready' || props.worksState === 'partial' ? 'ready' : props.worksState}
+      />
+    </div>
+  )
+
   return (
     <div className={css.panelBody}>
       <div className={css.workToolbar}>
@@ -111,25 +227,134 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
           </div>
         )}
       </div>
-      <DataCard
-        title={t('works.title')}
-        state={props.worksState === 'ready' ? (props.works.length > 0 ? 'ready' : 'empty') : props.worksState}
+      {summaryCards}
+      <DataState
+        state={props.worksState === 'ready' ? (visibleWorks.length > 0 ? 'ready' : 'empty') : props.worksState}
+        shape='rows'
         onRetry={props.onRetryWorks}
+        emptyAction={(
+          <Button
+            variant='primary'
+            size='sm'
+            disabled={props.accountId === '' || running || props.batchRunning || props.browserBlocked}
+            onClick={() => { props.onStartCollect(props.accountId) }}
+          >
+            {t('works.collect')}
+          </Button>
+        )}
       >
-        <ul className={css.workList}>
-          {props.works.map(row => (
-            <li key={row.workId} className={css.workRow}>
-              <span className={css.workTitle}>{row.title ?? row.workId}</span>
-              <span className={css.workMeta}>
-                {t('col.play')} {formatCount(row.playCount)}
-                {' · '}
-                {formatDateTime(row.publishTime) ?? '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </DataCard>
+        {/* 表格在固定高度区域内滚动；横向滚动只发生在表格内部（键盘可达滚动）。 */}
+        <div className={css.tableWrap} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0}>
+          <table className={css.workTable} aria-label={t('works.table.label')}>
+            <thead>
+              <tr>
+                {columns.map(column => {
+                  if (!column.sortable || column.key === null) {
+                    return <th key={column.labelKey} scope='col'>{t(column.labelKey)}</th>
+                  }
+                  const active = sort.key === column.key
+                  const direction = active ? sort.direction : null
+                  return (
+                    <th
+                      key={column.labelKey}
+                      scope='col'
+                      aria-sort={direction === 'desc' ? 'descending' : direction === 'asc' ? 'ascending' : 'none'}
+                    >
+                      <button
+                        type='button'
+                        className={css.sortButton}
+                        data-active={active || undefined}
+                        aria-label={t('sort.aria', {
+                          label: t(column.labelKey),
+                          order: direction === 'desc' ? t('sort.desc') : direction === 'asc' ? t('sort.asc') : t('sort.default'),
+                        })}
+                        onClick={() => { props.onSortChange(nextSortState(sort, column.key as SortKey)) }}
+                      >
+                        <span className={css.sortText}>{t(column.labelKey)}</span>
+                        <span className={css.sortArrow} aria-hidden='true'>
+                          {direction === 'desc' ? '↓' : direction === 'asc' ? '↑' : '↕'}
+                        </span>
+                      </button>
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {visibleWorks.map(row => {
+                const title = row.title ?? row.workId
+                return (
+                  <tr
+                    key={row.workId}
+                    tabIndex={0}
+                    aria-label={t('row.detailAria', { title })}
+                    onDoubleClick={() => { openDetail(row) }}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        openDetail(row)
+                      }
+                    }}
+                  >
+                    {columns.map(column => (
+                      <td key={column.labelKey}>{column.cell(row)}</td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </DataState>
+      <WorkDetailModal
+        t={t}
+        localeTag={props.localeTag}
+        row={detailRow}
+        detail={detail}
+        trendRows={trendPoints}
+        detailState={detailState}
+        onRetry={() => {
+          if (detailRow !== null) openDetail(detailRow)
+        }}
+        onClose={closeDetail}
+      />
       <RunQueryDialog t={t} open={runOpen} onClose={() => { setRunOpen(false) }} />
     </div>
   )
+}
+
+/** 13 列定义（作品列 = 封面 + 标题；企微 / 通讯录 = 次数/人数组合；无操作列）。 */
+function buildColumns(t: Translate): WorkColumn[] {
+  const num = (value: number | null): string => formatCount(value)
+  return [
+    {
+      labelKey: 'col.work',
+      key: null,
+      sortable: false,
+      cell: row => (
+        <div className={css.workCell}>
+          <WorkCover key={`cover:${row.workId}:${row.coverUrl ?? ''}`} t={t} coverUrl={row.coverUrl} durationS={row.durationS} />
+          <span className={css.workTitleCell} title={row.title ?? row.workId}>{row.title ?? row.workId}</span>
+        </div>
+      ),
+    },
+    { labelKey: 'col.publishTime', key: 'publish_time', sortable: true, cell: row => formatDateTime(row.publishTime) ?? '—' },
+    { labelKey: 'col.completion', key: 'completion_rate_pct', sortable: true, cell: row => formatPct(row.completionRatePct) },
+    { labelKey: 'col.avgDuration', key: 'avg_play_duration_s', sortable: true, cell: row => formatSeconds(row.avgPlayDurationS, t) },
+    { labelKey: 'col.play', key: 'play_count', sortable: true, cell: row => num(row.playCount) },
+    { labelKey: 'col.like', key: 'like_count', sortable: true, cell: row => num(row.likeCount) },
+    { labelKey: 'col.favorite', key: 'favorite_count', sortable: true, cell: row => num(row.favoriteCount) },
+    { labelKey: 'col.comment', key: 'comment_count', sortable: true, cell: row => num(row.commentCount) },
+    { labelKey: 'col.share', key: 'share_count', sortable: true, cell: row => num(row.shareCount) },
+    { labelKey: 'col.forward', key: 'forward_count', sortable: true, cell: row => num(row.forwardCount) },
+    { labelKey: 'col.follow', key: 'follow_count', sortable: true, cell: row => num(row.followCount) },
+    { labelKey: 'col.wecomClick', key: null, sortable: false, cell: row => formatPair(row.wecomLinkClickCount, row.wecomLinkClickUv) },
+    { labelKey: 'col.contactAdd', key: null, sortable: false, cell: row => formatPair(row.wecomContactAddCount, row.wecomContactAddUv) },
+  ]
+}
+
+/** KPI 卡状态：加载/错误优先，值缺失按 empty。 */
+function kpiStateOf(summaryState: 'loading' | 'ready' | 'error', value: number | null): 'loading' | 'ready' | 'error' | 'empty' {
+  if (summaryState === 'ready') return value === null ? 'empty' : 'ready'
+  return summaryState
 }
