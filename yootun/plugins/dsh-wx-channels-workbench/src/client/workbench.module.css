@@ -764,6 +764,13 @@
   gap: 8px;
 }
 
+/* 关注者增长指标固定 4 卡 */
+.kpiGrid4 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .growthGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

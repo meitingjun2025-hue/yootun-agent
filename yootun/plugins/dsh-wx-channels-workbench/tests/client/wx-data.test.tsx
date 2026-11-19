@@ -482,6 +482,9 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     for (const key of ['summary.worksTotal', 'summary.play7d', 'summary.follow7d', 'summary.completion', 'summary.gapWorks'] as const) {
       expect(screen.getByText(t(key))).not.toBeNull()
     }
+    // 数量契约：摘要卡固定 5 张。
+    const summaryGrid = screen.getByText(t('summary.worksTotal')).closest('div')
+    expect(summaryGrid?.children.length).toBe(5)
     // 口径：作品总数取账号 feedCount（12），近7日取固定 last_7d 摘要（1234），
     // 缺口作品数按核心缺口计数（w-100 有 traffic_source 缺口 → 1）。
     expect(screen.getByText('12')).not.toBeNull()
@@ -767,6 +770,165 @@ describe('run 查询 Dialog（作品工具栏次级操作）', () => {
     const table = screen.getByText(t('run.batch.batchNo')).closest('table')
     expect(table).not.toBeNull()
     expect(within(table as HTMLElement).getAllByRole('row').length).toBe(2)
+  })
+})
+
+describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / 五维画像）', () => {
+  /** 画像五维 fixture：省市给 7 行验证 Top 5 截断。 */
+  const PROFILE = {
+    day: '2026-11-17',
+    gender: [
+      { key: '1', label: null, count: 70 },
+      { key: '2', label: null, count: 30 },
+    ],
+    device: [
+      { key: '1', label: null, count: 36 },
+      { key: '2', label: null, count: 60 },
+      { key: 'unknow', label: null, count: 4 },
+    ],
+    age: [
+      { key: 'fage_01_17', label: null, count: 10 },
+      { key: 'fage_18_24', label: null, count: 20 },
+      { key: 'fage_50_+', label: null, count: 5 },
+    ],
+    province: [
+      { key: 'gd', label: '广东', count: 30 },
+      { key: 'js', label: '江苏', count: 22 },
+      { key: 'zj', label: '浙江', count: 18 },
+      { key: 'sd', label: '山东', count: 12 },
+      { key: 'sc', label: '四川', count: 9 },
+      { key: 'fj', label: '福建', count: 6 },
+      { key: 'hn', label: '河南', count: 3 },
+    ],
+    city: [{ key: 'sz', label: '深圳', count: 20 }],
+  }
+
+  function overviewHandlers(overrides: Record<string, Handler> = {}): Record<string, Handler> {
+    return baseHandlers({
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: {
+          daily_play_count: 1234, daily_like_count: 37, daily_favorite_count: 42, daily_comment_count: 2,
+          daily_share_count: 30, daily_forward_count: 30, daily_follow_count: 7,
+          daily_ringset_count: 0, daily_status_ref_count: 0, daily_status_cover_count: 0, work_count: 12,
+        } },
+        fans_trend: { totals: { follower_net_count: 6, follower_add_count: 7, follower_reduce_count: 1 }, followerTotalCount: 67, daily: [] },
+        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'ok' },
+      }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: PROFILE }),
+      ...overrides,
+    })
+  }
+
+  it('全部视频指标固定 10 卡，按 metrics.totals.daily_* 消费', async () => {
+    await renderPage(overviewHandlers())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    expect(await screen.findByText(t('overview.section.metrics'))).not.toBeNull()
+    for (const key of ['col.play', 'col.like', 'col.favorite', 'col.comment', 'col.share', 'col.forward', 'col.follow', 'metric.ringset', 'metric.statusRef', 'metric.statusCover'] as const) {
+      expect(screen.getAllByText(t(key)).length).toBeGreaterThanOrEqual(1)
+    }
+    // 数量契约：全部视频指标固定 10 卡。
+    const metricsGrid = screen.getByText(t('metric.ringset')).closest('div')
+    expect(metricsGrid?.children.length).toBe(10)
+    // 关注量卡有口径提示（全部视频关注增量，非账号净关注）。
+    expect(screen.getByText(t('metric.followHint'))).not.toBeNull()
+    // 10 卡均有值：1234（播放）在总览页可见。
+    expect(screen.getAllByText('1234').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('availability.account_metrics=no_data 显示真实空态，缺失值不补 0', async () => {
+    await renderPage(overviewHandlers({
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: {} },
+        fans_trend: { totals: {} },
+        availability: { account_metrics: 'no_data', fans_trend: 'no_data', fans_profile: 'no_data' },
+      }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    expect(await screen.findByText(t('overview.metricsNoData'))).not.toBeNull()
+    // 页面标注 no_data（整页无任何源有数据）。
+    expect(await screen.findByText(t('overview.availability.no_data'))).not.toBeNull()
+  })
+
+  it('关注者增长指标固定 4 卡（净增 / 新增 / 取消 / 总数），关注者趋势固定近 7 天', async () => {
+    const { calls } = await renderPage(overviewHandlers())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    for (const key of ['fans.net', 'fans.add', 'fans.reduce', 'fans.total'] as const) {
+      // 关注者总数与趋势图例同名：多命中计数。
+      expect((await screen.findAllByText(t(key))).length).toBeGreaterThanOrEqual(1)
+    }
+    // 数量契约：关注者增长指标固定 4 卡。
+    const fansGrid = screen.getByText(t('fans.add')).closest('div')
+    expect(fansGrid?.children.length).toBe(4)
+    expect(screen.getAllByText('6').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('7').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('67').length).toBeGreaterThanOrEqual(1)
+    // 时间窗切到「昨日」：趋势线仍来自固定 last_7d 摘要（不随总览时间窗截断）。
+    fireEvent.click(screen.getByRole('tab', { name: t('overview.window.yesterday') }))
+    // 切「昨日」后：window 参数进入服务端；趋势数据源仍是固定 last_7d 摘要。
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'account.overview')
+      if (last?.args?.window !== 'yesterday') throw new Error('window not applied yet')
+    })
+    expect(screen.getAllByText(t('chart.fansSeries')).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('画像五维同屏（无维度 tab）：环形 / 柱状 / 省市 Top 5；缺失维度给真实文案', async () => {
+    await renderPage(overviewHandlers({
+      'fans.profile.get': () => ({ ...OK, fans_profile: { ...PROFILE, city: null } }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    expect(await screen.findByText(t('overview.section.portrait'))).not.toBeNull()
+    // 五个维度标题同屏，且不存在任何维度切换 tab。
+    for (const key of ['portrait.gender', 'portrait.device', 'portrait.age', 'portrait.province', 'portrait.city'] as const) {
+      expect(screen.getByText(t(key))).not.toBeNull()
+    }
+    const tablist = screen.queryByRole('tablist', { name: t('portrait.gender') })
+    expect(tablist).toBeNull()
+    // 性别环形图：编码映射为 locale 文案（男 / 女），图例带人数与占比。
+    expect(screen.getByText(/Male 70 · 70%/u)).not.toBeNull()
+    expect(screen.getByText(/Female 30 · 30%/u)).not.toBeNull()
+    // 设备：iOS / 安卓 / 未知（unknow 编码不透出英文）。
+    expect(screen.getByText(/iOS 36/u)).not.toBeNull()
+    expect(screen.getByText(/Android 60/u)).not.toBeNull()
+    expect(screen.getByText(/Unknown 4 · 4%/u)).not.toBeNull()
+    // 年龄：fage_* 去前导零（en 词典无单位后缀：1-17 / 50+）。
+    expect(screen.getByText('1-17')).not.toBeNull()
+    expect(screen.getByText('50+')).not.toBeNull()
+    // 省份 Top 5：7 行输入只渲染 5 行，且按人数降序；城市单行。
+    const provinceRows = screen.getAllByText(/广东|江苏|浙江|山东|四川|福建|河南/u)
+    expect(provinceRows.length).toBe(5)
+    // 城市维度缺失 → 该画像维度本次未提供（不渲染空分布）。
+    expect(screen.getByText(t('portrait.dimMissing'))).not.toBeNull()
+    // 画像快照日徽标。
+    expect(screen.getByText(t('overview.portraitAsOf', { day: '2026-11-17' }))).not.toBeNull()
+  })
+
+  it('画像行键盘可达：Top 5 条形行 tabIndex=0 且 aria 含人数与占比', async () => {
+    await renderPage(overviewHandlers())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const row = await screen.findByText('广东')
+    const rowItem = row.closest('li')
+    expect(rowItem?.getAttribute('tabindex')).toBe('0')
+    // 占比分母是 Top 5 行集合（30/91 → 33%）。
+    expect(rowItem?.getAttribute('aria-label')).toBe(t('portrait.barAria', { name: '广东', count: 30, share: 33 }))
+  })
+
+  it('整体无画像 → no_data 空态，不渲染空分布', async () => {
+    await renderPage(overviewHandlers({
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: { daily_play_count: 100 } },
+        fans_trend: { totals: {} },
+        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' },
+      }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    expect(await screen.findByText('No data')).not.toBeNull()
+    expect(screen.queryByText(t('portrait.gender'))).toBeNull()
   })
 })
 

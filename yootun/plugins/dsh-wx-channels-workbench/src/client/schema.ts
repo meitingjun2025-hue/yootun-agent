@@ -83,6 +83,8 @@ export interface PortraitSlice {
 
 /** 粉丝画像五维投影（fans_profile envelope）。 */
 export interface FansProfileData {
+  /** 画像快照日（envelope.day；缺失 null，展示「当前截止昨日」）。 */
+  day: string | null
   age: PortraitSlice[] | null
   gender: PortraitSlice[] | null
   province: PortraitSlice[] | null
@@ -452,6 +454,7 @@ export function readFansProfile(payload: Record<string, unknown>, t: Translate):
   const envelope = recordOf(payload.fans_profile)
   if (envelope === undefined) return null
   const data: FansProfileData = {
+    day: textOf(envelope.day),
     age: portraitDimension(envelope.age, 'age', t),
     gender: portraitDimension(envelope.gender, 'gender', t),
     province: portraitDimension(envelope.province, 'province', t),
