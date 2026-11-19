@@ -141,9 +141,12 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
 
   const batchRunning = props.batch !== null && props.batch.ready !== true && props.batch.phase !== 'finished'
   const collectable = props.accounts.some(row => row.deleteState !== 'remote_deleted' && row.sessionStatus === 'ok')
-  // 采集互斥只锁采集；浏览器缺失只锁开浏览器的动作；登录进行中只锁再开浏览器。
-  // 删除 / 探活 / 提升不依赖浏览器与会话登录动作，各按自身依赖禁用。
+  // 动作依赖拆分：探活 / 提升 / 重新扫码都要打开系统 Chrome（probe →
+  // refreshSessionState、promote → probeSession、relogin → 扫码窗口），随
+  // chromeLocked 禁用；登录进行中不再叠开浏览器，随 loginActive 只禁重新扫码。
+  // 删除只走本地 / 远端清理，不依赖 Chrome，也不受登录态影响。
   const collectLocked = props.collectBusy || batchRunning
+  const chromeLocked = props.browserBlocked
 
   const batchPanel = batchPanelOf(props, batchRunning, t)
 
@@ -172,7 +175,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
               row={row}
               selected={row.accountId === props.selectedId}
               collectLocked={collectLocked}
-              browserBlocked={props.browserBlocked}
+              chromeLocked={chromeLocked}
               loginActive={props.loginActive}
               deleteStep={deletes[row.accountId] ?? { kind: 'idle' }}
               probing={probing[row.accountId] === true}
@@ -211,9 +214,9 @@ function AccountCard(props: {
   selected: boolean
   /** 采集 / 批量互斥：与宿主账号状态冲突的卡上操作禁用。 */
   collectLocked: boolean
-  /** chrome / 驱动缺失：只禁开浏览器的动作（重新扫码）。 */
-  browserBlocked: boolean
-  /** 登录进行中：只禁会再开浏览器的动作（重新扫码）。 */
+  /** chrome / 驱动缺失：探活 / 提升 / 重新扫码都要开 Chrome，一并禁用。 */
+  chromeLocked: boolean
+  /** 登录进行中：只禁会再开浏览器的重新扫码。 */
   loginActive: boolean
   deleteStep: DeleteStep
   probing: boolean
@@ -236,7 +239,7 @@ function AccountCard(props: {
   const syncTime = row.lastCollectedAt ?? row.sessionCheckedAt
   const step = props.deleteStep
   const flowVisible = step.kind !== 'idle' && step.kind !== 'done'
-  const reopenLocked = props.collectLocked || props.browserBlocked || props.loginActive
+  const reopenLocked = props.collectLocked || props.chromeLocked || props.loginActive
   return (
     <article className={css.accountCard} aria-current={props.selected ? 'true' : undefined}>
       <button
@@ -266,7 +269,7 @@ function AccountCard(props: {
       </button>
       <div className={css.accountActions}>
         {row.sessionStatus === 'ok' && !tombstone && (
-          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.probing}
+          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.chromeLocked || props.probing}
             onClick={() => { void props.onProbe(row.accountId) }}>
             {props.probing ? t('account.probing') : t('account.probe')}
           </Button>
@@ -277,7 +280,7 @@ function AccountCard(props: {
           </Button>
         )}
         {row.isPending && (
-          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.promoting}
+          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.chromeLocked || props.promoting}
             onClick={() => { void props.onPromote(row.accountId) }}>
             {props.promoting ? t('account.promoteBusy') : t('account.promote')}
           </Button>

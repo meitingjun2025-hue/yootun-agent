@@ -1024,15 +1024,26 @@ describe('复审修复回归', () => {
     expect(screen.getByRole('button', { name: '2026-11-16 Total followers 100' })).not.toBeNull()
   })
 
-  it('P1 chrome missing 不禁用删除账号：确认后 removeLocal 照常调用', async () => {
+  it('P1 chrome missing：删除可用，依赖 Chrome 的 probe / promote / 重新扫码禁用', async () => {
     const { calls } = await renderPage(baseHandlers({
       'browser.status': () => ({ ...OK, chrome: 'missing', driver: 'missing' }),
+      'accounts.list': () => ({ ...OK, accounts: [
+        ACCOUNT,
+        { ...ACCOUNT, accountId: 'finder-expired', nickname: '过期号', sessionStatus: 'expired' },
+        { ...ACCOUNT, accountId: 'pending-1', nickname: '待确认号', sessionStatus: 'unknown', isPending: true },
+      ], remoteOk: true }),
       'account.removeLocal': () => ({ ...OK, removed: true }),
       'account.removeRemote': () => ({ ...OK, removed: true }),
     }))
     expect(await screen.findByText(t('browser.blockedHint'))).not.toBeNull()
-    // 删除入口保持可用（只有采集互斥会禁用它）。
-    const remove = screen.getByRole('button', { name: t('account.remove') })
+    // probe（account.probe → refreshSessionState / Chrome）与 promote
+    // （account.promote → probeSession / Chrome）随 chromeLocked 禁用。
+    expect(screen.getByRole('button', { name: t('account.probe') }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: t('account.promote') }).hasAttribute('disabled')).toBe(true)
+    // 重新扫码（开扫码窗口）随 chromeLocked 禁用。
+    expect(screen.getAllByRole('button', { name: t('account.relogin') })[0]?.hasAttribute('disabled')).toBe(true)
+    // 删除不依赖 Chrome：保持可用并完成两步删除。
+    const remove = screen.getAllByRole('button', { name: t('account.remove') })[0] as HTMLButtonElement
     expect(remove.hasAttribute('disabled')).toBe(false)
     fireEvent.click(remove)
     fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
