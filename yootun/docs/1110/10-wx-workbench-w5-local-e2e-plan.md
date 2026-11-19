@@ -2,13 +2,13 @@
 
 状态：**待执行**（2026-11-19 起草）。
 
-本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §4.5 的 W5 中可在 WSL 本地完成的两部分：真实 Tools 服务 + 真实 Workbench MCP 调用，以及真实 Desktop UI + 系统 Chrome 扫码采集。它不替代生产 endpoint 冒烟和 Windows 真机验收；这两项仍按 §4.6 另行执行。
+本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §4.5 的 W5 中可在 WSL 本地完成的两部分：真实 Tools 服务 + 全部 yootun MCP 面调用，以及真实 Desktop UI + 系统 Chrome 扫码采集。它不替代生产 endpoint 冒烟和 Windows 真机验收；这两项仍按 §4.6 另行执行。
 
 ## 1. 验证目标与边界
 
 本地验证要证明：
 
-1. `@yootun/dsh-workbench-mcp` 能连接真实 FastMCP 服务，完成 initialize、tools/list 与 tools/call，并执行视频号 19 项白名单内的读写链路；
+1. Agent、Workbench 与 Catalog 三面都连接本地 `tools.dofe.ai` 真实 FastMCP 服务，完成 initialize 与 tools/list；Workbench 另执行 tools/call，并覆盖视频号 19 项白名单内的读写链路；
 2. Desktop 视频号工作台能用系统 Chrome 打开真实视频号助手扫码页，用户扫码后完成身份稳定、远端账号保存和本地状态迁移；
 3. 手动触发的单账号采集能把真实作品、账号指标、粉丝趋势和画像写入本地 Tools 数据库，并在 UI 中呈现可核对的数据；
 4. UI 在明暗主题、640 / 880 / 1120 px、键盘路径和 reduced-motion 下通过真实浏览器目检；
@@ -16,7 +16,7 @@
 
 不在本方案内：
 
-- 不连接生产 `https://ixicai.cn/mcp/tools/yootun/v1/workbench`；
+- 不连接生产 Agent、Workbench 或 Catalog MCP endpoint；
 - 不做 Windows 安装、升级、扫码和采集；
 - 不验证 macOS 打包产物；
 - 不用 mock Host、mock Workbench server 或伪造业务数据替代真实扫码；
@@ -40,18 +40,24 @@
 
 ```text
 Playwright Chromium
-  └─ CDP 连接 Desktop renderer
-      └─ Desktop Host
-          ├─ yootun-access 激活路由 → https://ixicai.cn
-          ├─ wx-workbench 同源 Host API
-          │   └─ Chrome / storage_state / runs.json
-          └─ @yootun/dsh-workbench-mcp
-              └─ YOOTUN_WORKBENCH_MCP_URL
-                  └─ http://127.0.0.1:8000/mcp/yootun-workbench
-                      └─ tools.dofe.ai FastAPI + PostgreSQL
+  ├─ CDP 连接 Desktop renderer
+  │   └─ Desktop Host
+  │       ├─ yootun-access 激活路由 → https://ixicai.cn
+  │       ├─ wx-workbench 同源 Host API
+  │       │   └─ Chrome / storage_state / runs.json
+  │       ├─ @yootun/dsh-managed-mcp
+  │       │   └─ YOOTUN_AGENT_MCP_URL
+  │       │       └─ http://127.0.0.1:8000/mcp/yootun-agent
+  │       └─ @yootun/dsh-workbench-mcp
+  │           └─ YOOTUN_WORKBENCH_MCP_URL
+  │               └─ http://127.0.0.1:8000/mcp/yootun-workbench
+  └─ 诊断 MCP client
+      └─ http://127.0.0.1:8000/mcp/yootun-catalog
 ```
 
-本地 FastMCP 挂载路径是 `/mcp/yootun-workbench`；生产公共路径 `/mcp/tools/yootun/v1/workbench` 由部署网关映射。两者 serverName 都必须是 `yootun-workbench`。本验证通过 `YOOTUN_WORKBENCH_MCP_URL` 只覆盖 Workbench endpoint，激活与模型目录仍走真实 yootun 网关。
+三个 endpoint 都由本地 tools.dofe.ai FastAPI + PostgreSQL 提供。激活与模型目录不是 MCP 调用，仍走真实 yootun 网关。
+
+本地 FastMCP 挂载路径是 `/mcp/yootun-agent`、`/mcp/yootun-workbench` 与 `/mcp/yootun-catalog`；生产公共路径 `/mcp/tools/yootun/v1/<face>` 由部署网关映射。本验证同时覆盖 Agent 与 Workbench 的 URL 环境变量；Catalog 不进入产品组合，只用诊断 MCP client 直连本地 endpoint。
 
 ## 4. 启动本地 Tools 服务
 
@@ -85,6 +91,7 @@ curl -sS http://127.0.0.1:8000/health/ready
 ```bash
 mkdir -p .ui-review/wx-workbench-w5-local
 YOOTUN_WORKBENCH_MCP_URL=http://127.0.0.1:8000/mcp/yootun-workbench \
+YOOTUN_AGENT_MCP_URL=http://127.0.0.1:8000/mcp/yootun-agent \
 WX_CHANNELS_OPERATION_STATE_DIR="$PWD/.ui-review/wx-workbench-w5-local/wx-state" \
 DSH_HOME="$PWD/.ui-review/wx-workbench-w5-local/dsh-home" \
 DSH_DESKTOP_USER_DATA_DIR="$PWD/.ui-review/wx-workbench-w5-local/electron-user-data" \
@@ -97,11 +104,11 @@ pnpm run start:desktop
 
 1. `DSH_HOME` 与 `userData` 均位于 `.ui-review/wx-workbench-w5-local/`；
 2. renderer inspector 使用指定端口；
-3. 没有把 Workbench endpoint 回退到生产域名。
+3. Agent 与 Workbench endpoint 都没有回退到生产域名。
 
 Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9333')` 连接 renderer。自动化脚本保存在证据目录，不进入仓库。
 
-## 6. 阶段 A：激活与 Workbench 契约
+## 6. 阶段 A：激活与本地 MCP 契约
 
 ### A1 激活门禁
 
@@ -110,21 +117,23 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9333')` 连接 rend
 3. 等待激活完成，截取解锁后的主界面；
 4. 立即检查截图和日志中没有 key、Authorization、Cookie 或 storage_state。
 
-激活路由访问真实 `ixicai.cn`；Workbench URL 仍保持本地覆盖，不能因为激活成功而重置环境。
+激活路由访问真实 `ixicai.cn`；Agent 与 Workbench URL 仍保持本地覆盖，不能因为激活成功而重置环境。
 
-### A2 Workbench initialize 与 tools/list
+### A2 Agent、Workbench 与 Catalog initialize / tools/list
 
-通过 Desktop UI 触发 `accounts.list`，并在证据脚本中直接用 MCP client 连接本地 endpoint 验证：
+激活后通过 Desktop 挂载本地 Agent 面，通过 Desktop UI 触发 `accounts.list`，并在证据脚本中直接用 MCP client 连接三个本地 endpoint 验证：
 
 | 检查 | 通过标准 |
 |---|---|
-| server identity | `serverInfo.name === 'yootun-workbench'` |
-| tool count | Workbench tools/list 精确 90 项 |
-| wx subset | 精确包含 19 个 `workbench_wx_*` 工具 |
-| deny check | `yootun_business_*` 与 Workbench 白名单外工具不在列表中 |
+| Agent identity | `serverInfo.name === 'yootun-agent'`，tools/list 精确 36 项 `yootun_*` 工具 |
+| Workbench identity | `serverInfo.name === 'yootun-workbench'`，tools/list 精确 90 项 |
+| Catalog identity | `serverInfo.name === 'yootun-catalog'`，tools/list 精确 5 项 `yootun_business_*` 工具 |
+| wx subset | Workbench 精确包含 19 个 `workbench_wx_*` 工具 |
+| session isolation | 普通会话只注册 Agent 36，不出现 Workbench 90 或 Catalog 5 |
+| catalog isolation | Agent 与 Workbench 列表均不出现 `yootun_business_*` |
 | UI projection | 账号页无远端错误；服务不可用时必须显示 partial/error，不伪装空列表 |
 
-manifest 记录两个仓库 HEAD、Tools 服务 URL、MCP serverName、90 项工具名哈希与 19 项 wx 工具名。工具输出只保留业务字段和稳定错误码。
+manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Agent 36 / Workbench 90 / Catalog 5 工具名哈希与 19 项 wx 工具名。工具输出只保留业务字段和稳定错误码。
 
 ## 7. 阶段 B：扫码登录与账号状态
 
@@ -227,9 +236,9 @@ manifest 记录两个仓库 HEAD、Tools 服务 URL、MCP serverName、90 项工
 | startedAt / finishedAt | Asia/Shanghai 时间 |
 | yootunAgentCommit | `git rev-parse HEAD` |
 | toolsDofeCommit | Tools 仓库 `git rev-parse HEAD` |
-| endpoint | 本地 Workbench URL，不得包含凭据 |
-| serverName | `yootun-workbench` |
-| toolCount | 90 与 19 项 wx 子集校验结果 |
+| endpoints | 三个本地 MCP URL，不得包含凭据 |
+| serverNames | `yootun-agent`、`yootun-workbench`、`yootun-catalog` |
+| toolCounts | Agent 36、Workbench 90、Catalog 5 与 19 项 wx 子集校验结果 |
 | accountId | 测试 finderId，仅本地保存 |
 | runId | UI 与远端一致的 runId |
 | runStatus | UI 与远端一致的终态 |
@@ -245,7 +254,7 @@ manifest 记录两个仓库 HEAD、Tools 服务 URL、MCP serverName、90 项工
 本地 W5-A / W5-B 判定通过要求全部成立：
 
 1. Tools 服务健康检查通过；
-2. Workbench identity 与 90 / 19 工具契约通过；
+2. Agent 36、Workbench 90 / 19 与 Catalog 5 工具契约通过，且普通会话隔离成立；
 3. 用户完成真实扫码，账号保存、探活和本地状态迁移通过；
 4. 单账号真实采集完成或得到真实 partial 结果，且本地 run 与远端 run 一致；
 5. 总览、画像、作品、详情、趋势、run 查询均用真实返回对账通过；
@@ -257,7 +266,7 @@ manifest 记录两个仓库 HEAD、Tools 服务 URL、MCP serverName、90 项工
 
 出现以下任一情况立即停止，不继续删除或扩大测试范围：
 
-- Workbench endpoint 意外指向生产；
+- 任一 MCP endpoint 意外指向生产；
 - 扫码身份不稳定或账号串号；
 - 采集 runId 在本地与远端不一致；
 - UI 显示假成功、假数据或吞掉稳定错误；
