@@ -411,6 +411,8 @@ W4 数据页：账号、作品、详情、趋势、总览、画像
 W5 集成：真实 Workbench MCP、打包、明暗与三档宽度、真机验收
 ```
 
+W5 的本地真实 Tools、真实扫码采集和真实浏览器目检按 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 执行；生产 endpoint 冒烟与 Windows 真机验收仍由本册 §4.6 验收。
+
 ### 4.6 测试与验收
 
 P2 至少交付：
