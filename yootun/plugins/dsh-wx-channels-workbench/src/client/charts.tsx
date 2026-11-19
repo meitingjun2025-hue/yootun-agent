@@ -351,23 +351,25 @@ export function ColumnChart(props: {
 
 /**
  * Top-N 横向条形（省份 / 城市）：行即明细（名 + 计数可见，aria 带占比）；
- * 长尾由调用方截断（只传 Top 5），不渲染合并行。
+ * 长尾由调用方截断（只传 Top 5），不渲染合并行。占比分母是调用方给的维度
+ * 完整总数（`total`），不用 Top N 局部分母——截断后的 share 仍对全量成立。
  * @param props.slices - 已降序截断的分布行。
+ * @param props.total - 该维度完整总数（含未展示的长尾）。
  * @param props.locale - 数值格式化的 locale 标签。
  * @param props.aria - localized「{name}：{count} 人，占比 {share}%」组装函数。
  * @returns 条形行列表。
  */
 export function RankBars(props: {
   slices: readonly PortraitSlice[]
+  total: number
   locale: string
   aria: (name: string, count: number, share: number) => string
 }): ReactNode {
-  const total = props.slices.reduce((sum, slice) => sum + slice.count, 0)
   const max = Math.max(1, ...props.slices.map(slice => slice.count))
   return (
     <ul className={css.barList}>
       {props.slices.map(slice => {
-        const share = total > 0 ? Math.round((slice.count / total) * 100) : 0
+        const share = props.total > 0 ? Math.round((slice.count / props.total) * 100) : 0
         return (
           <li
             key={slice.key}

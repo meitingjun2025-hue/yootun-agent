@@ -703,8 +703,6 @@
   }
 }
 
-/* 骨架期沿用：总览工具行 / KPI 行 / 图表带 */
-
 .tabBody {
   display: flex;
   flex-direction: column;
@@ -721,12 +719,6 @@
   min-width: 0;
 }
 
-.kpis {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 4px;
-}
 
 .availability {
   margin-left: auto;
@@ -742,12 +734,6 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.portraitBody {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
 
 /* 账号总览（全宽三段） */
 
@@ -803,10 +789,26 @@
   min-width: 0;
 }
 
+.portraitCardTitleRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .portraitCardTitle {
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
+}
+
+.portraitCardNote {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 图表 marks */
@@ -1070,49 +1072,10 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-/* 骨架期作品列表（后续提交替换为高密度表格） */
 
-.workList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
 
-.workRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 4px 8px;
-  border-radius: var(--dsw-radius-md);
-  min-width: 0;
-}
 
-.workTitle {
-  min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
-.workMeta {
-  margin-left: auto;
-  flex-shrink: 1;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 40%;
-  font-variant-numeric: tabular-nums;
-}
 
 /* 容器断点：1120 完整还原 / 880 上下结构 / 640 单列 */
 
@@ -1150,9 +1113,6 @@
 }
 
 @container yootun-kit-page (max-width: 879px) {
-  .kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
   .metaGrid {
     grid-template-columns: minmax(0, 1fr);
@@ -1168,8 +1128,8 @@
 }
 
 @container yootun-kit-page (max-width: 639px) {
-  .kpis,
   .kpiGrid,
+  .kpiGrid4,
   .summaryGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1192,9 +1152,6 @@
     align-items: stretch;
   }
 
-  .workMeta {
-    max-width: 50%;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -37,6 +37,8 @@ export interface OverviewPageProps {
   onSelectAccount: (accountId: string) => void
   /** 固定 last_7d 摘要（页面级拉取；关注者趋势固定 7 天口径的数据源）。 */
   summary: OverviewData | null
+  /** 固定 last_7d 摘要载荷的服务端 availability（趋势卡按 fans_trend 源定态）。 */
+  summaryAvailability: OverviewAvailability
   summaryState: 'loading' | 'ready' | 'error'
   onRetrySummary: () => void
 }
@@ -78,6 +80,11 @@ function fansCardValues(data: OverviewData | null): readonly { labelKey: Paramet
 function topSlices(slices: PortraitSlice[] | null): PortraitSlice[] {
   if (slices === null) return []
   return [...slices].sort((left, right) => right.count - left.count).slice(0, 5)
+}
+
+/** 维度完整总数（占比分母：长尾截断后 share 仍按全量计算，不用 Top 5 分母）。 */
+function dimensionTotal(slices: PortraitSlice[]): number {
+  return slices.reduce((sum, slice) => sum + slice.count, 0)
 }
 
 /** 账号总览页组件。 */
@@ -154,11 +161,13 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
     return { day, values: { total: point?.followerTotalCount ?? null } }
   })
   // 加载态优先：切账号 / 切窗口后旧 availability 不再驱动图表呈现。
+  // 趋势卡按固定 last_7d 摘要载荷的 fans_trend 源定态：partial + 有数据 =
+  // partial 警告条与数据同屏，不得标成 ready。
   const trendCardState = props.summaryState === 'loading'
     ? 'loading'
     : props.summaryState === 'error'
       ? 'error'
-      : trendHasData ? 'ready' : 'empty'
+      : chartState(serverState(props.summaryAvailability.fansTrend, trendHasData, false), trendHasData)
   const portraitHasAny = profile !== null
   const portraitCardState = profileState === 'loading'
     ? 'loading'
@@ -269,31 +278,38 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
         {portraitHasAny && profile !== null && (
           <>
             <div className={css.portraitGrid}>
-              <PortraitCard title={t('portrait.gender')} fallback={t('portrait.dimMissing')}>
+              <PortraitCard title={t('portrait.gender')}>
                 {profile.gender !== null
                   ? <DonutChart slices={profile.gender} locale={locale} totalLabel={t('portrait.total')} title={t('portrait.gender')} aria={portraitAria} />
                   : <MissingDimension t={t} />}
               </PortraitCard>
-              <PortraitCard title={t('portrait.device')} fallback={t('portrait.dimMissing')}>
+              <PortraitCard title={t('portrait.device')}>
                 {profile.device !== null
                   ? <DonutChart slices={profile.device} locale={locale} totalLabel={t('portrait.total')} title={t('portrait.device')} aria={portraitAria} />
                   : <MissingDimension t={t} />}
               </PortraitCard>
-              <PortraitCard title={t('portrait.age')} fallback={t('portrait.dimMissing')}>
+              <PortraitCard title={t('portrait.age')}>
                 {profile.age !== null
                   ? <ColumnChart slices={profile.age} locale={locale} aria={columnAria} />
                   : <MissingDimension t={t} />}
               </PortraitCard>
             </div>
             <div className={css.portraitGrid2}>
-              <PortraitCard title={t('portrait.province')} fallback={t('portrait.dimMissing')}>
+              {/* 省市长尾截断必须明示：标题行给「前 5 / 共 N 项」，占比按全量分母。 */}
+              <PortraitCard
+                title={t('portrait.province')}
+                {...(profile.province !== null ? { note: t('portrait.topNote', { top: Math.min(5, profile.province.length), total: profile.province.length }) } : {})}
+              >
                 {profile.province !== null
-                  ? <RankBars slices={topSlices(profile.province)} locale={locale} aria={barAria} />
+                  ? <RankBars slices={topSlices(profile.province)} total={dimensionTotal(profile.province)} locale={locale} aria={barAria} />
                   : <MissingDimension t={t} />}
               </PortraitCard>
-              <PortraitCard title={t('portrait.city')} fallback={t('portrait.dimMissing')}>
+              <PortraitCard
+                title={t('portrait.city')}
+                {...(profile.city !== null ? { note: t('portrait.topNote', { top: Math.min(5, profile.city.length), total: profile.city.length }) } : {})}
+              >
                 {profile.city !== null
-                  ? <RankBars slices={topSlices(profile.city)} locale={locale} aria={barAria} />
+                  ? <RankBars slices={topSlices(profile.city)} total={dimensionTotal(profile.city)} locale={locale} aria={barAria} />
                   : <MissingDimension t={t} />}
               </PortraitCard>
             </div>
@@ -304,11 +320,14 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
   )
 }
 
-/** 单维画像卡：小标题 + 图形或维度缺失文案。 */
-function PortraitCard(props: { title: string; fallback: string; children: ReactNode }): ReactNode {
+/** 单维画像卡：标题行（小标题 + 截断说明）+ 图形或维度缺失文案。 */
+function PortraitCard(props: { title: string; note?: string; children: ReactNode }): ReactNode {
   return (
     <div className={css.portraitCard}>
-      <span className={css.portraitCardTitle}>{props.title}</span>
+      <span className={css.portraitCardTitleRow}>
+        <span className={css.portraitCardTitle}>{props.title}</span>
+        {props.note !== undefined && <span className={css.portraitCardNote}>{props.note}</span>}
+      </span>
       {props.children}
     </div>
   )

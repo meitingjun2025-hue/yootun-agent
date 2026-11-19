@@ -18,8 +18,8 @@ import { reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { zh as wxZh } from './locales.ts'
 import {
-  readBatchStatus, readBrowserState, readOverview, readWorkRows,
-  type BatchStatusView, type BrowserState, type OverviewData, type WorkRow,
+  readBatchStatus, readBrowserState, readOverview, readOverviewAvailability, readWorkRows,
+  type BatchStatusView, type BrowserState, type OverviewAvailability, type OverviewData, type WorkRow,
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { OverviewPage } from './OverviewPage.tsx'
@@ -86,6 +86,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [worksState, setWorksState] = useState<WorksLoadState>('loading')
   const [worksSort, setWorksSort] = useState<SortState>(DEFAULT_SORT_STATE)
   const [summary, setSummary] = useState<OverviewData | null>(null)
+  const [summaryAvailability, setSummaryAvailability] = useState<OverviewAvailability>({ accountMetrics: null, fansTrend: null, fansProfile: null })
   const [summaryState, setSummaryState] = useState<LoadState>('loading')
   const [collectBusy, setCollectBusy] = useState(false)
   const [collectRecord, setCollectRecord] = useState<SingleCollectRecord | null>(null)
@@ -99,7 +100,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const worksSeqRef = useRef(0)
-  const worksRowsRef = useRef<WorkRow[]>([])
+  /** 已落屏作品行所属账号：partial 保留只对同账号成立，跨账号不得复用。 */
+  const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
   const summarySeqRef = useRef(0)
   const selectedIdRef = useRef<string | null>(null)
   const toastSeqRef = useRef(0)
@@ -112,7 +114,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     setToast({ text, tone, seq: toastSeqRef.current })
   }, [])
 
-  const refreshAccounts = useCallback(async (): Promise<void> => {
+  /** @returns 账号列表是否刷新成功（stale 竞态让位不计失败）。 */
+  const refreshAccounts = useCallback(async (): Promise<boolean> => {
     try {
       const res = await hostAction('accounts.list')
       const rows = Array.isArray(res.accounts) ? res.accounts as AccountRow[] : []
@@ -124,7 +127,11 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         const firstUsable = rows.find(row => row.deleteState !== 'remote_deleted')
         return firstUsable ? firstUsable.accountId : null
       })
-    } catch { setAccountsState('error') }
+      return true
+    } catch {
+      setAccountsState('error')
+      return false
+    }
   }, [])
 
   useEffect(() => {
@@ -147,7 +154,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   // ---- 作品列表 / 固定 last_7d 摘要（SWR 无缓存直拉；请求代次 + 账号双守卫）----
 
-  const loadWorks = useCallback(async (accountId: string, sort: SortState): Promise<void> => {
+  /** @returns works 是否拉取成功（stale 竞态让位不计失败）。 */
+  const loadWorks = useCallback(async (accountId: string, sort: SortState): Promise<boolean> => {
     const seq = ++worksSeqRef.current
     setWorksState('loading')
     try {
@@ -158,43 +166,50 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         : { accountId })
       // 守卫：序号最新 + 响应账号仍是当前选中账号（采集回调按采集账号刷新，
       // 与当前选中无关，账号不比对会把旧账号数据写进新账号视图）。
-      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return
+      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return true
       const rows = readWorkRows(res)
-      worksRowsRef.current = rows
+      worksRowsRef.current = { accountId, rows }
       setWorks(rows)
       setWorksState('ready')
+      return true
     } catch {
-      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return
-      // 失败保留已加载数据：有旧行呈现 partial（列表 + 重试），否则标准 error 态。
-      setWorksState(worksRowsRef.current.length > 0 ? 'partial' : 'error')
+      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return true
+      // 失败保留已加载数据仅限同一账号：跨账号旧行不复用（直接 error 态）。
+      const sameAccountRows = worksRowsRef.current.accountId === accountId && worksRowsRef.current.rows.length > 0
+      setWorksState(sameAccountRows ? 'partial' : 'error')
+      return false
     }
   }, [])
 
-  const loadSummary = useCallback(async (accountId: string): Promise<void> => {
+  /** @returns 固定 last_7d 摘要是否拉取成功（stale 竞态让位不计失败）。 */
+  const loadSummary = useCallback(async (accountId: string): Promise<boolean> => {
     const seq = ++summarySeqRef.current
     setSummaryState('loading')
     try {
       const res = await hostAction('account.overview', { accountId, window: 'last_7d' })
-      if (summarySeqRef.current !== seq || selectedIdRef.current !== accountId) return
+      if (summarySeqRef.current !== seq || selectedIdRef.current !== accountId) return true
       setSummary(readOverview(res))
+      setSummaryAvailability(readOverviewAvailability(res))
       setSummaryState('ready')
+      return true
     } catch {
-      if (summarySeqRef.current !== seq || selectedIdRef.current !== accountId) return
+      if (summarySeqRef.current !== seq || selectedIdRef.current !== accountId) return true
       setSummary(null)
+      setSummaryAvailability({ accountMetrics: null, fansTrend: null, fansProfile: null })
       setSummaryState('error')
+      return false
     }
   }, [])
 
-  // 切账号 / 切 tab：按 tab 分派查询（作品页进页拉 works；固定 7 天摘要跟账号）。
+  // 切账号：清空上一账号的作品行与摘要（含 partial 保留行），再按 tab 分派查询。
   useEffect(() => {
-    if (selectedAccountId === null) {
-      setWorks([])
-      setWorksState('loading')
-      setSummary(null)
-      setSummaryState('loading')
-      return
-    }
-    void loadSummary(selectedAccountId)
+    setWorks([])
+    worksRowsRef.current = { accountId: '', rows: [] }
+    setWorksState('loading')
+    setSummary(null)
+    setSummaryAvailability({ accountMetrics: null, fansTrend: null, fansProfile: null })
+    setSummaryState('loading')
+    if (selectedAccountId !== null) void loadSummary(selectedAccountId)
   }, [selectedAccountId, loadSummary])
 
   useEffect(() => {
@@ -361,17 +376,19 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     }).catch(() => undefined)
   }, [])
 
-  // ---- 刷新（作品数据页工具栏）：三路聚合，部分失败明确指出失败路 ----
+  // ---- 刷新（作品数据页工具栏）：三路真实结果聚合，部分失败明确指出失败路 ----
 
   const refreshAll = useCallback((accountId: string): void => {
     if (accountId === '') return
     setRefreshing(true)
     setRefreshFailedParts([])
     void (async () => {
+      // loadWorks / loadSummary / refreshAccounts 内部吞错并返回真实成功标志，
+      // 靠 reject 判断会把失败报成成功。
       const results = await Promise.all([
-        loadWorks(accountId, worksSort).then(() => true).catch(() => false),
-        loadSummary(accountId).then(() => true).catch(() => false),
-        refreshAccounts().then(() => true).catch(() => false),
+        loadWorks(accountId, worksSort),
+        loadSummary(accountId),
+        refreshAccounts(),
       ])
       const failed = [
         results[0] ? null : 'works',
@@ -421,7 +438,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         </div>
 
         <DataState
-          state={accountsState === 'ready' ? 'ready' : accountsState}
+          state={accountsState === 'ready' || (accountsState === 'error' && accounts.length > 0) ? 'ready' : accountsState}
           shape='rows'
           onRetry={() => { void refreshAccounts() }}
         >
@@ -479,6 +496,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                 activeAccountId={activeAccountId}
                 onSelectAccount={setSelectedAccountId}
                 summary={summary}
+                summaryAvailability={summaryAvailability}
                 summaryState={summaryState}
                 onRetrySummary={() => { if (activeAccountId !== '') void loadSummary(activeAccountId) }}
               />

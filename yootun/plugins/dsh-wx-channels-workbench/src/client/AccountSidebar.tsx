@@ -43,7 +43,7 @@ export interface AccountSidebarProps {
   onRelogin: () => void
   onAddAccount: () => void
   /** 删除 / 提升成功后的账号列表刷新（由页面注入）。 */
-  onAccountsChanged: () => Promise<void>
+  onAccountsChanged: () => Promise<unknown>
   /** 删除 / 提升等终态提示（页面 toast）。 */
   onNotice: (text: string) => void
 }
@@ -139,10 +139,11 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
     }
   }, [props, t])
 
-  const busy = props.collectBusy
   const batchRunning = props.batch !== null && props.batch.ready !== true && props.batch.phase !== 'finished'
   const collectable = props.accounts.some(row => row.deleteState !== 'remote_deleted' && row.sessionStatus === 'ok')
-  const actionLocked = busy || batchRunning || props.browserBlocked
+  // 采集互斥只锁采集；浏览器缺失只锁开浏览器的动作；登录进行中只锁再开浏览器。
+  // 删除 / 探活 / 提升不依赖浏览器与会话登录动作，各按自身依赖禁用。
+  const collectLocked = props.collectBusy || batchRunning
 
   const batchPanel = batchPanelOf(props, batchRunning, t)
 
@@ -153,7 +154,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
         <Button
           variant='primary'
           size='sm'
-          disabled={actionLocked || !collectable}
+          disabled={collectLocked || props.browserBlocked || !collectable}
           title={collectable ? undefined : t('account.collectAllBlocked')}
           onClick={props.onCollectAll}
         >
@@ -170,7 +171,9 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
               t={t}
               row={row}
               selected={row.accountId === props.selectedId}
-              locked={actionLocked || props.loginActive}
+              collectLocked={collectLocked}
+              browserBlocked={props.browserBlocked}
+              loginActive={props.loginActive}
               deleteStep={deletes[row.accountId] ?? { kind: 'idle' }}
               probing={probing[row.accountId] === true}
               promoting={promoting[row.accountId] === true}
@@ -206,8 +209,12 @@ function AccountCard(props: {
   t: Translate
   row: AccountRow
   selected: boolean
-  /** busy / 批量运行 / 浏览器缺失 / 登录中：卡上操作禁用。 */
-  locked: boolean
+  /** 采集 / 批量互斥：与宿主账号状态冲突的卡上操作禁用。 */
+  collectLocked: boolean
+  /** chrome / 驱动缺失：只禁开浏览器的动作（重新扫码）。 */
+  browserBlocked: boolean
+  /** 登录进行中：只禁会再开浏览器的动作（重新扫码）。 */
+  loginActive: boolean
   deleteStep: DeleteStep
   probing: boolean
   promoting: boolean
@@ -229,6 +236,7 @@ function AccountCard(props: {
   const syncTime = row.lastCollectedAt ?? row.sessionCheckedAt
   const step = props.deleteStep
   const flowVisible = step.kind !== 'idle' && step.kind !== 'done'
+  const reopenLocked = props.collectLocked || props.browserBlocked || props.loginActive
   return (
     <article className={css.accountCard} aria-current={props.selected ? 'true' : undefined}>
       <button
@@ -258,23 +266,23 @@ function AccountCard(props: {
       </button>
       <div className={css.accountActions}>
         {row.sessionStatus === 'ok' && !tombstone && (
-          <Button variant='ghost' size='sm' disabled={props.locked || props.probing}
+          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.probing}
             onClick={() => { void props.onProbe(row.accountId) }}>
             {props.probing ? t('account.probing') : t('account.probe')}
           </Button>
         )}
         {(row.sessionStatus === 'expired' || row.sessionStatus === 'unknown') && !tombstone && (
-          <Button variant='ghost' size='sm' disabled={props.locked} onClick={props.onRelogin}>
+          <Button variant='ghost' size='sm' disabled={reopenLocked} onClick={props.onRelogin}>
             {t('account.relogin')}
           </Button>
         )}
         {row.isPending && (
-          <Button variant='ghost' size='sm' disabled={props.locked || props.promoting}
+          <Button variant='ghost' size='sm' disabled={props.collectLocked || props.promoting}
             onClick={() => { void props.onPromote(row.accountId) }}>
             {props.promoting ? t('account.promoteBusy') : t('account.promote')}
           </Button>
         )}
-        <Button variant='ghost' size='sm' className={css.dangerButton} disabled={props.locked}
+        <Button variant='ghost' size='sm' className={css.dangerButton} disabled={props.collectLocked}
           onClick={() => { props.onRemove(row.accountId) }}>
           {t('account.remove')}
         </Button>

@@ -290,6 +290,7 @@ export const zh = {
   'portrait.aria': '{title}：共 {count} 人',
   'portrait.barAria': '{name}：{count} 人，占比 {share}%',
   'portrait.columnAria': '{name}：{count} 人，占比 {share}%',
+  'portrait.topNote': '前 {top} / 共 {total} 项',
   'unit.seconds': '秒',
 } as const
 
@@ -572,6 +573,7 @@ export const en: Record<WxLocaleKey, string> = {
   'portrait.aria': '{title}: {count} people in total',
   'portrait.barAria': '{name}: {count} people, {share}%',
   'portrait.columnAria': '{name}: {count} people, {share}%',
+  'portrait.topNote': 'Top {top} of {total}',
   'unit.seconds': 's',
 }
 

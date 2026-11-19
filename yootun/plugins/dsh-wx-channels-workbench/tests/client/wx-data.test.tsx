@@ -791,14 +791,15 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
       { key: 'fage_18_24', label: null, count: 20 },
       { key: 'fage_50_+', label: null, count: 5 },
     ],
+    // 7 行总数 120、Top 5 合计 91：截断后占比分母必须是 120（广东 30 → 25%）。
     province: [
       { key: 'gd', label: '广东', count: 30 },
       { key: 'js', label: '江苏', count: 22 },
       { key: 'zj', label: '浙江', count: 18 },
       { key: 'sd', label: '山东', count: 12 },
       { key: 'sc', label: '四川', count: 9 },
-      { key: 'fj', label: '福建', count: 6 },
-      { key: 'hn', label: '河南', count: 3 },
+      { key: 'fj', label: '福建', count: 17 },
+      { key: 'hn', label: '河南', count: 12 },
     ],
     city: [{ key: 'sz', label: '深圳', count: 20 }],
   }
@@ -897,9 +898,10 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
     // 年龄：fage_* 去前导零（en 词典无单位后缀：1-17 / 50+）。
     expect(screen.getByText('1-17')).not.toBeNull()
     expect(screen.getByText('50+')).not.toBeNull()
-    // 省份 Top 5：7 行输入只渲染 5 行，且按人数降序；城市单行。
+    // 省份 Top 5：7 行输入只渲染 5 行且按人数降序；卡片明示 Top 5 / 7。
     const provinceRows = screen.getAllByText(/广东|江苏|浙江|山东|四川|福建|河南/u)
     expect(provinceRows.length).toBe(5)
+    expect(screen.getByText(t('portrait.topNote', { top: 5, total: 7 }))).not.toBeNull()
     // 城市维度缺失 → 该画像维度本次未提供（不渲染空分布）。
     expect(screen.getByText(t('portrait.dimMissing'))).not.toBeNull()
     // 画像快照日徽标。
@@ -912,8 +914,8 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
     const row = await screen.findByText('广东')
     const rowItem = row.closest('li')
     expect(rowItem?.getAttribute('tabindex')).toBe('0')
-    // 占比分母是 Top 5 行集合（30/91 → 33%）。
-    expect(rowItem?.getAttribute('aria-label')).toBe(t('portrait.barAria', { name: '广东', count: 30, share: 33 }))
+    // 占比分母是维度完整总数（30/120 → 25%），不随 Top 5 截断变小。
+    expect(rowItem?.getAttribute('aria-label')).toBe(t('portrait.barAria', { name: '广东', count: 30, share: 25 }))
   })
 
   it('整体无画像 → no_data 空态，不渲染空分布', async () => {
@@ -973,6 +975,127 @@ describe('tab / keyboard / aria 基础', () => {
       const last = [...calls].reverse().find(call => call.action === 'account.overview')
       expect(last?.args).toMatchObject({ window: 'yesterday' })
     })
+  })
+})
+
+
+describe('复审修复回归', () => {
+  it('P1 跨账号 stale 隔离：切账号后旧账号行不复用，B 拉取失败呈现 error 不显示 A 作品', async () => {
+    const otherAccount = { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }
+    await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, otherAccount], remoteOk: true }),
+      'works.list': args => {
+        if (args.accountId === 'finder-b') throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, works: [{ work_id: 'w-a', title: '账号甲作品', play_count: 1, like_count: 1, publish_time: null }] }
+      },
+    }))
+    expect(await screen.findByText('账号甲作品')).not.toBeNull()
+    // 切到账号乙：works.list reject → 同账号 partial 保留不成立（上一账号的行
+    // 不属于 finder-b），必须 error 态且不渲染 A 的作品。
+    const cardButton = (name: string): HTMLButtonElement =>
+      screen.getByText(name).closest('button') as HTMLButtonElement
+    fireEvent.click(cardButton('账号乙'))
+    // 失败态出现在作品表与 partial 相关摘要卡（≥1 处命中）。
+    await waitFor(() => expect(screen.getAllByText('Failed to load').length).toBeGreaterThanOrEqual(1))
+    expect(screen.queryByText('账号甲作品')).toBeNull()
+    // 修复回切：A 重新拉取成功恢复 ready。
+    fireEvent.click(cardButton('演示账号'))
+    await waitFor(() => expect(screen.getByText('账号甲作品')).not.toBeNull())
+    expect(screen.queryByText('Failed to load')).toBeNull()
+  })
+
+  it('P1 关注者趋势卡消费 last_7d fans_trend availability：partial + 有数据 = 警告条与数据同屏', async () => {
+    await renderPage(baseHandlers({
+      'account.overview': () => ({
+        ...OK,
+        metrics: { totals: { daily_play_count: 100 } },
+        fans_trend: {
+          totals: { follower_net_count: 7 },
+          daily: [{ day: '2026-11-16', follower_total_count: 100, follower_net_count: 2 }],
+        },
+        availability: { account_metrics: 'ok', fans_trend: 'partial', fans_profile: 'no_data' },
+      }),
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    // partial：趋势卡警告条出现（fans KPI 卡同为 partial，≥1 处命中）。
+    await waitFor(() => expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(1))
+    // 数据同屏：趋势日点仍在（不得因 partial 清空数据或标成 ready）。
+    expect(screen.getByRole('button', { name: '2026-11-16 Total followers 100' })).not.toBeNull()
+  })
+
+  it('P1 chrome missing 不禁用删除账号：确认后 removeLocal 照常调用', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'browser.status': () => ({ ...OK, chrome: 'missing', driver: 'missing' }),
+      'account.removeLocal': () => ({ ...OK, removed: true }),
+      'account.removeRemote': () => ({ ...OK, removed: true }),
+    }))
+    expect(await screen.findByText(t('browser.blockedHint'))).not.toBeNull()
+    // 删除入口保持可用（只有采集互斥会禁用它）。
+    const remove = screen.getByRole('button', { name: t('account.remove') })
+    expect(remove.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(remove)
+    fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
+    await waitFor(() => expect(screen.getByText(t('account.removeSuccess'))).not.toBeNull())
+    const localIndex = calls.findIndex(call => call.action === 'account.removeLocal')
+    const remoteIndex = calls.findIndex(call => call.action === 'account.removeRemote')
+    expect(localIndex).toBeGreaterThanOrEqual(0)
+    expect(remoteIndex).toBeGreaterThan(localIndex)
+  })
+
+  it('P2 刷新三路失败聚合：works / summary / accounts 各自失败路进入工具栏提示，恢复后清除', async () => {
+    let worksFails = false
+    let summaryFails = false
+    let accountsFails = false
+    const { calls } = await renderPage(baseHandlers({
+      'works.list': () => {
+        if (worksFails) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, ...WORKS }
+      },
+      'account.overview': () => {
+        if (summaryFails) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, metrics: { totals: { daily_play_count: 1 } }, fans_trend: { totals: {} }, availability: {} }
+      },
+      'accounts.list': () => {
+        if (accountsFails) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, accounts: [ACCOUNT], remoteOk: true }
+      },
+    }))
+    await screen.findByText('第一条作品')
+    // 三路全部失败：提示明确列出三条失败路，面板与数据保留（不整页替换）。
+    worksFails = true
+    summaryFails = true
+    accountsFails = true
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    expect(await screen.findByText(t('works.refreshPartial', {
+      parts: `${t('works.refreshPart.works')}、${t('works.refreshPart.overview')}、${t('works.refreshPart.accounts')}`,
+    }))).not.toBeNull()
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    // 全部恢复：提示清除，三路重新调用。
+    worksFails = false
+    summaryFails = false
+    accountsFails = false
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    await waitFor(() => expect(screen.queryByText(t('works.refreshPartial', {
+      parts: `${t('works.refreshPart.works')}、${t('works.refreshPart.overview')}、${t('works.refreshPart.accounts')}`,
+    }))).toBeNull())
+    expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('P2 单路失败聚合：只有 works 失败时提示只列 works 一路', async () => {
+    let worksFails = false
+    await renderPage(baseHandlers({
+      'works.list': () => {
+        if (worksFails) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, ...WORKS }
+      },
+    }))
+    await screen.findByText('第一条作品')
+    worksFails = true
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    expect(await screen.findByText(t('works.refreshPartial', { parts: t('works.refreshPart.works') }))).not.toBeNull()
+    // summary / accounts 未失败：不进入提示。
+    expect(screen.queryByText(t('works.refreshPart.overview'))).toBeNull()
   })
 })
 
