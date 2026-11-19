@@ -1,4 +1,4 @@
-/** client 组件测试（jsdom）：键集、四页渲染、状态、键盘可访问名、样式红线。 */
+/** client 组件测试（jsdom）：键集、两 tab 布局骨架、页面区域、键盘、样式红线。 */
 // @vitest-environment jsdom
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -17,22 +17,49 @@ describe('词典键集', () => {
   })
 })
 
-describe('WorkbenchPage', () => {
-  it('四页 tab 可达且页面 region 可访问', () => {
+describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 tab）', () => {
+  it('tab 数量为 2，顺序为作品数据 → 账号总览，默认选中作品数据', () => {
     const { container } = render(<WorkbenchPage t={t} />)
-    expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
-    for (const label of [en['tab.overview'], en['tab.works'], en['tab.collect'], en['tab.accounts']]) {
-      expect(screen.getByRole('tab', { name: label })).not.toBeNull()
-    }
+    const tabs = screen.getAllByRole('tab')
+    expect(tabs.length).toBe(2)
+    expect(tabs[0]?.getAttribute('aria-label') ?? tabs[0]?.textContent).toContain(en['tab.works'])
+    expect(tabs.map(tab => tab.textContent)).toEqual([en['tab.works'], en['tab.overview']])
+    expect(tabs[0]?.getAttribute('aria-selected')).toBe('true')
+    expect(tabs[1]?.getAttribute('aria-selected')).toBe('false')
     void container
+  })
+
+  it('采集与账号不再是顶级 tab（旧四 tab 契约废除）', () => {
+    render(<WorkbenchPage t={t} />)
+    expect(screen.queryByRole('tab', { name: 'Collect' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Accounts' })).toBeNull()
+    // 词典里也不再提供旧 tab 键。
+    expect('tab.collect' in zh).toBe(false)
+    expect('tab.accounts' in zh).toBe(false)
+  })
+
+  it('tab 键盘左右切换在两个 tab 间循环', async () => {
+    const { fireEvent } = await import('@testing-library/react')
+    render(<WorkbenchPage t={t} />)
+    const worksTab = screen.getByRole('tab', { name: en['tab.works'] })
+    fireEvent.keyDown(worksTab, { key: 'ArrowRight' })
+    await waitForTabSelected(en['tab.overview'])
+    fireEvent.keyDown(screen.getByRole('tab', { name: en['tab.overview'] }), { key: 'End' })
+    await waitForTabSelected(en['tab.overview'])
+    fireEvent.keyDown(screen.getByRole('tab', { name: en['tab.overview'] }), { key: 'ArrowRight' })
+    await waitForTabSelected(en['tab.works'])
   })
 
   it('jsdom 无 Host：加载态可达（empty/error 由 Host 集成验证）', () => {
     render(<WorkbenchPage t={t} />)
-    // fetch 未 mock 时组件保持 loading 骨架；断言骨架可达即可。
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
   })
 })
+
+async function waitForTabSelected(label: string): Promise<void> {
+  const { waitFor } = await import('@testing-library/react')
+  await waitFor(() => expect(screen.getByRole('tab', { name: label }).getAttribute('aria-selected')).toBe('true'))
+}
 
 describe('样式红线', () => {
   const srcDir = join(process.cwd(), 'src', 'client')
@@ -48,10 +75,27 @@ describe('样式红线', () => {
     }
   })
 
-  it('断点与 reduced-motion 覆盖', () => {
+  it('无 ywc-* 旧类名迁移、无 <style> 注入、无旧 inline style 技术', () => {
+    for (const name of readdirSync(srcDir)) {
+      if (!name.endsWith('.module.css') && !name.endsWith('.tsx')) continue
+      const source = readFileSync(join(srcDir, name), 'utf8')
+      expect(source).not.toMatch(/\bywc-/u)
+      expect(source).not.toMatch(/dangerouslySetInnerHTML|document\.createElement\('style'\)/u)
+    }
+  })
+
+  it('断点与 reduced-motion 覆盖（640 / 880 / 1120 容器档）', () => {
     const css = readFileSync(join(srcDir, 'workbench.module.css'), 'utf8')
     expect(css).toContain('yootun-kit-page')
+    expect(css).toContain('max-width: 1119px')
     expect(css).toContain('max-width: 879px')
+    expect(css).toContain('max-width: 639px')
+    expect(css).toContain('prefers-reduced-motion')
+  })
+
+  it('280px 账号栏布局契约存在于样式', () => {
+    const css = readFileSync(join(srcDir, 'workbench.module.css'), 'utf8')
+    expect(css).toContain('280px minmax(0, 1fr)')
   })
 
   it('容器查询依赖 PluginPageShell（容器名对齐）', () => {

@@ -1,14 +1,13 @@
 /**
- * client 数据页 mock Host 测试：每个数据视图都有 mock response 内容断言
- * （works.list 真实 schema、overview 的 daily_* 字段、fans_profile envelope、
- * work.get/work.trend/run.get/account.probe/account.promote、started:false
- * reason、删除两步确认与失败短路、browser.status 五态、tab/键盘/aria）。
+ * client 数据页 mock Host 测试（布局回正骨架）：每个数据视图都有 mock response
+ * 内容断言（works.list 真实 schema、account.overview 固定 last_7d 摘要、
+ * run.get `{ run, batches }`、started:false reason、删除两步确认与失败短路、
+ * browser 五态不阻断页面、批量面板、tab / 键盘 / aria）。
  */
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
-import { shanghaiCompletedDay } from '../../src/client/format.ts'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
 afterEach(() => {
@@ -55,20 +54,39 @@ const OK = { status: 'ok' }
 const ACCOUNT = {
   accountId: 'finder-a',
   nickname: '演示账号',
+  avatar: null,
   feedCount: 12,
+  followerTotalCount: 66,
   sessionStatus: 'ok',
+  sessionCheckedAt: '2026-11-18T10:00:00.000Z',
+  lastCollectedAt: null,
+  deleteState: 'none',
   isPending: false,
   hasStorageState: true,
   localCredentialsMissing: false,
 }
 
-/** 基础 handler 集：browser available + 单账号；各测试按需覆盖。 */
+const WORKS = {
+  works: [
+    { work_id: 'w-100', title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z' },
+    { work_id: 'w-101', title: '第二条', play_count: 7, like_count: null, publish_time: null },
+  ],
+}
+
+/** 基础 handler 集：browser available + 单账号 + 空总览；各测试按需覆盖。 */
 function baseHandlers(overrides: Record<string, Handler> = {}): Record<string, Handler> {
   return {
     'browser.status': () => ({ ...OK, chrome: 'available', driver: 'available' }),
     'accounts.list': () => ({ ...OK, accounts: [ACCOUNT], remoteOk: true }),
     'collect.status': () => ({ ...OK, busy: false, collect: null, lastRun: null }),
-    'collectAll.status': () => ({ ...OK, ready: true, phase: 'finished', total: 0, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0 }),
+    'collectAll.status': () => ({ ...OK, ready: true, phase: 'ready', total: 0, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] }),
+    'works.list': () => ({ ...OK, ...WORKS }),
+    'account.overview': () => ({
+      ...OK,
+      metrics: { totals: { daily_play_count: 1234, daily_like_count: 56, work_count: 12 } },
+      fans_trend: { totals: { follower_net_count: 7 }, daily: [] },
+      availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' },
+    }),
     ...overrides,
   }
 }
@@ -76,570 +94,79 @@ function baseHandlers(overrides: Record<string, Handler> = {}): Record<string, H
 async function renderPage(handlers: Record<string, Handler>): Promise<{ calls: RecordedCall[] }> {
   const host = mockHost(handlers)
   render(<WorkbenchPage t={t} />)
-  // 等账号列表就绪。
+  // 等账号列表就绪（默认作品数据 tab 自动拉 works.list + 固定 last_7d 摘要）。
   await waitFor(() => expect(host.calls.some(call => call.action === 'accounts.list')).toBe(true))
   return host
 }
 
-describe('browser.status 五态', () => {
-  it('available：状态条显示浏览器就绪且不阻断页面', async () => {
+describe('browser 五态（不阻断页面）', () => {
+  it('available：头部状态显示浏览器就绪', async () => {
     await renderPage(baseHandlers())
-    await screen.findByText(en['browser.ok'])
-    expect(screen.queryByText(en['error.CHROME'])).toBeNull()
-    expect(screen.getByRole('tab', { name: en['tab.overview'] })).not.toBeNull()
+    expect(await screen.findByText(t('header.status.browserReady'))).not.toBeNull()
+    expect(screen.getByRole('tab', { name: en['tab.works'] })).not.toBeNull()
   })
 
-  it('chrome missing：整页阻断门 + 重新检查按钮', async () => {
+  it('chrome missing：页面不阻断，侧栏提示采集不可用，采集与添加账号禁用', async () => {
     await renderPage(baseHandlers({
       'browser.status': () => ({ ...OK, chrome: 'missing', driver: 'missing' }),
     }))
-    expect(await screen.findByText(en['browser.missing'])).not.toBeNull()
-    expect(screen.getByText(en['error.CHROME'])).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['browser.recheck'] })).not.toBeNull()
-    expect(screen.queryByText(en['browser.driverMissing'])).toBeNull()
+    expect(await screen.findByText(t('browser.blockedHint'))).not.toBeNull()
+    expect(screen.getByText(t('header.status.browserBlocked'))).not.toBeNull()
+    // 采集入口禁用（按钮保留在文档中，disabled 语义可查询）。
+    expect(screen.getByRole('button', { name: t('works.collect') }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: t('account.add') }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: t('account.collectAll') }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('driver missing：阻断门给驱动文案，不伪造成 chrome 缺失', async () => {
+  it('driver missing：同样提示采集不可用，不伪装成 chrome 缺失专用文案', async () => {
     await renderPage(baseHandlers({
       'browser.status': () => ({ ...OK, chrome: 'available', driver: 'missing' }),
     }))
-    expect(await screen.findByText(en['browser.driverMissing'])).not.toBeNull()
-    expect(screen.getByText(en['error.CHROME_DRIVER'])).not.toBeNull()
-    expect(screen.queryByText(en['browser.missing'])).toBeNull()
+    expect(await screen.findByText(t('browser.blockedHint'))).not.toBeNull()
+    expect(screen.getByText(t('header.status.browserBlocked'))).not.toBeNull()
   })
 
-  it('loading：检查期间显示检查中文案，随后到达 available', async () => {
-    let resolveBrowser: ((payload: Payload) => void) | undefined
-    mockHost(baseHandlers({
-      'browser.status': () => new Promise<Payload>(resolve => { resolveBrowser = resolve }),
-    }))
-    render(<WorkbenchPage t={t} />)
-    expect(screen.getByText(en['browser.checking'])).not.toBeNull()
-    resolveBrowser?.({ ...OK, chrome: 'available', driver: 'available' })
-    await screen.findByText(en['browser.ok'])
-  })
-
-  it('Host API error：非阻断 alert，不伪造成 chrome missing；重新检查可恢复', async () => {
-    let browserCalls = 0
+  it('Host API error：头部降级标注，不伪成就绪', async () => {
     await renderPage(baseHandlers({
-      'browser.status': () => {
-        browserCalls += 1
-        if (browserCalls === 1) throw new Error('host api down')
-        return { ...OK, chrome: 'available', driver: 'available' }
-      },
+      'browser.status': () => { throw new Error('host api down') },
     }))
-    expect(await screen.findByText(en['browser.apiError'])).not.toBeNull()
-    expect(screen.queryByText(en['browser.missing'])).toBeNull()
-    expect(screen.queryByText(en['browser.driverMissing'])).toBeNull()
-    // 页面主体保持可用。
-    expect(screen.getByRole('tab', { name: en['tab.overview'] })).not.toBeNull()
-    // 重新检查恢复 available。
-    fireEvent.click(screen.getByRole('button', { name: en['browser.recheck'] }))
-    await screen.findByText(en['browser.ok'])
+    expect(await screen.findByText(t('header.status.serviceDegraded'))).not.toBeNull()
+    expect(screen.queryByText(t('header.status.browserReady'))).toBeNull()
   })
 })
 
-describe('总览页 account.overview', () => {
-  it('KPI 读 metrics.totals.daily_play_count / daily_like_count 与 fans_trend.totals.follower_net_count', async () => {
+describe('账号管理栏（作品数据页左侧）', () => {
+  it('标题行「账号管理 + 采集全部」，账号卡片显示昵称 / 关注者 / 会话状态', async () => {
+    await renderPage(baseHandlers())
+    expect(screen.getByText(t('account.title'))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('account.collectAll') })).not.toBeNull()
+    expect(screen.getByText('演示账号')).not.toBeNull()
+    // 卡片 meta 行：关注者数 + 最近同步时间（同一行内拼接）。
+    expect(screen.getByText(/66 followers/u)).not.toBeNull()
+    expect(screen.getByText(/Last sync 2026-11-18 18:00/u)).not.toBeNull()
+    expect(screen.getByText(t('account.state.ok'))).not.toBeNull()
+    // 添加账号宽主按钮在侧栏底部。
+    expect(screen.getByRole('button', { name: t('account.add') })).not.toBeNull()
+  })
+
+  it('会话过期账号显示重新扫码入口；pending 账号显示提升', async () => {
     await renderPage(baseHandlers({
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: { daily_play_count: 1234, daily_like_count: 56, work_count: 12 } },
-        fans_trend: { totals: { follower_net_count: 7 }, daily: [
-          { day: '2026-11-16', follower_total_count: 100, follower_net_count: 2 },
-          { day: '2026-11-17', follower_total_count: 107, follower_net_count: 7 },
-        ] },
-        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'ok' },
-      }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: { device: [{ key: 'ios', label: 'iOS', count: 1 }] } }),
+      'accounts.list': () => ({ ...OK, accounts: [{ ...ACCOUNT, sessionStatus: 'expired' }, { ...ACCOUNT, accountId: 'pending-1', nickname: '待确认号', sessionStatus: 'unknown', isPending: true }], remoteOk: true }),
     }))
-    await waitFor(() => expect(screen.getByText('1234')).not.toBeNull())
-    expect(screen.getByText('56')).not.toBeNull()
-    expect(screen.getByText('7')).not.toBeNull()
-    // availability：全部源 ok → ok。
-    expect(screen.getByText(t('overview.availability.ok'))).not.toBeNull()
-    // 折线点：粉丝总数逐日点可聚焦（aria-label = day: value）。
-    expect(screen.getByRole('button', { name: '2026-11-17: 107' })).not.toBeNull()
+    expect(await screen.findByText(t('account.state.expired'))).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: t('account.relogin') }).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByRole('button', { name: t('account.promote') })).not.toBeNull()
   })
 
-  it('KPI 按源定态：account_metrics=no_data 而 fans_trend=ok 时关注变化不被误清', async () => {
-    await renderPage(baseHandlers({
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: {} },
-        fans_trend: { totals: { follower_net_count: 9 }, daily: [] },
-        availability: { account_metrics: 'no_data', fans_trend: 'ok', fans_profile: 'no_data' },
-      }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-    }))
-    // 关注变化按 fans_trend 源：ok → 数值可见（修复前会被 account_metrics 的
-    // no_data 连带清空，数值不渲染）。
-    expect(await screen.findByText('9')).not.toBeNull()
-    // 页面标注：ok 与 no_data 混合 → partial。
-    expect(screen.getByText(t('overview.availability.partial'))).not.toBeNull()
-  })
-
-  it('任一源加载中不显示结论性可用性标注', async () => {
-    let resolveOverview: ((payload: Payload) => void) | undefined
-    mockHost(baseHandlers({
-      'account.overview': () => new Promise<Payload>(resolve => { resolveOverview = resolve }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-    }))
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(await screen.findByRole('tab', { name: en['tab.overview'] }))
-    // 加载期间：三种结论性标注都不得出现。
-    expect(screen.queryByText(t('overview.availability.ok'))).toBeNull()
-    expect(screen.queryByText(t('overview.availability.partial'))).toBeNull()
-    expect(screen.queryByText(t('overview.availability.no_data'))).toBeNull()
-    resolveOverview?.({ ...OK, metrics: { totals: { daily_play_count: 5 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } })
-    await screen.findByText(t('overview.availability.partial'))
-  })
-
-  it('overview 加载失败 → availability partial，错误区可重试', async () => {
-    await renderPage(baseHandlers({
-      'account.overview': () => ({ status: 'error', reason: 'WX_TOOL_UNAVAILABLE' }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: { age: [{ key: '18-23', label: '18-23 岁', count: 40 }] } }),
-    }))
-    expect(await screen.findByText(t('overview.availability.partial'))).not.toBeNull()
-    // 画像来自 envelope（profile 源成功），overview 错误区给重试按钮。
-    expect(screen.getByText('18-23 岁')).not.toBeNull()
-    expect(screen.getAllByRole('button', { name: t('state.retry') }).length).toBeGreaterThan(0)
-  })
-
-  it('服务端 availability 驱动页面标注：partial 窗口与 no_data 画像不得标成数据完整', async () => {
-    await renderPage(baseHandlers({
-      // KPI 有值、趋势 partial（残缺窗口）、画像 no_data：整体必须是 partial。
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: { daily_play_count: 1234, daily_like_count: 56, work_count: 12 } },
-        fans_trend: { totals: { follower_net_count: 7 }, daily: [{ day: '2026-11-17', follower_total_count: 107, follower_net_count: 7 }] },
-        availability: { account_metrics: 'ok', fans_trend: 'partial', fans_profile: 'no_data' },
-      }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-    }))
-    expect(await screen.findByText(t('overview.availability.partial'))).not.toBeNull()
-    expect(screen.queryByText(t('overview.availability.ok'))).toBeNull()
-    // 趋势卡 partial：数据 + 警告条同时呈现（kit en 文案；关注 KPI 同为 partial，
-    // 警告条至少两处）。
-    expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByRole('button', { name: '2026-11-17: 107' })).not.toBeNull()
-    // 画像卡按服务端 no_data 呈现空态（不渲染维度选择）。
-    expect(screen.queryByText(t('portrait.age'))).toBeNull()
-  })
-
-  it('总览 stale-write 守卫：切账号后旧账号响应不覆盖新账号数据', async () => {
-    let resolveSlow: ((payload: Payload) => void) | undefined
-    const otherAccount = { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }
-    await renderPage(baseHandlers({
-      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, otherAccount], remoteOk: true }),
-      'account.overview': args => {
-        if (args.accountId === 'finder-b') {
-          return new Promise<Payload>(resolve => { resolveSlow = resolve })
-        }
-        return { ...OK, metrics: { totals: { daily_play_count: 111 } }, fans_trend: { totals: {} } }
-      },
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-    }))
-    expect(await screen.findByText('111')).not.toBeNull()
-    // 切到账号乙（overview 挂起），再切回账号甲（立即返回）。
-    fireEvent.click(screen.getByRole('button', { name: 'Account: 演示账号' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Account: 账号乙' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '演示账号' }))
-    await waitFor(() => expect(screen.getByText('111')).not.toBeNull())
-    // 账号乙的旧响应现在才返回：不得覆盖账号甲的数据。
-    resolveSlow?.({ ...OK, metrics: { totals: { daily_play_count: 999 } }, fans_trend: { totals: {} } })
-    await waitFor(() => expect(screen.queryByText('999')).toBeNull())
-    expect(screen.getByText('111')).not.toBeNull()
-  })
-})
-
-describe('总览页 fans_profile envelope', () => {
-  it('画像只从 fans_profile envelope 读取，顶层平铺字段不消费', async () => {
-    await renderPage(baseHandlers({
-      'account.overview': () => ({ ...OK, metrics: { totals: {} }, fans_trend: { totals: {} } }),
-      'fans.profile.get': () => ({
-        ...OK,
-        // 顶层 decoy：若实现误读顶层字段会渲染 DECOY。
-        age: 'DECOY',
-        gender: 'DECOY',
-        fans_profile: {
-          age: [
-            { key: '18-23', label: '18-23 岁', count: 40 },
-            { key: '24-30', label: '24-30 岁', count: 60 },
-          ],
-          gender: [
-            { key: 'female', label: '女', count: 30 },
-            { key: 'male', label: '男', count: 70 },
-          ],
-        },
-      }),
-    }))
-    // 默认年龄维度：桶标签与计数渲染。
-    expect(await screen.findByText('18-23 岁')).not.toBeNull()
-    expect(screen.getByText('60')).not.toBeNull()
-    expect(screen.queryByText('DECOY')).toBeNull()
-    // 切性别维度：envelope 的 gender 行渲染。
-    fireEvent.click(screen.getByRole('tab', { name: t('portrait.gender') }))
-    await waitFor(() => expect(screen.getByText('70')).not.toBeNull())
-    expect(screen.getByText('30')).not.toBeNull()
-  })
-})
-
-describe('作品页 works.list / work.get / work.trend', () => {
-  const WORKS = {
-    works: [
-      { work_id: 'w-100', title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z' },
-      { work_id: 'w-101', title: '第二条', play_count: 7, like_count: null, publish_time: null },
-    ],
-  }
-
-  const trendHandlers = (overrides: Record<string, Handler> = {}): Record<string, Handler> => baseHandlers({
-    'works.list': () => ({ ...OK, ...WORKS }),
-    'work.get': args => ({ ...OK, work: { work_id: args.workId, title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z' } }),
-    // tools 真实形状：顶层 snapshots（account_id / work_id + 日行）。
-    'work.trend': args => ({
-      ...OK,
-      account_id: 'finder-a',
-      work_id: args.workId,
-      snapshots: [
-        { day: '2026-11-16', daily_play_count: 100, daily_like_count: 5 },
-        { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9 },
-      ],
-    }),
-    ...overrides,
-  })
-
-  it('真实 schema 渲染：snake_case 字段、null 计数显示占位、计数行可见', async () => {
-    const { calls } = await renderPage(trendHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    expect(await screen.findByText('第一条作品')).not.toBeNull()
-    expect(screen.getByText('第二条')).not.toBeNull()
-    expect(screen.getByText(`${t('work.playCount')} 1000 · ${t('work.likeCount')} 50 · 2026-11-17 16:00`)).not.toBeNull()
-    expect(screen.getByText(`${t('work.playCount')} 7 · ${t('work.likeCount')} —`)).not.toBeNull()
-    expect(screen.getByText(t('works.count', { count: 2 }))).not.toBeNull()
-    const listCall = calls.find(call => call.action === 'works.list')
-    expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc' })
-  })
-
-  it('排序切换带服务端参数；搜索粗筛过滤标题', async () => {
-    const { calls } = await renderPage(trendHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    await screen.findByText('第一条作品')
-    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.play') }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args).toMatchObject({ sort: 'play_count', order: 'desc' })
-    })
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), { target: { value: '第二条' } })
-    await waitFor(() => expect(screen.queryByText('第一条作品')).toBeNull())
-    expect(screen.getByText('第二条')).not.toBeNull()
-    expect(screen.getByText(t('works.count', { count: 1 }))).not.toBeNull()
-  })
-
-  it('行按钮键盘路径：work.get 详情渲染 work_id 行字段', async () => {
-    const { calls } = await renderPage(trendHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    const row = await screen.findByRole('button', { name: '第一条作品' })
-    // 键盘路径：行是原生 button（可聚焦、可 Enter 激活）。
-    row.focus()
-    expect(document.activeElement).toBe(row)
-    fireEvent.click(row)
-    await screen.findByText(t('works.detail'))
-    const getCall = calls.find(call => call.action === 'work.get')
-    expect(getCall?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
-    // 详情字段 dt/dd 成对渲染（限定详情卡范围，避免与图表图例重名）。
-    const detailCard = screen.getByText(t('works.detail')).closest('section')
-    expect(detailCard).not.toBeNull()
-    const detail = within(detailCard as HTMLElement)
-    expect(detail.getByText(t('work.playCount'))).not.toBeNull()
-    expect(detail.getByText(t('work.likeCount'))).not.toBeNull()
-    expect(detail.getByText(t('work.publishTime'))).not.toBeNull()
-    expect(detail.getByText('1000')).not.toBeNull()
-    expect(detail.getByText('50')).not.toBeNull()
-    expect(detail.getByText('2026-11-17 16:00')).not.toBeNull()
-  })
-
-  it('work.trend 折线点从顶层 snapshots 渲染（daily_play_count 主线、点赞进 tooltip）', async () => {
-    const { calls } = await renderPage(trendHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    fireEvent.click(await screen.findByRole('button', { name: '第一条作品' }))
-    expect(await screen.findByRole('button', { name: '2026-11-17: 140' })).not.toBeNull()
-    expect(screen.getByRole('button', { name: '2026-11-16: 100' })).not.toBeNull()
-    const trendCall = calls.find(call => call.action === 'work.trend')
-    expect(trendCall?.args).toMatchObject({ accountId: 'finder-a', workId: 'w-100' })
-  })
-
-  it('work.get 无 {work} 包装的载荷按无效处理（空态），不吞顶层平铺残片', async () => {
-    await renderPage(trendHandlers({
-      'work.get': () => ({ ...OK, work_id: 'w-flat', title: '平铺残片', play_count: 1, like_count: 1, publish_time: null }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    fireEvent.click(await screen.findByRole('button', { name: '第一条作品' }))
-    // 详情卡呈现空态文案（kit en 'No data'），平铺字段不渲染。
-    expect(await screen.findByText('No data')).not.toBeNull()
-    expect(screen.queryByText('平铺残片')).toBeNull()
-  })
-
-  it('works 列表刷新失败保留已加载数据（partial + 重试），不再清空', async () => {
-    let failNext = false
-    const { calls } = await renderPage(trendHandlers({
-      'works.list': () => {
-        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
-        return { ...OK, ...WORKS }
-      },
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    await screen.findByText('第一条作品')
-    // 触发一次会失败的刷新（切排序）。
-    failNext = true
-    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.play') }))
-    // 已加载行保留 + partial 警告条（kit en 文案）+ 重试按钮。
-    expect(await screen.findByText('Partial data shown; the rest failed to load')).not.toBeNull()
-    expect(screen.getByText('第一条作品')).not.toBeNull()
-    expect(screen.getByText('第二条')).not.toBeNull()
-    const retry = screen.getByRole('button', { name: t('state.retry') })
-    expect(retry).not.toBeNull()
-    // 重试成功恢复 ready。
-    failNext = false
-    fireEvent.click(retry)
-    await waitFor(() => expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull())
-    expect(screen.getByText('第一条作品')).not.toBeNull()
-    const listCalls = calls.filter(call => call.action === 'works.list')
-    expect(listCalls.length).toBeGreaterThanOrEqual(3)
-  })
-
-  it('时间窗切换传服务端 publishedFrom/publishedTo（上海已完成自然日）', async () => {
-    const { calls } = await renderPage(trendHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    await screen.findByText('第一条作品')
-    // 全部时间：不传窗口参数。
-    const allCall = [...calls].reverse().find(call => call.action === 'works.list')
-    expect(allCall?.args['publishedFrom']).toBeUndefined()
-    // 近 7 天：from = 上海 7 天前已完成日，to = 上海昨天。
-    fireEvent.click(screen.getByRole('tab', { name: t('works.filter.last_7d') }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args['publishedTo']).toEqual(shanghaiCompletedDay(1))
-      expect(last?.args['publishedFrom']).toEqual(shanghaiCompletedDay(7))
-    })
-    // 昨日：from = to = 上海昨天。
-    fireEvent.click(screen.getByRole('tab', { name: t('works.filter.yesterday') }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args['publishedFrom']).toEqual(shanghaiCompletedDay(1))
-      expect(last?.args['publishedTo']).toEqual(shanghaiCompletedDay(1))
-    })
-  })
-
-  it('stale-write 守卫：排序慢响应晚于新排序返回时不覆盖新数据', async () => {
-    let resolveSlow: ((payload: Payload) => void) | undefined
-    const { calls } = await renderPage({
-      ...trendHandlers(),
-      'works.list': args => {
-        if (args.sort === 'play_count') {
-          return new Promise<Payload>(resolve => { resolveSlow = resolve })
-        }
-        return { ...OK, ...WORKS }
-      },
-    })
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    await screen.findByText('第一条作品')
-    // 切到最多播放（挂起），再切回最新发布（立即返回）。
-    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.play') }))
-    fireEvent.click(screen.getByRole('tab', { name: t('works.sort.desc') }))
-    await waitFor(() => expect(screen.getAllByText('第一条作品').length).toBeGreaterThan(0))
-    // 旧的 play_count 响应现在才返回：不得覆盖。
-    resolveSlow?.({ ...OK, works: [{ work_id: 'w-stale', title: '过期数据', play_count: 1, like_count: 1, publish_time: null }] })
-    await waitFor(() => {
-      expect(screen.queryByText('过期数据')).toBeNull()
-      expect(screen.getByText('第一条作品')).not.toBeNull()
-    })
-    // 此时再放行也不会重放旧代次（seq 已前进）。
-    const listCalls = calls.filter(call => call.action === 'works.list')
-    expect(listCalls.length).toBeGreaterThanOrEqual(3)
-  })
-})
-
-describe('采集页 collect / run.get', () => {
-  it('started:false 展示稳定 reason 且不进入 running', async () => {
-    await renderPage(baseHandlers({
-      'collect.start': () => ({ ...OK, started: false, reason: 'collect_busy' }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    const start = await screen.findByRole('button', { name: t('collect.start') })
-    fireEvent.click(start)
-    await screen.findByRole('alert')
-    expect(screen.getByText(t('collect.startFailedReason'))).not.toBeNull()
-    expect(screen.getByText(`${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
-    // busy 保持 false：开始按钮可用、单账号取消按钮禁用、当前任务卡无进行中记录。
-    expect(start.hasAttribute('disabled')).toBe(false)
-    const singleCancel = screen.getAllByRole('button', { name: t('collect.cancel') })[0]
-    expect(singleCancel?.hasAttribute('disabled')).toBe(true)
-    expect(screen.getByText(t('collect.noCurrent'))).not.toBeNull()
-  })
-
-  it('running 记录展示 attemptId / runId / phase / 批次进度', async () => {
-    await renderPage(baseHandlers({
-      'collect.status': () => ({
-        ...OK,
-        busy: true,
-        collect: {
-          accountId: 'finder-a', attemptId: 'finder-a-abc', status: 'running',
-          startedAt: '2026-11-18T10:00:00.000Z', finishedAt: null, error: null,
-          progress: { phase: 'ingest', batchNo: 2, totalBatches: 5, succeeded: 30, failed: 1, expected: 45 },
-          result: null,
-        },
-        lastRun: null,
-      }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    expect(await screen.findByText('finder-a-abc')).not.toBeNull()
-    expect(screen.getByText(t('collect.status.running'))).not.toBeNull()
-    expect(screen.getByText(t('collect.phase.ingest', { batchNo: 2, totalBatches: 5 }))).not.toBeNull()
-    expect(screen.getByText(`#2/5 · ${t('collect.batch.completed', { count: 30 })} · ${t('collect.batch.failed', { count: 1 })}`)).not.toBeNull()
-  })
-
-  it('cancelled / interrupted 终态可见；lastRun 分卡呈现', async () => {
-    await renderPage(baseHandlers({
-      'collect.status': () => ({
-        ...OK,
-        busy: false,
-        collect: { accountId: 'finder-a', attemptId: 'finder-a-old', status: 'cancelled', startedAt: '2026-11-18T09:00:00.000Z', finishedAt: '2026-11-18T09:05:00.000Z', error: null, progress: { phase: 'list' }, result: null },
-        lastRun: {
-          accountId: 'finder-a', attemptId: 'finder-a-prev', runId: 'run-prev-1', status: 'interrupted',
-          startedAt: '2026-11-17T09:00:00.000Z', finishedAt: null, error: 'WX_RUN_INTERRUPTED',
-        },
-      }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    expect(await screen.findByText(t('collect.status.cancelled'))).not.toBeNull()
-    // lastRun 卡：attemptId / runId / interrupted 可见。
-    expect(screen.getByText('finder-a-prev')).not.toBeNull()
-    expect(screen.getByText('run-prev-1')).not.toBeNull()
-    expect(screen.getByText(t('collect.status.interrupted'))).not.toBeNull()
-    expect(screen.getByText(t('collect.errorReason'))).not.toBeNull()
-  })
-
-  it('run.get 查询：真实形状（run + batches）渲染运行字段与批次表', async () => {
-    const { calls } = await renderPage(baseHandlers({
-      // tools 真实形状：顶层 { run, batches }。
-      'run.get': () => ({
-        ...OK,
-        run: {
-          run_id: 'run-hit',
-          account_id: 'finder-a',
-          status: 'completed',
-          expected_work_count: 45,
-          succeeded_work_count: 40,
-          failed_work_count: 3,
-          started_at: '2026-11-18T08:00:00.000Z',
-          finished_at: '2026-11-18T08:20:00.000Z',
-        },
-        batches: [
-          // 「部分成功」的真实表达：batch_status='succeeded' 且 failed_objects 非空。
-          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: ['d'] },
-          { batch_no: 2, batch_type: 'account_metrics', batch_status: 'failed', item_count: 1, succeeded_objects: [], failed_objects: ['x'] },
-          { batch_no: 3, batch_type: 'fans_trend', batch_status: 'pending', item_count: 30, succeeded_objects: [], failed_objects: [] },
-          { batch_no: 4, batch_type: 'fans_profile', batch_status: 'pending', item_count: 1, succeeded_objects: [], failed_objects: [] },
-        ],
-      }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    fireEvent.change(input, { target: { value: 'run-hit' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText('run-hit')).not.toBeNull()
-    expect(screen.getByText('finder-a')).not.toBeNull()
-    // run.status 走 collect.status.* 字典。
-    expect(screen.getByText(t('collect.status.completed'))).not.toBeNull()
-    expect(screen.getByText(t('run.label.expected'))).not.toBeNull()
-    expect(screen.getByText('45')).not.toBeNull()
-    expect(screen.getByText('40')).not.toBeNull()
-    // 「3」是失败作品计数 dd 与批次 3 的 batch_no（≥2 处）。
-    expect(screen.getAllByText('3').length).toBeGreaterThanOrEqual(2)
-    // 滚动容器键盘可达：tabIndex=0 + role=region + localized 可访问名。
-    const wrap = screen.getByRole('region', { name: t('run.batchTable.label') })
-    expect(wrap.getAttribute('tabindex')).toBe('0')
-    // 批次表：batch_no / batch_type / batch_status / item_count / 成功失败对象数；
-    // 四种 batch_type 与三种 batch_status 全部走字典。单元格在表内断言
-    // （避免与 tab / KPI 的 Works 等重名）。
-    const table = within(wrap as HTMLElement).getByText(t('run.batch.batchNo')).closest('table')
-    expect(table).not.toBeNull()
-    const batchTable = within(table as HTMLElement)
-    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(1)
-    expect(batchTable.getByText(t('run.batchType.accountMetrics'))).not.toBeNull()
-    expect(batchTable.getByText(t('run.batchType.fansTrend'))).not.toBeNull()
-    expect(batchTable.getByText(t('run.batchType.fansProfile'))).not.toBeNull()
-    // 批次状态枚举：pending ×2、succeeded ×1、failed ×1（另有表头各一）。
-    expect(batchTable.getAllByText(t('run.batchStatus.pending')).length).toBe(2)
-    expect(batchTable.getAllByText(t('run.batchStatus.succeeded')).length).toBe(2)
-    expect(batchTable.getAllByText(t('run.batchStatus.failed')).length).toBe(2)
-    // 「部分成功」由批次 1 的 succeeded + 失败对象计数 1 表达，无 partial 枚举。
-    const row1 = batchTable.getByText(t('run.batchType.works')).closest('tr')
-    expect(row1).not.toBeNull()
-    expect(within(row1 as HTMLElement).getByText(t('run.batchStatus.succeeded'))).not.toBeNull()
-    expect(within(row1 as HTMLElement).getAllByText('1').length).toBe(2)
-    const runCall = calls.find(call => call.action === 'run.get')
-    expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
-  })
-
-  it('批次行缺 batch_no（契约破坏）被丢弃，不渲染占位行', async () => {
-    await renderPage(baseHandlers({
-      'run.get': () => ({
-        ...OK,
-        run: { run_id: 'run-x', status: 'running' },
-        batches: [
-          { batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
-          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
-        ],
-      }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    fireEvent.change(input, { target: { value: 'run-x' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText('run-x')).not.toBeNull()
-    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
-    expect(table).not.toBeNull()
-    // 表头一行 + 仅 batch_no=1 的有效行。
-    expect(within(table as HTMLElement).getAllByRole('row').length).toBe(2)
-  })
-
-  it('run.get 未命中（RUN_NOT_FOUND）呈现空态；服务失败以失败态呈现，不伪装成未找到', async () => {
-    let failNext = false
-    await renderPage(baseHandlers({
-      'run.get': () => {
-        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
-        return { status: 'error', reason: 'RUN_NOT_FOUND' }
-      },
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.collect'] }))
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    // 未命中。
-    fireEvent.change(input, { target: { value: 'run-miss' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText(t('collect.runLookup.empty'))).not.toBeNull()
-    expect(screen.queryByText(t('collect.runLookup.failed'))).toBeNull()
-    // 服务失败：失败态 + 稳定 reason，不得显示「未找到」。
-    failNext = true
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText(t('collect.runLookup.failed'))).not.toBeNull()
-    expect(screen.getByText(`${t('error.WX_TOOL_UNAVAILABLE')}（WX_TOOL_UNAVAILABLE）`)).not.toBeNull()
-    expect(screen.queryByText(t('collect.runLookup.empty'))).toBeNull()
-  })
-})
-
-describe('账号页 probe / promote / 删除两步', () => {
-  it('account.probe 结果可见（ok）', async () => {
+  it('account.probe 结果以 toast 呈现并刷新账号列表', async () => {
     const { calls } = await renderPage(baseHandlers({
       'account.probe': () => ({ ...OK, sessionStatus: 'ok', reason: null, reported: true }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.probe') }))
-    expect(await screen.findByText(`${t('account.probe')}: ${t('account.sessionOk')}`)).not.toBeNull()
+    expect(await screen.findByText(t('account.probeOk'))).not.toBeNull()
     const probeCall = calls.find(call => call.action === 'account.probe')
     expect(probeCall?.args).toMatchObject({ accountId: 'finder-a' })
+    expect(calls.filter(call => call.action === 'accounts.list').length).toBeGreaterThanOrEqual(2)
   })
 
   it('account.promote：pending 账号提升成功后刷新列表', async () => {
@@ -647,13 +174,10 @@ describe('账号页 probe / promote / 删除两步', () => {
       'accounts.list': () => ({ ...OK, accounts: [{ ...ACCOUNT, accountId: 'pending-1', sessionStatus: 'unknown', isPending: true, hasStorageState: true }], remoteOk: true }),
       'account.promote': () => ({ ...OK, promoted: true, accountId: 'finder-a' }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.promote') }))
     expect(await screen.findByText(t('account.promoted'))).not.toBeNull()
-    expect(calls.filter(call => call.action === 'account.promote').length).toBe(1)
     const promoteCall = calls.find(call => call.action === 'account.promote')
     expect(promoteCall?.args).toMatchObject({ accountId: 'pending-1' })
-    // promoted → 刷新账号列表（两次 accounts.list）。
     expect(calls.filter(call => call.action === 'accounts.list').length).toBeGreaterThanOrEqual(2)
   })
 
@@ -662,7 +186,6 @@ describe('账号页 probe / promote / 删除两步', () => {
       'account.removeLocal': () => ({ ...OK, removed: true }),
       'account.removeRemote': () => ({ ...OK, removed: true }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
     // 第一步确认出现（warning + confirm + cancel），尚未调用任何删除。
     expect(screen.getByText(en['account.removeWarning'])).not.toBeNull()
@@ -680,7 +203,6 @@ describe('账号页 probe / promote / 删除两步', () => {
     const { calls } = await renderPage(baseHandlers({
       'account.removeLocal': () => ({ ...OK, removed: false, reason: 'collect_busy' }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
     fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(`${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
@@ -695,7 +217,6 @@ describe('账号页 probe / promote / 删除两步', () => {
     const { calls } = await renderPage(baseHandlers({
       'account.removeLocal': () => ({ status: 'error', reason: 'WX_TOOL_UNAVAILABLE' }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
     fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(en['account.delete.localFailed'], { exact: false })).not.toBeNull()
@@ -710,7 +231,6 @@ describe('账号页 probe / promote / 删除两步', () => {
       'account.removeLocal': () => ({ ...OK, removed: true }),
       'account.removeRemote': () => ({ status: 'error', reason: 'DELETE_CLEANUP_FAILED' }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
     fireEvent.click(screen.getByRole('button', { name: `${t('account.removeConfirmNamed', { name: '演示账号' })}` }))
     expect(await screen.findByText(en['account.delete.remoteFailed'], { exact: false })).not.toBeNull()
@@ -721,59 +241,362 @@ describe('账号页 probe / promote / 删除两步', () => {
 
   it('两步确认可取消：cancel 回到列表且不发生任何删除调用', async () => {
     const { calls } = await renderPage(baseHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     fireEvent.click(await screen.findByRole('button', { name: t('account.remove') }))
     fireEvent.click(screen.getByRole('button', { name: t('account.delete.cancel') }))
     expect(screen.queryByText(en['account.removeWarning'])).toBeNull()
     expect(calls.some(call => call.action.startsWith('account.remove'))).toBe(false)
   })
+})
 
-  it('会话过期账号提供重新扫码入口', async () => {
-    await renderPage(baseHandlers({
-      'accounts.list': () => ({ ...OK, accounts: [{ ...ACCOUNT, sessionStatus: 'expired' }], remoteOk: true }),
+describe('批量采集面板（账号管理栏标题行下方）', () => {
+  it('采集全部点击即进入乐观运行态：总进度 + 取消入口，批量期间单账号采集禁用', async () => {
+    let resolveStart: ((payload: Payload) => void) | undefined
+    const { calls } = await renderPage(baseHandlers({
+      'collectAll.start': () => new Promise<Payload>(resolve => { resolveStart = resolve }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
-    // KPI 卡与账号行都出现过期文案。
-    await waitFor(() => expect(screen.getAllByText(t('account.sessionExpired')).length).toBeGreaterThanOrEqual(2))
-    expect(screen.getByRole('button', { name: t('account.relogin') })).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    // 乐观投影立即可见（不等宿主返回）。
+    expect(screen.getByRole('button', { name: t('account.collectAllRunning') })).not.toBeNull()
+    expect(screen.getByText(t('batch.progress.fallback'))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('batch.cancel') })).not.toBeNull()
+    // 单账号采集按钮随批量运行禁用（宿主互斥，提前禁用给稳定反馈）。
+    expect(screen.getByRole('button', { name: t('works.collect') }).hasAttribute('disabled')).toBe(true)
+    expect(calls.some(call => call.action === 'collectAll.start')).toBe(true)
+    // 宿主返回后乐观态被真实投影覆盖（仍运行中）。
+    resolveStart?.({ ...OK, started: true, batchId: 'batch-1' })
+    await waitFor(() => expect(screen.getByText(t('batch.progress.fallback'))).not.toBeNull())
+  })
+
+  it('运行中显示当前账号与计数；批量取消后回到终态面板', async () => {
+    let cancelled = false
+    await renderPage(baseHandlers({
+      'collectAll.status': () => cancelled
+        ? {
+            ...OK, ready: true, phase: 'finished', total: 2, currentAccountIndex: 1, currentAccountId: null,
+            completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 2,
+            items: [
+              { accountId: 'finder-a', status: 'skipped', reason: 'collect_busy' },
+              { accountId: 'finder-b', status: 'skipped', reason: 'collect_busy' },
+            ],
+          }
+        : {
+            ...OK, ready: false, phase: 'collecting', total: 2, currentAccountIndex: 0,
+            currentAccountId: 'finder-a', completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+            items: [{ accountId: 'finder-a', status: 'running', reason: null }],
+          },
+      'collectAll.start': () => ({ ...OK, started: true, batchId: 'batch-1' }),
+      'collectAll.cancel': () => {
+        cancelled = true
+        return { ...OK, cancelled: true }
+      },
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    expect(await screen.findByText(t('batch.progress.collecting', { index: 1, total: 2 }))).not.toBeNull()
+    expect(screen.getByText(t('batch.current', { name: '演示账号' }))).not.toBeNull()
+    expect(screen.getByText(t('batch.counts', { completed: 0, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('batch.cancel') })).not.toBeNull()
+    // 取消后终态：跳过计数可见，按钮恢复「采集全部」。
+    fireEvent.click(screen.getByRole('button', { name: t('batch.cancel') }))
+    await waitFor(() => expect(screen.getByText(t('batch.summaryLine', { completed: 0, partial: 0, failed: 0, skipped: 2 }))).not.toBeNull())
+    expect(screen.getByRole('button', { name: t('account.collectAll') })).not.toBeNull()
+  })
+
+  it('终态：汇总四类计数完整，失败 / 跳过账号逐行稳定原因', async () => {
+    await renderPage(baseHandlers({
+      'collectAll.start': () => ({ ...OK, started: true, batchId: 'batch-1' }),
+      'collectAll.status': () => ({
+        ...OK, ready: true, phase: 'finished', total: 3, currentAccountIndex: 3,
+        currentAccountId: null, completedCount: 1, partialCount: 1, failedCount: 1, skippedCount: 0,
+        items: [
+          { accountId: 'finder-a', status: 'completed', reason: null },
+          { accountId: 'finder-b', status: 'partial', reason: 'partial' },
+          { accountId: 'finder-c', status: 'failed', reason: 'account_mismatch' },
+        ],
+      }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    expect(await screen.findByText(t('batch.summaryLine', { completed: 1, partial: 1, failed: 1, skipped: 0 }))).not.toBeNull()
+    // partial 也进未完成明细；稳定 reason 出可行动文案。
+    expect(screen.getByText(`${t('collect.reason.partial')}（partial）`)).not.toBeNull()
+    expect(screen.getByText(`${t('collect.reason.account_mismatch')}（account_mismatch）`)).not.toBeNull()
+    // 账号名投影：无本地账号的 ID 原样显示。
+    expect(screen.getByText('finder-c')).not.toBeNull()
+  })
+
+  it('批量未启动：started:false 清掉乐观态并显示稳定 reason', async () => {
+    await renderPage(baseHandlers({
+      'collectAll.start': () => ({ ...OK, started: false, reason: 'collect_busy' }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    expect(await screen.findByText(`${t('batch.startFailed')}：${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
+    // 乐观运行态已清除：采集全部按钮恢复可用。
+    expect(screen.getByRole('button', { name: t('account.collectAll') })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: t('account.collectAllRunning') })).toBeNull()
+  })
+})
+
+describe('作品工具栏（单账号采集入口与就地进度）', () => {
+  it('采集入口在作品工具栏：started:false 显示稳定 reason 且不进入 running', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'collect.start': () => ({ ...OK, started: false, reason: 'collect_busy' }),
+    }))
+    const start = screen.getByRole('button', { name: t('works.collect') })
+    fireEvent.click(start)
+    expect(await screen.findByText(t('collect.startFailedReason'))).not.toBeNull()
+    expect(screen.getByText(`${t('collect.reason.collect_busy')}（collect_busy）`)).not.toBeNull()
+    expect(calls.find(call => call.action === 'collect.start')?.args).toMatchObject({ accountId: 'finder-a' })
+    // busy 保持 false：开始按钮可用、取消按钮不出现。
+    expect(start.hasAttribute('disabled')).toBe(false)
+    expect(screen.queryByRole('button', { name: t('works.cancel') })).toBeNull()
+  })
+
+  it('运行中：按钮进入采集中 + 工具栏下方进度行 + 取消入口（不进顶部通知条）', async () => {
+    await renderPage(baseHandlers({
+      'collect.start': () => ({ ...OK, started: true, runId: 'run-1' }),
+      'collect.status': () => ({
+        ...OK,
+        busy: true,
+        collect: {
+          accountId: 'finder-a', attemptId: 'finder-a-abc', status: 'running',
+          startedAt: '2026-11-18T10:00:00.000Z', finishedAt: null, error: null,
+          progress: { phase: 'ingest', batchNo: 2, totalBatches: 5, succeeded: 30, failed: 1, expected: 45 },
+          result: null,
+        },
+        lastRun: null,
+      }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    expect(await screen.findByText(t('works.collecting'))).not.toBeNull()
+    // 进度行在工具栏按钮下方：阶段文案 + 细粒度批次计数 + 取消。
+    expect(screen.getByText(t('collect.progress.ingest', { batchNo: 2, totalBatches: 5, succeeded: 30, expected: 45 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('works.cancel') })).not.toBeNull()
+  })
+
+  it('终态 failed：toast 给稳定 reason，并按采集账号刷新数据', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'collect.start': () => ({ ...OK, started: true, runId: 'run-1' }),
+      'collect.status': () => ({
+        ...OK,
+        busy: false,
+        collect: {
+          accountId: 'finder-a', attemptId: 'finder-a-1', status: 'failed',
+          startedAt: '2026-11-18T10:00:00.000Z', finishedAt: '2026-11-18T10:05:00.000Z',
+          error: 'WX_SESSION_INVALID', progress: { phase: 'probing' }, result: null,
+        },
+        lastRun: null,
+      }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    expect(await screen.findByText(`${t('works.collectFailed')}：${t('error.WX_SESSION_INVALID')}（WX_SESSION_INVALID）`)).not.toBeNull()
+    // 终态后刷新：works / 摘要 / 账号列表再次调用。
+    await waitFor(() => expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(2))
+    expect(calls.filter(call => call.action === 'accounts.list').length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('作品列表（骨架）', () => {
+  it('真实 schema 渲染：snake_case 字段、null 计数显示占位', async () => {
+    const { calls } = await renderPage(baseHandlers())
+    expect(await screen.findByText('第一条作品')).not.toBeNull()
+    expect(screen.getByText('第二条')).not.toBeNull()
+    expect(screen.getByText(`${t('col.play')} 1000 · 2026-11-17 16:00`)).not.toBeNull()
+    const listCall = calls.find(call => call.action === 'works.list')
+    expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc' })
+  })
+
+  it('works 刷新失败保留已加载数据（partial 警告条），不再清空', async () => {
+    let failNext = false
+    const { calls } = await renderPage(baseHandlers({
+      'works.list': () => {
+        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, ...WORKS }
+      },
+    }))
+    await screen.findByText('第一条作品')
+    // 刷新按钮触发一次会失败的刷新。
+    failNext = true
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    // partial：已加载行保留 + 警告条（kit 文案），数据不被清空。
+    expect(await screen.findByText('Partial data shown; the rest failed to load')).not.toBeNull()
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    // 再次刷新成功恢复 ready。
+    failNext = false
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    await waitFor(() => expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull())
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('stale-write 守卫：切 tab 后旧账号响应不覆盖新账号数据', async () => {
+    let resolveSlow: ((payload: Payload) => void) | undefined
+    const otherAccount = { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }
+    await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, otherAccount], remoteOk: true }),
+      'works.list': args => {
+        if (args.accountId === 'finder-b') {
+          return new Promise<Payload>(resolve => { resolveSlow = resolve })
+        }
+        return { ...OK, works: [{ work_id: 'w-a', title: '账号甲作品', play_count: 1, like_count: 1, publish_time: null }] }
+      },
+    }))
+    expect(await screen.findByText('账号甲作品')).not.toBeNull()
+    // 卡片主体按钮的可访问名是整卡文本：经文本节点定位再取按钮。
+    const cardButton = (name: string): HTMLButtonElement | null =>
+      screen.getByText(name).closest('button') as HTMLButtonElement | null
+    // 切到账号乙（works 挂起），再切回账号甲（立即返回）。
+    fireEvent.click(cardButton('账号乙') as HTMLButtonElement)
+    await waitFor(() => expect(screen.getByText('演示账号')).not.toBeNull())
+    fireEvent.click(cardButton('演示账号') as HTMLButtonElement)
+    await waitFor(() => expect(screen.getByText('账号甲作品')).not.toBeNull())
+    // 账号乙的旧响应现在才返回：不得覆盖账号甲的数据。
+    resolveSlow?.({ ...OK, works: [{ work_id: 'w-stale', title: '过期数据', play_count: 1, like_count: 1, publish_time: null }] })
+    await waitFor(() => {
+      expect(screen.queryByText('过期数据')).toBeNull()
+      expect(screen.getByText('账号甲作品')).not.toBeNull()
+    })
+  })
+})
+
+describe('run 查询 Dialog（作品工具栏次级操作）', () => {
+  it('工具栏打开 Dialog：真实形状（run + batches）渲染运行字段与批次表', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'run.get': () => ({
+        ...OK,
+        run: {
+          run_id: 'run-hit',
+          account_id: 'finder-a',
+          status: 'completed',
+          expected_work_count: 45,
+          succeeded_work_count: 40,
+          failed_work_count: 3,
+          started_at: '2026-11-18T08:00:00.000Z',
+          finished_at: '2026-11-18T08:20:00.000Z',
+        },
+        batches: [
+          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: ['d'] },
+          { batch_no: 2, batch_type: 'account_metrics', batch_status: 'failed', item_count: 1, succeeded_objects: [], failed_objects: ['x'] },
+          { batch_no: 3, batch_type: 'fans_trend', batch_status: 'pending', item_count: 30, succeeded_objects: [], failed_objects: [] },
+          { batch_no: 4, batch_type: 'fans_profile', batch_status: 'pending', item_count: 1, succeeded_objects: [], failed_objects: [] },
+        ],
+      }),
+    }))
+    // 打开入口是工具栏次级按钮（不在顶级导航）。
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.title') }))
+    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
+    fireEvent.change(input, { target: { value: 'run-hit' } })
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText('run-hit')).not.toBeNull()
+    expect(screen.getByText('finder-a')).not.toBeNull()
+    expect(screen.getByText(t('collect.status.completed'))).not.toBeNull()
+    expect(screen.getByText('45')).not.toBeNull()
+    // 滚动容器键盘可达：tabIndex=0 + role=region + localized 可访问名。
+    const wrap = screen.getByRole('region', { name: t('run.batchTable.label') })
+    expect(wrap.getAttribute('tabindex')).toBe('0')
+    const table = within(wrap as HTMLElement).getByText(t('run.batch.batchNo')).closest('table')
+    expect(table).not.toBeNull()
+    const batchTable = within(table as HTMLElement)
+    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(1)
+    expect(batchTable.getByText(t('run.batchType.accountMetrics'))).not.toBeNull()
+    expect(batchTable.getByText(t('run.batchType.fansTrend'))).not.toBeNull()
+    expect(batchTable.getByText(t('run.batchType.fansProfile'))).not.toBeNull()
+    expect(batchTable.getAllByText(t('run.batchStatus.pending')).length).toBe(2)
+    const runCall = calls.find(call => call.action === 'run.get')
+    expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
+  })
+
+  it('Escape 关闭且焦点回到触发行；RUN_NOT_FOUND 与服务失败区分', async () => {
+    let failNext = false
+    await renderPage(baseHandlers({
+      'run.get': () => {
+        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { status: 'error', reason: 'RUN_NOT_FOUND' }
+      },
+    }))
+    const opener = screen.getByRole('button', { name: t('collect.runLookup.title') })
+    // 真实点击会移动焦点（fireEvent 不会）；焦点回归契约以打开前焦点为准。
+    opener.focus()
+    fireEvent.click(opener)
+    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
+    fireEvent.change(input, { target: { value: 'run-miss' } })
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText(t('collect.runLookup.empty'))).not.toBeNull()
+    // 服务失败：失败态 + 稳定 reason，不得显示「未找到」。
+    failNext = true
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText(t('collect.runLookup.failed'))).not.toBeNull()
+    // Escape 关闭，焦点回到触发按钮。
+    fireEvent.keyDown(screen.getByRole('dialog', { name: t('collect.runLookup.title') }), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: t('collect.runLookup.title') })).toBeNull())
+    expect(document.activeElement).toBe(opener)
+  })
+
+  it('批次行缺 batch_no（契约破坏）被丢弃，不渲染占位行', async () => {
+    await renderPage(baseHandlers({
+      'run.get': () => ({
+        ...OK,
+        run: { run_id: 'run-x', status: 'running' },
+        batches: [
+          { batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
+          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
+        ],
+      }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.title') }))
+    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
+    fireEvent.change(input, { target: { value: 'run-x' } })
+    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
+    expect(await screen.findByText('run-x')).not.toBeNull()
+    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
+    expect(table).not.toBeNull()
+    expect(within(table as HTMLElement).getAllByRole('row').length).toBe(2)
   })
 })
 
 describe('tab / keyboard / aria 基础', () => {
-  it('四个 tab aria-selected 与键盘左右切换', async () => {
-    await renderPage(baseHandlers())
-    const overviewTab = screen.getByRole('tab', { name: en['tab.overview'] })
-    expect(overviewTab.getAttribute('aria-selected')).toBe('true')
-    const worksTab = screen.getByRole('tab', { name: en['tab.works'] })
-    expect(worksTab.getAttribute('aria-selected')).toBe('false')
-    // ArrowRight → 选中并聚焦下一 tab（SegmentedTabs 键盘语义）。
-    fireEvent.keyDown(overviewTab, { key: 'ArrowRight' })
-    await waitFor(() => expect(screen.getByRole('tab', { name: en['tab.works'] }).getAttribute('aria-selected')).toBe('true'))
-    expect(document.activeElement?.getAttribute('role')).toBe('tab')
-    fireEvent.keyDown(screen.getByRole('tab', { name: en['tab.works'] }), { key: 'End' })
-    await waitFor(() => expect(screen.getByRole('tab', { name: en['tab.accounts'] }).getAttribute('aria-selected')).toBe('true'))
-  })
-
   it('panel region 与 tabpanel 可访问', async () => {
     await renderPage(baseHandlers())
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
     expect(screen.getByRole('tabpanel', { name: en.panel })).not.toBeNull()
   })
 
-  it('画像分布行键盘可达：tabIndex 与完整 aria-label', async () => {
-    await renderPage(baseHandlers({
-      'account.overview': () => ({ ...OK, metrics: { totals: {} }, fans_trend: { totals: {} } }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: { age: [{ key: '18-23', label: '18-23 岁', count: 40 }, { key: '24-30', label: '24-30 岁', count: 60 }] } }),
+  it('作品数据页两列布局：账号管理栏 + 作品面板并区存在；总览页隐藏账号栏', async () => {
+    await renderPage(baseHandlers())
+    // 作品数据页：账号管理栏（aside）+ 作品面板（section）。
+    expect(screen.getByRole('complementary', { name: t('account.title') })).not.toBeNull()
+    expect(screen.getByRole('region', { name: en['tab.works'] })).not.toBeNull()
+    // 切到账号总览：账号管理栏不再渲染（隐藏侧栏 = 不渲染，不是 CSS 藏）。
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    await waitFor(() => expect(screen.queryByRole('complementary', { name: t('account.title') })).toBeNull())
+    expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
+  })
+
+  it('账号总览页：账号选择器保留，切账号后三段数据源重新拉取', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
     }))
-    const row = await screen.findByText('18-23 岁')
-    const rowItem = row.closest('li')
-    expect(rowItem).not.toBeNull()
-    expect(rowItem?.getAttribute('tabindex')).toBe('0')
-    expect(rowItem?.getAttribute('aria-label')).toBe('18-23 岁: 40 (Share 40%)')
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    // 当前账号选择器（官方 Menu）始终显示。
+    fireEvent.click(await screen.findByRole('button', { name: `${t('overview.accountSwitch')}: 演示账号` }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'account.overview')
+      expect(last?.args).toMatchObject({ accountId: 'finder-b' })
+    })
+  })
+
+  it('总览时间窗参数进入服务端', async () => {
+    const { calls } = await renderPage(baseHandlers())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    await screen.findByText(t('col.play'))
+    fireEvent.click(screen.getByRole('tab', { name: t('overview.window.yesterday') }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'account.overview')
+      expect(last?.args).toMatchObject({ window: 'yesterday' })
+    })
   })
 })
 
-describe('词典键集（W4 新增键同步）', () => {
+describe('词典键集（增量同步防护）', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })

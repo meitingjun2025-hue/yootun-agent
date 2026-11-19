@@ -1,29 +1,30 @@
 /**
- * 页内图表 marks（ChartFrame 的 children）：折线趋势与水平分布条。绘图只消费
- * 集中 `--yt-chart-*` 语义变量（ChartFrame 根部下发）；tooltip 经 kit
- * ChartTooltip 靠边翻转；数据点/分布行可聚焦，tooltip 在 focus 时同样出现
- * （§5.2/§5.3：键盘路径等价于 hover）。
+ * 页内图表 marks（ChartFrame 的 children）：多系列折线趋势（真实 y 轴刻度、
+ * 缺失断线、按日聚焦点 + tooltip）、环形图（中心总人数 + 图例即等价明细）、
+ * 柱状分布（柱顶百分比）、Top-N 横向条形。绘图只消费集中 `--yt-chart-*` 语义
+ * 变量（ChartFrame 根部下发）；折线日期点可聚焦，tooltip 在 focus 时同样出现
+ * （§5.2/§5.3：键盘路径等价于 hover）；分布行文本即键盘等价明细。
  * @module
  */
 import { useState, type ReactNode } from 'react'
-import { ChartTooltip, type ChartTooltipRow } from '@yootun/dsh-client-ui-kit'
+import { ChartTooltip, type ChartTooltipRow, type YtChartColor } from '@yootun/dsh-client-ui-kit'
+import type { PortraitSlice } from './schema.ts'
 import css from './workbench.module.css'
 
-/** 折线一个数据点。 */
-export interface TrendPoint {
-  /** X 轴标签（日窗 YYYY-MM-DD）。 */
+/** 折线一个系列定义。 */
+export interface TrendSeries {
+  /** 行记录里的数值键。 */
+  key: string
+  /** 图例 / tooltip 里的系列名。 */
   label: string
-  /** 主数值；null 画为断点，不按 0 计。 */
-  value: number | null
-  /** Tooltip 明细行（含单位与次指标）。 */
-  rows: readonly ChartTooltipRow[]
+  /** 集中类别变量名（如 `--yt-chart-1`）。 */
+  color: YtChartColor
 }
 
-/** 分布条一行。 */
-export interface DistributionSlice {
-  key: string
-  label: string
-  count: number
+/** 折线一行：day 标签 + 各系列数值（null 断线，不按 0 计）。 */
+export interface TrendRow {
+  day: string
+  values: Record<string, number | null>
 }
 
 interface TooltipState {
@@ -37,98 +38,173 @@ function usePlotTooltip(): {
   container: HTMLDivElement | null
   mountContainer: (element: HTMLDivElement | null) => void
   tooltip: TooltipState | undefined
-  show(anchor: Element, title: string, rows: readonly ChartTooltipRow[]): void
+  show(point: { x: number; y: number }, title: string, rows: readonly ChartTooltipRow[]): void
   hide(): void
 } {
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const [tooltip, setTooltip] = useState<TooltipState | undefined>(undefined)
-  const show = (anchor: Element, title: string, rows: readonly ChartTooltipRow[]): void => {
-    if (container === null) return
-    const outer = container.getBoundingClientRect()
-    const inner = anchor.getBoundingClientRect()
-    setTooltip({
-      point: { x: inner.left - outer.left + inner.width / 2, y: inner.top - outer.top },
-      title,
-      rows,
-    })
+  const show = (point: { x: number; y: number }, title: string, rows: readonly ChartTooltipRow[]): void => {
+    setTooltip({ point, title, rows })
   }
   const hide = (): void => setTooltip(undefined)
   return { container, mountContainer: setContainer, tooltip, show, hide }
 }
 
-/** 数值格式化：整数计数直排（tabular-nums 由 CSS 负责）。 */
-function formatCount(value: number): string {
+/** locale 整数千分位格式化（模块级缓存，按 locale 复用）。 */
+const INT_FORMATS = new Map<string, Intl.NumberFormat>()
+function formatInt(value: number, locale: string): string {
+  let formatter = INT_FORMATS.get(locale)
+  if (formatter === undefined) {
+    formatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+    INT_FORMATS.set(locale, formatter)
+  }
+  return formatter.format(value)
+}
+
+/** 坐轴标签：大数值用 locale compact（zh 万/亿、en K/M），小跨度保留必要精度。 */
+function axisLabel(value: number, span: number, locale: string): string {
+  const abs = Math.abs(value)
+  if (abs >= 10_000) return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+  if (span < 10) return new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(value)
   return String(Math.round(value))
 }
 
-/** 折线 tooltip 行（主数值 + 可选次行）。 */
-function pointRows(point: TrendPoint, seriesLabel: string): ChartTooltipRow[] {
-  const primary: ChartTooltipRow = {
-    label: seriesLabel,
-    value: point.value === null ? '—' : formatCount(point.value),
-  }
-  return [primary, ...point.rows]
-}
-
 /**
- * 单系列折线趋势：0/25/50/75/最大值五档横网格，null 值断线不补 0；每个
- * 数据点是一个可聚焦的按钮层，focus/hover 都出 tooltip。
- * @param props.points - 顺序数据点。
- * @param props.seriesLabel - 图例/tooltip 里的系列名。
- * @param props.color - 集中类别变量名（如 `--yt-chart-1`）。
+ * 多系列折线趋势：统一真实 y 轴刻度（5 档横网格 + 左侧数值标签）、x 轴为行
+ * 给出的自然日（MM-DD）；缺失值断线（不跨缺口连线、不造 0）；每个日期列是
+ * 一个可聚焦的按钮层，focus/hover 都出全系列 tooltip。主系列（首项）最后
+ * 绘制、压在最上层。
+ * @param props.rows - 顺序日行（已按最近 N 日补齐）。
+ * @param props.series - 系列定义（首项为主系列）。
+ * @param props.locale - 数值格式化的 locale 标签。
+ * @param props.trendEmpty - 无任何有效值时的空态文案。
  * @returns 绘图层元素（配合绝对定位容器）。
  */
-export function TrendLineChart(props: { points: readonly TrendPoint[]; seriesLabel: string; color: string }): ReactNode {
+export function LineTrendChart(props: {
+  rows: readonly TrendRow[]
+  series: readonly TrendSeries[]
+  locale: string
+  trendEmpty: string
+}): ReactNode {
   const { container, mountContainer, tooltip, show, hide } = usePlotTooltip()
-  const points = props.points
-  const values = points.map(point => point.value).filter((value): value is number => value !== null)
-  const max = values.length > 0 ? Math.max(...values) : 0
-  const scaleMax = max > 0 ? max : 1
-  const xOf = (index: number): number => points.length <= 1 ? 50 : (index / (points.length - 1)) * 100
-  const yOf = (value: number): number => 100 - (value / scaleMax) * 100
-  const segments: string[] = []
-  let current: string[] = []
-  points.forEach((point, index) => {
-    if (point.value === null) {
-      if (current.length > 1) segments.push(current.join(' '))
-      current = []
-      return
+  const rows = props.rows
+  const series = props.series
+  const width = 680
+  const height = 210
+  const padLeft = 46
+  const padRight = 12
+  const padTop = 12
+  const padBottom = 24
+  const plotWidth = width - padLeft - padRight
+  const plotHeight = height - padTop - padBottom
+  const stepX = rows.length > 1 ? plotWidth / (rows.length - 1) : 0
+  const xAt = (index: number): number => padLeft + index * stepX
+
+  const values: number[] = []
+  for (const line of series) {
+    for (const row of rows) {
+      const value = row.values[line.key]
+      if (value !== null && value !== undefined) values.push(value)
     }
-    current.push(`${xOf(index).toFixed(2)},${yOf(point.value).toFixed(2)}`)
-  })
-  if (current.length > 1) segments.push(current.join(' '))
-  const gridValues = [0, scaleMax * 0.25, scaleMax * 0.5, scaleMax * 0.75, scaleMax]
+  }
+  if (values.length === 0) {
+    return <p className={css.chartEmpty}>{props.trendEmpty}</p>
+  }
+  const rawMin = Math.min(...values)
+  const rawMax = Math.max(...values)
+  const yMin = rawMin === rawMax ? Math.max(0, rawMin - 1) : rawMin
+  const yMax = rawMin === rawMax ? rawMax + 1 : rawMax
+  const yAt = (value: number): number => padTop + plotHeight - ((value - yMin) / (yMax - yMin)) * plotHeight
+  const span = yMax - yMin
+  const ticks = Array.from({ length: 5 }, (_, index) => yMin + (span * index) / 4)
+  const locale = props.locale
+
+  const dayTooltipRows = (row: TrendRow): ChartTooltipRow[] =>
+    series.map(line => ({
+      label: line.label,
+      value: row.values[line.key] === null || row.values[line.key] === undefined
+        ? '—'
+        : formatInt(row.values[line.key] as number, locale),
+      color: line.color,
+    }))
+
   return (
     <div ref={mountContainer} className={css.plotLayer}>
-      <svg className={css.plotSvg} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        {gridValues.map(value => (
-          <line
-            key={value}
-            x1="0" x2="100"
-            y1={yOf(value).toFixed(2)} y2={yOf(value).toFixed(2)}
-            className={css.plotGrid}
-          />
+      <svg className={css.axisSvg} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+        {ticks.map((tick, index) => (
+          <g key={index}>
+            <line
+              x1={padLeft} x2={width - padRight}
+              y1={yAt(tick).toFixed(1)} y2={yAt(tick).toFixed(1)}
+              className={css.plotGrid}
+            />
+            <text
+              x={padLeft - 8} y={(yAt(tick) + 3).toFixed(1)}
+              textAnchor="end" className={css.axisText}
+            >
+              {axisLabel(tick, span, locale)}
+            </text>
+          </g>
         ))}
-        {segments.map((segment, index) => (
-          <polyline
-            key={index}
-            points={segment}
-            className={css.plotLine}
-            style={{ stroke: `var(${props.color})` }}
-            vectorEffect="non-scaling-stroke"
-          />
+        {[...series].reverse().map(line => {
+          let d = ''
+          let segmentOpen = false
+          rows.forEach((row, index) => {
+            const value = row.values[line.key]
+            if (value === null || value === undefined) {
+              segmentOpen = false
+              return
+            }
+            d += `${segmentOpen ? 'L' : 'M'}${xAt(index).toFixed(1)},${yAt(value).toFixed(1)}`
+            segmentOpen = true
+          })
+          if (d === '') return null
+          return (
+            <path
+              key={line.key}
+              d={d}
+              fill="none"
+              className={css.plotLine}
+              style={{ stroke: `var(${line.color})` }}
+            />
+          )
+        })}
+        <line
+          x1={padLeft} y1={padTop + plotHeight} x2={width - padRight} y2={padTop + plotHeight}
+          className={css.plotGrid}
+        />
+        {rows.map((row, index) => (
+          <text
+            key={row.day}
+            x={xAt(index).toFixed(1)} y={height - 8}
+            textAnchor="middle" className={css.axisText}
+          >
+            {row.day.slice(5)}
+          </text>
         ))}
       </svg>
-      {points.map((point, index) => (
+      {rows.map((row, index) => (
         <button
-          key={point.label}
+          key={row.day}
           type="button"
-          className={point.value === null ? `${css.plotDot} ${css.plotDotMissing}` : css.plotDot}
-          style={{ left: `${xOf(index)}%`, top: `${point.value === null ? 4 : yOf(point.value)}%` }}
-          aria-label={`${point.label}: ${point.value === null ? '—' : formatCount(point.value)}`}
-          onFocus={event => show(event.currentTarget, point.label, pointRows(point, props.seriesLabel))}
+          className={css.plotColumn}
+          style={{ left: `${(xAt(index) / width) * 100}%` }}
+          aria-label={dayAria(row, series, locale)}
+          onFocus={event => {
+            const plotRect = container?.getBoundingClientRect()
+            const rect = event.currentTarget.getBoundingClientRect()
+            if (plotRect !== undefined) {
+              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
+            }
+          }}
           onBlur={hide}
-          onMouseEnter={event => show(event.currentTarget, point.label, pointRows(point, props.seriesLabel))}
+          onMouseEnter={event => {
+            const plotRect = container?.getBoundingClientRect()
+            const rect = event.currentTarget.getBoundingClientRect()
+            if (plotRect !== undefined) {
+              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
+            }
+          }}
           onMouseLeave={hide}
         />
       ))}
@@ -143,76 +219,170 @@ export function TrendLineChart(props: { points: readonly TrendPoint[]; seriesLab
   )
 }
 
-const MAX_VISIBLE_SLICES = 5
+/** 日期点 aria：day + 各系列「名 值」，缺失为 —。 */
+function dayAria(row: TrendRow, series: readonly TrendSeries[], locale: string): string {
+  const parts = series.map(line => {
+    const value = row.values[line.key]
+    return `${line.label} ${value === null || value === undefined ? '—' : formatInt(value, locale)}`
+  })
+  return `${row.day} ${parts.join(', ')}`
+}
+
+/** 语义类别色序列（环形按序取色）。 */
+const SLICE_COLORS: readonly YtChartColor[] = ['--yt-chart-1', '--yt-chart-2', '--yt-chart-3', '--yt-chart-4', '--yt-chart-5', '--yt-chart-6']
+
+/** 未知编码行固定中性档。 */
+function isUnknownKey(key: string): boolean {
+  return key === 'unknow' || key === 'unknown'
+}
+
+function sliceColor(index: number, key: string): YtChartColor {
+  return isUnknownKey(key) ? '--yt-chart-6' : SLICE_COLORS[index % SLICE_COLORS.length] ?? '--yt-chart-6'
+}
 
 /**
- * 水平分布条：前 5 行 + 其余合并为「其他」（§5.1 构成占比口径）；每行可见
- * 标签与计数，tooltip 补占比；行可聚焦（focus 即 tooltip）。
- * @param props.slices - 分布行（调用方已按计数降序）。
- * @param props.otherLabel - 合并行文案。
- * @param props.shareLabel - 占比行文案。
- * @param props.color - 主类别变量名。
- * @param props.otherColor - 合并行的类别变量名。
- * @returns 分布条列表。
+ * 环形分布图：SVG 描边环 + 中心总人数；图例行本身可见「名 人数 · 占比」，
+ * 即键盘等价明细（§5.2）。缺失维度由调用方呈现空态，不传空 slices。
+ * @param props.slices - 分布行（调用方定序）。
+ * @param props.locale - 数值格式化的 locale 标签。
+ * @param props.totalLabel - 中心标签（总人数）。
+ * @param props.title - 图表标题（aria 组装用）。
+ * @param props.aria - localized「{title}：共 {count} 人」组装函数。
+ * @returns 环形 + 图例。
  */
-export function BarDistribution(props: {
-  slices: readonly DistributionSlice[]
-  otherLabel: string
-  shareLabel: string
-  color: string
-  otherColor: string
+export function DonutChart(props: {
+  slices: readonly PortraitSlice[]
+  locale: string
+  totalLabel: string
+  title: string
+  aria: (title: string, count: number) => string
 }): ReactNode {
-  const { container, mountContainer, tooltip, show, hide } = usePlotTooltip()
-  const total = props.slices.reduce((sum, slice) => sum + slice.count, 0)
-  const visible = props.slices.slice(0, MAX_VISIBLE_SLICES)
-  const restCount = props.slices.slice(MAX_VISIBLE_SLICES).reduce((sum, slice) => sum + slice.count, 0)
-  const rows = restCount > 0
-    ? [...visible, { key: '__other__', label: props.otherLabel, count: restCount }]
-    : visible
-  const max = rows.reduce((peak, row) => Math.max(peak, row.count), 0) || 1
+  const slices = props.slices
+  const total = slices.reduce((sum, slice) => sum + slice.count, 0)
+  const radius = 15.9155
+  const circumference = 2 * Math.PI * radius
+  let acc = 0
+  const segments = slices.map((slice, index) => {
+    const start = total > 0 ? (acc / total) * circumference : 0
+    acc += slice.count
+    const length = total > 0 ? (slice.count / total) * circumference : 0
+    return {
+      slice,
+      dash: `${length.toFixed(3)} ${(circumference - length).toFixed(3)}`,
+      offset: (circumference / 4 - start).toFixed(3),
+      color: sliceColor(index, slice.key),
+    }
+  })
   return (
-    <div ref={mountContainer} className={css.plotLayer}>
-      <ul className={css.barList}>
-        {rows.map((row, index) => {
-          const share = total > 0 ? Math.round((row.count / total) * 100) : 0
-          const isOther = index >= MAX_VISIBLE_SLICES
+    <div className={css.donutRow} role="img" aria-label={props.aria(props.title, total)}>
+      <svg className={css.donut} viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r={radius} fill="none" className={css.donutTrack} />
+        {segments.map(segment => (
+          <circle
+            key={segment.slice.key}
+            cx="20" cy="20" r={radius}
+            fill="none"
+            className={css.donutSlice}
+            stroke={`var(${segment.color})`}
+            strokeDasharray={segment.dash}
+            strokeDashoffset={segment.offset}
+          />
+        ))}
+        <text x="20" y="19" textAnchor="middle" className={css.donutTotal}>{formatInt(total, props.locale)}</text>
+        <text x="20" y="26" textAnchor="middle" className={css.donutTotalLabel}>{props.totalLabel}</text>
+      </svg>
+      <ul className={css.donutLegend}>
+        {slices.map((slice, index) => {
+          const share = total > 0 ? Math.round((slice.count / total) * 100) : null
           return (
-            <li
-              key={row.key}
-              className={css.barRow}
-              tabIndex={0}
-              aria-label={`${row.label}: ${formatCount(row.count)} (${props.shareLabel} ${share}%)`}
-              onFocus={event => show(event.currentTarget, row.label, [
-                { label: props.shareLabel, value: `${share}%` },
-              ])}
-              onBlur={hide}
-              onMouseEnter={event => show(event.currentTarget, row.label, [
-                { label: props.shareLabel, value: `${share}%` },
-              ])}
-              onMouseLeave={hide}
-            >
-              <span className={css.barLabel}>{row.label}</span>
-              <span className={css.barTrack}>
-                <span
-                  className={css.barFill}
-                  style={{
-                    width: `${Math.max((row.count / max) * 100, 2)}%`,
-                    background: `var(${isOther ? props.otherColor : props.color})`,
-                  }}
-                />
+            <li key={slice.key} className={css.donutLegendRow}>
+              <span className={css.donutDot} style={{ background: `var(${sliceColor(index, slice.key)})` }} aria-hidden="true" />
+              <span className={css.donutLegendText}>
+                {share === null
+                  ? `${slice.label} ${formatInt(slice.count, props.locale)}`
+                  : `${slice.label} ${formatInt(slice.count, props.locale)} · ${share}%`}
               </span>
-              <span className={css.barCount}>{formatCount(row.count)}</span>
             </li>
           )
         })}
       </ul>
-      <ChartTooltip
-        visible={tooltip !== undefined}
-        point={tooltip?.point ?? { x: 0, y: 0 }}
-        title={tooltip?.title ?? ''}
-        rows={tooltip?.rows ?? []}
-        container={container}
-      />
     </div>
+  )
+}
+
+/**
+ * 柱状分布（年龄维度）：柱顶百分比、柱下标签；每列可聚焦并带完整 aria
+ * （人数 + 占比），可见文本即等价明细。
+ * @param props.slices - 分布行（官方年龄桶固定顺序）。
+ * @param props.locale - 数值格式化的 locale 标签。
+ * @param props.aria - localized「{name}：{count} 人，占比 {share}%」组装函数。
+ * @returns 柱状分布。
+ */
+export function ColumnChart(props: {
+  slices: readonly PortraitSlice[]
+  locale: string
+  aria: (name: string, count: number, share: number) => string
+}): ReactNode {
+  const total = props.slices.reduce((sum, slice) => sum + slice.count, 0)
+  const max = Math.max(1, ...props.slices.map(slice => slice.count))
+  return (
+    <ul className={css.columnChart}>
+      {props.slices.map(slice => {
+        const share = total > 0 ? Math.round((slice.count / total) * 100) : 0
+        return (
+          <li
+            key={slice.key}
+            className={css.columnItem}
+            tabIndex={0}
+            aria-label={props.aria(slice.label, slice.count, share)}
+          >
+            <span className={css.columnValue}>{total > 0 ? `${share}%` : '—'}</span>
+            <span className={css.columnBarTrack}>
+              <span className={css.columnBar} style={{ height: `${Math.max(8, Math.round((slice.count / max) * 100))}%` }} />
+            </span>
+            <span className={css.columnLabel}>{slice.label}</span>
+            <span className={css.columnCount}>{formatInt(slice.count, props.locale)}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/**
+ * Top-N 横向条形（省份 / 城市）：行即明细（名 + 计数可见，aria 带占比）；
+ * 长尾由调用方截断（只传 Top 5），不渲染合并行。
+ * @param props.slices - 已降序截断的分布行。
+ * @param props.locale - 数值格式化的 locale 标签。
+ * @param props.aria - localized「{name}：{count} 人，占比 {share}%」组装函数。
+ * @returns 条形行列表。
+ */
+export function RankBars(props: {
+  slices: readonly PortraitSlice[]
+  locale: string
+  aria: (name: string, count: number, share: number) => string
+}): ReactNode {
+  const total = props.slices.reduce((sum, slice) => sum + slice.count, 0)
+  const max = Math.max(1, ...props.slices.map(slice => slice.count))
+  return (
+    <ul className={css.barList}>
+      {props.slices.map(slice => {
+        const share = total > 0 ? Math.round((slice.count / total) * 100) : 0
+        return (
+          <li
+            key={slice.key}
+            className={css.barRow}
+            tabIndex={0}
+            aria-label={props.aria(slice.label, slice.count, share)}
+          >
+            <span className={css.barLabel}>{slice.label}</span>
+            <span className={css.barTrack}>
+              <span className={css.barFill} style={{ width: `${Math.max((slice.count / max) * 100, 2)}%`, background: 'var(--yt-chart-2)' }} />
+            </span>
+            <span className={css.barCount}>{formatInt(slice.count, props.locale)}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

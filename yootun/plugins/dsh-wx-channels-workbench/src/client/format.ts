@@ -12,26 +12,39 @@ export type Translate = (key: WxLocaleKey, values?: Record<string, string | numb
 const REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
   collect_busy: 'collect.reason.collect_busy',
   session_required: 'collect.reason.session_required',
+  session_expired: 'collect.reason.session_expired',
   probe_failed: 'collect.reason.probe_failed',
   plugin_disposing: 'collect.reason.plugin_disposing',
   pending_account: 'collect.reason.pending_account',
   storage_state_missing: 'collect.reason.storage_state_missing',
-  session_expired: 'error.WX_SESSION_INVALID',
+  account_mismatch: 'collect.reason.account_mismatch',
+  identity_check_failed: 'collect.reason.identity_check_failed',
+  identity_not_stable: 'collect.reason.identity_not_stable',
+  no_session_cookie: 'collect.reason.no_session_cookie',
+  auth_data_unavailable: 'collect.reason.auth_data_unavailable',
+  partial: 'collect.reason.partial',
+  ACCOUNT_NOT_FOUND: 'collect.reason.ACCOUNT_NOT_FOUND',
   WX_SESSION_INVALID: 'error.WX_SESSION_INVALID',
   WX_TOOL_UNAVAILABLE: 'error.WX_TOOL_UNAVAILABLE',
   GOOGLE_CHROME_MISSING: 'error.CHROME',
   PLAYWRIGHT_DRIVER_MISSING: 'error.CHROME_DRIVER',
 }
 
+/** 身份稳定类前缀（`identity_check_failed:<detail>`）共用同一文案键。 */
+const IDENTITY_PREFIX = 'identity_check_failed'
+
 /**
- * 稳定 reason → 单行文案；已知码给可行动文案并保留原码，未知码给通用文案
- * 并保留原码。
+ * 稳定 reason → 单行文案；已知码给可行动文案并保留原码，`identity_check_failed:*`
+ * 前缀码归并到同一文案，未知码给通用文案并保留原码。
  * @param reason - Host 响应中的稳定 reason。
  * @param t - 页面翻译函数。
  * @returns 展示文案。
  */
 export function reasonText(reason: string, t: Translate): string {
-  const key = REASON_KEYS[reason]
+  const normalized = reason.startsWith(`${IDENTITY_PREFIX}:`) || reason.startsWith(`${IDENTITY_PREFIX}_`)
+    ? IDENTITY_PREFIX
+    : reason
+  const key = REASON_KEYS[normalized]
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
 }
@@ -59,8 +72,39 @@ export function formatCount(value: number | null): string {
 }
 
 /**
+ * 比率展示：0..100 → 两位小数百分比；缺失为占位符（不把缺失伪装成 0%）。
+ * @param value - 百分比数值或 null。
+ * @returns 展示百分比。
+ */
+export function formatPct(value: number | null): string {
+  return value === null ? '—' : `${value.toFixed(2)}%`
+}
+
+/**
+ * 时长展示：秒 → 两位小数 + 单位；缺失为占位符。
+ * @param value - 秒数或 null。
+ * @param t - 页面翻译函数（单位文案）。
+ * @returns 展示时长。
+ */
+export function formatSeconds(value: number | null, t: Translate): string {
+  return value === null ? '—' : `${value.toFixed(2)} ${t('unit.seconds')}`
+}
+
+/**
+ * 次数/人数组合展示：uv 缺失只显示次数，双缺失占位符。
+ * @param count - 次数。
+ * @param uv - 人数。
+ * @returns 组合展示文本。
+ */
+export function formatPair(count: number | null, uv: number | null): string {
+  if (count === null) return '—'
+  if (uv === null) return String(Math.round(count))
+  return `${Math.round(count)} / ${Math.round(uv)}`
+}
+
+/**
  * 上海时区已完成自然日（YYYY-MM-DD）：offsetDays=1 是昨天（运行日不入窗），
- * 与 parse.ts 的上海日窗口径一致。
+ * 与 parse.ts 的上海日窗口口径一致。
  * @param offsetDays - 距今的天数（1 = 上海昨天）。
  * @param now - 当前毫秒时刻（测试注入）。
  * @returns YYYY-MM-DD。

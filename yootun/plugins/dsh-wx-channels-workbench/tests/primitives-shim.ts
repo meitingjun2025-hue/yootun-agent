@@ -9,3 +9,5 @@ export { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx
 export { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
 export { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives/src/SegmentedTabs.tsx'
 export { Menu } from '@deepseek-ai/dsh-client-ui-primitives/src/Menu.tsx'
+export { Modal } from '@deepseek-ai/dsh-client-ui-primitives/src/Modal.tsx'
+export { Toast } from '@deepseek-ai/dsh-client-ui-primitives/src/Toast.tsx'

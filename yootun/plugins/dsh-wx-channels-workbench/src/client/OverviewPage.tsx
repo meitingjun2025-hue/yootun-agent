@@ -1,23 +1,23 @@
 /**
- * 总览页：账号选择 + 时间窗（yesterday / last_7d / last_30d）→ account.overview
- * KPI、粉丝增长趋势折线、粉丝画像分布。数据严格按 tools 真实字段消费
- * （metrics.totals.daily_play_count / daily_like_count /
- * fans_trend.totals.follower_net_count / fans_profile envelope）；页面可用性
- * 以服务端 availability（account_metrics / fans_trend / fans_profile）为准，
- * 字段缺失时回退本地推导；账号/时间窗切换带请求代次守卫。
+ * 账号总览页（全宽，无账号侧栏）：当前账号选择器 + 数据区。数据严格按 tools
+ * 真实字段消费（metrics.totals.daily_* / fans_trend.totals / fans_profile
+ * envelope）；页面可用性以服务端 availability 为准，字段缺失回退本地推导；
+ * 账号 / 时间窗切换带请求代次守卫。三段布局（全部视频指标 / 关注者增长 /
+ * 关注者画像）在后续提交回正。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Menu, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ChartFrame, ChartLegend, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { BarDistribution, TrendLineChart } from './charts.tsx'
 import { formatCount, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
-  readFansProfile, readOverview, readOverviewAvailability,
+  overviewFansHaveData, overviewTotalsHaveData, readFansProfile, readOverview, readOverviewAvailability,
   type FansProfileData, type OverviewAvailability, type OverviewData, type PortraitSlice,
 } from './schema.ts'
+import { LineTrendChart, type TrendRow } from './charts.tsx'
+import { recentDays } from './works-format.ts'
 import type { AccountRow } from './WorkbenchPage.tsx'
 
 type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'partial'
@@ -28,11 +28,16 @@ type Availability = 'ok' | 'partial' | 'no_data'
 interface WindowTab { value: TimeWindow; label: string; id: string; panelId: string }
 interface DimensionTab { value: Dimension; label: string; id: string; panelId: string }
 
-export interface OverviewTabProps {
+export interface OverviewPageProps {
   t: Translate
+  localeTag: string
   accounts: AccountRow[]
   activeAccountId: string
   onSelectAccount: (accountId: string) => void
+  /** 固定 last_7d 摘要（页面级拉取；关注者趋势固定 7 天口径的数据源）。 */
+  summary: OverviewData | null
+  summaryState: 'loading' | 'ready' | 'error'
+  onRetrySummary: () => void
 }
 
 /** 服务端 availability 取值 → 卡片状态；缺失（null）回退 hasData 推导。 */
@@ -41,12 +46,11 @@ function serverState(value: string | null, hasData: boolean, fetchError: boolean
   if (value === 'partial') return 'partial'
   if (value === 'no_data') return 'empty'
   if (value === 'ok') return hasData ? 'ready' : 'empty'
-  // 字段缺失：按本地数据推导。
   return hasData ? 'ready' : 'empty'
 }
 
-/** 总览页组件。 */
-export function OverviewTab(props: OverviewTabProps): ReactNode {
+/** 账号总览页组件（骨架版）。 */
+export function OverviewPage(props: OverviewPageProps): ReactNode {
   const t = props.t
   const [timeWindow, setTimeWindow] = useState<TimeWindow>('last_7d')
   const [dimension, setDimension] = useState<Dimension>('age')
@@ -76,8 +80,8 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
       setAvailability(server)
       setOverviewError(false)
       // 三个源分开定态：播放/点赞/作品数按 account_metrics，关注变化按 fans_trend。
-      setOverviewState(serverState(server.accountMetrics, metricsHasData(next), false))
-      setFollowState(serverState(server.fansTrend, followHasData(next), false))
+      setOverviewState(serverState(server.accountMetrics, overviewTotalsHaveData(next.totals), false))
+      setFollowState(serverState(server.fansTrend, overviewFansHaveData(next), false))
     } catch {
       if (loadSeqRef.current !== seq) return
       setOverview(null)
@@ -89,7 +93,7 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
     try {
       const res = await hostAction('fans.profile.get', { accountId })
       if (loadSeqRef.current !== seq) return
-      const data = readFansProfile(res)
+      const data = readFansProfile(res, t)
       setProfile(data)
       setProfileError(false)
       // 画像源的 availability 在 account.overview 载荷上；缺失回退本地推导。
@@ -104,7 +108,7 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
       setProfileError(true)
       setProfileState('error')
     }
-  }, [])
+  }, [t])
 
   useEffect(() => {
     if (props.activeAccountId !== '') void load(props.activeAccountId, timeWindow)
@@ -114,17 +118,18 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
   const account = props.accounts.find(row => row.accountId === props.activeAccountId) ?? null
   const pageAvailability = pageAvailabilityOf(availability, overviewError, profileError, overview, profile !== null)
   const totals = overview?.totals
-  const trendHasData = (overview?.fansTrend.length ?? 0) > 0
-  const trendPoints = (overview?.fansTrend ?? []).map(point => ({
-    label: point.day,
-    value: point.followerTotalCount,
-    rows: [{ label: t('kpi.follow'), value: formatCount(point.followerNetCount) }],
-  }))
+  const trendHasData = (props.summary?.fansTrend.length ?? 0) > 0
+  const trendRows: TrendRow[] = recentDays(7).map(day => {
+    const point = props.summary?.fansTrend.find(row => row.day === day)
+    return { day, values: { total: point?.followerTotalCount ?? null } }
+  })
   const slices: PortraitSlice[] = profile === null ? [] : profile[dimension] ?? []
   // 加载态优先：账号/时间窗切换后旧 availability 不再驱动图表呈现。
-  const trendCardState = overviewState === 'loading'
+  const trendCardState = props.summaryState === 'loading'
     ? 'loading'
-    : chartState(serverState(availability.fansTrend, trendHasData, overviewError), trendHasData)
+    : props.summaryState === 'error'
+      ? 'error'
+      : trendHasData ? 'ready' : 'empty'
   const portraitCardState = profileState === 'loading'
     ? 'loading'
     : chartState(serverState(availability.fansProfile, profile !== null, profileError), slices.length > 0)
@@ -140,7 +145,7 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
     { value: 'city', label: t('portrait.city'), id: 'wx-dim-city', panelId: 'wx-panel-overview' },
     { value: 'device', label: t('portrait.device'), id: 'wx-dim-device', panelId: 'wx-panel-overview' },
   ]
-  const windowLabel = t(`overview.window.${timeWindow}`)
+  const windowLabel = t(`overview.window.${timeWindow}` as 'overview.window.yesterday')
   return (
     <div className={css.tabBody}>
       <div className={css.toolbar}>
@@ -150,23 +155,22 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
           activeAccountId={props.activeAccountId}
           onSelect={props.onSelectAccount}
         />
-        <SegmentedTabs items={windowTabs} value={timeWindow} onChange={setTimeWindow} label={windowLabel} size='sm' />
+        <MenulessWindowTabs tabs={windowTabs} value={timeWindow} onChange={setTimeWindow} label={windowLabel} />
         {/* 任一源仍在加载时不给结论性可用性（不得短暂伪成 no_data）。 */}
         {overviewState !== 'loading' && profileState !== 'loading' && (
           <span className={css.availability} data-kind={pageAvailability} role='status'>
-            {t(`overview.availability.${pageAvailability}`)}
+            {t(`overview.availability.${pageAvailability}` as 'overview.availability.ok')}
           </span>
         )}
       </div>
       <div className={css.kpis}>
-        <KpiCard label={t('kpi.play')} value={formatCount(totals?.dailyPlayCount ?? null)}
-          state={kpiState(overviewState, totals?.dailyPlayCount)}
-          footnote={windowLabel} onRetry={retry} />
-        <KpiCard label={t('kpi.like')} value={formatCount(totals?.dailyLikeCount ?? null)}
-          state={kpiState(overviewState, totals?.dailyLikeCount)} footnote={windowLabel} />
-        <KpiCard label={t('kpi.follow')} value={formatCount(totals?.followerNetCount ?? null)}
-          state={kpiState(followState, totals?.followerNetCount)} footnote={windowLabel} />
-        <KpiCard label={t('kpi.works')}
+        <KpiCard label={t('col.play')} value={formatCount(totals?.playCount ?? null)}
+          state={kpiState(overviewState, totals?.playCount)} footnote={windowLabel} onRetry={retry} />
+        <KpiCard label={t('col.like')} value={formatCount(totals?.likeCount ?? null)}
+          state={kpiState(overviewState, totals?.likeCount)} footnote={windowLabel} />
+        <KpiCard label={t('fans.net')} value={formatCount(overview?.fansTotals.netCount ?? null)}
+          state={kpiState(followState, overview?.fansTotals.netCount)} footnote={windowLabel} />
+        <KpiCard label={t('summary.worksTotal')}
           value={formatCount(totals?.workCount ?? account?.feedCount ?? null)}
           state={kpiState(overviewState, totals?.workCount ?? account?.feedCount ?? null)}
           footnote={windowLabel} />
@@ -176,38 +180,31 @@ export function OverviewTab(props: OverviewTabProps): ReactNode {
           title={t('chart.fansTrend')}
           height={240}
           state={trendCardState}
-          onRetry={retry}
-          legend={<ChartLegend items={[{ id: 'fans-total', label: t('overview.fansTotal'), color: '--yt-chart-1' }]} />}
+          onRetry={props.onRetrySummary}
+          legend={<ChartLegend items={[{ id: 'fans-total', label: t('chart.fansSeries'), color: '--yt-chart-1' }]} />}
           footnote={t('overview.dataSource')}
         >
           {trendHasData && (
-            <TrendLineChart points={trendPoints} seriesLabel={t('overview.fansTotal')} color='--yt-chart-1' />
+            <LineTrendChart
+              rows={trendRows}
+              series={[{ key: 'total', label: t('chart.fansSeries'), color: '--yt-chart-1' }]}
+              locale={props.localeTag}
+              trendEmpty={t('chart.trendEmpty')}
+            />
           )}
         </ChartFrame>
         <ChartFrame
-          title={t('chart.portrait')}
+          title={t('portrait.age')}
           height={240}
           state={portraitCardState}
           onRetry={retry}
-          legend={<ChartLegend items={[{ id: 'portrait-fans', label: t('portrait.fans'), color: '--yt-chart-2' }]} />}
+          legend={<ChartLegend items={[{ id: 'portrait-fans', label: t('portrait.total'), color: '--yt-chart-2' }]} />}
           footnote={t('overview.dataSource')}
         >
           {profile !== null && (
             <div className={css.portraitBody}>
-              <SegmentedTabs
-                items={dimensionTabs}
-                value={dimension}
-                onChange={setDimension}
-                label={t('chart.portrait')}
-                size='sm'
-              />
-              <BarDistribution
-                slices={slices}
-                otherLabel={t('portrait.other')}
-                shareLabel={t('portrait.share')}
-                color='--yt-chart-2'
-                otherColor='--yt-chart-6'
-              />
+              <DimensionTabs tabs={dimensionTabs} value={dimension} onChange={setDimension} label={t('portrait.age')} />
+              <BarList slices={slices} />
             </div>
           )}
         </ChartFrame>
@@ -230,7 +227,7 @@ function AccountSelect(props: { t: Translate; accounts: AccountRow[]; activeAcco
           size='sm'
           aria-haspopup='menu'
           aria-expanded={open}
-          aria-label={`${label}: ${current?.nickname ?? current?.accountId ?? ''}`}
+          aria-label={`${props.t('overview.accountSwitch')}: ${current?.nickname ?? current?.accountId ?? ''}`}
           onClick={() => { setOpen(value => !value) }}
         >
           {current?.nickname ?? current?.accountId ?? label}
@@ -247,44 +244,32 @@ function AccountSelect(props: { t: Translate; accounts: AccountRow[]; activeAcco
   )
 }
 
-/** KPI 总量是否有任一真实值（fansTrend 行也算数据；页面级回退推导用）。 */
-function overviewHasData(overview: OverviewData | null): boolean {
-  if (overview === null) return false
-  return metricsHasData(overview) || followHasData(overview)
+/** 时间窗切换（骨架版临时形态；后续提交移到「全部视频指标」标题行）。 */
+function MenulessWindowTabs(props: { tabs: readonly [WindowTab, ...WindowTab[]]; value: TimeWindow; onChange: (value: TimeWindow) => void; label: string }): ReactNode {
+  return <SegmentedTabs items={props.tabs} value={props.value} onChange={props.onChange} label={props.label} size='sm' />
 }
 
-/** account_metrics 源是否有数据：播放 / 点赞 / 作品数任一非 null。 */
-function metricsHasData(overview: OverviewData): boolean {
-  const totals = overview.totals
-  return totals.dailyPlayCount !== null || totals.dailyLikeCount !== null || totals.workCount !== null
+/** 画像维度切换（骨架版临时形态；后续提交改五维同屏）。 */
+function DimensionTabs(props: { tabs: readonly [DimensionTab, ...DimensionTab[]]; value: Dimension; onChange: (value: Dimension) => void; label: string }): ReactNode {
+  return <SegmentedTabs items={props.tabs} value={props.value} onChange={props.onChange} label={props.label} size='sm' />
 }
 
-/** fans_trend 源是否有数据：关注变化非 null 或趋势日行非空。 */
-function followHasData(overview: OverviewData): boolean {
-  return overview.totals.followerNetCount !== null || overview.fansTrend.length > 0
-}
-
-/**
- * 页面级 availability：以服务端三源为准——全部 ok（或源缺失且本地有数据）且
- * 无请求失败 → ok；全部 no_data → no_data；其余（任一 partial / 请求失败 /
- * ok 与 no_data 混合）→ partial。
- */
-function pageAvailabilityOf(
-  server: OverviewAvailability,
-  overviewError: boolean,
-  profileError: boolean,
-  overview: OverviewData | null,
-  profileLoaded: boolean,
-): Availability {
-  if (overviewError || profileError) return 'partial'
-  const values = [
-    server.accountMetrics ?? (overviewHasData(overview) ? 'ok' : 'no_data'),
-    server.fansTrend ?? ((overview?.fansTrend.length ?? 0) > 0 ? 'ok' : 'no_data'),
-    server.fansProfile ?? (profileLoaded ? 'ok' : 'no_data'),
-  ]
-  if (values.every(value => value === 'no_data')) return 'no_data'
-  if (values.every(value => value === 'ok')) return 'ok'
-  return 'partial'
+/** 骨架版画像分布：按计数降序的简表（后续提交替换为环形/柱状/Top5）。 */
+function BarList(props: { slices: readonly PortraitSlice[] }): ReactNode {
+  const rows = [...props.slices].sort((left, right) => right.count - left.count)
+  return (
+    <ul className={css.barList}>
+      {rows.map(row => (
+        <li key={row.key} className={css.barRow} tabIndex={0} aria-label={`${row.label}: ${row.count}`}>
+          <span className={css.barLabel}>{row.label}</span>
+          <span className={css.barTrack}>
+            <span className={css.barFill} style={{ width: '2%', background: 'var(--yt-chart-2)' }} />
+          </span>
+          <span className={css.barCount}>{formatCount(row.count)}</span>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 /** KPI 卡状态：加载/错误/服务端源状态优先，值缺失按 empty。 */
@@ -298,4 +283,23 @@ function chartState(state: LoadState, hasData: boolean): LoadState {
   if (state === 'partial') return hasData ? 'partial' : 'empty'
   if (state === 'ready') return hasData ? 'ready' : 'empty'
   return state
+}
+
+/** 页面级 availability：以服务端三源为准，混合或失败按 partial（其余归纳）。 */
+function pageAvailabilityOf(
+  server: OverviewAvailability,
+  overviewError: boolean,
+  profileError: boolean,
+  overview: OverviewData | null,
+  profileLoaded: boolean,
+): Availability {
+  if (overviewError || profileError) return 'partial'
+  const values = [
+    server.accountMetrics ?? ((overview !== null && overviewTotalsHaveData(overview.totals)) ? 'ok' : 'no_data'),
+    server.fansTrend ?? ((overview?.fansTrend.length ?? 0) > 0 ? 'ok' : 'no_data'),
+    server.fansProfile ?? (profileLoaded ? 'ok' : 'no_data'),
+  ]
+  if (values.every(value => value === 'no_data')) return 'no_data'
+  if (values.every(value => value === 'ok')) return 'ok'
+  return 'partial'
 }
