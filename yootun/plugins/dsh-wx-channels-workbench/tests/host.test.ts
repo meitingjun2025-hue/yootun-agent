@@ -18,6 +18,9 @@ import {
   safeSegment, stateRoot, updateAccount, writeAccounts,
 } from '../src/state.ts'
 import { browserStatus, chromeCandidates, resolveSystemChrome } from '../src/chrome.ts'
+import {
+  ingestAccountMetricsIdempotencyKey, ingestFansProfileIdempotencyKey, ingestFansTrendIdempotencyKey,
+} from '../src/idempotency.ts'
 
 // --- 路由 schema 层 ---
 
@@ -29,6 +32,24 @@ test('action allowlist：19 项白名单且全部有 schema', () => {
     'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview', 'fans.profile.get',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
+})
+
+test('Tools 契约：插件 Config 可解析，vault 引用与账号级幂等键前缀精确', async () => {
+  const { Config } = await import('../src/index.ts')
+  assert.deepEqual(Config({}), { stateDir: '' })
+  assert.equal(paths('/tmp/wx').vaultRef('a@finder'), 'vault://wx-channels/a@finder')
+  assert.equal(
+    ingestAccountMetricsIdempotencyKey('run-1', '2026-01-01', '2026-01-31'),
+    'wx_channels:ingest_account_metrics:run-1:2026-01-01:2026-01-31',
+  )
+  assert.equal(
+    ingestFansTrendIdempotencyKey('run-1', '2026-01-01', '2026-01-31'),
+    'wx_channels:ingest_fans_trend:run-1:2026-01-01:2026-01-31',
+  )
+  assert.equal(
+    ingestFansProfileIdempotencyKey('run-1', '2026-01-31'),
+    'wx_channels:ingest_fans_profile:run-1:2026-01-31',
+  )
 })
 
 test('schema：未知字段拒绝、未知 action 拒绝、字符串截断', () => {
@@ -310,6 +331,33 @@ test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
   assert.equal(result.status, 'error')
   assert.equal(result.reason, 'LOCAL_CLEARED_REQUIRED')
   await rm(root, { recursive: true, force: true })
+})
+
+test('accounts.list：远端删除墓碑不回流为可操作账号', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const deps = createWxHostDeps({
+    root: join(tmpdir(), `wx-al-${String(Math.random()).slice(2)}`),
+    workbench: {
+      callTool: async (_caller: string, _domain: string, name: string) => {
+        assert.equal(name, 'workbench_wx_account_list')
+        return {
+          structuredContent: {
+            accounts: [
+              { account_id: 'deleted-1', nickname: '远端已删除', delete_state: 'remote_deleted' },
+              { account_id: 'active-1', nickname: '远端可用', delete_state: 'none' },
+            ],
+          },
+          content: [],
+        }
+      },
+    },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
+  const handlers = buildRouteHandlers(deps, batch as never)
+  const result = await handlers['accounts.list']?.({}) as { accounts?: Array<{ accountId: string }> }
+  assert.deepEqual(result.accounts?.map(row => row.accountId), ['active-1'])
 })
 
 test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省不携带', async () => {

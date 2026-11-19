@@ -1,7 +1,6 @@
 /**
- * 幂等键模板（迁移旧 tools-client.js 口径）：键段语义由服务端校验
- * （run_start 的键后缀必须是 runId）；workbench 面沿用同一服务端业务层，
- * 键模板与旧 face 保持一致。账号存/删的键含时间戳（每次操作新键）。
+ * Tools 服务端强制校验的幂等键模板（run_start 的键后缀必须是 runId）。
+ * 账号存/删的键含时间戳（每次操作新键）。
  * @module
  */
 
@@ -17,12 +16,12 @@ export const heartbeatIdempotencyKey = (runId: string, seq: number): string => `
 export const ingestWorksIdempotencyKey = (runId: string, batchNo: number): string => `wx_channels:ingest_works:${runId}:${batchNo}`
 /** 账号级指标键：键嵌窗口。 */
 export const ingestAccountMetricsIdempotencyKey = (runId: string, startDay: string, endDay: string): string =>
-  `wx_channels:account_metrics:${runId}:${startDay}:${endDay}`
+  `wx_channels:ingest_account_metrics:${runId}:${startDay}:${endDay}`
 /** fans_trend 键：键嵌分块窗口。 */
 export const ingestFansTrendIdempotencyKey = (runId: string, startDay: string, endDay: string): string =>
-  `wx_channels:fans_trend:${runId}:${startDay}:${endDay}`
+  `wx_channels:ingest_fans_trend:${runId}:${startDay}:${endDay}`
 /** fans_profile 键：键嵌 day。 */
-export const ingestFansProfileIdempotencyKey = (runId: string, day: string): string => `wx_channels:fans_profile:${runId}:${day}`
+export const ingestFansProfileIdempotencyKey = (runId: string, day: string): string => `wx_channels:ingest_fans_profile:${runId}:${day}`
 /** finish 键：固定为 runId。 */
 export const runFinishIdempotencyKey = (runId: string): string => `wx_channels:run_finish:${runId}`
 /** cancel 键：固定为 runId（幂等终止）。 */

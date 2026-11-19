@@ -20497,6 +20497,9 @@ importers:
 
   yootun/plugins/dsh-wx-channels-workbench:
     dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       playwright-core:
         specifier: ^1.49.0
         version: 1.61.1

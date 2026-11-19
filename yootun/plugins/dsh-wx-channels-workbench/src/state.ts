@@ -52,7 +52,7 @@ export function paths(root: string): StatePaths {
     runsFile: join(root, 'runs.json'),
     profileDir: accountId => join(root, 'profiles', safeSegment(accountId)),
     storageStatePath: accountId => join(root, 'storage-state', `${safeSegment(accountId)}.json`),
-    vaultRef: accountId => `vault://wx-channels/${safeSegment(accountId)}`,
+    vaultRef: accountId => `vault://wx-channels/${accountId}`,
   }
 }
 

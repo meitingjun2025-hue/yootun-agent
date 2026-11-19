@@ -7,6 +7,7 @@
  * @module @yootun/dsh-wx-channels-workbench
  */
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@yootun/dsh-workbench-mcp'
@@ -32,10 +33,12 @@ export interface Config {
   stateDir: string
 }
 
-export const Config = {
+type ConfigInput = Partial<{ stateDir: unknown }>
+
+export const Config = z.object({
   /** 默认空串：沿用旧目录与 env 覆盖链。 */
-  stateDir: '',
-}
+  stateDir: z.string().default(''),
+}) as z<ConfigInput, Config>
 
 /**
  * Register the same-origin route (POST only) with the action allowlist.

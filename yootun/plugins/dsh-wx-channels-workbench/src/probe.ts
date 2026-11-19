@@ -5,7 +5,7 @@
  */
 import { safeCode } from './errors.ts'
 import {
-  bumpSessionSeqWith, getAccount, nextSessionSeq, safeSegment, type AccountRecord,
+  bumpSessionSeqWith, getAccount, nextSessionSeq, paths, type AccountRecord,
 } from './state.ts'
 import { refreshSessionState, type RefreshedSession } from './session.ts'
 import { withProfileLock } from './locks.ts'
@@ -39,7 +39,7 @@ export async function markSessionOk(options: { accountId: string; root: string; 
     sessionStatus: 'ok',
     sessionCheckedAt: new Date().toISOString(),
   }, floor, options.root)
-  return projectRecord(options.accountId, record, seq, 'ok', null)
+  return projectRecord(options.accountId, options.root, record, seq, 'ok', null)
 }
 
 /** 会话标记 expired（细分原因保留：account_mismatch 等可行动文案可达）。 */
@@ -49,16 +49,16 @@ export async function markSessionExpired(options: { accountId: string; root: str
     sessionStatus: 'expired',
     sessionCheckedAt: new Date().toISOString(),
   }, seq - 1, options.root)
-  return projectRecord(options.accountId, record, record.sessionSeq ?? seq, 'expired', options.reason ?? 'session_invalid')
+  return projectRecord(options.accountId, options.root, record, record.sessionSeq ?? seq, 'expired', options.reason ?? 'session_invalid')
 }
 
-function projectRecord(accountId: string, record: AccountRecord, seq: number, status: RefreshedSession['sessionStatus'], reason: string | null): RefreshedSession {
+function projectRecord(accountId: string, root: string, record: AccountRecord, seq: number, status: RefreshedSession['sessionStatus'], reason: string | null): RefreshedSession {
   return {
     sessionStatus: status,
     reason,
     sessionSeq: seq,
     checkedAt: record.sessionCheckedAt ?? new Date().toISOString(),
-    vaultRef: `vault://wx-channels/${safeSegment(accountId)}`,
+    vaultRef: paths(root).vaultRef(accountId),
     accountId,
     sessionStatusReported: false,
   }

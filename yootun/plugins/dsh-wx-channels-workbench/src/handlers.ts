@@ -185,6 +185,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       for (const row of remote) {
         const remoteId = stringValue(row.account_id)
         if (remoteId === null || seen.has(remoteId)) continue
+        if (row.delete_state === 'remote_deleted') continue
         accounts.push({
           accountId: remoteId,
           nickname: stringValue(row.nickname),

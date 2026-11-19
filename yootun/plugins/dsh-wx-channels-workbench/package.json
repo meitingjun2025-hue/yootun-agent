@@ -35,6 +35,7 @@
     "@yootun/dsh-workbench-mcp": "workspace:*"
   },
   "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~",
     "playwright-core": "^1.49.0"
   },
   "devDependencies": {
