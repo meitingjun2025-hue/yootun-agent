@@ -1042,7 +1042,7 @@ describe('复审修复回归', () => {
     expect(screen.queryByText('Failed to load')).toBeNull()
   })
 
-  it('P1 关注者趋势卡消费 last_7d fans_trend availability：partial + 有数据 = 警告条与数据同屏', async () => {
+  it('P1 关注者趋势卡消费 last_7d fans_trend availability：partial + 有数据 = 源级说明与数据同屏（不逐卡插警告条）', async () => {
     await renderPage(baseHandlers({
       'account.overview': () => ({
         ...OK,
@@ -1056,9 +1056,11 @@ describe('复审修复回归', () => {
       'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    // partial：趋势卡警告条出现（fans KPI 卡同为 partial，≥1 处命中）。
-    await waitFor(() => expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(1))
-    // 数据同屏：趋势日点仍在（不得因 partial 清空数据或标成 ready）。
+    // partial：数据不完整说明出现（趋势卡 footnote 通道，与数据来源拼接），不得隐藏。
+    await waitFor(() => expect(screen.getAllByText(/Some days in this window have no collected data/u).length).toBeGreaterThanOrEqual(1))
+    // 逐卡的 DataState 警告条不再出现（数值直排，说明收敛为区块级一次）。
+    expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull()
+    // 数据同屏：趋势日点仍在（不得因 partial 清空数据）。
     expect(screen.getByRole('button', { name: '2026-11-16 Total followers 100' })).not.toBeNull()
   })
 

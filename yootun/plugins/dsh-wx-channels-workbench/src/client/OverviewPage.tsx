@@ -178,8 +178,9 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
     return { day, values: { total: point?.followerTotalCount ?? null } }
   })
   // 加载态优先：切账号 / 切窗口后旧 availability 不再驱动图表呈现。
-  // 趋势卡按固定 last_7d 摘要载荷的 fans_trend 源定态：partial + 有数据 =
-  // partial 警告条与数据同屏，不得标成 ready。
+  // 趋势卡按固定 last_7d 摘要载荷的 fans_trend 源定态：partial + 有数据按
+  // ready 呈现（数值直排），partial 说明并入 footnote，不渲染警告条。
+  const trendPartial = props.summaryAvailability.fansTrend === 'partial' && trendHasData
   const trendCardState = props.summaryState === 'loading'
     ? 'loading'
     : props.summaryState === 'error'
@@ -243,6 +244,9 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
               {availability.accountMetrics === 'no_data' && (
                 <p className={css.sidebarHint} role='status'>{t('overview.metricsNoData')}</p>
               )}
+              {availability.accountMetrics === 'partial' && (
+                <p className={css.sidebarHint} role='status'>{t('overview.metricsPartial')}</p>
+              )}
             </div>
           </DataCard>
         </section>
@@ -256,7 +260,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
           state={trendCardState}
           onRetry={props.onRetrySummary}
           legend={<ChartLegend items={[{ id: 'fans-total', label: t('chart.fansSeries'), color: '--yt-chart-1' }]} />}
-          footnote={t('overview.dataSource')}
+          footnote={trendPartial ? `${t('overview.dataSource')} · ${t('overview.metricsPartial')}` : t('overview.dataSource')}
         >
           {trendHasData && (
             <div className={css.refreshDim} data-refreshing={props.summaryRefreshing || undefined}>
@@ -294,6 +298,9 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
       >
         {portraitHasAny && profile !== null && (
           <div className={css.refreshDim} data-refreshing={refreshing || undefined}>
+            {availability.fansProfile === 'partial' && (
+              <p className={css.sidebarHint} role='status'>{t('overview.metricsPartial')}</p>
+            )}
             <div className={css.portraitGrid}>
               <PortraitCard title={t('portrait.gender')}>
                 {profile.gender !== null
@@ -386,15 +393,15 @@ function AccountSelect(props: { t: Translate; accounts: AccountRow[]; activeAcco
   )
 }
 
-/** KPI 卡状态：加载/错误/服务端源状态优先，值缺失按 empty。 */
+/** KPI 卡状态：加载/错误优先；partial（服务端源数据不完整）有值按 ready 直排，缺失按 empty——partial 说明由区块级提示行承担，不逐卡插警告条。 */
 function kpiState(cardState: LoadState, value: number | null | undefined): LoadState {
-  if (cardState === 'ready') return value === null || value === undefined ? 'empty' : 'ready'
+  if (cardState === 'ready' || cardState === 'partial') return value === null || value === undefined ? 'empty' : 'ready'
   return cardState
 }
 
-/** 图表卡状态：partial 直通（DataState 呈现警告条 + 数据），空态归 empty。 */
+/** 图表卡状态：partial（源数据不完整）有数据按 ready 呈现，空态归 empty；partial 说明由提示行 / footnote 承担。 */
 function chartState(state: LoadState, hasData: boolean): LoadState {
-  if (state === 'partial') return hasData ? 'partial' : 'empty'
+  if (state === 'partial') return hasData ? 'ready' : 'empty'
   if (state === 'ready') return hasData ? 'ready' : 'empty'
   return state
 }
