@@ -1,0 +1,453 @@
+/* 爆款仿写页局部样式（12 册 §3 布局 / §6 断点；视觉全部官方 token，
+   容器名 yootun-kit-page 与 kit 页面壳共享）。 */
+
+.tabsRow {
+  margin-bottom: 12px;
+}
+
+.headerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.rewriteLayout {
+  display: grid;
+  grid-template-columns: minmax(460px, 1.15fr) minmax(420px, 0.85fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.leftColumn {
+  min-width: 0;
+  padding: 20px 20px 32px 0;
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+  overflow: auto;
+  display: grid;
+  gap: 20px;
+  align-content: start;
+}
+
+.rightColumn {
+  min-width: 0;
+  padding: 20px 0 32px 20px;
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.35;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.section {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.mediaTabs {
+  max-width: 220px;
+}
+
+.mediaGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.thumb {
+  position: relative;
+  width: 104px;
+  height: 104px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  overflow: clip;
+  background: var(--dsw-alias-bg-layer-2);
+  margin: 0;
+}
+
+.thumbMedia {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.thumbVideoBadge {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 1px 6px;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: var(--dsw-alias-bg-mask-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+}
+
+.thumbRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: var(--dsw-alias-bg-mask-1);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.thumbRemove:hover {
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.thumbProgress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  display: grid;
+  gap: 3px;
+  padding: 6px 4px;
+  background: var(--dsw-alias-bg-mask-1);
+}
+
+.progressText {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.progressTrack {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-layer-3);
+  overflow: clip;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--dsw-alias-business-primary);
+}
+
+.thumbError {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  text-align: center;
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 11px;
+}
+
+.addField {
+  width: 104px;
+  height: 104px;
+  display: grid;
+  place-items: center;
+  border: 0.5px dashed var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 26px;
+  cursor: pointer;
+}
+
+.addField:hover {
+  border-color: var(--dsw-alias-business-primary);
+  color: var(--dsw-alias-business-primary);
+}
+
+.addField:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hint {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.errorText {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+}
+
+.fieldRow {
+  display: grid;
+  gap: 6px;
+}
+
+.fieldLabel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.switchHint {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.submitWait {
+  opacity: 0.55;
+}
+
+.rightTitle {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.stateBlock {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.stateBlock p {
+  margin: 0;
+}
+
+.stepLine {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.stateErrorText {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.resultCard {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--dsw-radius-r12, 12px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.resultHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.resultBadge {
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.editableBadge {
+  padding: 2px 9px;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: color-mix(in srgb, var(--dsw-alias-business-primary) 14%, transparent);
+  color: var(--dsw-alias-business-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.issuesBlock {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 8%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.issuesTitle {
+  margin: 0;
+  font-weight: 500;
+}
+
+.issuesBlock ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 2px;
+}
+
+.fieldGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.titleCount {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bodyHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bodyEditor {
+  width: 100%;
+  min-height: 180px;
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
+.tagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.tagRemove {
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--dsw-radius-r4, 4px);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tagRemove:hover {
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.extraLine {
+  display: grid;
+  gap: 3px;
+}
+
+.extraLabel {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+}
+
+.extraBody {
+  font-size: 14px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.pendingBlock {
+  padding: 16px;
+  border-radius: var(--dsw-radius-r12, 12px);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
+}
+
+.confirmText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 容器断点（12 册 §6，容器名与 kit 页面壳共享）：
+   1119px 两栏压缩（去固定最小列宽）；879px 单列堆叠；639px 行内换行收紧。 */
+@container yootun-kit-page (max-width: 1119px) {
+  .rewriteLayout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  }
+}
+
+@container yootun-kit-page (max-width: 879px) {
+  .rewriteLayout {
+    display: block;
+  }
+
+  .leftColumn {
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+    padding-right: 0;
+  }
+
+  .rightColumn {
+    padding-left: 0;
+    min-height: 320px;
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .actionRow {
+    flex-wrap: wrap;
+  }
+
+  .titleRow {
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressFill {
+    transition: none;
+  }
+}

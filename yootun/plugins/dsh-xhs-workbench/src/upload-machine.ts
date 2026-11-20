@@ -26,13 +26,13 @@ export interface UploadSessionInfo {
 
 /** uploadStatus 快照（media-upload 契约投影；缺失字段由 machine 容错）。 */
 export interface UploadStatusSnapshot {
-  status: 'waiting' | 'uploading' | 'done' | 'failed'
-  progress?: number
-  bytesSent?: number
-  bytesTotal?: number
-  attempt?: number
-  url?: string
-  error?: string
+  status: 'waiting' | 'uploading' | 'done' | 'failed' | 'not_found'
+  progress?: number | undefined
+  bytesSent?: number | undefined
+  bytesTotal?: number | undefined
+  attempt?: number | undefined
+  url?: string | undefined
+  error?: string | undefined
 }
 
 /** 一次上传请求入参（file 由调用方持有并传给 sendBytes，machine 不解读）。 */

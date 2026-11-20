@@ -1,10 +1,10 @@
 /**
- * X1+X2 批次 10 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
+ * 已实现 14 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；profile
  * 互斥按旧口径即时占（登录/采集全程持锁，probe/删除 try 语义立即拒绝）。响应
- * 形状沿用旧路由契约（status: ready/started/error），client 半按同形状重译。
- * Workbench 调用经 `ctx.yootunWorkbench`（本批接入 settings 读/写对，D-3；
- * task/hotboard 其余 action 随 X4/X5 批次接入）。
+ * 形状沿用旧路由契约（status: ready/started/created/error），client 半按同形状
+ * 重译。Workbench 调用经 `ctx.yootunWorkbench`（settings 对 + 任务四项已接入；
+ * hotboard 其余随 X5、publish/assistant 随 X6 批次接入）。
  * @module
  */
 import type { BrowserStatus, ChromeFactory } from './chrome.ts'
@@ -159,6 +159,75 @@ function projectCollect(run: CollectRun): Record<string, unknown> {
 
 function stringValue(args: ActionArgs, key: string): string {
   return typeof args[key] === 'string' ? args[key] as string : ''
+}
+
+function stringArrayValue(args: ActionArgs, key: string): string[] {
+  const value = args[key]
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) if (typeof value === 'string' && value !== '') return value
+  return null
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** 任务步骤行投影（旧 projectSteps 同口径）：失败行携带受控错误码/原因短语。 */
+function projectSteps(list: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(list)) return []
+  const out: Array<Record<string, unknown>> = []
+  for (const item of list) {
+    if (item === null || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const step = typeof record.step === 'string' ? record.step.trim().slice(0, 64) : ''
+    if (step === '') continue
+    const entry: Record<string, unknown> = { step, status: typeof record.status === 'string' ? record.status.trim().slice(0, 24) : '' }
+    const errorCode = typeof record.errorCode === 'string' ? record.errorCode.trim().slice(0, 64) : ''
+    const errorMessage = typeof record.errorMessage === 'string' ? record.errorMessage.trim().slice(0, 512) : ''
+    if (errorCode !== '') entry.errorCode = errorCode
+    if (errorMessage !== '') entry.errorMessage = errorMessage
+    out.push(entry)
+  }
+  return out
+}
+
+/** 版本投影（旧 projectVersions 同口径）：只保留服务端已校验的展示字段。 */
+function projectVersions(list: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(list)) return []
+  const out: Array<Record<string, unknown>> = []
+  for (const item of list) {
+    if (item === null || typeof item !== 'object') continue
+    const record = item as Record<string, unknown>
+    const version: Record<string, unknown> = {
+      version: firstString(record.version) ?? '?',
+      title: firstString(record.title) ?? '',
+      body: firstString(record.body) ?? '',
+      tags: Array.isArray(record.tags) ? record.tags.map(value => String(value)).slice(0, 20) : [],
+      coverCopy: firstString(record.coverCopy) ?? '',
+      leadGuide: firstString(record.leadGuide) ?? '',
+    }
+    if (Array.isArray(record.issues)) {
+      const issues = record.issues.map(value => String(value).slice(0, 64)).filter(Boolean).slice(0, 10)
+      if (issues.length > 0) version.issues = issues
+    }
+    if (Array.isArray(record.pages)) {
+      const pages: Array<Record<string, unknown>> = []
+      for (const page of record.pages) {
+        if (page === null || typeof page !== 'object') continue
+        const index = numberOrNull((page as Record<string, unknown>).pageIndex)
+        if (index === null) continue
+        pages.push({ pageIndex: index, copy: firstString((page as Record<string, unknown>).copy) ?? '' })
+        if (pages.length >= 18) break
+      }
+      if (pages.length > 0) version.pages = pages
+    }
+    out.push(version)
+    if (out.length >= 3) break
+  }
+  return out
 }
 
 /** Workbench 调用的 structuredContent 投影（非对象信封归一为空对象）。 */
@@ -458,6 +527,91 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
       if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
       return { status: 'ready', collect: projectCollect(run) }
+    },
+
+    // 任务四项（X4；旧 index.js handleCreate/Status/Result/Cancel 同口径重译）。
+    // 单版可编辑（已定案）：versionCount 固定传 1；文本媒体/事实补充等服务端
+    // 支持但旧 UI 未开放的能力不投影（基线清单 §3）。
+    'task.create': async args => {
+      const mediaType = stringValue(args, 'mediaType')
+      if (mediaType !== 'images' && mediaType !== 'video') return { status: 'error', reason: 'invalid_media_type' }
+      const idempotencyKey = stringValue(args, 'idempotencyKey')
+      if (idempotencyKey === '') return { status: 'error', reason: 'idempotency_key_required' }
+      // theme/direction 清洗同旧 cleanOptional（trim + 限长已在 schema 层）。
+      const theme = stringValue(args, 'theme').trim()
+      const direction = stringValue(args, 'direction').trim()
+      // 对标笔记/账号：页面只开放 { source:'manual', url } / { name }（旧投影）。
+      const refNote = stringValue(args, 'refNote')
+      const refAccount = stringValue(args, 'refAccount')
+      const references = refNote !== '' ? [{ source: 'manual', url: refNote }] : []
+      const accounts = refAccount !== '' ? [{ name: refAccount }] : []
+      const taskArgs: Record<string, unknown> = {
+        mediaType, confirm: true, references, accounts, versionCount: 1, idempotencyKey,
+      }
+      if (theme !== '') taskArgs.theme = theme
+      if (direction !== '') taskArgs.direction = direction
+      if (mediaType === 'images') {
+        const imageUrls = stringArrayValue(args, 'imageUrls')
+        if (imageUrls.length === 0) return { status: 'error', reason: 'image_urls_required' }
+        taskArgs.imageUrls = imageUrls
+        taskArgs.coverIndex = 0
+      } else {
+        const videoUrl = stringValue(args, 'videoUrl')
+        if (videoUrl === '') return { status: 'error', reason: 'video_url_required' }
+        taskArgs.videoUrl = videoUrl
+        taskArgs.videoUnderstanding = args.videoUnderstanding === true
+      }
+      const payload = await callWorkbench(deps, 'workbench_xhs_task_create', taskArgs)
+      const taskId = firstString(payload.taskId, payload.task_ref, payload.taskRef)
+      if (taskId === null) return { status: 'error', reason: 'create_failed_no_task' }
+      return {
+        status: 'created',
+        taskId,
+        idempotencyKey,
+        mediaType,
+        versionCount: 1,
+        taskStatus: firstString(payload.status) ?? 'queued',
+      }
+    },
+
+    'task.status': async args => {
+      const taskId = stringValue(args, 'taskId')
+      if (taskId === '') return { status: 'error', reason: 'task_id_required' }
+      const payload = await callWorkbench(deps, 'workbench_xhs_task_get', { taskId })
+      return {
+        status: 'ready',
+        taskId,
+        taskStatus: firstString(payload.status) ?? 'unknown',
+        currentStep: firstString(payload.currentStep),
+        nextStep: firstString(payload.nextStep),
+        errorCode: firstString(payload.errorCode),
+        errorMessage: typeof payload.errorMessage === 'string' ? payload.errorMessage.trim().slice(0, 512) : '',
+        steps: projectSteps(payload.steps),
+      }
+    },
+
+    'task.result': async args => {
+      const taskId = stringValue(args, 'taskId')
+      if (taskId === '') return { status: 'error', reason: 'task_id_required' }
+      const payload = await callWorkbench(deps, 'workbench_xhs_result_get', { taskId })
+      const taskStatus = firstString(payload.status) ?? 'unknown'
+      const versions = projectVersions(payload.versions)
+      // 契约（单版可编辑）：succeeded 必须返回 1-3 套文案；越界按读取失败处理，
+      // 避免空白或静默异常版本数（旧 handleResult 同口径）。
+      if (taskStatus === 'succeeded' && (versions.length < 1 || versions.length > 3)) {
+        return { status: 'error', reason: 'versions_unavailable', taskId, taskStatus }
+      }
+      return { status: 'ready', taskId, taskStatus, versions }
+    },
+
+    'task.cancel': async args => {
+      const taskId = stringValue(args, 'taskId')
+      if (taskId === '') return { status: 'error', reason: 'task_id_required' }
+      const idempotencyKey = stringValue(args, 'idempotencyKey')
+      if (idempotencyKey === '') return { status: 'error', reason: 'idempotency_key_required' }
+      const payload = await callWorkbench(deps, 'workbench_xhs_task_cancel', { taskId, confirm: true, idempotencyKey })
+      // 服务端取消是「请求取消」：透传投影状态给前端（旧口径）。
+      return { status: 'ready', taskId, taskStatus: firstString(payload.status) ?? 'cancel_requested' }
     },
 
     // 车衣爆款看板 settings 读/写对（D-3：UI 只读展示，settingsUpdate action 保留

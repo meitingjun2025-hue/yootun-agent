@@ -65,10 +65,11 @@ async function testDeps(root: string, options: {
 
 // --- 路由 schema 层 ---
 
-test('action allowlist：X1+X2 白名单 10 项且全部有 schema', () => {
+test('action allowlist：X4 白名单 14 项且全部有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus',
     'account.probe', 'account.removeLocal', 'collect.start', 'collect.status',
+    'task.create', 'task.status', 'task.result', 'task.cancel',
     'hotboard.settings', 'hotboard.settingsUpdate',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
@@ -570,6 +571,131 @@ test('hotboard.settingsUpdate：路由 schema 拒绝非对象 settings 与未知
     error instanceof XhsError && error.code === 'XHS_ROUTE_INVALID_REQUEST')
   assert.throws(() => validateActionArgs('hotboard.settingsUpdate', { settings: {}, confirm: true, idempotencyKey: 'k', extra: 1 }), (error: unknown) =>
     error instanceof XhsError && error.code === 'XHS_ROUTE_INVALID_REQUEST')
+})
+
+// --- task 四项（X4；真实 schema 按基线清单 §3 对账表） ---
+
+test('task.create：images/video 参数投影、确定性校验失败稳定拒绝', async () => {
+  const root = await tempRoot()
+  const workbench = createFakeWorkbench({ outcomes: [{ structuredContent: { taskId: 'xhst-1', status: 'queued' } }] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  // 非法媒体类型 / 缺幂等键 / images 缺 URL / video 缺 URL。
+  const badType = await handlers['task.create']!({ mediaType: 'text', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(badType.reason, 'invalid_media_type')
+  const noKey = await handlers['task.create']!({ mediaType: 'images' }) as Record<string, unknown>
+  assert.equal(noKey.reason, 'idempotency_key_required')
+  const noImages = await handlers['task.create']!({ mediaType: 'images', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(noImages.reason, 'image_urls_required')
+  const noVideo = await handlers['task.create']!({ mediaType: 'video', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(noVideo.reason, 'video_url_required')
+  assert.deepEqual(workbench.calls, [])
+  // images 成功：versionCount 固定 1、coverIndex 0、对标投影 {source:'manual',url}/{name}。
+  const created = await handlers['task.create']!({
+    mediaType: 'images', idempotencyKey: 'k-2', theme: ' 主题 ', direction: '方向',
+    refNote: 'https://xhslink.example/n1', refAccount: '甲', imageUrls: ['https://cdn.example/1.jpg'],
+  }) as Record<string, unknown>
+  assert.equal(created.status, 'created')
+  assert.equal(created.taskId, 'xhst-1')
+  assert.equal(created.versionCount, 1)
+  const call = workbench.calls[0]
+  assert.equal(call?.name, 'workbench_xhs_task_create')
+  assert.deepEqual(call?.args, {
+    mediaType: 'images', confirm: true, references: [{ source: 'manual', url: 'https://xhslink.example/n1' }],
+    accounts: [{ name: '甲' }], versionCount: 1, idempotencyKey: 'k-2',
+    theme: '主题', direction: '方向', imageUrls: ['https://cdn.example/1.jpg'], coverIndex: 0,
+  })
+  // video 成功：videoUnderstanding 透传。
+  workbench.calls.length = 0
+  const video = createFakeWorkbench({ outcomes: [{ structuredContent: { taskId: 'xhst-2', status: 'queued' } }] })
+  const deps2 = createXhsHostDeps({
+    root, workbench: video.face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+  })
+  const handlers2 = buildRouteHandlers(deps2)
+  const createdVideo = await handlers2['task.create']!({
+    mediaType: 'video', idempotencyKey: 'k-3', videoUrl: 'https://cdn.example/v.mp4', videoUnderstanding: true,
+  }) as Record<string, unknown>
+  assert.equal(createdVideo.status, 'created')
+  assert.deepEqual(video.calls[0]?.args, {
+    mediaType: 'video', confirm: true, references: [], accounts: [], versionCount: 1,
+    idempotencyKey: 'k-3', videoUrl: 'https://cdn.example/v.mp4', videoUnderstanding: true,
+  })
+  // 服务端无 taskId → create_failed_no_task。
+  const empty = createFakeWorkbench({ outcomes: [{ structuredContent: {} }] })
+  const deps3 = createXhsHostDeps({
+    root, workbench: empty.face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+  })
+  const handlers3 = buildRouteHandlers(deps3)
+  const noTask = await handlers3['task.create']!({ mediaType: 'images', idempotencyKey: 'k-4', imageUrls: ['https://cdn.example/1.jpg'] }) as Record<string, unknown>
+  assert.equal(noTask.status, 'error')
+  assert.equal(noTask.reason, 'create_failed_no_task')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('task.create：服务端任务链业务错误经 face 抛出后收敛为稳定 reason（route 层）', async () => {
+  const root = await tempRoot()
+  const responded: Array<{ status: number; payload: Record<string, unknown> }> = []
+  const workbench = createFakeWorkbench({ outcomes: [{ throwCode: 'IDEMPOTENCY_CONFLICT' }] })
+  const deps = createXhsHostDeps({
+    root, workbench: workbench.face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+  })
+  const handler = createRouteHandler(() => 'http://127.0.0.1:1', buildRouteHandlers(deps))
+  await handler(fakeReq({ action: 'task.create', mediaType: 'images', idempotencyKey: 'k-1', imageUrls: ['https://cdn.example/1.jpg'] }), fakeRes(responded))
+  assert.equal(responded[0]?.status, 200)
+  assert.equal(responded[0]?.payload.reason, 'IDEMPOTENCY_CONFLICT')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('task.status / task.result / task.cancel：投影与版本数契约', async () => {
+  const root = await tempRoot()
+  const workbench = createFakeWorkbench({ outcomes: [
+    { structuredContent: { taskId: 'xhst-1', status: 'running', currentStep: 'copywriting', steps: [{ step: 'ingest', status: 'succeeded' }, { step: '', status: 'x' }, { step: 'asr', status: 'failed', errorCode: 'asr_failed', errorMessage: 'm'.repeat(600) }] } },
+    { structuredContent: { status: 'succeeded', versions: [
+      { version: 'A', title: 't', body: 'b', tags: ['x'], coverCopy: 'c', leadGuide: 'l', issues: ['similarity_high'], pages: [{ pageIndex: 0, copy: 'p' }] },
+    ] } },
+    { structuredContent: { status: 'cancel_requested' } },
+  ] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  const status = await handlers['task.status']!({ taskId: 'xhst-1' }) as Record<string, unknown>
+  assert.equal(status.status, 'ready')
+  assert.equal(status.taskStatus, 'running')
+  assert.equal(status.currentStep, 'copywriting')
+  const steps = status.steps as Array<Record<string, unknown>>
+  assert.equal(steps.length, 2)
+  assert.equal((steps[1]?.errorMessage as string).length, 512, '错误原因短语截 512')
+  const result = await handlers['task.result']!({ taskId: 'xhst-1' }) as Record<string, unknown>
+  assert.equal(result.status, 'ready')
+  const versions = result.versions as Array<Record<string, unknown>>
+  assert.equal(versions.length, 1)
+  assert.deepEqual(versions[0]?.tags, ['x'])
+  assert.deepEqual(versions[0]?.issues, ['similarity_high'])
+  assert.deepEqual(versions[0]?.pages, [{ pageIndex: 0, copy: 'p' }])
+  const cancel = await handlers['task.cancel']!({ taskId: 'xhst-1', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(cancel.status, 'ready')
+  assert.equal(cancel.taskStatus, 'cancel_requested')
+  // 缺 taskId / 缺幂等键稳定拒绝；succeeded 版本越界 → versions_unavailable。
+  const noId = await handlers['task.status']!({}) as Record<string, unknown>
+  assert.equal(noId.reason, 'task_id_required')
+  const noKey = await handlers['task.cancel']!({ taskId: 'xhst-1' }) as Record<string, unknown>
+  assert.equal(noKey.reason, 'idempotency_key_required')
+  const bad = createFakeWorkbench({ outcomes: [{ structuredContent: { status: 'succeeded', versions: [] } }] })
+  const deps2 = createXhsHostDeps({
+    root, workbench: bad.face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+  })
+  const handlers2 = buildRouteHandlers(deps2)
+  const unavailable = await handlers2['task.result']!({ taskId: 'xhst-1' }) as Record<string, unknown>
+  assert.equal(unavailable.reason, 'versions_unavailable')
+  assert.equal(unavailable.taskId, 'xhst-1')
+  await rm(root, { recursive: true, force: true })
 })
 
 test('projectHotboardWrite：results 行级披露三键截 50，run 只投影 runId/status（旧口径）', async () => {

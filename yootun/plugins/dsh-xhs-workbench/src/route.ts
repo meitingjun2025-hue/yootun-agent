@@ -6,9 +6,9 @@
  * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
  * 异常）。handler 经 deps 注入，本模块不持有业务状态。
  *
- * action 集合按批次扩充：本批（X1+X2）登记已实现的 10 项；task/hotboard 其余、
- * publish/upload/assistant 各 action 随对应批次加入，未实现项按 unknown_action
- * 拒绝（fail loud，不做静默半实现）。
+ * action 集合按批次扩充：已实现 14 项（X1+X2 骨架 10 项 + X4 任务四项）；hotboard
+ * 其余、publish/upload/assistant 各 action 随对应批次加入，未实现项按
+ * unknown_action 拒绝（fail loud，不做静默半实现）。
  * @module
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -23,7 +23,7 @@ export const MAX_BODY_BYTES = 64 * 1024
 /** One whitelisted action's input contract. */
 export interface ActionSchema {
   /** Allowed fields; anything else is rejected. */
-  fields: Readonly<Record<string, 'string' | 'boolean' | 'object'>>
+  fields: Readonly<Record<string, 'string' | 'boolean' | 'object' | 'stringArray'>>
   /** Max length for each string field. */
   limits?: Readonly<Record<string, number>>
 }
@@ -38,9 +38,23 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.removeLocal': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collect.start': { fields: { accountId: 'string', idempotencyKey: 'string' }, limits: { accountId: 128, idempotencyKey: 128 } },
   'collect.status': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
+  'task.create': {
+    fields: {
+      mediaType: 'string', theme: 'string', direction: 'string', refNote: 'string', refAccount: 'string',
+      imageUrls: 'stringArray', videoUrl: 'string', videoUnderstanding: 'boolean', idempotencyKey: 'string',
+    },
+    limits: { mediaType: 16, theme: 500, direction: 500, refNote: 2048, refAccount: 200, videoUrl: 2048, idempotencyKey: 128 },
+  },
+  'task.status': { fields: { taskId: 'string' }, limits: { taskId: 64 } },
+  'task.result': { fields: { taskId: 'string' }, limits: { taskId: 64 } },
+  'task.cancel': { fields: { taskId: 'string', idempotencyKey: 'string' }, limits: { taskId: 64, idempotencyKey: 128 } },
   'hotboard.settings': { fields: {} },
   'hotboard.settingsUpdate': { fields: { settings: 'object', confirm: 'boolean', idempotencyKey: 'string' }, limits: { idempotencyKey: 128 } },
 })
+
+/** stringArray 字段约束：最多 9 项（旧 UI 上限，D-4）、单项 ≤2048。 */
+const STRING_ARRAY_MAX_ITEMS = 9
+const STRING_ARRAY_ITEM_MAX = 2048
 
 /** Whitelisted stable reason codes a handler may return (route-level superset). */
 export function isStableCode(value: string): value is StableErrorCode {
@@ -48,7 +62,7 @@ export function isStableCode(value: string): value is StableErrorCode {
 }
 
 /** One handled action's arguments after validation. */
-export type ActionArgs = Record<string, string | boolean | Record<string, unknown> | undefined>
+export type ActionArgs = Record<string, string | boolean | string[] | Record<string, unknown> | undefined>
 
 /**
  * Validate one request body against the action's schema: unknown fields and
@@ -82,6 +96,18 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
         throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" must be an object`)
       }
       args[key] = value as Record<string, unknown>
+      continue
+    }
+    if (kind === 'stringArray') {
+      if (!Array.isArray(value)) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" must be a string array`)
+      if (value.length > STRING_ARRAY_MAX_ITEMS) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" exceeds ${STRING_ARRAY_MAX_ITEMS} items`)
+      const items: string[] = []
+      for (const item of value) {
+        if (typeof item !== 'string') throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" items must be strings`)
+        const text = item.trim().slice(0, STRING_ARRAY_ITEM_MAX)
+        if (text !== '') items.push(text)
+      }
+      args[key] = items
       continue
     }
     if (typeof value !== 'string') throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" must be a string`)

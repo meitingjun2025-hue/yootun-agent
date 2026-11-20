@@ -10,6 +10,10 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
@@ -21,8 +25,8 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts && node --test tests/upload-machine.test.ts"
+    "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts && node --test tests/upload-machine.test.ts && node --test tests/task-machine.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {
@@ -35,8 +39,33 @@
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-client-locale": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-renderer": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-slots": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@testing-library/react": "^16.3.3",
+    "@yootun/dsh-client-ui-kit": "workspace:*",
     "@yootun/dsh-workbench-mcp": "workspace:*",
+    "jsdom": "29.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
   }
 }
