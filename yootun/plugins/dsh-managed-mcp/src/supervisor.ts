@@ -4,8 +4,8 @@
  * 生命周期：未激活零连接；激活后单实例；key 更新销毁重建；key 移除销毁；
  * 网络初始化失败不阻塞启动（failOnStartupError=false + 重连策略）；
  * 插件卸载销毁子实例与全部监听。Authorization 只以
- * `${credential:MODELS_API_KEY}` 模板进入 transport（expandTemplates 展开、
- * 诊断脱敏），本插件不把解析值写入任何状态或日志。
+ * `Bearer ${credential:MODELS_API_KEY}` 模板进入 transport（expandTemplates
+ * 展开、诊断脱敏），本插件不把解析值写入任何状态或日志。
  * @module
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
@@ -67,7 +67,7 @@ export function createSupervisor(ctx: Context): AgentSupervisor {
       transport: 'streamable-http',
       serverName: AGENT_SERVER_NAME,
       url: agentUrl(),
-      headers: { Authorization: `\${credential:${ACCESS_CREDENTIAL_REF}}`, 'X-Company-Code': TENANT_CODE },
+      headers: { Authorization: `Bearer \${credential:${ACCESS_CREDENTIAL_REF}}`, 'X-Company-Code': TENANT_CODE },
       toolCallTimeoutMs: TOOL_CALL_TIMEOUT_MS,
       closeTimeoutMs: CLOSE_TIMEOUT_MS,
       expandTemplates: true,

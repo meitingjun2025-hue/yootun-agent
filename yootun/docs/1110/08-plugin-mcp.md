@@ -154,7 +154,7 @@ credentials.resolve(MODELS_API_KEY) 返回非空值
 transport headers：
 
 ```text
-Authorization: ${credential:MODELS_API_KEY}
+Authorization: Bearer ${credential:MODELS_API_KEY}
 X-Company-Code: yootun
 ```
 

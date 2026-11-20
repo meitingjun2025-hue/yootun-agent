@@ -341,8 +341,8 @@ test('credential 更新使连接缓存失效并重连', async () => {
   // 新连接后再次成功调用，且携带轮换后的 key。
   await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {})
   assert.equal(booted.fixture.authorization.length > requestsBefore, true)
-  assert.ok(booted.fixture.authorization.includes('rotated-model-key'), '重连请求携带轮换后的 key')
-  assert.ok(booted.fixture.authorization.every(value => value === 'test-model-key' || value === 'rotated-model-key'), '无未知凭证值')
+  assert.ok(booted.fixture.authorization.includes('Bearer rotated-model-key'), '重连请求携带轮换后的 key')
+  assert.ok(booted.fixture.authorization.every(value => value === 'Bearer test-model-key' || value === 'Bearer rotated-model-key'), 'Authorization 统一使用 Bearer 且无未知凭证值')
   // key 移除后门禁拒绝。
   booted.setKey(undefined)
   booted.emitCredentialUpdate()
@@ -387,11 +387,11 @@ test('并发窗口：连接建立期间凭证轮换，旧连接不进缓存', as
     // 旧 key 至多出现在被弃用连接的握手阶段（open 早期已解析），且被弃用连接
     // 不产生任何业务调用；轮换后的请求全部携带 rotated key。
     assert.deepEqual(fixture.toolCalls, ['workbench_wx_work_list'])
-    const firstRotated = fixture.authorization.indexOf('rotated-model-key')
+    const firstRotated = fixture.authorization.indexOf('Bearer rotated-model-key')
     assert.ok(firstRotated > -1, '存在 rotated 请求')
-    assert.ok(fixture.authorization.slice(firstRotated).every(value => value === 'rotated-model-key'), '首个 rotated 请求之后无旧 key')
+    assert.ok(fixture.authorization.slice(firstRotated).every(value => value === 'Bearer rotated-model-key'), '首个 rotated 请求之后无旧 key')
     // 旧 key 只出现在被弃用连接的握手期（首个 rotated 请求之前）。
-    assert.ok(fixture.authorization.slice(0, firstRotated).every(value => value === 'old-model-key'), '弃用握手期不含 rotated')
+    assert.ok(fixture.authorization.slice(0, firstRotated).every(value => value === 'Bearer old-model-key'), '弃用握手期不含 rotated')
   } finally {
     for (const cleanup of cleanups.reverse()) await cleanup().catch(() => undefined)
   }

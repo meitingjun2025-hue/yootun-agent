@@ -95,7 +95,7 @@ test('bundle patch 收口企业模型路由且保留官方模型设置页（批�
   assert.match(patch, /ui-settings-models 保持官方默认/u)
   assert.doesNotMatch(patch, /- id: ui-settings-models\n\s+disabled/u)
   // managed MCP patch 格式定稿（D 部分）：样例为注释、含凭证模板与租户头。
-  assert.match(patch, /Authorization: \$\{credential:MODELS_API_KEY\}/u)
+  assert.match(patch, /Authorization: Bearer \$\{credential:MODELS_API_KEY\}/u)
   assert.match(patch, /X-Company-Code: yootun/u)
 })
 

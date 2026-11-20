@@ -39,7 +39,7 @@ export async function connectWorkbench(authorization: string, options: ConnectOp
   const client = new Client({ name: CLIENT_INFO_NAME, version: '1.0.0' })
   const transport = new StreamableHTTPClientTransport(new URL(workbenchUrl()), {
     requestInit: {
-      headers: { Authorization: authorization, 'X-Company-Code': TENANT_CODE },
+      headers: { Authorization: `Bearer ${authorization}`, 'X-Company-Code': TENANT_CODE },
     },
   })
   const requestPhase = requestOptions(options)

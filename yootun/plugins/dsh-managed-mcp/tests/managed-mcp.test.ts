@@ -144,7 +144,7 @@ test('激活后仅 Agent 面 36 项注册，且假 server 走通 initialize / to
     const agentNames = booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).map(name => name.slice('mcp__yootun-agent__'.length))
     assert.deepEqual(new Set(agentNames), new Set(AGENT_TOOL_NAMES))
     assert.equal(booted.fixture.authorization.length > 0, true, '激活后连接建立')
-    assert.ok(booted.fixture.authorization.every(value => value === 'test-model-key'), 'Authorization 模板展开为解析后的 key（无 ${credential:…} 残留）')
+    assert.ok(booted.fixture.authorization.every(value => value === 'Bearer test-model-key'), 'Authorization 使用 Bearer 模板并展开为解析后的 key')
     assert.equal(booted.registeredNames().some(name => name.startsWith('mcp__yootun-workbench__')), false)
     assert.equal(booted.registeredNames().some(name => name.startsWith('mcp__yootun-catalog__')), false)
 
@@ -175,7 +175,7 @@ test('key 更新销毁重建、key 移除卸载', async () => {
     await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36
       && booted.fixture.authorization.length > connectionsAfterMount, 'client rebuilt after key rotation')
     assert.equal(booted.fixture.authorization.length > connectionsAfterMount, true)
-    assert.ok(booted.fixture.authorization.includes('rotated-model-key'), '重建后连接携带轮换后的 key')
+    assert.ok(booted.fixture.authorization.includes('Bearer rotated-model-key'), '重建后连接携带轮换后的 key')
 
     // key 移除：门禁失败，client 卸载、工具清空。
     booted.setKey(undefined)

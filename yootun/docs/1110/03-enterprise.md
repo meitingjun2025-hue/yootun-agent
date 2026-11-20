@@ -82,7 +82,7 @@ yootun-ui 表单（浏览器端）
         url: https://ixicai.cn/mcp/<route>
         expandTemplates: true
         headers:
-          Authorization: ${credential:MODELS_API_KEY}
+          Authorization: Bearer ${credential:MODELS_API_KEY}
           X-Company-Code: yootun
 ```
 
