@@ -168,11 +168,29 @@ async function callWorkbench(deps: XhsHostDeps, name: string, args: Record<strin
   return payload !== null && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
 }
 
-/** 写响应只保留受控字段（不透传服务端内部诊断字段；旧 projectHotboardWrite 同口径）。 */
+/** 写响应只保留受控字段（不透传服务端内部诊断字段；旧 index.js projectHotboardWrite
+ * 同口径）：results 行级失败披露只放行 candidateId/ok/errorCode 三键、截 50 条防大响应；
+ * run 只投影 runId/status。 */
 export function projectHotboardWrite(payload: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const key of ['ok', 'updatedCount', 'idempotentReplay', 'changed', 'conflictWithActive', 'created']) {
     if (payload[key] !== undefined) out[key] = payload[key]
+  }
+  if (Array.isArray(payload.results) && payload.results.length > 0) {
+    const results = payload.results as Array<Record<string, unknown> | null>
+    out.results = results.slice(0, 50).map(item => ({
+      candidateId: typeof item?.candidateId === 'string' && item.candidateId.trim() !== '' ? item.candidateId.trim().slice(0, 64) : null,
+      ok: item?.ok === true,
+      errorCode: typeof item?.errorCode === 'string' && item.errorCode.trim() !== '' ? item.errorCode.trim().slice(0, 64) : null,
+    }))
+  }
+  const run = payload.run
+  if (run !== null && typeof run === 'object') {
+    const record = run as Record<string, unknown>
+    out.run = {
+      runId: String(record.runId ?? '').slice(0, 64),
+      status: typeof record.status === 'string' && record.status.trim() !== '' ? record.status.trim().slice(0, 32) : null,
+    }
   }
   return out
 }
@@ -189,11 +207,15 @@ function hotboardErrorReason(payload: Record<string, unknown> | null): string | 
 /** 抛错形态的 Workbench 业务失败 → 受控 reason（message 可能为错误信封 JSON）。 */
 function safeHotboardToolError(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
+  let parsedEnvelope: unknown
   try {
-    const payload = JSON.parse(message) as unknown
-    if (payload !== null && typeof payload === 'object') return hotboardErrorReason(payload as Record<string, unknown>) ?? hotboardReasonOf(error)
+    parsedEnvelope = JSON.parse(message)
   } catch {
     // message 非 JSON：落到下方白名单判断。
+    parsedEnvelope = undefined
+  }
+  if (parsedEnvelope !== null && typeof parsedEnvelope === 'object') {
+    return hotboardErrorReason(parsedEnvelope as Record<string, unknown>) ?? hotboardReasonOf(error)
   }
   return hotboardReasonOf(error)
 }

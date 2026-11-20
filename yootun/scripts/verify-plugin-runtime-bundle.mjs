@@ -43,6 +43,31 @@ if ([
   failures.push('package files must publish every generated lib/*.js Host chunk')
 }
 
+// 声明的 types 入口必须真实存在：exports 的 types 路径缺失会让 tarball 消费方
+// 类型断裂（publint 报错形态）。glob 形路径（lib/types/**/*.d.ts）不逐文件校验，
+// 只校验精确文件路径；同一路径去重避免重复报错。
+const missingTypesPaths = [...new Set(declaredTypesPaths(manifest))]
+  .filter(typesPath => !existsSync(join(packageDir, typesPath)))
+for (const typesPath of missingTypesPaths) {
+  failures.push(`declared types entry is missing from the build output: ${typesPath}`)
+}
+
+function declaredTypesPaths(manifest) {
+  const paths = []
+  if (typeof manifest.types === 'string') paths.push(manifest.types.replace(/^\.\//u, ''))
+  const exports = manifest.exports
+  if (typeof exports === 'string') return paths
+  if (exports && typeof exports === 'object') {
+    for (const entry of Object.values(exports)) {
+      if (typeof entry === 'string') continue
+      if (entry && typeof entry === 'object' && typeof entry.types === 'string') {
+        paths.push(entry.types.replace(/^\.\//u, ''))
+      }
+    }
+  }
+  return paths
+}
+
 if (failures.length > 0) {
   console.error(`verify-plugin-runtime-bundle: ${failures.length} failure(s)`)
   for (const failure of failures) console.error(`- ${failure}`)

@@ -66,6 +66,11 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'login_aborted',
   'plugin_disposing',
   'xhs_operation_request_failed',
+  // 旧 session.js 探测/会话判定的小写原因码（ProbeResult.reason 可携带，client 半据此映射提示）。
+  'storage_state_missing',
+  'login_page_detected',
+  'user_info_unavailable',
+  'session_error',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */

@@ -6,7 +6,7 @@
  * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
  * 异常）。handler 经 deps 注入，本模块不持有业务状态。
  *
- * action 集合按批次扩充：本批（X1+X2）只登记已实现的 8 项；task/hotboard/
+ * action 集合按批次扩充：本批（X1+X2）登记已实现的 10 项；task/hotboard 其余、
  * publish/upload/assistant 各 action 随对应批次加入，未实现项按 unknown_action
  * 拒绝（fail loud，不做静默半实现）。
  * @module

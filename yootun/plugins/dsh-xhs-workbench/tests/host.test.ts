@@ -571,3 +571,37 @@ test('hotboard.settingsUpdate：路由 schema 拒绝非对象 settings 与未知
   assert.throws(() => validateActionArgs('hotboard.settingsUpdate', { settings: {}, confirm: true, idempotencyKey: 'k', extra: 1 }), (error: unknown) =>
     error instanceof XhsError && error.code === 'XHS_ROUTE_INVALID_REQUEST')
 })
+
+test('projectHotboardWrite：results 行级披露三键截 50，run 只投影 runId/status（旧口径）', async () => {
+  const root = await tempRoot()
+  const rows = Array.from({ length: 52 }, (_, index) => ({
+    candidateId: `cand-${index}`,
+    ok: index % 2 === 0,
+    errorCode: index % 2 === 0 ? undefined : 'XHS_HOTBOARD_KEYWORD_CONFLICT',
+    internalRowDiag: 'drop-me',
+  }))
+  const workbench = createFakeWorkbench({ outcomes: [{
+    structuredContent: {
+      ok: true, updatedCount: 27, idempotentReplay: false,
+      results: rows,
+      run: { runId: 'run-abcdef-0123456789-0123456789-0123456789-0123456789-0123456789', status: 'queued', startedAt: 'drop-me' },
+      internalDiag: 'drop-me',
+    },
+  }] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  const payload = await handlers['hotboard.settingsUpdate']!({ settings: { scheduleEnabled: true }, confirm: true, idempotencyKey: 'k-batch' }) as Record<string, unknown>
+  assert.equal(payload.status, 'ready')
+  const results = payload.results as Array<Record<string, unknown>>
+  assert.equal(results.length, 50)
+  assert.deepEqual(results[0], { candidateId: 'cand-0', ok: true, errorCode: null })
+  assert.deepEqual(results[1], { candidateId: 'cand-1', ok: false, errorCode: 'XHS_HOTBOARD_KEYWORD_CONFLICT' })
+  assert.ok(results.every(row => !('internalRowDiag' in row)))
+  const run = payload.run as Record<string, unknown>
+  assert.equal(typeof run.runId, 'string')
+  assert.ok((run.runId as string).length <= 64)
+  assert.equal(run.status, 'queued')
+  assert.equal('startedAt' in run, false)
+  assert.equal('internalDiag' in payload, false)
+  await rm(root, { recursive: true, force: true })
+})

@@ -256,7 +256,7 @@ export async function collectNotes(options: {
       const text = await page.evaluate(signedFetchInPage, `${POSTED_PATH}?tab=0&page=${pageNo}`)
       let raw: unknown
       try {
-        raw = JSON.parse(text) as unknown
+        raw = JSON.parse(text)
       } catch {
         throw new CollectError('SESSION_EXPIRED', 'posted response is not JSON')
       }

@@ -518,7 +518,7 @@ publish.start / publish.status
 assistant.chat / stop
 ```
 
-上传和发布不得复用一个模糊 action；每个 action 有独立 schema、审计和错误码。
+上传和发布不得复用一个模糊 action；每个 action 有独立 schema 和错误码。
 
 ### 5.4 UI 信息架构
 
@@ -557,7 +557,7 @@ PluginPageShell
 
 ```text
 X0 基线复核：旧 xhs 插件、上传插件、任务/看板契约、状态目录；复核并冻结 12 册布局对齐方案
-X1 Host 骨架：action schema、状态目录、错误投影、审计
+X1 Host 骨架：action schema、状态目录、错误投影
 X2 登录与采集：扫码、账号、笔记采集、本地凭证清理
 X3 上传接入：media-upload 服务、公网 URL、失败与重试
 X4 任务链路：素材表单、task create、轮询、结果、取消
@@ -695,7 +695,7 @@ PluginPageShell
 
 ```text
 D0 冻结基线：旧插件 delta、新增 action、tools 覆盖矩阵、布局对齐文档、用户确认
-D1 Host 骨架：action schema、状态目录、错误模型、审计
+D1 Host 骨架：action schema、状态目录、错误模型
 D2 登录与采集：扫码、run、心跳、批次、日度、finish、cancel
 D3 作品与总览：列表、详情、趋势、导出、热门作品
 D4 分析与报表：单账号分析、AI 分析、报表列表 / 详情 / 重建

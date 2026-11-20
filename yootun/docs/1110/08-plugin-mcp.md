@@ -271,7 +271,7 @@ Host
 ├─ 本地 Chrome 扫码与采集状态机
 ├─ 本地 storage_state 管理
 ├─ @yootun/dsh-workbench-mcp 调用
-└─ 审计与稳定错误投影
+└─ 稳定错误投影与结构化日志
 
 Client
 ├─ root main 面板 + sidebar.panellist 入口

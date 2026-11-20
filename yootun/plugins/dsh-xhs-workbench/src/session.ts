@@ -132,7 +132,8 @@ async function evaluateJson(page: XhsPage, url: string): Promise<EvaluateJsonRes
         const response = await fetch(target, { credentials: 'same-origin' })
         const text = await response.text()
         try {
-          return { status: response.status, json: JSON.parse(text) as unknown }
+          const json: unknown = JSON.parse(text)
+          return { status: response.status, json }
         } catch {
           return { status: response.status, json: null }
         }

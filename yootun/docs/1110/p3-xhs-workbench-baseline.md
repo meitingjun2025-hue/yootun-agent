@@ -118,8 +118,9 @@ X1 Host 骨架消费 §2/§5；X2 登录采集消费 §4；X3 上传消费 §2 �
 
 | # | 决策/风险 | 状态 |
 |---|---|---|
-| D-1 | 12 册 R1–R6 修订后冻结；图片上限 18、版本数 1 维持已定案 | 本报告确认后冻结 |
-| D-2 | 上传语义落在 media-upload 既有同源路由（upload.* 1:1），xhs Host 不重复代理；若复审要求 xhs 路由统一出口，X3 改为 Host 转发 | 待复审确认 |
-| D-3 | `hotboard.settingsUpdate` action 保留但 UI 只读（R3）；09 册 §5.4「设置变更回执」在只读口径下无 UI 触发面，看板写回执仍覆盖打标/排除/关键词/候选/标签/运行六类 | 待复审确认 |
+| D-1 | 12 册 R1–R6 修订后冻结；版本数固定 1 | 已冻结（X0 复审核实 R1–R6；图片上限默认 9 待用户拍板，见 12 册 §8 决策点 4） |
+| D-2 | 上传语义落在 media-upload 既有同源路由（upload.* 1:1），xhs Host 不重复代理 | 已批（2026-11-20 X0 复审） |
+| D-3 | `hotboard.settingsUpdate` action 保留但 UI 只读（R3）；「设置变更回执」在只读口径下无 UI 触发面，看板写回执覆盖打标/排除/关键词/候选/标签/运行六类 | 已批（2026-11-20 X0 复审；action 与单测已随 X1 批落地） |
+| D-5 | 设备端审计：旧插件 `ctx.yootunAudit`（create/cancel/终态/collect/publish/hotboard 写审计）不迁移——新客户端不做 yootunAudit 服务 / outbox / 补传 / 审计 UI；现阶段只依赖 ixicai 网关调用面（激活、Models、Workbench MCP），现状为服务端 MCP 审计（domain `yootun-workbench`，tools 侧对每次工具调用落审计）+ Host 结构化日志；操作审计留待后期 Yootun 独立建设时统一规划 | 已定案（2026-11-20 用户拍板） |
 | R-A | 旧「无头采集后可能触发会话吊销」行为（collector.js 注）：probe/发布报 SESSION_EXPIRED 时引导重新扫码，不做自动重连 | 迁移口径不变 |
-| R-B | `auditedTerminalTasks` 终态审计去重、登录终态 run 读一次即清理等旧实现细节按新 TaskRegistry/lifecycle 模式重写，行为等价在 X2/X4 测试锁定 | 记录在案 |
+| R-B | 登录终态 run 读一次即清理等旧实现细节按新 TaskRegistry/lifecycle 模式重写，行为等价在 X2/X4 测试锁定 | 记录在案 |

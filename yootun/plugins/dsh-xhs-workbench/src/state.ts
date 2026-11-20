@@ -114,7 +114,7 @@ export async function readAccounts(root: string): Promise<AccountsState> {
   const file = paths(root).accountsFile
   try {
     const raw = await readFile(file, 'utf8')
-    const parsed = JSON.parse(raw) as unknown
+    const parsed: unknown = JSON.parse(raw)
     if (!parsed || typeof parsed !== 'object' || !(parsed as { accounts?: unknown }).accounts) return emptyState()
     const accounts = (parsed as { accounts: Record<string, AccountRecord> }).accounts
     return { version: STATE_VERSION, accounts }
@@ -399,7 +399,7 @@ export async function latestSnapshot(accountId: string, root: string): Promise<C
   const latest = names.at(-1)
   if (latest === undefined) return null
   try {
-    const parsed = JSON.parse(await readFile(join(dir, latest), 'utf8')) as unknown
+    const parsed: unknown = JSON.parse(await readFile(join(dir, latest), 'utf8'))
     if (parsed !== null && typeof parsed === 'object' && Array.isArray((parsed as { notes?: unknown }).notes)) {
       return parsed as CollectSnapshot
     }
