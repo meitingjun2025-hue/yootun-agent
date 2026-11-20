@@ -630,18 +630,34 @@
 }
 
 /* 数据刷新淡化：同账号 / 同窗口的后台刷新只淡化数据区，固定文字不动。
-   容器纵向排布并给行距（画像两行卡片 / 提示行与数据区之间不留零间距）。 */
+   纯透明度类、不携带布局——可与 grid 容器（如摘要卡 summaryGrid）复用。 */
 .refreshDim {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 16px;
   transition: opacity var(--ds-transition-duration, 160ms) ease;
   min-width: 0;
 }
 
 .refreshDim[data-refreshing='true'] {
   opacity: 0.55;
+}
+
+/* 摘要卡网格的刷新淡化（与 refreshDim 同语义，布局仍由自身 grid 定义）。 */
+.summaryGrid {
+  transition: opacity var(--ds-transition-duration, 160ms) ease;
+}
+
+.summaryGrid[data-refreshing='true'] {
+  opacity: 0.55;
+}
+
+/* 提示行与数据区之间留出间距。 */
+.kpiGrid + .sidebarHint,
+.sidebarHint + .portraitGrid {
+  margin-top: 12px;
+}
+
+/* 画像第一行（环形 / 柱状）与第二行（省市条形）之间的行距。 */
+.portraitGrid + .portraitGrid2 {
+  margin-top: 16px;
 }
 
 /* 账号总览（全宽三段） */
@@ -1075,6 +1091,7 @@
   .plotColumn,
   .barRow,
   .refreshDim,
+  .summaryGrid,
   .workTable tbody tr,
   .accountCardMain {
     transition: none;
