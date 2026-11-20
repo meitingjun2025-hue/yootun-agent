@@ -167,6 +167,8 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         seen.add(record.accountId)
         const row = remote.find(item => item.account_id === record.accountId) ?? null
         const rowRecord = (row ?? {}) as Record<string, unknown>
+        // 两个投影字段同源：一次磁盘探测，避免每账号重复读 storage_state。
+        const hasCredentials = await hasStorageState(record.accountId, deps.root)
         accounts.push({
           accountId: record.accountId,
           nickname: record.nickname ?? stringValue(rowRecord.nickname),
@@ -178,8 +180,8 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
           lastCollectedAt: stringValue(rowRecord.last_collected_at),
           deleteState: stringValue(rowRecord.delete_state) ?? 'none',
           isPending: isPendingAccountId(record.accountId),
-          hasStorageState: await hasStorageState(record.accountId, deps.root),
-          localCredentialsMissing: !(await hasStorageState(record.accountId, deps.root)),
+          hasStorageState: hasCredentials,
+          localCredentialsMissing: !hasCredentials,
         })
       }
       for (const row of remote) {

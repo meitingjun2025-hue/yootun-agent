@@ -16,8 +16,13 @@ export interface ChartFrameProps {
   title: ReactNode
   /** Localized accessible name for the plot group; defaults to the title text when it is a string. */
   ariaLabel?: string
-  /** Plot height in px; clamped to the 180–320px band from the layout spec. */
-  height?: number
+  /**
+   * Plot height in px; clamped to the 180–320px band from the layout spec.
+   * `'fit'` lets the marks set the height instead (minimum 120px, matching the
+   * chart skeleton's own minimum), for charts whose marks scale with container
+   * width and would overflow a fixed band.
+   */
+  height?: number | 'fit'
   /** Data state of the plotted series. */
   state?: DataStateKind
   /** Retry handler forwarded to the `error` state. */
@@ -36,7 +41,7 @@ export interface ChartFrameProps {
  * Render the chart card around caller-owned marks.
  * @param props.title - question-style title.
  * @param props.ariaLabel - accessible plot-group name.
- * @param props.height - plot height (default 240).
+ * @param props.height - plot height (default 240); `'fit'` follows the marks' height.
  * @param props.state - data state (default `ready`).
  * @param props.onRetry - error retry.
  * @param props.legend - legend node.
@@ -46,7 +51,7 @@ export interface ChartFrameProps {
  * @returns the chart card element.
  */
 export function ChartFrame({ title, ariaLabel, height, state = 'ready', onRetry, legend, children, footnote, skeleton = 'chart' }: ChartFrameProps): ReactNode {
-  const plotHeight = clampChartHeight(height)
+  const plotStyle = height === 'fit' ? { minHeight: '120px' } : { height: `${clampChartHeight(height)}px` }
   const label = ariaLabel ?? (typeof title === 'string' ? title : undefined)
   // §5.2：绘图组必须有 localized accessible name；非字符串标题必须显式给名。
   if (label === undefined) {
@@ -62,7 +67,7 @@ export function ChartFrame({ title, ariaLabel, height, state = 'ready', onRetry,
         role="group"
         aria-label={label}
         className={css.plot}
-        style={{ height: `${plotHeight}px` }}
+        style={plotStyle}
       >
         <DataState state={state} shape={skeleton} onRetry={onRetry}>{children}</DataState>
       </div>

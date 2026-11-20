@@ -134,6 +134,13 @@ describe('ChartFrame', () => {
     expect(plot?.getAttribute('style')).toContain('height: 180px')
   })
 
+  it("height='fit' 不固定高度，仅给绘图区与骨架一致的最小高度", () => {
+    const { container } = render(<ChartFrame title="趋势" height="fit"><svg /></ChartFrame>)
+    const plot = container.querySelector('[role="group"]')
+    expect(plot?.getAttribute('style')).toContain('min-height: 120px')
+    expect(plot?.getAttribute('style')).not.toMatch(/(^|;)\s*height:/)
+  })
+
   it('error 态提供 Retry 且不渲染 marks', () => {
     const onRetry = vi.fn()
     const { container } = renderLocalized(<ChartFrame title="趋势" state="error" onRetry={onRetry}><svg /></ChartFrame>)

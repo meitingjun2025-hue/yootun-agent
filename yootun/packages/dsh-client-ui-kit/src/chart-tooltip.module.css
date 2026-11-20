@@ -11,6 +11,7 @@
   min-width: 120px;
   max-width: 240px;
   padding: 8px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-layer-2);
   box-shadow: var(--dsw-elevation-prominent);

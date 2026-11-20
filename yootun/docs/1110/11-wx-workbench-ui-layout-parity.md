@@ -1,6 +1,6 @@
 # P2 视频号工作台 UI 布局回正方案
 
-状态：**已实施，待真机验收**（2026-11-19 布局回正落地于 `feat/plugin-wx-workbench`；真实扫码采集与明暗 / 三档宽度 / 键盘 / reduced-motion 目检按 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 第 11 节重拍）。
+状态：**已实施，待真机验收**（2026-11-19 布局回正落地于 `feat/plugin-wx-workbench`；2026-11-20 首轮真机验收反馈落地于 `fix/wx-workbench-desktop-verification`：移除运行查询入口、排序改全本地无刷新、账号选中态与详情 Modal / 总览图表样式修正；真实扫码采集与明暗 / 三档宽度 / 键盘 / reduced-motion 目检按 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 第 11 节重拍）。
 
 本方案是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) P2 视频号工作台的 UI 布局与交互补充契约。W5 本地真实链路已证明 Host、MCP、采集和数据契约可用，但现有四 tab 信息架构偏离旧工作台的产品形态；后续实现必须按本册回正。设计规范仍以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 和 [05-ui-ux.md](05-ui-ux.md) 为准。
 
@@ -60,7 +60,6 @@ PluginPageShell
 - 账号管理属于作品数据页左侧栏；
 - 单账号采集属于作品工具栏；
 - 全账号采集属于账号管理栏；
-- run 查询是从工具栏打开的次级弹层；
 - 账号总览是独立的全宽数据页。
 
 ## 3. 作品数据页
@@ -300,7 +299,7 @@ work.trend → { account_id, work_id, snapshots }
 - 整体无画像显示 no_data，不渲染空分布；
 - 图表颜色使用集中 `--yt-chart-*` 语义 token，不复制旧字面色值。
 
-## 6. 采集与 run 查询归位
+## 6. 采集归位
 
 ### 6.1 单账号采集
 
@@ -337,27 +336,9 @@ work.trend → { account_id, work_id, snapshots }
 - 失败 / 跳过 / 部分完成账号逐行显示稳定原因；
 - 批量取消在批量面板内。
 
-### 6.3 run 查询
+### 6.3 run 查询（已移除）
 
-`run.get` 是 W4 新增能力，旧界面没有顶级采集页。入口放在作品工具栏的次级操作：
-
-```text
-[查询 run] → Dialog
-```
-
-Dialog 内容：
-
-- runId 输入；
-- runId 查询；
-- run 状态；
-- expected / succeeded / failed works；
-- startedAt / finishedAt；
-- error code；
-- 16 类批次表；
-- `RUN_NOT_FOUND` 与服务失败的区分；
-- 重试。
-
-这样保留新能力，同时不破坏旧布局的顶级信息架构。
+2026-11-20 真机验收定案：移除作品工具栏的「运行查询」入口与 Dialog。run 维度的核对改由采集终态进度与 `collect.status` 投影承担，Host `run.get` action 保留但不再提供页面入口。
 
 ## 7. 新版实现与视觉映射
 
@@ -412,7 +393,7 @@ Dialog 内容：
 - 工具栏换行；
 - 摘要卡 2 列；
 - 画像单列；
-- 详情和 run 查询 Dialog 全宽；
+- 详情 Dialog 全宽；
 - 作品表格与批次表内部横向滚动；
 - 行操作可收敛为官方 Menu，但双击和 Enter 打开详情不变。
 
@@ -436,7 +417,6 @@ Dialog 内容：
 - 作品数据页左右布局；
 - 账号总览页全宽布局；
 - 移除顶级采集 / 账号 tab；
-- run 查询改 Dialog。
 
 ### Step 2：作品页回正
 
@@ -483,6 +463,6 @@ Dialog 内容：
 6. 作品详情、来源分布、留存、按日趋势和数据缺口完整；
 7. 5 / 10 / 4 卡数量与旧口径一致；
 8. 画像五维同屏，省市为 Top 5；
-9. 单账号、全账号和 run 查询入口不破坏旧布局；
+9. 单账号、全账号入口不破坏旧布局；
 10. 视觉、token、i18n、键盘、响应式和 reduced-motion 全部符合新规范；
 11. 本地真实 Tools、真实扫码和采集 E2E 不回归。
