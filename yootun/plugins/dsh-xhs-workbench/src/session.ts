@@ -392,8 +392,8 @@ export async function confirmSessionOnPage(page: XhsPage, options: {
     // page.context() 本身的异常发生在参数求值阶段，Promise catch 兜不住。
     try {
       await saveStorageState(accountId, page.context(), root)
-    } catch {
-      // 备份失败不影响会话判定。
+    } catch (error) {
+      void error // 备份失败不影响会话判定。
     }
     return { status: 'ok', reason: null, profile }
   }

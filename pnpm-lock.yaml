@@ -20264,6 +20264,9 @@ importers:
       '@yootun/dsh-wx-channels-workbench':
         specifier: workspace:*
         version: link:../../plugins/dsh-wx-channels-workbench
+      '@yootun/dsh-xhs-workbench':
+        specifier: workspace:*
+        version: link:../../plugins/dsh-xhs-workbench
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:~

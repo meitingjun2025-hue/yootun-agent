@@ -54,13 +54,17 @@ export function PublishPanel(props: PublishPanelProps): ReactNode {
   // 发布进度轮询：running 时 2s 一次 publish.status；终态由依赖变化自动停止。
   useEffect(() => {
     if (publish === undefined || publish === null || publish.publishStatus !== 'running') return undefined
+    const publishId = publish.publishId
+    const pollOnce = async (): Promise<void> => {
+      const result = await hostAction('publish.status', { publishId })
+      const next = result?.publish
+      if (next !== null && typeof next === 'object') setPublish(next as PublishRunState)
+    }
     const timer = window.setInterval(async () => {
       try {
-        const result = await hostAction('publish.status', { publishId: publish.publishId })
-        const next = result?.publish
-        if (next !== null && typeof next === 'object') setPublish(next as PublishRunState)
-      } catch {
-        // 单次轮询失败不打断：发布 run 在宿主后台继续，下个周期继续查询。
+        await pollOnce()
+      } catch (error) {
+        void error // 单次轮询失败不打断：发布 run 在宿主后台继续，下个周期继续查询。
       }
     }, PUBLISH_POLL_INTERVAL_MS)
     return () => { window.clearInterval(timer) }

@@ -1933,5 +1933,29 @@
   },
   "website/tests/raw-markdown.spec.ts": {
     "016337c62f55ffcdfc006da693aaf9bb20c3bb49260939c0d50191117c48934e": 1
+  },
+  "yootun/plugins/dsh-media-upload/tests/media-upload.test.ts": {
+    "6b8b0a920c558092d20bc17623b7050e0f7403f896fde7da17bb45677899b910": 1,
+    "cac24a3428fc8cbaed876f2e8066a816730230b31d45dd26395da828374a513e": 1,
+    "8687e4fdcc8740627582d0a0dfaf8a438502018a46b5e34f4fdddb44b37775f7": 1,
+    "07e58fe32931ff096ab5643a94b15aecfe13f581f7b16d8bc628c3e3e594fff3": 1
+  },
+  "yootun/plugins/dsh-wx-channels-workbench/src/session.ts": {
+    "e8287f052cfd48e352304a13e6beba096d2eb23e0183f036a6d7f4040ff08daf": 1
+  },
+  "yootun/plugins/dsh-wx-channels-workbench/tests/host.test.ts": {
+    "f31068e1795c4a958d85ad8ba69a7937eb736af6f585dc6fcdff2557e2095b36": 1,
+    "ff15277e5994a7d6d4a1e8c0529813314868558824408f933195be60fa8668b5": 1,
+    "5536a97bd51f745a0b1035e1b829c9a188b9b09b552ad68a86e5812fd193683d": 1,
+    "5d22e617ac769a3489636d04408b9a29b0916a05e4fc92036eec51bcad6e32ae": 2,
+    "016337c62f55ffcdfc006da693aaf9bb20c3bb49260939c0d50191117c48934e": 1
+  },
+  "yootun/plugins/dsh-xhs-workbench/tests/host.test.ts": {
+    "97f99c17a86ab91f47d235b3d909b5b18bea5f452f85b821f857df97dab13007": 1,
+    "fc1e40904f86e00e9ce75638172b26a38de0c5a1a4335667fbdb174a57b03c8d": 1,
+    "f31068e1795c4a958d85ad8ba69a7937eb736af6f585dc6fcdff2557e2095b36": 1,
+    "ff15277e5994a7d6d4a1e8c0529813314868558824408f933195be60fa8668b5": 1,
+    "5536a97bd51f745a0b1035e1b829c9a188b9b09b552ad68a86e5812fd193683d": 1,
+    "c7f626f8d55bd075cd61bfe2153530493d5c75c52cd8d6e0eaffae7630c3aef7": 1
   }
 }

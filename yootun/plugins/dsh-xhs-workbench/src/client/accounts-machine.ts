@@ -230,63 +230,74 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
     const login = snapshot.login
     if (login !== null && login.status === 'waiting') {
       try {
-        const result = await ports.loginStatus({ loginId: login.loginId })
-        if (!active) return
-        const next = result?.login
-        if (next === undefined || next === null || next.status === 'idle') {
-          // 终态 run 已被宿主清理（进程重启）：按失败收敛，刷新列表。
-          setState({ login: null })
-          setNotice('error', 'accounts.loginFailed')
-          await refresh()
-          return
-        }
-        if (next.status === 'waiting') {
-          setState({ login: next as LoginState })
-          return
-        }
-        setState({ login: null })
-        if (next.status === 'ok') {
-          setNotice('ok', 'accounts.loginOk')
-          await refresh()
-          if (active && typeof next.accountId === 'string') setState({ selectedId: next.accountId })
-        } else {
-          noticeForReason('error', typeof next.reason === 'string' ? next.reason : undefined, next.status === 'timeout' ? 'accounts.loginTimeout' : 'accounts.loginFailed')
-          await refresh()
-        }
-      } catch {
-        // 单次轮询失败不终止等待：下个周期继续（用户正在扫码，不能打断）。
+        await pollLoginOnce(login)
+      } catch (error) {
+        void error // 单次轮询失败不终止等待：下个周期继续（用户正在扫码，不能打断）。
       }
       return
     }
     const collect = snapshot.collect
     if (collect !== null && collect.collectStatus === 'running') {
       try {
-        const result = await ports.collectStatus({ collectId: collect.collectId })
-        // 宿主重启后 run 丢失（collect_id_required 等）：收敛为失败，不静默清空。
-        if (result === null || result.collect === undefined || result.collect === null) {
-          if (!active) return
-          setState({ collect: null })
-          setNotice('error', 'accounts.collectFailed')
-          return
-        }
-        const next = result.collect
-        if (!active) return
-        if (next === undefined || next === null) {
-          setState({ collect: null })
-          return
-        }
-        if (next.collectStatus === 'running') {
-          setState({ collect: next })
-          return
-        }
-        setState({ collect: null })
-        if (next.collectStatus === 'completed') setNotice(next.truncated === true ? 'warn' : 'ok', next.truncated === true ? 'accounts.truncated' : 'accounts.collectDone')
-        else noticeForReason('error', typeof next.error === 'string' ? next.error : undefined, 'accounts.collectFailed')
-        await refresh()
-      } catch {
-        // 同上：采集轮询单次失败不打断，继续下一周期。
+        await pollCollectOnce()
+      } catch (error) {
+        void error // 同上：采集轮询单次失败不打断，继续下一周期。
       }
     }
+  }
+
+  /** 登录等待单次查询：waiting 续等，终态收敛并刷新列表（用户正在扫码，不打断等待）。 */
+  async function pollLoginOnce(login: LoginState): Promise<void> {
+    const result = await ports.loginStatus({ loginId: login.loginId })
+    if (!active) return
+    const next = result?.login
+    if (next === undefined || next === null || next.status === 'idle') {
+      // 终态 run 已被宿主清理（进程重启）：按失败收敛，刷新列表。
+      setState({ login: null })
+      setNotice('error', 'accounts.loginFailed')
+      await refresh()
+      return
+    }
+    if (next.status === 'waiting') {
+      setState({ login: next as LoginState })
+      return
+    }
+    setState({ login: null })
+    if (next.status === 'ok') {
+      setNotice('ok', 'accounts.loginOk')
+      await refresh()
+      if (active && typeof next.accountId === 'string') setState({ selectedId: next.accountId })
+    } else {
+      noticeForReason('error', typeof next.reason === 'string' ? next.reason : undefined, next.status === 'timeout' ? 'accounts.loginTimeout' : 'accounts.loginFailed')
+      await refresh()
+    }
+  }
+
+  /** 采集单次查询：宿主重启后 run 丢失（collect_id_required 等）收敛为失败，不静默清空。 */
+  async function pollCollectOnce(): Promise<void> {
+    const collect = snapshot.collect
+    if (collect === null) return
+    const result = await ports.collectStatus({ collectId: collect.collectId })
+    if (result === null || result.collect === undefined || result.collect === null) {
+      if (!active) return
+      setState({ collect: null })
+      setNotice('error', 'accounts.collectFailed')
+      return
+    }
+    const next = result.collect
+    if (!active) return
+    if (next === undefined || next === null) {
+      setState({ collect: null })
+      return
+    }
+    if (next.collectStatus === 'running') {
+      setState({ collect: next })
+      return
+    }
+    setState({ collect: null })
+    if (next.collectStatus === 'completed') setNotice(next.truncated === true ? 'warn' : 'ok', next.truncated === true ? 'accounts.truncated' : 'accounts.collectDone')
+    else noticeForReason('error', typeof next.error === 'string' ? next.error : undefined, 'accounts.collectFailed')
+    await refresh()
   }
 
   return {

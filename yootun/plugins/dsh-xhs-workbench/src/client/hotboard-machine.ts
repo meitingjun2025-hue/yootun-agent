@@ -374,30 +374,38 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
   /** 配置只读（R3 定案）：settings 只作只读展示，页面无编辑入口。 */
   async function loadSettings(): Promise<void> {
     try {
-      const res = await call('hotboard.settings')
-      if (res.status === 'error') return
-      update({ settings: (res.data ?? null) as HotboardSettings | null })
-    } catch {
-      // 配置读取失败不阻塞页面。
+      await readSettings()
+    } catch (error) {
+      void error // 配置读取失败不阻塞页面。
     }
+  }
+
+  async function readSettings(): Promise<void> {
+    const res = await call('hotboard.settings')
+    if (res.status === 'error') return
+    update({ settings: (res.data ?? null) as HotboardSettings | null })
   }
 
   /** 待办数（子导航角标）：pending 候选与 pending 提案的 total（pageSize=1 只取 meta）。 */
   async function refreshTodos(): Promise<void> {
     try {
-      const [cand, prop] = await Promise.all([
-        call('hotboard.candidates', { status: 'pending', page: 1, pageSize: 1 }),
-        call('hotboard.labels', { proposalStatus: 'pending', page: 1, pageSize: 1 }),
-      ])
-      const metaOf = (res: HotboardCallResult): number | null => {
-        const meta = res.meta as { total?: unknown } | null
-        const total = meta?.total
-        return typeof total === 'number' ? total : null
-      }
-      update({ todos: { candidates: metaOf(cand), proposals: metaOf(prop) } })
-    } catch {
-      // 徽标失败不打扰主数据。
+      await readTodos()
+    } catch (error) {
+      void error // 徽标失败不打扰主数据。
     }
+  }
+
+  async function readTodos(): Promise<void> {
+    const [cand, prop] = await Promise.all([
+      call('hotboard.candidates', { status: 'pending', page: 1, pageSize: 1 }),
+      call('hotboard.labels', { proposalStatus: 'pending', page: 1, pageSize: 1 }),
+    ])
+    const metaOf = (res: HotboardCallResult): number | null => {
+      const meta = res.meta as { total?: unknown } | null
+      const total = meta?.total
+      return typeof total === 'number' ? total : null
+    }
+    update({ todos: { candidates: metaOf(cand), proposals: metaOf(prop) } })
   }
 
   // --- run 轮询（active run 时轮询 run_get；页面隐藏 stop 停止） ---
@@ -428,22 +436,25 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
     if (runId === null || stopped) return
     const gen = generation
     try {
-      const res = await call('hotboard.runGet', { runId })
-      if (gen !== generation || stopped) return
-      if (res.status === 'ready') {
-        update({ runLive: (res.data ?? null) as HotboardRun | null })
-        const status = (res.data as HotboardRun | undefined)?.run?.status
-        if (status !== undefined && !ACTIVE_RUN_STATUSES.has(status)) {
-          // run 落终态：停轮询并刷新看板 KPI 与待办。
-          runId = null
-          void refresh()
-          return
-        }
-      }
-    } catch {
-      // 单次轮询失败继续下一轮。
+      await pollRunOnce(gen)
+    } catch (error) {
+      void error // 单次轮询失败继续下一轮。
     }
     if (runId !== null && !stopped && timer === null) timer = schedule(pollRun)
+  }
+
+  /** run 单次查询；落终态时清 runId 并刷新看板（外层因此不再续排）。 */
+  async function pollRunOnce(gen: number): Promise<void> {
+    const res = await call('hotboard.runGet', { runId })
+    if (gen !== generation || stopped) return
+    if (res.status !== 'ready') return
+    update({ runLive: (res.data ?? null) as HotboardRun | null })
+    const status = (res.data as HotboardRun | undefined)?.run?.status
+    if (status !== undefined && !ACTIVE_RUN_STATUSES.has(status)) {
+      // run 落终态：停轮询并刷新看板 KPI 与待办。
+      runId = null
+      void refresh()
+    }
   }
 
   // --- 生命周期 ---

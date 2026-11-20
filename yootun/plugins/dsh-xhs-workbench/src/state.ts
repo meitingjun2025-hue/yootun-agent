@@ -99,8 +99,8 @@ async function ensureDir(dir: string, mode = 0o700): Promise<void> {
   await mkdir(dir, { recursive: true, mode })
   try {
     await chmod(dir, mode)
-  } catch {
-    // Windows 上 chmod 语义有限，忽略。
+  } catch (error) {
+    void error // Windows 上 chmod 语义有限，忽略。
   }
 }
 
@@ -137,8 +137,8 @@ export async function writeAccounts(state: AccountsState, root: string): Promise
   await rename(tmp, file)
   try {
     await chmod(file, 0o600)
-  } catch {
-    // 同上：Windows 忽略。
+  } catch (error) {
+    void error // 同上：Windows 忽略。
   }
 }
 
@@ -243,8 +243,8 @@ export async function moveStorageState(fromAccountId: string, toAccountId: strin
   }
   try {
     await chmod(to, 0o600)
-  } catch {
-    // Windows 忽略。
+  } catch (error) {
+    void error // Windows 忽略。
   }
   return to
 }
@@ -267,8 +267,8 @@ export async function saveStorageState(accountId: string, context: StorageStateS
   await context.storageState({ path: target })
   try {
     await chmod(target, 0o600)
-  } catch {
-    // Windows 忽略。
+  } catch (error) {
+    void error // Windows 忽略。
   }
   return target
 }
@@ -376,8 +376,8 @@ export async function saveSnapshot(accountId: string, snapshot: CollectSnapshot,
   await writeFile(target, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 })
   try {
     await chmod(target, 0o600)
-  } catch {
-    // Windows 忽略。
+  } catch (error) {
+    void error // Windows 忽略。
   }
   return target
 }

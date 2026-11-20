@@ -464,7 +464,6 @@ export const zh = {
   'accounts.actionFailed': '操作失败，请重试',
   'accounts.chromeBlock': '未检测到系统 Google Chrome，账号扫码与数据采集不可用',
   'accounts.listFailed': '账号列表读取失败，请重试',
-  // 插件助手（12 册 §7：上下文/建议/降级文案）
 } as const
 
 export const en: Record<keyof typeof zh, string> = {

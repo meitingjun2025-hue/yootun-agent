@@ -260,16 +260,18 @@ test('插件分区 workspace 登记与 bundle 插入对齐 P1 交付面', () => 
   for (const name of ['@yootun/dsh-managed-mcp', '@yootun/dsh-workbench-mcp', '@yootun/dsh-media-upload']) {
     assert.ok(patch.includes(`name: '${name}'`), `bundle patch 插入 ${name}`)
   }
-  // P2 视频号工作台已插入（2026-11-17）；小红书/抖音与 Catalog 仍不插。
+  // P2 视频号工作台已插入（2026-11-17）；P3 小红书工作台已插入（2026-11-20）；
+  // 抖音与 Catalog 仍不插。
   assert.ok(patch.includes(`name: '@yootun/dsh-wx-channels-workbench'`), 'P2 bundle 插入视频号工作台')
-  for (const absent of ['dsh-xhs-workbench', 'dsh-douyin-workbench', 'yootun-catalog']) {
+  assert.ok(patch.includes(`name: '@yootun/dsh-xhs-workbench'`), 'P3 bundle 插入小红书工作台')
+  for (const absent of ['dsh-douyin-workbench', 'yootun-catalog']) {
     assert.ok(!patch.includes(absent), `bundle 不插入 ${absent}`)
   }
   const wxManifest = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'plugins', 'dsh-wx-channels-workbench', 'package.json'), 'utf8'))
   assert.equal(Array.isArray(wxManifest.dsh?.client?.inject), true, 'wx 包 dsh.client.inject 声明存在')
   const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'packages', 'dsh-bundle-yootun', 'package.json'), 'utf8'))
   // bare 插件必须出现在 resolver manifest 的 dependencies（加载器解析面）。
-  for (const dependency of ['@yootun/dsh-managed-mcp', '@yootun/dsh-workbench-mcp', '@yootun/dsh-media-upload', '@yootun/dsh-wx-channels-workbench']) {
+  for (const dependency of ['@yootun/dsh-managed-mcp', '@yootun/dsh-workbench-mcp', '@yootun/dsh-media-upload', '@yootun/dsh-wx-channels-workbench', '@yootun/dsh-xhs-workbench']) {
     assert.equal(manifest.dependencies[dependency], 'workspace:*', `bundle dependencies 含 ${dependency}`)
   }
 })
@@ -279,6 +281,7 @@ test('yootun Host 插件包发布完整运行时 JavaScript 产物', () => {
     'dsh-managed-mcp',
     'dsh-workbench-mcp',
     'dsh-wx-channels-workbench',
+    'dsh-xhs-workbench',
   ]
   for (const plugin of runtimePlugins) {
     const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'plugins', plugin, 'package.json'), 'utf8'))
