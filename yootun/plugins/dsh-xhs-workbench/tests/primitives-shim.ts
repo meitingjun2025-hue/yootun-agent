@@ -4,6 +4,7 @@
  * @module
  */
 export { Button } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
+export { Checkbox } from '@deepseek-ai/dsh-client-ui-primitives/src/Checkbox.tsx'
 export { Input } from '@deepseek-ai/dsh-client-ui-primitives/src/Input.tsx'
 export { MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives/src/markdown/MarkdownText.tsx'
 export { Modal } from '@deepseek-ai/dsh-client-ui-primitives/src/Modal.tsx'

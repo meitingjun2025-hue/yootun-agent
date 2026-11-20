@@ -76,6 +76,12 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'collect_id_required',
   'idempotency_key_required',
   'confirmation_required',
+  'invalid_media_type',
+  'image_urls_required',
+  'video_url_required',
+  'task_id_required',
+  'versions_unavailable',
+  'create_failed_no_task',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */

@@ -20,6 +20,8 @@ export { HOST_PATH, UPLOAD_PICK_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, hos
 export { NS, zh, en, type XhsLocaleKey } from './locales.ts'
 export { WorkbenchPage, localeTagOf, type WorkbenchPageProps, type Translate } from './WorkbenchPage.tsx'
 export { RewritePage } from './RewritePage.tsx'
+export { HotboardPage } from './HotboardPage.tsx'
+export { createHotboardHub, type HotboardMachine, type HotboardSnapshot, type HotboardSub, type HotboardFilters, type HotboardOverview, type HotboardRun, type HotboardSettings, type HotboardNoteDetail, type HotboardWriteResult } from './hotboard-machine.ts'
 export { EditableResult, type EditedCopy } from './EditableResult.tsx'
 export { createTaskMachine, type TaskMachine, type TaskMachineSnapshot, type TaskCreateInput, type TaskVersion, type TaskFailure } from './task-machine.ts'
 

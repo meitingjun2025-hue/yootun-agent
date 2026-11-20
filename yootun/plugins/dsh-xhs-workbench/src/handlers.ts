@@ -8,7 +8,7 @@
  * @module
  */
 import type { BrowserStatus, ChromeFactory } from './chrome.ts'
-import { safeCode, SERVER_HOTBOARD_ERROR_CODES, SERVER_COMMON_ERROR_CODES, STABLE_ERROR_CODES } from './errors.ts'
+import { safeCode, STABLE_ERROR_CODES, type StableErrorCode } from './errors.ts'
 import { acquireProfileLock, isProfileLocked, tryWithProfileLock, type ProfileLockRelease } from './locks.ts'
 import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { CollectError, collectNotes, summarizeSnapshot, type SnapshotSummary } from './collector.ts'
@@ -19,16 +19,77 @@ import {
 import { LOGIN_TIMEOUT_MS } from './session.ts'
 import { latestSnapshot, readAccounts, type SnapshotNote } from './state.ts'
 import type { XhsWorkbenchFace } from './workbench.ts'
-import type { ActionArgs, ActionHandler } from './route.ts'
+import type { ActionArgs, ActionHandler, HandlerPayload } from './route.ts'
 
 /** MCP 错误信封 → 受控 reason 白名单（白名单外一律收敛，不透传原文）。 */
-const HOTBOARD_REASON_CODES: ReadonlySet<string> = new Set([...SERVER_HOTBOARD_ERROR_CODES, ...SERVER_COMMON_ERROR_CODES, 'XHS_HOTBOARD_INTERNAL_ERROR'])
+
+
+/** 看板枚举白名单（与 server.py Literal 一致；旧 HOTBOARD_ENUMS 同表）。 */
+const HOTBOARD_ENUMS = Object.freeze({
+  window: new Set(['7d', '30d', '90d']),
+  sort: new Set(['score', 'publishTime', 'collect', 'like', 'comment', 'share']),
+  keywordCategory: new Set(['product', 'scene']),
+  keywordStatus: new Set(['active', 'disabled']),
+  keywordSource: new Set(['built_in', 'manual', 'agent']),
+  candidateStatus: new Set(['pending', 'accepted', 'rejected', 'expired']),
+  labelStatus: new Set(['active', 'retired']),
+  labelSource: new Set(['business_seed', 'ai', 'manual']),
+  proposalStatus: new Set(['pending', 'auto_activated', 'accepted', 'rejected', 'merged', 'expired']),
+  tagType: new Set(['style', 'color']),
+  keywordAction: new Set(['create', 'update', 'enable', 'disable']),
+  candidateAction: new Set(['accepted', 'rejected']),
+  labelReviewAction: new Set(['accept', 'reject', 'merge', 'enable', 'retire']),
+  runType: new Set(['incremental']),
+})
+
+/** ID 宽松校验：hex-ish 字符集 + 长度（完整 UUID 语义由 tools 侧兜底；旧 cleanHotboardId 同口径）。 */
+function cleanHotboardId(value: unknown, max = 64): string | null {
+  if (typeof value !== 'string') return null
+  const id = value.trim().slice(0, max)
+  if (id === '' || !/^[0-9a-f][0-9a-f-]*$/iu.test(id)) return null
+  return id
+}
+
+/** 分页参数清洗（1-100；缺省不落字段；非法返回 null → INVALID_ARGUMENT）。 */
+function hotboardPage(args: ActionArgs, key: string): number | null | undefined {
+  const value = args[key]
+  if (value === undefined) return undefined
+  const num = Number(value)
+  if (!Number.isInteger(num) || num < 1 || num > 100) return null
+  return num
+}
+
+/** 枚举参数清洗（白名单外 null；空串缺省）。 */
+function hotboardEnum(args: ActionArgs, key: string, set: ReadonlySet<string>): string | null | undefined {
+  const value = args[key]
+  if (value === undefined || value === '') return undefined
+  return typeof value === 'string' && set.has(value) ? value : null
+}
+
+/** 字符串参数清洗（非空截断；空串缺省）。 */
+function hotboardStr(args: ActionArgs, key: string, max: number): string | null | undefined {
+  const value = args[key]
+  if (value === undefined || value === null) return undefined
+  if (typeof value !== 'string') return null
+  const text = value.trim().slice(0, max)
+  return text === '' ? undefined : text
+}
 
 /** settings 受控字段白名单（旧 index.js HOTBOARD_SETTINGS_* 同口径）；值域/cron
  * 深校验在 tools 侧，Host 只做键白名单与值类型粗校验。 */
 const HOTBOARD_SETTINGS_BOOL: ReadonlySet<string> = new Set(['scheduleEnabled', 'manualIncrementEnabled', 'commentSampleEnabled', 'manualCommentDefaultEnabled'])
 const HOTBOARD_SETTINGS_NUMBER: ReadonlySet<string> = new Set(['publishWindowDays', 'perKeywordLimit', 'commentTopN', 'commentMaxPerNote', 'minInteractionTotal', 'dedupHammingThreshold', 'minValidSample', 'searchMaxCallsPerDay', 'commentMaxCallsPerDay', 'detailMaxCallsPerRun'])
 const HOTBOARD_SETTINGS_KEYS: ReadonlySet<string> = new Set([...HOTBOARD_SETTINGS_BOOL, ...HOTBOARD_SETTINGS_NUMBER, 'fullScheduleCron'])
+
+/** error 分支响应（reason 必须是稳定码白名单成员；HandlerPayload 判别联合）。 */
+function errorPayload(reason: StableErrorCode, extra: Record<string, unknown> = {}): HandlerPayload {
+  return { status: 'error', reason, ...extra }
+}
+
+/** 字符串码 → 稳定码（白名单成员直通，否则落 fallback；调用点已按白名单过滤）。 */
+function stableOr(code: string, fallback: StableErrorCode): StableErrorCode {
+  return (STABLE_ERROR_CODES as readonly string[]).includes(code) ? code as StableErrorCode : fallback
+}
 
 /** 登录等待状态（页面轮询 loginStatus；终态读取一次即清理）。 */
 export interface LoginRun {
@@ -264,17 +325,19 @@ export function projectHotboardWrite(payload: Record<string, unknown>): Record<s
   return out
 }
 
-/** MCP 错误信封（payload.error.code）→ 受控 reason；白名单外收敛 INTERNAL。 */
-function hotboardErrorReason(payload: Record<string, unknown> | null): string | null {
+/** MCP 错误信封（payload.error.code）→ 受控 reason；信封存在时白名单外一律收敛
+ * INTERNAL（绝不把未知错误信封当数据透传），无信封返回 null。 */
+function hotboardErrorReason(payload: Record<string, unknown> | null): StableErrorCode | null {
   if (payload === null) return null
   const error = payload.error
   if (error === null || typeof error !== 'object') return null
   const code = typeof (error as Record<string, unknown>).code === 'string' ? (error as Record<string, unknown>).code as string : ''
-  return HOTBOARD_REASON_CODES.has(code) ? code : 'XHS_HOTBOARD_INTERNAL_ERROR'
+  if (code === '') return null
+  return stableOr(code, 'XHS_HOTBOARD_INTERNAL_ERROR')
 }
 
 /** 抛错形态的 Workbench 业务失败 → 受控 reason（message 可能为错误信封 JSON）。 */
-function safeHotboardToolError(error: unknown): string {
+function safeHotboardToolError(error: unknown): StableErrorCode {
   const message = error instanceof Error ? error.message : ''
   let parsedEnvelope: unknown
   try {
@@ -289,7 +352,7 @@ function safeHotboardToolError(error: unknown): string {
   return hotboardReasonOf(error)
 }
 
-function hotboardReasonOf(error: unknown): string {
+function hotboardReasonOf(error: unknown): StableErrorCode {
   if (typeof error !== 'object' || error === null) return 'XHS_HOTBOARD_INTERNAL_ERROR'
   const payload = (error as { payload?: unknown }).payload
   if (payload !== null && typeof payload === 'object') {
@@ -315,6 +378,52 @@ function validateSettingsObject(settings: unknown): Record<string, unknown> | nu
     } else if (!Number.isFinite(Number(value)) || typeof value === 'boolean') return null
   }
   return record
+}
+
+/** 写操作确定性前置结果：要么已定型拒绝，要么携带幂等键继续。 */
+type WritePre =
+  | { idempotencyKey: string }
+  | { payload: HandlerPayload }
+
+/** 写操作确定性前置（旧 handleHotboard 同口径）：confirm 显式 true + 幂等键必填，
+ * 失败不烧键。参数清洗失败统一落 XHS_HOTBOARD_INVALID_ARGUMENT（pre.payload）。 */
+function hotboardWritePre(args: ActionArgs): WritePre {
+  if (args.confirm !== true) return { payload: errorPayload('confirmation_required') }
+  const idempotencyKey = stringValue(args, 'idempotencyKey')
+  if (idempotencyKey === '') return { payload: errorPayload('idempotency_key_required') }
+  return { idempotencyKey }
+}
+
+/** 看板读投影：`{data, meta}` 白名单透传；无信封时按原对象兜底（旧 handleHotboard 读分支）。 */
+async function hotboardRead(deps: XhsHostDeps, tool: string, args: Record<string, unknown>): Promise<HandlerPayload> {
+  let payload: Record<string, unknown>
+  try {
+    payload = await callWorkbench(deps, tool, args)
+  } catch (error) {
+    const reason = safeHotboardToolError(error)
+    deps.logger.warn(`yootun xhs ${tool} failed: ${reason}`)
+    return errorPayload(reason)
+  }
+  const errorReason = hotboardErrorReason(payload)
+  if (errorReason !== null) return errorPayload(errorReason)
+  const data = 'data' in payload ? payload.data : payload
+  const meta = 'meta' in payload ? payload.meta : null
+  return { status: 'ready', data, meta }
+}
+
+/** 看板写投影：confirm/idempotencyKey 注入 + projectHotboardWrite 受控字段（旧写分支）。 */
+async function hotboardWrite(deps: XhsHostDeps, tool: string, args: Record<string, unknown>, idempotencyKey: string): Promise<HandlerPayload> {
+  let payload: Record<string, unknown>
+  try {
+    payload = await callWorkbench(deps, tool, { ...args, confirm: true, idempotencyKey })
+  } catch (error) {
+    const reason = safeHotboardToolError(error)
+    deps.logger.warn(`yootun xhs ${tool} failed: ${reason}`)
+    return errorPayload(reason)
+  }
+  const errorReason = hotboardErrorReason(payload)
+  if (errorReason !== null) return errorPayload(errorReason)
+  return { status: 'ready', ...projectHotboardWrite(payload) }
 }
 
 /** 本地浏览器/采集错误 → 受控错误码（白名单外收敛 LOGIN_FAILED 等）。 */
@@ -633,22 +742,247 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
 
     'hotboard.settingsUpdate': async args => {
       // 写操作：confirm 必须显式 true，幂等键必填（旧 index.js handleHotboard 口径）。
-      if (args.confirm !== true) return { status: 'error', reason: 'confirmation_required' }
+      if (args.confirm !== true) return errorPayload('confirmation_required')
       const idempotencyKey = stringValue(args, 'idempotencyKey')
-      if (idempotencyKey === '') return { status: 'error', reason: 'idempotency_key_required' }
+      if (idempotencyKey === '') return errorPayload('idempotency_key_required')
       const settings = validateSettingsObject(args.settings)
-      if (settings === null) return { status: 'error', reason: 'XHS_HOTBOARD_INVALID_ARGUMENT' }
+      if (settings === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
       let payload: Record<string, unknown>
       try {
         payload = await callWorkbench(deps, 'workbench_xhs_hotboard_settings_update', { settings, confirm: true, idempotencyKey })
       } catch (error) {
         const reason = safeHotboardToolError(error)
         deps.logger.warn(`yootun xhs hotboard settingsUpdate failed: ${reason}`)
-        return { status: 'error', reason }
+        return errorPayload(reason)
       }
       const errorReason = hotboardErrorReason(payload)
-      if (errorReason !== null) return { status: 'error', reason: errorReason }
+      if (errorReason !== null) return errorPayload(errorReason)
       return { status: 'ready', ...projectHotboardWrite(payload) }
+    },
+
+    // ---- 看板剩余 12 action（X5；旧 index.js HOTBOARD_ACTIONS/hotboardArgs/handleHotboard 同口径重译）----
+
+    'hotboard.overview': async args => {
+      const page = hotboardPage(args, 'page')
+      if (page === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const pageSize = hotboardPage(args, 'pageSize')
+      if (pageSize === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = {
+        window: hotboardEnum(args, 'window', HOTBOARD_ENUMS.window) ?? '30d',
+      }
+      if (page !== undefined) toolArgs.page = page
+      if (pageSize !== undefined) toolArgs.pageSize = pageSize
+      const sort = hotboardEnum(args, 'sort', HOTBOARD_ENUMS.sort)
+      if (sort === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (sort !== undefined) toolArgs.sort = sort
+      for (const [key, max] of [['keyword', 128], ['style', 64], ['color', 64], ['noteWord', 64], ['commentWord', 64]] as const) {
+        const value = hotboardStr(args, key, max)
+        if (value === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+        if (value !== undefined) toolArgs[key] = value
+      }
+      for (const key of ['scoreMin', 'scoreMax'] as const) {
+        const value = args[key]
+        if (value === undefined) continue
+        const num = Number(value)
+        if (!Number.isFinite(num) || num < 0 || num > 100) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+        toolArgs[key] = num
+      }
+      if (args.onlyMain !== undefined) toolArgs.onlyMain = args.onlyMain === true
+      if (args.onlyTagged !== undefined) toolArgs.onlyTagged = args.onlyTagged === true
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_overview', toolArgs)
+    },
+
+    'hotboard.noteDetail': async args => {
+      const noteId = hotboardStr(args, 'noteId', 128)
+      if (noteId === null || noteId === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_note_detail', { noteId })
+    },
+
+    'hotboard.noteTagUpdate': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const noteId = hotboardStr(args, 'noteId', 128)
+      if (noteId === null || noteId === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const tagType = hotboardEnum(args, 'tagType', HOTBOARD_ENUMS.tagType)
+      if (tagType === null || tagType === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const labelCode = hotboardStr(args, 'labelCode', 64)
+      if (labelCode === null || labelCode === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_note_tag_update', { noteId, tagType, labelCode }, pre.idempotencyKey)
+    },
+
+    'hotboard.noteExclude': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const noteId = hotboardStr(args, 'noteId', 128)
+      if (noteId === null || noteId === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_note_exclude', { noteId }, pre.idempotencyKey)
+    },
+
+    'hotboard.keywords': async args => {
+      const page = hotboardPage(args, 'page')
+      if (page === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const pageSize = hotboardPage(args, 'pageSize')
+      if (pageSize === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = {}
+      if (page !== undefined) toolArgs.page = page
+      if (pageSize !== undefined) toolArgs.pageSize = pageSize
+      const category = hotboardEnum(args, 'category', HOTBOARD_ENUMS.keywordCategory)
+      if (category === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (category !== undefined) toolArgs.category = category
+      const status = hotboardEnum(args, 'status', HOTBOARD_ENUMS.keywordStatus)
+      if (status === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (status !== undefined) toolArgs.status = status
+      const source = hotboardEnum(args, 'source', HOTBOARD_ENUMS.keywordSource)
+      if (source === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (source !== undefined) toolArgs.source = source
+      const keyword = hotboardStr(args, 'keyword', 128)
+      if (keyword === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (keyword !== undefined) toolArgs.keyword = keyword
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_keywords_list', toolArgs)
+    },
+
+    'hotboard.keywordSave': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const action = hotboardEnum(args, 'op', HOTBOARD_ENUMS.keywordAction)
+      if (action === null || action === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = { action }
+      const keywordId = args.keywordId !== undefined && args.keywordId !== null ? cleanHotboardId(args.keywordId) : undefined
+      if (keywordId === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (keywordId !== undefined) toolArgs.keywordId = keywordId
+      const keyword = hotboardStr(args, 'keyword', 128)
+      if (keyword === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (keyword !== undefined) toolArgs.keyword = keyword
+      const category = hotboardEnum(args, 'category', HOTBOARD_ENUMS.keywordCategory)
+      if (category === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (category !== undefined) toolArgs.category = category
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_keyword_save', toolArgs, pre.idempotencyKey)
+    },
+
+    'hotboard.runStart': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const runType = hotboardEnum(args, 'runType', HOTBOARD_ENUMS.runType) ?? 'incremental'
+      const toolArgs: Record<string, unknown> = { runType }
+      if (args.includeComments !== undefined) toolArgs.includeComments = args.includeComments === true
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_run_start', toolArgs, pre.idempotencyKey)
+    },
+
+    'hotboard.runGet': async args => {
+      const runId = args.runId !== undefined && args.runId !== null ? cleanHotboardId(args.runId) : undefined
+      if (runId === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = {}
+      if (runId !== undefined) toolArgs.runId = runId
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_run_get', toolArgs)
+    },
+
+    'hotboard.candidates': async args => {
+      const page = hotboardPage(args, 'page')
+      if (page === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const pageSize = hotboardPage(args, 'pageSize')
+      if (pageSize === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = {}
+      if (page !== undefined) toolArgs.page = page
+      if (pageSize !== undefined) toolArgs.pageSize = pageSize
+      const status = hotboardEnum(args, 'status', HOTBOARD_ENUMS.candidateStatus)
+      if (status === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (status !== undefined) toolArgs.status = status
+      const category = hotboardEnum(args, 'category', HOTBOARD_ENUMS.keywordCategory)
+      if (category === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (category !== undefined) toolArgs.category = category
+      const keyword = hotboardStr(args, 'keyword', 128)
+      if (keyword === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (keyword !== undefined) toolArgs.keyword = keyword
+      // dateRange=[from,to]（YYYY-MM-DD）起止都填写才透传（review MINOR-3 口径）。
+      const dateFrom = hotboardStr(args, 'dateFrom', 10)
+      const dateTo = hotboardStr(args, 'dateTo', 10)
+      if (dateFrom === null || dateTo === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (dateFrom !== undefined && dateTo !== undefined) {
+        if (!/^\d{4}-\d{2}-\d{2}$/u.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/u.test(dateTo)) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+        toolArgs.dateRange = [dateFrom, dateTo]
+      }
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_candidates_list', toolArgs)
+    },
+
+    'hotboard.candidateReview': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const action = hotboardEnum(args, 'op', HOTBOARD_ENUMS.candidateAction)
+      if (action === null || action === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const candidateIds = Array.isArray(args.candidateIds) ? args.candidateIds : []
+      if (candidateIds.length === 0) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const ids = candidateIds.map(item => cleanHotboardId(item))
+      if (ids.some(id => id === null)) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_candidate_review', { action, candidateIds: ids }, pre.idempotencyKey)
+    },
+
+    'hotboard.labels': async args => {
+      const page = hotboardPage(args, 'page')
+      if (page === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const pageSize = hotboardPage(args, 'pageSize')
+      if (pageSize === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = {}
+      if (page !== undefined) toolArgs.page = page
+      if (pageSize !== undefined) toolArgs.pageSize = pageSize
+      const tagType = hotboardEnum(args, 'tagType', HOTBOARD_ENUMS.tagType)
+      if (tagType === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (tagType !== undefined) toolArgs.tagType = tagType
+      const status = hotboardEnum(args, 'status', HOTBOARD_ENUMS.labelStatus)
+      if (status === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (status !== undefined) toolArgs.status = status
+      const source = hotboardEnum(args, 'source', HOTBOARD_ENUMS.labelSource)
+      if (source === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (source !== undefined) toolArgs.source = source
+      const proposalStatus = hotboardEnum(args, 'proposalStatus', HOTBOARD_ENUMS.proposalStatus)
+      if (proposalStatus === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (proposalStatus !== undefined) toolArgs.proposalStatus = proposalStatus
+      const keyword = hotboardStr(args, 'keyword', 128)
+      if (keyword === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (keyword !== undefined) toolArgs.keyword = keyword
+      return await hotboardRead(deps, 'workbench_xhs_hotboard_labels_list', toolArgs)
+    },
+
+    'hotboard.labelReview': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const action = hotboardEnum(args, 'op', HOTBOARD_ENUMS.labelReviewAction)
+      if (action === null || action === undefined) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      const toolArgs: Record<string, unknown> = { action }
+      for (const key of ['proposalId', 'labelId', 'targetLabelId'] as const) {
+        const value = args[key]
+        if (value === undefined || value === null || value === '') continue
+        const id = cleanHotboardId(value)
+        if (id === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+        toolArgs[key] = id
+      }
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_label_review', toolArgs, pre.idempotencyKey)
+    },
+
+    'hotboard.labelSave': async args => {
+      const pre = hotboardWritePre(args)
+      if ('payload' in pre) return pre.payload
+      const toolArgs: Record<string, unknown> = {}
+      const labelId = args.labelId !== undefined && args.labelId !== null ? cleanHotboardId(args.labelId) : undefined
+      if (labelId === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (labelId !== undefined) toolArgs.labelId = labelId
+      const tagType = hotboardEnum(args, 'tagType', HOTBOARD_ENUMS.tagType)
+      if (tagType === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (tagType !== undefined) toolArgs.tagType = tagType
+      const code = hotboardStr(args, 'code', 64)
+      if (code === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (code !== undefined) toolArgs.code = code
+      const name = hotboardStr(args, 'name', 128)
+      if (name === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (name !== undefined) toolArgs.name = name
+      if (args.aliases !== undefined && args.aliases !== null) {
+        const aliases = Array.isArray(args.aliases) ? args.aliases : []
+        if (aliases.length === 0) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+        toolArgs.aliases = aliases
+      }
+      const definition = hotboardStr(args, 'definition', 2000)
+      if (definition === null) return errorPayload('XHS_HOTBOARD_INVALID_ARGUMENT')
+      if (definition !== undefined) toolArgs.definition = definition
+      return await hotboardWrite(deps, 'workbench_xhs_hotboard_label_save', toolArgs, pre.idempotencyKey)
     },
   }
   // dispose 开始后统一稳定拒绝新 action（不登记）；已通过 guard 的在途 action

@@ -12,6 +12,7 @@ import { en as kitEn, zh as kitZh } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import css from './workbench.module.css'
 import { zh as xhsZh } from './locales.ts'
+import { HotboardPage } from './HotboardPage.tsx'
 import { RewritePage } from './RewritePage.tsx'
 import type { Translate } from './format.ts'
 
@@ -79,13 +80,12 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         </div>
         <DataState state='ready' shape='rows'>
           <div id='xhs-panel-body' role='tabpanel' aria-label={t('panel')}>
-            {tab === 'rewrite'
-              ? <RewritePage t={t} />
-              : (
-                  // 账号管理 / 车衣爆款看板面板随 X5/X6 批次接入（12 册 §4/§5）；
-                  // 面板内占位，不新增顶级导航。
-                  <div className={css.pendingBlock} role='status'>{t('section.pending')}</div>
-                )}
+            {tab === 'rewrite' && <RewritePage t={t} />}
+            {tab === 'hotboard' && <HotboardPage t={t} />}
+            {tab === 'accounts' && (
+              // 账号管理面板随 X6 批次接入（12 册 §4）；面板内占位，不新增顶级导航。
+              <div className={css.pendingBlock} role='status'>{t('section.pending')}</div>
+            )}
           </div>
         </DataState>
       </PluginPageShell>

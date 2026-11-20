@@ -23,9 +23,11 @@ export const MAX_BODY_BYTES = 64 * 1024
 /** One whitelisted action's input contract. */
 export interface ActionSchema {
   /** Allowed fields; anything else is rejected. */
-  fields: Readonly<Record<string, 'string' | 'boolean' | 'object' | 'stringArray'>>
+  fields: Readonly<Record<string, 'string' | 'boolean' | 'object' | 'stringArray' | 'number'>>
   /** Max length for each string field. */
   limits?: Readonly<Record<string, number>>
+  /** stringArray 字段档位覆盖（缺省 ≤9 项 × 2048 字符）。 */
+  arrays?: Readonly<Record<string, { maxItems: number; itemMax: number }>>
 }
 
 /** Per-action input contracts (explicit allowlist; unknown fields rejected). */
@@ -48,11 +50,65 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'task.status': { fields: { taskId: 'string' }, limits: { taskId: 64 } },
   'task.result': { fields: { taskId: 'string' }, limits: { taskId: 64 } },
   'task.cancel': { fields: { taskId: 'string', idempotencyKey: 'string' }, limits: { taskId: 64, idempotencyKey: 128 } },
+  'hotboard.overview': {
+    fields: {
+      window: 'string', keyword: 'string', style: 'string', color: 'string', noteWord: 'string', commentWord: 'string',
+      scoreMin: 'number', scoreMax: 'number', sort: 'string', onlyMain: 'boolean', onlyTagged: 'boolean', page: 'number', pageSize: 'number',
+    },
+    limits: { window: 4, keyword: 128, style: 64, color: 64, noteWord: 64, commentWord: 64, sort: 16 },
+  },
+  'hotboard.noteDetail': { fields: { noteId: 'string' }, limits: { noteId: 128 } },
+  'hotboard.noteTagUpdate': {
+    fields: { noteId: 'string', tagType: 'string', labelCode: 'string', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { noteId: 128, tagType: 16, labelCode: 64, idempotencyKey: 128 },
+  },
+  'hotboard.noteExclude': {
+    fields: { noteId: 'string', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { noteId: 128, idempotencyKey: 128 },
+  },
+  'hotboard.keywords': {
+    fields: { category: 'string', status: 'string', source: 'string', keyword: 'string', page: 'number', pageSize: 'number' },
+    limits: { category: 16, status: 16, source: 16, keyword: 128 },
+  },
+  'hotboard.keywordSave': {
+    fields: { op: 'string', keywordId: 'string', keyword: 'string', category: 'string', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { op: 16, keywordId: 64, keyword: 128, category: 16, idempotencyKey: 128 },
+  },
+  'hotboard.runStart': {
+    fields: { runType: 'string', includeComments: 'boolean', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { runType: 16, idempotencyKey: 128 },
+  },
+  'hotboard.runGet': { fields: { runId: 'string' }, limits: { runId: 64 } },
+  'hotboard.candidates': {
+    fields: { status: 'string', category: 'string', keyword: 'string', dateFrom: 'string', dateTo: 'string', page: 'number', pageSize: 'number' },
+    limits: { status: 16, category: 16, keyword: 128, dateFrom: 10, dateTo: 10 },
+  },
+  'hotboard.candidateReview': {
+    fields: { op: 'string', candidateIds: 'stringArray', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { op: 16, idempotencyKey: 128 },
+    arrays: { candidateIds: { maxItems: 50, itemMax: 64 } },
+  },
+  'hotboard.labels': {
+    fields: { tagType: 'string', status: 'string', source: 'string', proposalStatus: 'string', keyword: 'string', page: 'number', pageSize: 'number' },
+    limits: { tagType: 16, status: 16, source: 16, proposalStatus: 24, keyword: 128 },
+  },
+  'hotboard.labelReview': {
+    fields: { op: 'string', proposalId: 'string', labelId: 'string', targetLabelId: 'string', confirm: 'boolean', idempotencyKey: 'string' },
+    limits: { op: 16, proposalId: 64, labelId: 64, targetLabelId: 64, idempotencyKey: 128 },
+  },
+  'hotboard.labelSave': {
+    fields: {
+      labelId: 'string', tagType: 'string', code: 'string', name: 'string', aliases: 'stringArray',
+      definition: 'string', confirm: 'boolean', idempotencyKey: 'string',
+    },
+    limits: { labelId: 64, tagType: 16, code: 64, name: 128, definition: 2000, idempotencyKey: 128 },
+    arrays: { aliases: { maxItems: 20, itemMax: 128 } },
+  },
   'hotboard.settings': { fields: {} },
   'hotboard.settingsUpdate': { fields: { settings: 'object', confirm: 'boolean', idempotencyKey: 'string' }, limits: { idempotencyKey: 128 } },
 })
 
-/** stringArray 字段约束：最多 9 项（旧 UI 上限，D-4）、单项 ≤2048。 */
+/** stringArray 字段约束缺省：最多 9 项（旧 UI 上限，D-4）、单项 ≤2048；档位覆盖见 schema.arrays。 */
 const STRING_ARRAY_MAX_ITEMS = 9
 const STRING_ARRAY_ITEM_MAX = 2048
 
@@ -62,7 +118,7 @@ export function isStableCode(value: string): value is StableErrorCode {
 }
 
 /** One handled action's arguments after validation. */
-export type ActionArgs = Record<string, string | boolean | string[] | Record<string, unknown> | undefined>
+export type ActionArgs = Record<string, string | boolean | number | string[] | Record<string, unknown> | undefined>
 
 /**
  * Validate one request body against the action's schema: unknown fields and
@@ -90,6 +146,11 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
       args[key] = value
       continue
     }
+    if (kind === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" must be a finite number`)
+      args[key] = value
+      continue
+    }
     if (kind === 'object') {
       // 对象字段只做浅形状校验；键级白名单由 handler 按旧插件口径校验。
       if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -99,12 +160,13 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
       continue
     }
     if (kind === 'stringArray') {
+      const bounds = schema.arrays?.[key] ?? { maxItems: STRING_ARRAY_MAX_ITEMS, itemMax: STRING_ARRAY_ITEM_MAX }
       if (!Array.isArray(value)) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" must be a string array`)
-      if (value.length > STRING_ARRAY_MAX_ITEMS) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" exceeds ${STRING_ARRAY_MAX_ITEMS} items`)
+      if (value.length > bounds.maxItems) throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" exceeds ${bounds.maxItems} items`)
       const items: string[] = []
       for (const item of value) {
         if (typeof item !== 'string') throw new XhsError('XHS_ROUTE_INVALID_REQUEST', `field "${key}" items must be strings`)
-        const text = item.trim().slice(0, STRING_ARRAY_ITEM_MAX)
+        const text = item.trim().slice(0, bounds.itemMax)
         if (text !== '') items.push(text)
       }
       args[key] = items
@@ -166,8 +228,16 @@ function send(res: ServerResponse, code: number, payload: object): void {
   res.end(JSON.stringify(payload))
 }
 
+/**
+ * Handler 响应的判别联合：error 分支的 reason 必须是稳定码白名单成员——
+ * 未收录 reason 码编译期报错（新增 reason 码必须先进 STABLE_ERROR_CODES）。
+ */
+export type HandlerPayload =
+  | ({ status: 'ready' | 'started' | 'created' } & Record<string, unknown>)
+  | ({ status: 'error'; reason: StableErrorCode } & Record<string, unknown>)
+
 /** One action's business handler: receives validated args, returns the JSON payload. */
-export type ActionHandler = (args: ActionArgs) => Promise<object>
+export type ActionHandler = (args: ActionArgs) => Promise<HandlerPayload>
 
 /**
  * Build the POST handler for the route.

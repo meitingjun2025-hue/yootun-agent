@@ -7,5 +7,6 @@
  * @module
  */
 import '@yootun/dsh-client-ui-kit/src/data-state.module.css'
+import '@yootun/dsh-client-ui-kit/src/kpi-card.module.css'
 import '@yootun/dsh-client-ui-kit/src/page-shell.module.css'
 import '@yootun/dsh-client-ui-kit/src/plugin-header.module.css'

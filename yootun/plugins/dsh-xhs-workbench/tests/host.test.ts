@@ -65,12 +65,16 @@ async function testDeps(root: string, options: {
 
 // --- 路由 schema 层 ---
 
-test('action allowlist：X4 白名单 14 项且全部有 schema', () => {
+test('action allowlist：X5 白名单 26 项且全部有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus',
     'account.probe', 'account.removeLocal', 'collect.start', 'collect.status',
     'task.create', 'task.status', 'task.result', 'task.cancel',
-    'hotboard.settings', 'hotboard.settingsUpdate',
+    'hotboard.overview', 'hotboard.noteDetail', 'hotboard.noteTagUpdate', 'hotboard.noteExclude',
+    'hotboard.keywords', 'hotboard.keywordSave', 'hotboard.runStart', 'hotboard.runGet',
+    'hotboard.candidates', 'hotboard.candidateReview', 'hotboard.labels', 'hotboard.labelReview',
+    'hotboard.labelSave', 'hotboard.settings',
+    'hotboard.settingsUpdate',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
@@ -561,6 +565,88 @@ test('hotboard.settingsUpdate：写成功只投影受控字段，TOML 管辖错�
   const failed = await handlers2['hotboard.settingsUpdate']!({ settings: { scheduleEnabled: true }, confirm: true, idempotencyKey: 'k-run-2' }) as Record<string, unknown>
   assert.equal(failed.status, 'error')
   assert.equal(failed.reason, 'XHS_HOTBOARD_SETTING_TOML_MANAGED')
+  await rm(root, { recursive: true, force: true })
+})
+
+// ---- 看板 12 action（X5；枚举/清洗/写前置，旧 hotboardArgs 同口径）----
+
+test('hotboard.overview：缺省 window=30d、枚举外与评分区间越界拒绝、筛选透传', async () => {
+  const root = await tempRoot()
+  const workbench = createFakeWorkbench({ outcomes: [{ structuredContent: { data: { kpis: { totalCases: 3 } }, meta: { total: 3 } } }] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  const payload = await handlers['hotboard.overview']!({ window: '90d', keyword: '车衣', scoreMin: 60, onlyMain: true }) as Record<string, unknown>
+  assert.equal(payload.status, 'ready')
+  assert.deepEqual((payload.data as Record<string, unknown>).kpis, { totalCases: 3 })
+  assert.deepEqual(workbench.calls[0]?.args, { window: '90d', keyword: '车衣', scoreMin: 60, onlyMain: true })
+  // 缺省 window=30d；枚举外 → INVALID_ARGUMENT（face 未调用）。
+  await handlers['hotboard.overview']!({})
+  assert.deepEqual((workbench.calls[1]?.args as Record<string, unknown>).window, '30d')
+  const badSort = await handlers['hotboard.overview']!({ sort: 'bogus' }) as Record<string, unknown>
+  assert.equal(badSort.reason, 'XHS_HOTBOARD_INVALID_ARGUMENT')
+  const badScore = await handlers['hotboard.overview']!({ scoreMin: 101 }) as Record<string, unknown>
+  assert.equal(badScore.reason, 'XHS_HOTBOARD_INVALID_ARGUMENT')
+  assert.equal(workbench.calls.length, 2)
+  await rm(root, { recursive: true, force: true })
+})
+
+test('hotboard 写前置：confirm/幂等键确定性失败不烧键；op→action 映射', async () => {
+  const root = await tempRoot()
+  const workbench = createFakeWorkbench({ outcomes: [{ structuredContent: { ok: true, updatedCount: 1, idempotentReplay: false } }] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  const noConfirm = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'style', labelCode: 'c1' }) as Record<string, unknown>
+  assert.equal(noConfirm.reason, 'confirmation_required')
+  const noKey = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'style', labelCode: 'c1', confirm: true }) as Record<string, unknown>
+  assert.equal(noKey.reason, 'idempotency_key_required')
+  const badTag = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'bogus', labelCode: 'c1', confirm: true, idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(badTag.reason, 'XHS_HOTBOARD_INVALID_ARGUMENT')
+  assert.deepEqual(workbench.calls, [])
+  const ok = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'style', labelCode: 'c1', confirm: true, idempotencyKey: 'k-2' }) as Record<string, unknown>
+  assert.equal(ok.status, 'ready')
+  assert.deepEqual(workbench.calls[0]?.args, { noteId: 'n1', tagType: 'style', labelCode: 'c1', confirm: true, idempotencyKey: 'k-2' })
+  // keywordSave/candidateReview/labelReview 的子动作走 op → action。
+  await handlers['hotboard.keywordSave']!({ op: 'create', keyword: '车衣', category: 'product', confirm: true, idempotencyKey: 'k-3' })
+  assert.deepEqual((workbench.calls.at(-1)?.args as Record<string, unknown>).action, 'create')
+  await handlers['hotboard.candidateReview']!({ op: 'accepted', candidateIds: ['aaaa1111-1111-1111-1111-111111111111'], confirm: true, idempotencyKey: 'k-4' })
+  const review = workbench.calls.at(-1)?.args as Record<string, unknown>
+  assert.equal(review.action, 'accepted')
+  assert.deepEqual(review.candidateIds, ['aaaa1111-1111-1111-1111-111111111111'])
+  // 非法 id 拒绝且不烧键。
+  const before = workbench.calls.length
+  await handlers['hotboard.candidateReview']!({ op: 'rejected', candidateIds: ['not hex!'], confirm: true, idempotencyKey: 'k-5' })
+  assert.equal(workbench.calls.length, before)
+  // labelSave 别名透传（schema 档位 20×128）。
+  await handlers['hotboard.labelSave']!({ tagType: 'style', code: 'jss', name: '竞技风', aliases: ['竞技', '竞速'], confirm: true, idempotencyKey: 'k-6' })
+  const save = workbench.calls.at(-1)?.args as Record<string, unknown>
+  assert.deepEqual(save.aliases, ['竞技', '竞速'])
+  await rm(root, { recursive: true, force: true })
+})
+
+test('hotboard 读投影：keywords/candidates/labels/runGet 透传 data+meta；candidates 日期区间', async () => {
+  const root = await tempRoot()
+  const workbench = createFakeWorkbench({ outcomes: [
+    { structuredContent: { data: { keywords: [{ keywordId: 'aaaa1111-1111-1111-1111-111111111111', keyword: '车衣', status: 'active' }] }, meta: { total: 1 } } },
+    { structuredContent: { data: { candidates: [] }, meta: { total: 0 } } },
+    { structuredContent: { data: { candidates: [] }, meta: { total: 0 } } },
+    { structuredContent: { data: { run: { runId: 'r1', status: 'queued' } }, meta: null } },
+  ] })
+  const { deps } = await testDeps(root, { workbench: workbench.face })
+  const handlers = buildRouteHandlers(deps)
+  const keywords = await handlers['hotboard.keywords']!({ status: 'active', page: 2, pageSize: 20 }) as Record<string, unknown>
+  assert.equal(keywords.status, 'ready')
+  assert.equal(workbench.calls[0]?.name, 'workbench_xhs_hotboard_keywords_list')
+  assert.deepEqual(workbench.calls[0]?.args, { status: 'active', page: 2, pageSize: 20 })
+  await handlers['hotboard.candidates']!({ status: 'pending', dateFrom: '2026-11-01', dateTo: '2026-11-20' })
+  assert.deepEqual((workbench.calls[1]?.args as Record<string, unknown>).dateRange, ['2026-11-01', '2026-11-20'])
+  // 起止只填一个不透传；格式非法拒绝。
+  await handlers['hotboard.candidates']!({ dateFrom: '2026-11-01' })
+  assert.equal((workbench.calls[2]?.args as Record<string, unknown>).dateRange, undefined)
+  const badDate = await handlers['hotboard.candidates']!({ dateFrom: '2026-11-1', dateTo: '2026-11-20' }) as Record<string, unknown>
+  assert.equal(badDate.reason, 'XHS_HOTBOARD_INVALID_ARGUMENT')
+  const run = await handlers['hotboard.runGet']!({}) as Record<string, unknown>
+  assert.equal(workbench.calls.at(-1)?.name, 'workbench_xhs_hotboard_run_get')
+  assert.deepEqual(run.data, { run: { runId: 'r1', status: 'queued' } })
   await rm(root, { recursive: true, force: true })
 })
 
