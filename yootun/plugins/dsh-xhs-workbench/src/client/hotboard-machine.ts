@@ -6,6 +6,7 @@
  * Host 侧 confirm + 幂等键（键在 machine 内随一次用户操作生成）。
  * @module
  */
+import type { HostResponse } from './api.ts'
 
 /** KPI 投影（hotboard.overview data.kpis）。 */
 export interface HotboardKpis {
@@ -167,16 +168,10 @@ export interface HotboardSnapshot {
   todos: { candidates: number | null; proposals: number | null }
 }
 
-/** Host 响应形状（{data, meta} 读 / projectHotboardWrite 写）。 */
-export interface HotboardCallResult {
-  status?: string
-  data?: unknown
-  meta?: unknown
-  reason?: string
-  results?: CandidateReviewResult[]
-  run?: { runId?: string; status?: string | null }
-  [key: string]: unknown
-}
+/** Host 响应形状（{data, meta} 读 / projectHotboardWrite 写）：machine 内部全为
+ * 结构化运行时检查（res.status / res.data / res.results…），端口直接复用
+ * api.ts 的 HostResponse（index 签名承载其余字段），无需断言。 */
+export type HotboardCallResult = HostResponse & Record<string, unknown>
 
 /** machine 注入面（页面以 hostAction 接线；测试注入假 post）。 */
 export interface HotboardMachinePorts {
@@ -594,6 +589,11 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
     return call(action, { ...payload, confirm: true, idempotencyKey: idempotencyKeyValue })
   }
 
+  /** 索引字段 → 记录（结构化收窄，替代断言）。 */
+  function recordOf(value: unknown): Record<string, unknown> | null {
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  }
+
   return {
     subscribe,
     get,
@@ -629,7 +629,11 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       const res = await writeCall('hotboard.runStart', { runType: 'incremental' }, idempotencyKey(ports))
       if (res.status !== 'ready') throwReason(res)
       // run 创建即进入活跃轮询（重放 run 也进入）。
-      if (res.run?.runId !== undefined) syncRunPoll({ runId: res.run.runId, status: res.run.status ?? 'queued' })
+      const run = recordOf(res.run)
+      const runIdValue = run === null ? undefined : run.runId
+      if (run !== null && typeof runIdValue === 'string' && runIdValue !== '') {
+        syncRunPoll({ runId: runIdValue, status: typeof run.status === 'string' ? run.status : 'queued' })
+      }
       return { successKey: 'hb.runStartDone' }
     }, { successKey: 'hb.writeDone', reload: 'board' }),
     candidateReview: (action, candidateIds) => runWrite(async () => {

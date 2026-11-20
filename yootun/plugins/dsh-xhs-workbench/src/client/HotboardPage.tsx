@@ -61,10 +61,7 @@ function getHub(): HotboardMachine {
   const existing = hubHolder.get()
   if (existing !== null) return existing
   const hub = createHotboardHub({
-    call: async (action, args) => {
-      const res = await hostAction(action, args ?? {})
-      return res as unknown as import('./hotboard-machine.ts').HotboardCallResult
-    },
+    call: async (action, args) => await hostAction(action, args ?? {}),
   })
   hubHolder.set(hub)
   return hub
