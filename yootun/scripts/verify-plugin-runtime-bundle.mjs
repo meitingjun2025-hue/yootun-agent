@@ -38,6 +38,7 @@ if ([
   '@yootun/dsh-managed-mcp',
   '@yootun/dsh-workbench-mcp',
   '@yootun/dsh-wx-channels-workbench',
+  '@yootun/dsh-xhs-workbench',
 ].includes(manifest.name) && !manifest.files?.includes('lib/*.js')) {
   failures.push('package files must publish every generated lib/*.js Host chunk')
 }

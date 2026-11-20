@@ -1,0 +1,46 @@
+{
+  "name": "@yootun/dsh-xhs-workbench",
+  "description": "小红书工作台：Host 半（`/api/desktop/yootun/xhs-workbench` 同源路由 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile/快照管理 + 经 Workbench MCP 的 19 项白名单调用）；client 半按批次接入",
+  "version": "0.2.2-rc.3",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/*.js",
+    "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsdown && node ../../scripts/verify-plugin-runtime-bundle.mjs",
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@yootun/dsh-workbench-mcp": "workspace:*"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:~",
+    "playwright-core": "^1.49.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@yootun/dsh-workbench-mcp": "workspace:*",
+    "tsdown": "^0.22.2",
+    "typescript": "^5.9.3"
+  }
+}
