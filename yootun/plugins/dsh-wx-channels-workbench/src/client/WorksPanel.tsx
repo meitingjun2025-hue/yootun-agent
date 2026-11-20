@@ -3,8 +3,8 @@
  * 刷新 / 最近采集时间；采集进度与刷新提示在按钮下方就地呈现，不进顶部通知条）
  * → 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率 / 缺口作品）
  * → 高密度 13 列作品表格（表头排序 button + aria-sort；行 tabIndex=0，鼠标双击
- * 或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担）。完播率 /
- * 平均播放时长服务端不可排序，本地排序只作用于已入库数据、缺失值恒沉底。
+ * 或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担）。排序全部本地
+ * 完成（无刷新排序，不重新查询服务端），缺失值恒沉底。
  * @module
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react'
@@ -13,12 +13,11 @@ import { DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { formatCount, formatDateTime, formatPair, formatPct, formatSeconds, reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
-  gapWorkCount, latestCollectedAt, nextSortState, SERVER_SORT_KEYS, sortWorkRows, weightedCompletionRate,
+  gapWorkCount, latestCollectedAt, nextSortState, sortWorkRows, weightedCompletionRate,
   type SortKey, type SortState,
 } from './works-format.ts'
 import type { TrendRow } from './charts.tsx'
 import { progressTextOf } from './collect-progress.ts'
-import { RunQueryDialog } from './RunQueryDialog.tsx'
 import { WorkCover } from './WorkCover.tsx'
 import { WorkDetailModal } from './WorkDetailModal.tsx'
 import type { AccountRow, SingleCollectRecord } from './WorkbenchPage.tsx'
@@ -51,6 +50,8 @@ export interface WorksPanelProps {
   /** 固定 last_7d 的账号聚合（摘要卡数据源；不随账号总览页时间窗变化）。 */
   summary: OverviewData | null
   summaryState: 'loading' | 'ready' | 'error'
+  /** 同账号后台刷新摘要中：摘要卡淡化呈现（数据与骨架不整块替换）。 */
+  summaryRefreshing: boolean
   onRetrySummary: () => void
   collectBusy: boolean
   collectRecord: SingleCollectRecord | null
@@ -71,7 +72,6 @@ const REFRESH_PART_KEYS = { works: 'works.refreshPart.works', overview: 'works.r
 /** 作品面板组件。 */
 export function WorksPanel(props: WorksPanelProps): ReactNode {
   const t = props.t
-  const [runOpen, setRunOpen] = useState(false)
   const [detailRow, setDetailRow] = useState<WorkRow | null>(null)
   const [detail, setDetail] = useState<WorkDetailData | null>(null)
   const [trendPoints, setTrendPoints] = useState<TrendRow[]>([])
@@ -88,8 +88,8 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
       : null
   const latest = latestCollectedAt(props.works)
   const sort = props.worksSort
-  // 服务端白名单键由服务端排序返回；完播率 / 平均时长本地排序（缺失沉底）。
-  const visibleWorks = SERVER_SORT_KEYS.has(sort.key) ? props.works : sortWorkRows(props.works, sort)
+  // 排序全部本地完成：点击表头立即重排已加载数据，不重新查询服务端。
+  const visibleWorks = sortWorkRows(props.works, sort)
 
   const openDetail = useCallback((row: WorkRow): void => {
     // 详情/趋势共用一个代次：快速换行时旧响应整体作废。
@@ -138,7 +138,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const columns = buildColumns(t)
 
   const summaryCards = (
-    <div className={css.summaryGrid}>
+    <div className={`${css.summaryGrid} ${css.refreshDim}`} data-refreshing={props.summaryRefreshing || undefined}>
       <KpiCard
         label={t('summary.worksTotal')}
         value={formatCount(props.account?.feedCount ?? null)}
@@ -197,13 +197,6 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
             {props.refreshing ? t('works.refreshing') : t('works.refresh')}
           </Button>
           <span className={css.toolbarNote}>{t('works.latestCollectedAt', { time: formatDateTime(latest) ?? '—' })}</span>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={() => { setRunOpen(true) }}
-          >
-            {t('collect.runLookup.title')}
-          </Button>
         </div>
         {(statusText !== null || running || props.collectStartReason !== null) && (
           <div
@@ -318,7 +311,6 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
         }}
         onClose={closeDetail}
       />
-      <RunQueryDialog t={t} open={runOpen} onClose={() => { setRunOpen(false) }} />
     </div>
   )
 }

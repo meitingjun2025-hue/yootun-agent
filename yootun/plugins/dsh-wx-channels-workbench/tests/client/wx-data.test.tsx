@@ -1,8 +1,8 @@
 /**
  * client 数据页 mock Host 测试（布局回正骨架）：每个数据视图都有 mock response
  * 内容断言（works.list 真实 schema、account.overview 固定 last_7d 摘要、
- * run.get `{ run, batches }`、started:false reason、删除两步确认与失败短路、
- * browser 五态不阻断页面、批量面板、tab / 键盘 / aria）。
+ * started:false reason、删除两步确认与失败短路、browser 五态不阻断页面、批量
+ * 面板、无刷新排序、tab / 键盘 / aria）。
  */
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -473,7 +473,9 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     // 封面列渲染 img（http s 源）；缺失封面行渲染占位文本。
     expect(firstRow?.querySelector('img')).not.toBeNull()
     const listCall = calls.find(call => call.action === 'works.list')
-    expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc' })
+    // 查询只带账号：排序全在客户端完成，不向服务端传排序参数。
+    expect(listCall?.args).toMatchObject({ accountId: 'finder-a' })
+    expect(listCall?.args['sort']).toBeUndefined()
   })
 
   it('固定 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 完播率 / 缺口作品）', async () => {
@@ -496,40 +498,32 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     expect(within(gapCard as HTMLElement).getByText('1')).not.toBeNull()
   })
 
-  it('表头排序三态循环：新列 desc → asc → 回默认；aria-sort 与箭头一致；比率列本地排序', async () => {
+  it('表头排序三态循环且无刷新：新列 desc → asc → 回默认；全程本地重排不重新查询', async () => {
     const { calls } = await renderPage(baseHandlers())
     await screen.findByText('第一条作品')
-    const playHeader = screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.default') }) })
-    // 服务端键：新列点击 → desc（带服务端参数）。
-    fireEvent.click(playHeader)
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args).toMatchObject({ sort: 'play_count', order: 'desc' })
-    })
-    // th 的可访问名来自排序按钮的 aria-label；aria-sort 在 th 上。
+    const worksCalls = (): number => calls.filter(call => call.action === 'works.list').length
+    const rows = (): NodeListOf<HTMLElement> =>
+      screen.getByRole('table', { name: t('works.table.label') }).querySelectorAll('tbody tr')
+    // 初始默认态：发布时间降序，w-100 在前。
+    expect(rows()[0]?.textContent).toContain('第一条作品')
+    const initialCalls = worksCalls()
+    // 新列 → desc（播放降序 w-100 1000 在前）；aria-sort 在 th 上。
+    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.default') }) }))
     expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('descending')
-    // 同列 → asc。
+    expect(rows()[0]?.textContent).toContain('第一条作品')
+    // 同列 → asc：播放升序把 7 播放的「第二条」排到最前（本地重排即时生效）。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args).toMatchObject({ sort: 'play_count', order: 'asc' })
-    })
     expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('ascending')
+    expect(rows()[0]?.textContent).toContain('第二条')
     // 再点 → 回默认态（发布时间降序）。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args).toMatchObject({ sort: 'publish_time', order: 'desc' })
-    })
-    // 比率列（服务端不可排序）：不带 sort 参数，本地降序把缺失沉底。
+    expect(rows()[0]?.textContent).toContain('第一条作品')
+    // 比率列 desc：缺失值沉底（w-100 8.37% 在前，w-101 缺失在后）。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.completion'), order: t('sort.default') }) }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'works.list')
-      expect(last?.args['sort']).toBeUndefined()
-    })
-    const rows = screen.getByRole('table', { name: t('works.table.label') }).querySelectorAll('tbody tr')
-    expect(rows[0]?.textContent).toContain('第一条作品')
-    expect(rows[1]?.textContent).toContain('第二条')
+    expect(rows()[0]?.textContent).toContain('第一条作品')
+    expect(rows()[1]?.textContent).toContain('第二条')
+    // 全程无新的 works.list 调用：排序不重新查询服务端。
+    expect(worksCalls()).toBe(initialCalls)
   })
 
   it('鼠标双击作品行打开详情 Modal：完整四段（基础信息 / 核心指标 / 来源+留存 / 按日趋势 / 缺口）', async () => {
@@ -676,100 +670,62 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
       expect(screen.getByText('账号甲作品')).not.toBeNull()
     })
   })
-})
 
-describe('run 查询 Dialog（作品工具栏次级操作）', () => {
-  it('工具栏打开 Dialog：真实形状（run + batches）渲染运行字段与批次表', async () => {
-    const { calls } = await renderPage(baseHandlers({
-      'run.get': () => ({
-        ...OK,
-        run: {
-          run_id: 'run-hit',
-          account_id: 'finder-a',
-          status: 'completed',
-          expected_work_count: 45,
-          succeeded_work_count: 40,
-          failed_work_count: 3,
-          started_at: '2026-11-18T08:00:00.000Z',
-          finished_at: '2026-11-18T08:20:00.000Z',
-        },
-        batches: [
-          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 20, succeeded_objects: ['a', 'b'], failed_objects: ['d'] },
-          { batch_no: 2, batch_type: 'account_metrics', batch_status: 'failed', item_count: 1, succeeded_objects: [], failed_objects: ['x'] },
-          { batch_no: 3, batch_type: 'fans_trend', batch_status: 'pending', item_count: 30, succeeded_objects: [], failed_objects: [] },
-          { batch_no: 4, batch_type: 'fans_profile', batch_status: 'pending', item_count: 1, succeeded_objects: [], failed_objects: [] },
-        ],
-      }),
-    }))
-    // 打开入口是工具栏次级按钮（不在顶级导航）。
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.title') }))
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    fireEvent.change(input, { target: { value: 'run-hit' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText('run-hit')).not.toBeNull()
-    expect(screen.getByText('finder-a')).not.toBeNull()
-    expect(screen.getByText(t('collect.status.completed'))).not.toBeNull()
-    expect(screen.getByText('45')).not.toBeNull()
-    // 滚动容器键盘可达：tabIndex=0 + role=region + localized 可访问名。
-    const wrap = screen.getByRole('region', { name: t('run.batchTable.label') })
-    expect(wrap.getAttribute('tabindex')).toBe('0')
-    const table = within(wrap as HTMLElement).getByText(t('run.batch.batchNo')).closest('table')
-    expect(table).not.toBeNull()
-    const batchTable = within(table as HTMLElement)
-    expect(batchTable.getAllByText(t('run.batchType.works')).length).toBe(1)
-    expect(batchTable.getByText(t('run.batchType.accountMetrics'))).not.toBeNull()
-    expect(batchTable.getByText(t('run.batchType.fansTrend'))).not.toBeNull()
-    expect(batchTable.getByText(t('run.batchType.fansProfile'))).not.toBeNull()
-    expect(batchTable.getAllByText(t('run.batchStatus.pending')).length).toBe(2)
-    const runCall = calls.find(call => call.action === 'run.get')
-    expect(runCall?.args).toMatchObject({ runId: 'run-hit' })
-  })
-
-  it('Escape 关闭且焦点回到触发行；RUN_NOT_FOUND 与服务失败区分', async () => {
-    let failNext = false
+  it('切回已看过的账号：缓存即时渲染，无需等待新的远端往返', async () => {
+    let resolveB: ((payload: Payload) => void) | undefined
+    const otherAccount = { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }
     await renderPage(baseHandlers({
-      'run.get': () => {
-        if (failNext) throw new Error('WX_TOOL_UNAVAILABLE')
-        return { status: 'error', reason: 'RUN_NOT_FOUND' }
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, otherAccount], remoteOk: true }),
+      'works.list': args => {
+        if (args.accountId === 'finder-b') {
+          return new Promise<Payload>(resolve => { resolveB = resolve })
+        }
+        return { ...OK, ...WORKS }
       },
     }))
-    const opener = screen.getByRole('button', { name: t('collect.runLookup.title') })
-    // 真实点击会移动焦点（fireEvent 不会）；焦点回归契约以打开前焦点为准。
-    opener.focus()
-    fireEvent.click(opener)
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    fireEvent.change(input, { target: { value: 'run-miss' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText(t('collect.runLookup.empty'))).not.toBeNull()
-    // 服务失败：失败态 + 稳定 reason，不得显示「未找到」。
-    failNext = true
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText(t('collect.runLookup.failed'))).not.toBeNull()
-    // Escape 关闭，焦点回到触发按钮。
-    fireEvent.keyDown(screen.getByRole('dialog', { name: t('collect.runLookup.title') }), { key: 'Escape' })
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: t('collect.runLookup.title') })).toBeNull())
-    expect(document.activeElement).toBe(opener)
+    expect(await screen.findByText('第一条作品')).not.toBeNull()
+    const cardButton = (name: string): HTMLButtonElement | null =>
+      screen.getByText(name).closest('button') as HTMLButtonElement | null
+    // 切到账号乙：无缓存 → 清空进 loading，甲的行不再展示。
+    fireEvent.click(cardButton('账号乙') as HTMLButtonElement)
+    await waitFor(() => expect(screen.queryByText('第一条作品')).toBeNull())
+    // 切回账号甲：缓存即时渲染上次真实响应（乙仍挂起、无任何新 works 响应）。
+    fireEvent.click(cardButton('演示账号') as HTMLButtonElement)
+    expect(await screen.findByText('第一条作品')).not.toBeNull()
+    // 迟到的乙响应不得覆盖甲（代次 + 账号双守卫）。
+    resolveB?.({ ...OK, works: [{ work_id: 'w-stale', title: '过期数据', play_count: 1, like_count: 1, publish_time: null }] })
+    await waitFor(() => {
+      expect(screen.queryByText('过期数据')).toBeNull()
+      expect(screen.getByText('第一条作品')).not.toBeNull()
+    })
   })
 
-  it('批次行缺 batch_no（契约破坏）被丢弃，不渲染占位行', async () => {
+  it('同账号手动刷新：摘要卡进入 refreshing 淡化，数据更新后恢复', async () => {
+    let overviewCalls = 0
+    let resolveSlow: ((payload: Payload) => void) | undefined
     await renderPage(baseHandlers({
-      'run.get': () => ({
-        ...OK,
-        run: { run_id: 'run-x', status: 'running' },
-        batches: [
-          { batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
-          { batch_no: 1, batch_type: 'works', batch_status: 'succeeded', item_count: 5, succeeded_objects: [] },
-        ],
-      }),
+      'account.overview': () => {
+        overviewCalls += 1
+        if (overviewCalls === 1) {
+          return { ...OK, metrics: { totals: { daily_play_count: 1234 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } }
+        }
+        return new Promise<Payload>(resolve => { resolveSlow = resolve })
+      },
     }))
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.title') }))
-    const input = await screen.findByPlaceholderText(t('collect.runLookup.placeholder'))
-    fireEvent.change(input, { target: { value: 'run-x' } })
-    fireEvent.click(screen.getByRole('button', { name: t('collect.runLookup.action') }))
-    expect(await screen.findByText('run-x')).not.toBeNull()
-    const table = screen.getByText(t('run.batch.batchNo')).closest('table')
-    expect(table).not.toBeNull()
-    expect(within(table as HTMLElement).getAllByRole('row').length).toBe(2)
+    await screen.findByText('1234')
+    // 同账号刷新：摘要卡容器带 data-refreshing（保留已渲染值，不整块换骨架）。
+    fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
+    await waitFor(() => {
+      const grid = screen.getByText(t('summary.play7d')).closest('div')
+      expect(grid?.getAttribute('data-refreshing')).toBe('true')
+    })
+    // 刷新响应到达：新值替换 + 淡化解除。
+    resolveSlow?.({ ...OK, metrics: { totals: { daily_play_count: 4321 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } })
+    await waitFor(() => {
+      expect(screen.getByText('4321')).not.toBeNull()
+      const grid = screen.getByText(t('summary.play7d')).closest('div')
+      expect(grid?.getAttribute('data-refreshing')).toBeNull()
+    })
   })
 })
 
@@ -849,8 +805,6 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     expect(await screen.findByText(t('overview.metricsNoData'))).not.toBeNull()
-    // 页面标注 no_data（整页无任何源有数据）。
-    expect(await screen.findByText(t('overview.availability.no_data'))).not.toBeNull()
   })
 
   it('关注者增长指标固定 4 卡（净增 / 新增 / 取消 / 总数），关注者趋势固定近 7 天', async () => {
@@ -975,6 +929,33 @@ describe('tab / keyboard / aria 基础', () => {
       const last = [...calls].reverse().find(call => call.action === 'account.overview')
       expect(last?.args).toMatchObject({ window: 'yesterday' })
     })
+  })
+
+  it('总览页切账号不复用旧账号数据：B 响应到达前不显示 A 的指标值', async () => {
+    // 总览页 load 与页面级 last_7d 摘要都会请求 account.overview(B)：
+    // 收集全部挂起 resolver，最后统一放行同一 B 载荷。
+    const resolvers: Array<(payload: Payload) => void> = []
+    await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
+      'account.overview': args => {
+        if (args.accountId === 'finder-b') {
+          return new Promise<Payload>(resolve => { resolvers.push(resolve) })
+        }
+        return { ...OK, metrics: { totals: { daily_play_count: 1234 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } }
+      },
+      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
+    }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    expect(await screen.findByText('1234')).not.toBeNull()
+    // 切到账号乙（overview 挂起）：A 的指标值立即撤下，不挂在 B 名下。
+    fireEvent.click(screen.getByRole('button', { name: `${t('overview.accountSwitch')}: 演示账号` }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    await waitFor(() => expect(screen.queryByText('1234')).toBeNull())
+    // B 响应到达后展示 B 的真实值。
+    for (const resolve of resolvers) {
+      resolve({ ...OK, metrics: { totals: { daily_play_count: 8888 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } })
+    }
+    expect(await screen.findByText('8888')).not.toBeNull()
   })
 })
 

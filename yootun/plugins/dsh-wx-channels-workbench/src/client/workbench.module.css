@@ -161,8 +161,10 @@
   min-width: 0;
 }
 
+/* 选中账号：主色左侧指示条 + 高亮背景，与未选卡的 layer-1 底色拉开对比。 */
 .accountCard[aria-current='true'] {
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-multi-select);
+  box-shadow: inset 3px 0 0 var(--dsw-alias-border-selected);
 }
 
 .accountCardMain {
@@ -304,14 +306,6 @@
   font-size: 12px;
   line-height: 18px;
   color: var(--dsw-alias-label-secondary);
-}
-
-.reasonBanner {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 .reasonText {
@@ -485,10 +479,17 @@
   color: var(--dsw-alias-label-primary);
 }
 
-/* 作品详情 Modal（官方 Modal 基底 + 详情复合布局） */
+/* 作品详情 Modal（官方 Modal 基底 + 详情复合布局）：高度封顶在 Modal padding
+   box 内（官方约定消费者用 max-height: 100% 收口），内容区自身滚动。 */
 
 .detailDialog {
   width: min(1080px, 100%);
+  max-height: 100%;
+}
+
+.detailContent {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .detailBody {
@@ -565,109 +566,6 @@
   line-height: 18px;
 }
 
-/* run 查询 Dialog */
-
-.runDialog {
-  width: min(720px, 100%);
-}
-
-.runLookup {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.runResult {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  min-width: 0;
-}
-
-.collectStatus {
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-/* 键值网格（run 字段 / 详情字段） */
-
-.metaGrid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin: 0;
-  min-width: 0;
-}
-
-.metaItem {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.metaTerm {
-  flex-shrink: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.metaValue {
-  min-width: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.metaError {
-  color: var(--dsw-alias-state-error-primary);
-}
-
-/* 六列批次表在窄容器内横向滚动（滚动只发生在表格内部；容器键盘可达）。 */
-
-.batchTableWrap {
-  overflow-x: auto;
-  min-width: 0;
-}
-
-.batchTableWrap:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-selected);
-  outline-offset: 1px;
-  border-radius: var(--dsw-radius-md);
-}
-
-.batchTable {
-  width: 100%;
-  min-width: 480px;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.batchTh {
-  padding: 4px 8px;
-  text-align: start;
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 400;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.batchTd {
-  padding: 4px 8px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-primary);
-  overflow-wrap: anywhere;
-}
-
 /* 删除两步确认（账号卡片内联流） */
 
 .deleteFlow {
@@ -719,21 +617,15 @@
   min-width: 0;
 }
 
-
-.availability {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
+/* 数据刷新淡化：同账号 / 同窗口的后台刷新只淡化数据区，固定文字不动。 */
+.refreshDim {
+  transition: opacity var(--ds-transition-duration, 160ms) ease;
+  min-width: 0;
 }
 
-.availability[data-kind='partial'],
-.availability[data-kind='no_data'] {
-  color: var(--dsw-alias-label-secondary);
+.refreshDim[data-refreshing='true'] {
+  opacity: 0.55;
 }
-
 
 /* 账号总览（全宽三段） */
 
@@ -1006,11 +898,14 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+  /* 分布/条形是图形不是文本域：禁用拖选高亮，避免误选出现选区样式。 */
+  user-select: none;
 }
 
 .barRow {
   display: grid;
-  grid-template-columns: minmax(72px, 30%) minmax(0, 1fr) auto;
+  /* 对齐旧工作台条形行：短标签列 + 自适应条 + 数值列；标签与卡片标题左对齐。 */
+  grid-template-columns: minmax(84px, 26%) minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-height: 28px;
@@ -1040,14 +935,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: end;
+  text-align: start;
 }
 
 .barTrack {
   min-width: 0;
   height: 12px;
   border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--yt-chart-grid);
   overflow: clip;
 }
 
@@ -1114,14 +1009,6 @@
 
 @container yootun-kit-page (max-width: 879px) {
 
-  .metaGrid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .availability {
-    margin-left: 0;
-  }
-
   .detailGrid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1157,6 +1044,7 @@
 @media (prefers-reduced-motion: reduce) {
   .plotColumn,
   .barRow,
+  .refreshDim,
   .workTable tbody tr,
   .accountCardMain {
     transition: none;

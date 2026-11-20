@@ -9,7 +9,7 @@
  */
 import { type ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartLegend, DataState, KpiCard, type YtChartColor } from '@yootun/dsh-client-ui-kit'
+import { ChartLegend, DataState, KpiCard, ytChartStyle, type YtChartColor } from '@yootun/dsh-client-ui-kit'
 import { formatCount, formatDateTime, formatPct, formatSeconds, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
@@ -83,6 +83,7 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
       closeLabel={t('work.close')}
       description={t('works.detailSubtitle')}
       className={css.detailDialog as string}
+      contentClassName={css.detailContent as string}
     >
       <DataState
         state={detailState === 'ready' ? 'ready' : detailState}
@@ -90,7 +91,9 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
         onRetry={props.onRetry}
       >
         {work !== null && (
-          <div className={css.detailBody}>
+          // Modal 经 portal 挂在 document.body 下，不继承页面根的集中图表变量；
+          // 详情内的进度条与趋势线消费 --yt-chart-*，必须在自身根部重新下发。
+          <div className={css.detailBody} style={ytChartStyle}>
             <div className={css.detailGrid}>
               <WorkCover
                 key={`detail-cover:${work.workId}:${work.coverUrl ?? ''}`}
