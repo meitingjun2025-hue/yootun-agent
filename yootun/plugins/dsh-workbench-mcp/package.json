@@ -14,14 +14,14 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
+    "lib/*.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "lib/**/*.js.map",
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown",
+    "build": "tsc -p tsconfig.json && tsdown && node ../../scripts/verify-plugin-runtime-bundle.mjs",
     "test": "node --test tests/workbench-mcp.test.ts"
   },
   "license": "MIT",

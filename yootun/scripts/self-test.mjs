@@ -273,3 +273,23 @@ test('插件分区 workspace 登记与 bundle 插入对齐 P1 交付面', () => 
     assert.equal(manifest.dependencies[dependency], 'workspace:*', `bundle dependencies 含 ${dependency}`)
   }
 })
+
+test('yootun Host 插件包发布完整运行时 JavaScript 产物', () => {
+  const runtimePlugins = [
+    'dsh-managed-mcp',
+    'dsh-workbench-mcp',
+    'dsh-wx-channels-workbench',
+  ]
+  for (const plugin of runtimePlugins) {
+    const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'yootun', 'plugins', plugin, 'package.json'), 'utf8'))
+    assert.ok(manifest.files?.includes('lib/*.js'), `${plugin} files 覆盖动态 Host chunk`)
+    assert.match(manifest.scripts.build, /node \.\.\/\.\.\/scripts\/verify-plugin-runtime-bundle\.mjs/u, `${plugin} build 校验运行时闭包`)
+  }
+  for (const plugin of ['dsh-managed-mcp', 'dsh-workbench-mcp']) {
+    const config = readFileSync(join(repositoryRoot, 'yootun', 'plugins', plugin, 'tsdown.config.ts'), 'utf8')
+    assert.ok(
+      config.includes('alwaysBundle: [/^@yootun\\/dsh-client-ui-access(?:\\/.*)?$/u]'),
+      `${plugin} 内联接入层生成常量`,
+    )
+  }
+})
