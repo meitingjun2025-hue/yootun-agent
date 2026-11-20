@@ -623,8 +623,7 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
   })
 
-  it('详情乐观打开：work.get 在途时行数据立即上屏，到达后补充分区替换', async () => {
-    let resolveGet: ((payload: Payload) => void) | undefined
+  it('详情乐观打开：work.get 在途时行数据立即上屏，到达后补充分区替换', async () => {    let resolveGet: ((payload: Payload) => void) | undefined
     await renderPage(baseHandlers({
       'work.get': () => new Promise<Payload>(resolve => { resolveGet = resolve }),
       'work.trend': () => new Promise<Payload>(() => undefined),
@@ -640,6 +639,40 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     resolveGet?.(workGetPayload('w-100'))
     await waitFor(() => expect(within(dialog as HTMLElement).getByText('推荐')).not.toBeNull())
     expect(within(dialog as HTMLElement).queryByText('Loading…')).toBeNull()
+  })
+
+  it('快速换行 A→B：行 A 的按日趋势不得串进行 B 的弹层', async () => {
+    await renderPage(baseHandlers({
+      'work.get': args => {
+        // 行 A 详情慢（挂起）；行 B 详情先到且无按日数据 → 走 trend 兜底路径。
+        if (String(args.workId) === 'w-100') {
+          return new Promise<Payload>(() => undefined)
+        }
+        return {
+          ...OK,
+          work: { work_id: 'w-101', title: '第二条', play_count: 5, like_count: 1, publish_time: null, data_gap: null },
+          traffic_source: { rows: [] },
+          retention_trend: { points: [] },
+          daily_metrics: [],
+        }
+      },
+      'work.trend': args => {
+        // 行 A 的趋势已返回（会被记入兜底数据）；行 B 的趋势挂起不干扰断言。
+        if (String(args.workId) === 'w-100') {
+          return { ...OK, account_id: 'finder-a', work_id: 'w-100', snapshots: [{ day: '2026-11-16', daily_play_count: 777, daily_like_count: 1 }] }
+        }
+        return new Promise<Payload>(() => undefined)
+      },
+    }))
+    await screen.findByText('第一条作品')
+    // 双击 A：详情挂起，但 trend(A) 已把 A 的曲线写入兜底数据。
+    fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '第一条作品' })).not.toBeNull())
+    // 快速换行到 B：兜底趋势必须换行清空，B（无按日数据）呈现空态而非 A 的曲线。
+    fireEvent.doubleClick(screen.getByText('第二条').closest('tr') as HTMLElement)
+    const dialogB = await screen.findByRole('dialog', { name: '第二条' })
+    expect(within(dialogB as HTMLElement).getByText(t('detail.dailyEmpty'))).not.toBeNull()
+    expect(within(dialogB as HTMLElement).queryByRole('img')).toBeNull()
   })
 
   it('works 刷新失败保留已加载数据（partial 警告条），不再清空', async () => {

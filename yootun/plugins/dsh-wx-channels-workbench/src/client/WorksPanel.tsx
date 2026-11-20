@@ -101,6 +101,8 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
     const accountId = props.accountId
     setDetailRow(row)
     setDetail(null)
+    // 趋势兜底数据同样换行清空：B 详情先到且无按日数据时，不得绘制 A 的曲线。
+    setTrendPoints([])
     setDetailState('loading')
     try {
       void hostAction('work.get', { accountId, workId: row.workId }).then(res => {
