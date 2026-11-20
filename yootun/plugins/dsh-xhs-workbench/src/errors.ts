@@ -71,6 +71,11 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'login_page_detected',
   'user_info_unavailable',
   'session_error',
+  // 旧路由的确定性校验小写 reason（handlers 直返，client 半据此映射提示）。
+  'account_id_required',
+  'collect_id_required',
+  'idempotency_key_required',
+  'confirmation_required',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */

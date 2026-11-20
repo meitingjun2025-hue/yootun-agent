@@ -22,7 +22,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts"
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts && node --test tests/upload-machine.test.ts"
   },
   "license": "MIT",
   "peerDependencies": {
