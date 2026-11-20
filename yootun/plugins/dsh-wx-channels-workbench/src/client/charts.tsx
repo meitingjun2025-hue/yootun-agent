@@ -72,8 +72,9 @@ function axisLabel(value: number, span: number, locale: string): string {
 /**
  * 多系列折线趋势：统一真实 y 轴刻度（5 档横网格 + 左侧数值标签）、x 轴为行
  * 给出的自然日（MM-DD）；缺失值断线（不跨缺口连线、不造 0）；每个日期列是
- * 一个可聚焦的按钮层，focus/hover 都出全系列 tooltip。主系列（首项）最后
- * 绘制、压在最上层。
+ * 一个可聚焦的透明热区，focus/hover 都在当日 x 位置画一根贯穿绘图区的竖虚线
+ * 并弹出全系列 tooltip（虚线止于日期带上方，不遮日期文字）。主系列（首项）
+ * 最后绘制、压在最上层。
  * @param props.rows - 顺序日行（已按最近 N 日补齐）。
  * @param props.series - 系列定义（首项为主系列）。
  * @param props.locale - 数值格式化的 locale 标签。
@@ -87,6 +88,7 @@ export function LineTrendChart(props: {
   trendEmpty: string
 }): ReactNode {
   const { container, mountContainer, tooltip, show, hide } = usePlotTooltip()
+  const [activeIndex, setActiveIndex] = useState<number | null>(null)
   const rows = props.rows
   const series = props.series
   const width = 680
@@ -127,6 +129,21 @@ export function LineTrendChart(props: {
         : formatInt(row.values[line.key] as number, locale),
       color: line.color,
     }))
+  const activate = (index: number, event: { currentTarget: EventTarget & Element }): void => {
+    setActiveIndex(index)
+    const plotRect = container?.getBoundingClientRect()
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (plotRect !== undefined) {
+      const row = rows[index]
+      if (row !== undefined) {
+        show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
+      }
+    }
+  }
+  const deactivate = (): void => {
+    setActiveIndex(null)
+    hide()
+  }
 
   return (
     <div ref={mountContainer} className={css.plotLayer}>
@@ -183,6 +200,17 @@ export function LineTrendChart(props: {
           </text>
         ))}
       </svg>
+      {activeIndex !== null && (
+        // 竖虚线只贯穿数值绘图区：止于日期带上方，不遮挡 x 轴日期文字。
+        <span
+          className={css.plotCrosshair}
+          aria-hidden="true"
+          style={{
+            left: `${(xAt(activeIndex) / width) * 100}%`,
+            height: `${((height - padBottom) / height) * 100}%`,
+          }}
+        />
+      )}
       {rows.map((row, index) => (
         <button
           key={row.day}
@@ -190,22 +218,10 @@ export function LineTrendChart(props: {
           className={css.plotColumn}
           style={{ left: `${(xAt(index) / width) * 100}%` }}
           aria-label={dayAria(row, series, locale)}
-          onFocus={event => {
-            const plotRect = container?.getBoundingClientRect()
-            const rect = event.currentTarget.getBoundingClientRect()
-            if (plotRect !== undefined) {
-              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
-            }
-          }}
-          onBlur={hide}
-          onMouseEnter={event => {
-            const plotRect = container?.getBoundingClientRect()
-            const rect = event.currentTarget.getBoundingClientRect()
-            if (plotRect !== undefined) {
-              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
-            }
-          }}
-          onMouseLeave={hide}
+          onFocus={activate.bind(null, index)}
+          onBlur={deactivate}
+          onMouseEnter={activate.bind(null, index)}
+          onMouseLeave={deactivate}
         />
       ))}
       <ChartTooltip

@@ -3,8 +3,9 @@
  * 刷新 / 最近采集时间；采集进度与刷新提示在按钮下方就地呈现，不进顶部通知条）
  * → 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率 / 缺口作品）
  * → 高密度 13 列作品表格（表头排序 button + aria-sort；行 tabIndex=0，鼠标双击
- * 或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担）。排序全部本地
- * 完成（无刷新排序，不重新查询服务端），缺失值恒沉底。
+ * 或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担；详情乐观打开，
+ * 行数据立即上屏，work.get 到达后增量替换）。排序全部本地完成（无刷新排序，
+ * 不重新查询服务端），缺失值恒沉底。
  * @module
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react'
@@ -75,7 +76,8 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const [detailRow, setDetailRow] = useState<WorkRow | null>(null)
   const [detail, setDetail] = useState<WorkDetailData | null>(null)
   const [trendPoints, setTrendPoints] = useState<TrendRow[]>([])
-  const [detailState, setDetailState] = useState<'loading' | 'ready' | 'error' | 'empty'>('loading')
+  /** `loading` = work.get / work.trend 在途（行数据乐观展示）；`ready` = 到达；`error` = 失败（保留行数据）。 */
+  const [detailState, setDetailState] = useState<'loading' | 'ready' | 'error'>('loading')
   const detailSeqRef = useRef(0)
 
   const running = props.collectBusy
@@ -92,7 +94,9 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const visibleWorks = sortWorkRows(props.works, sort)
 
   const openDetail = useCallback((row: WorkRow): void => {
-    // 详情/趋势共用一个代次：快速换行时旧响应整体作废。
+    // 乐观打开（对齐旧客户端）：行数据立即上屏（Modal 无整页骨架等待），
+    // work.get / work.trend 到达后增量替换；详情/趋势共用一个代次，快速换行
+    // 时旧响应整体作废。
     const seq = ++detailSeqRef.current
     const accountId = props.accountId
     setDetailRow(row)
@@ -101,9 +105,10 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
     try {
       void hostAction('work.get', { accountId, workId: row.workId }).then(res => {
         if (detailSeqRef.current !== seq) return
-        const data = readWorkDetail(res)
-        setDetail(data)
-        setDetailState(data.work === null ? 'empty' : 'ready')
+        // 到达即 ready：载荷无有效 work 时 Modal 保留行数据，区块按空态呈现
+        // （旧客户端 `result.work || work` 兜底语义）。
+        setDetail(readWorkDetail(res))
+        setDetailState('ready')
       }).catch(() => {
         if (detailSeqRef.current !== seq) return
         setDetail(null)

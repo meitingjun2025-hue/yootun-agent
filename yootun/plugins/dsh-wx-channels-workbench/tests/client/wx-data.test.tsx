@@ -586,7 +586,7 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     expect(document.activeElement).toBe(row)
   })
 
-  it('work.get 无 {work} 包装的载荷按无效处理（空态），不吞顶层平铺残片', async () => {
+  it('work.get 无 {work} 包装的载荷：保留行数据渲染（旧客户端兜底语义），区块按空态呈现', async () => {
     await renderPage(baseHandlers({
       'work.get': () => ({ ...OK, work_id: 'w-flat', title: '平铺残片', play_count: 1, like_count: 1, publish_time: null }),
       'work.trend': () => ({ ...OK, account_id: 'finder-a', work_id: 'w-100', snapshots: [] }),
@@ -594,12 +594,15 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     await screen.findByText('第一条作品')
     fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
     const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
-    // 详情载荷无效：弹层只呈现空态文案，不渲染平铺残片。
-    expect(within(dialog as HTMLElement).getByText('No data')).not.toBeNull()
+    // 到达但无有效 work：标题与核心指标兜底为列表行数据，不渲染平铺残片。
+    expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
     expect(within(dialog as HTMLElement).queryByText('平铺残片')).toBeNull()
+    // 来源 / 留存区块到达但无数据 → 空态文案，不是加载中。
+    expect(within(dialog as HTMLElement).getByText(t('detail.trafficEmpty'))).not.toBeNull()
+    expect(within(dialog as HTMLElement).getByText(t('detail.retentionEmpty'))).not.toBeNull()
   })
 
-  it('详情查询失败以错误态呈现并可重试，不静默保留空弹层', async () => {
+  it('详情查询失败保留行数据乐观展示，分区呈现失败态并可重试', async () => {
     let failNext = true
     await renderPage(baseHandlers({
       'work.get': () => {
@@ -610,12 +613,33 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     }))
     await screen.findByText('第一条作品')
     fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
+    // 失败：行数据保留（乐观展示，不整页报错），补充分区呈现失败 + 重试。
     const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
-    expect(within(dialog as HTMLElement).getByText('Failed to load')).not.toBeNull()
+    await waitFor(() => expect(within(dialog as HTMLElement).getAllByText('Failed to load').length).toBeGreaterThanOrEqual(1))
+    expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
     failNext = false
-    fireEvent.click(within(dialog as HTMLElement).getByRole('button', { name: t('state.retry') }))
+    fireEvent.click(within(dialog as HTMLElement).getAllByRole('button', { name: t('state.retry') })[0] as HTMLElement)
     await waitFor(() => expect(within(dialog as HTMLElement).queryByText('Failed to load')).toBeNull())
     expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
+  })
+
+  it('详情乐观打开：work.get 在途时行数据立即上屏，到达后补充分区替换', async () => {
+    let resolveGet: ((payload: Payload) => void) | undefined
+    await renderPage(baseHandlers({
+      'work.get': () => new Promise<Payload>(resolve => { resolveGet = resolve }),
+      'work.trend': () => new Promise<Payload>(() => undefined),
+    }))
+    await screen.findByText('第一条作品')
+    fireEvent.doubleClick(screen.getByText('第一条作品').closest('tr') as HTMLElement)
+    // 在途即渲染：标题、ID 与核心指标来自列表行数据，无整页骨架等待。
+    const dialog = await screen.findByRole('dialog', { name: '第一条作品' })
+    expect(within(dialog as HTMLElement).getByText(t('detail.workId', { id: 'w-100' }))).not.toBeNull()
+    expect(within(dialog as HTMLElement).getByText('8.37%')).not.toBeNull()
+    // 补充分区呈现在途态（srOnly 加载文案）；来源数据到达后替换为完整内容。
+    expect(within(dialog as HTMLElement).getAllByText('Loading…').length).toBeGreaterThanOrEqual(1)
+    resolveGet?.(workGetPayload('w-100'))
+    await waitFor(() => expect(within(dialog as HTMLElement).getByText('推荐')).not.toBeNull())
+    expect(within(dialog as HTMLElement).queryByText('Loading…')).toBeNull()
   })
 
   it('works 刷新失败保留已加载数据（partial 警告条），不再清空', async () => {

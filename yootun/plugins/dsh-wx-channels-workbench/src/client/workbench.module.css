@@ -737,6 +737,8 @@
   vector-effect: non-scaling-stroke;
 }
 
+/* 日期热区透明：hover / focus 的可见指示由贯穿绘图区的竖虚线与 tooltip 承担
+   （不再画背景块 / outline，也不遮挡 x 轴日期文字）。 */
 .plotColumn {
   position: absolute;
   top: 0;
@@ -745,16 +747,27 @@
   transform: translateX(-50%);
   padding: 0;
   border: none;
-  border-radius: var(--dsw-radius-xs);
+  border-radius: 0;
   background: transparent;
   cursor: pointer;
 }
 
-.plotColumn:hover,
+.plotColumn:focus {
+  outline: none;
+}
+
 .plotColumn:focus-visible {
-  outline: 2px solid var(--dsw-alias-border-selected);
-  outline-offset: -2px;
-  background: var(--dsw-alias-bg-multi-select);
+  outline: none;
+}
+
+/* hover / focus 日期列的竖虚线（止于日期带上方，高度由组件按绘图区比例给出）。 */
+.plotCrosshair {
+  position: absolute;
+  top: 0;
+  width: 0;
+  border-left: 1px dashed var(--dsw-alias-label-tertiary);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .donutRow {
