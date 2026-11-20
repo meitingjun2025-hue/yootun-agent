@@ -83,24 +83,48 @@ test('体上限：超过 64KB 投影 WX_ROUTE_PAYLOAD_TOO_LARGE（413）', async
   assert.equal(responded[0]?.payload.reason, 'WX_ROUTE_PAYLOAD_TOO_LARGE')
 })
 
-test('同源与 CSRF：非 loopback / 异源 / 跨站一律 403', async () => {
+test('路由信任：loopback 基础防线，浏览器标记缺失放行，显式跨站 / 异源 / Origin null 拒绝', async () => {
   const responded: Array<{ status: number }> = []
   const handler = createRouteHandler(() => 'http://127.0.0.1:1', { 'collect.status': async () => ({ status: 'ok' }) })
-  const make = (overrides: Record<string, unknown>, remote = '127.0.0.1'): IncomingMessage => ({
+  const make = (headers: Record<string, unknown> = {}, remote = '127.0.0.1'): IncomingMessage => ({
     method: 'POST',
     socket: { remoteAddress: remote },
-    headers: { origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin', 'content-type': 'application/json', ...overrides },
+    headers: { 'content-type': 'application/json', ...headers },
     async *[Symbol.asyncIterator]() { yield Buffer.from('{"action":"collect.status"}') },
   } as unknown as IncomingMessage)
-  await handler(make({ origin: 'https://evil.example' }, '10.0.0.1'), fakeRes(responded))
-  assert.equal(responded[0]?.status, 403)
+  // Desktop forwardWebRequest 形态：Origin 与 Sec-Fetch-Site 均被剥掉 → 200。
+  await handler(make(), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 200)
+  // Web 形态：正确 Origin + same-origin → 200。
+  await handler(make({ origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin' }), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 200)
+  // 正确 Origin 未带 Sec-Fetch-Site：Origin 已精确绑定来源 → 200（fence 语义）。
+  await handler(make({ origin: 'http://127.0.0.1:1' }), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 200)
+  // 异源 Origin → 403；Origin 字面 null（不透明源）→ 403。
   await handler(make({ origin: 'https://evil.example' }), fakeRes(responded))
-  assert.equal(responded[0]?.status, 403)
-  await handler(make({ 'sec-fetch-site': 'cross-site' }), fakeRes(responded))
-  assert.equal(responded[0]?.status, 403)
-  // 正向：同源放行。
-  await handler(make({}), fakeRes(responded))
-  assert.equal(responded[responded.length - 1]?.status, 200)
+  assert.equal(responded.at(-1)?.status, 403)
+  await handler(make({ origin: 'null' }), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 403)
+  // 显式跨站标记 → 403（即使 Origin 同源）。
+  await handler(make({ origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'cross-site' }), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 403)
+  // 非 loopback：即使 Origin 看起来正确 → 403。
+  await handler(make({ origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin' }, '10.0.0.1'), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 403)
+})
+
+test('permitted：loopback 形态全放行，标记语义与 fence 对齐', () => {
+  const req = (headers: Record<string, unknown>, remote = '127.0.0.1'): IncomingMessage =>
+    ({ socket: { remoteAddress: remote }, headers }) as unknown as IncomingMessage
+  assert.equal(permitted(req({}), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(req({}, '::1'), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(req({}, '::ffff:127.0.0.1'), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(req({ origin: 'http://127.0.0.1:1' }), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(req({ origin: 'null' }), 'http://127.0.0.1:1'), false)
+  assert.equal(permitted(req({ origin: 'https://evil.example' }), 'http://127.0.0.1:1'), false)
+  assert.equal(permitted(req({ 'sec-fetch-site': 'cross-site' }), 'http://127.0.0.1:1'), false)
+  assert.equal(permitted(req({}, '10.0.0.1'), 'http://127.0.0.1:1'), false)
 })
 
 test('未知 action 与 handler 缺位返回 unknown_action（400）', async () => {

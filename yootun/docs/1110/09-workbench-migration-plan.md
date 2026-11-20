@@ -143,7 +143,7 @@ DOUYIN_OPERATION_STATE_DIR
 - `MODELS_API_KEY` 只经 Host credential store 解析；
 - 浏览器页面不读取 key、Cookie、storage_state 或本地路径；
 - Workbench MCP client 不注册进 `ctx.tools`;
-- 每个 Host route 校验 origin、`sec-fetch-site`、method、body 大小、action 和未知字段；
+- 每个 Host route 校验 loopback、来源信任（显式 Origin 精确匹配、显式 `sec-fetch-site: cross-site` 拒绝；Desktop `forwardWebRequest` 转发剥离两枚标记时放行，对齐官方 connection fence）、method、body 大小、action 和未知字段；
 - Tools 调用只使用 `workbench_*` 白名单；
 - Agent 面只由 `@yootun/dsh-managed-mcp` 注册；
 - Catalog 面默认不挂载；

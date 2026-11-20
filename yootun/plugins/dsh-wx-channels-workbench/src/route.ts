@@ -1,8 +1,10 @@
 /**
  * Host 路由层：`/api/desktop/yootun/wx-workbench` 单端点 POST 分发。安全口径
- * （分册 08 §10.3）：只接受 POST、loopback + expected origin + sec-fetch-site、
- * 请求体上限、显式 action allowlist、每 action 输入 schema 并拒绝未知字段、
- * 稳定错误码（不透传内部异常）。handler 经 deps 注入，本模块不持有业务状态。
+ * （分册 08 §10.3）：只接受 POST、loopback 远端 + 浏览器来源标记信任判定
+ * （显式 Origin 精确匹配、显式跨站拒绝；Desktop `forwardWebRequest` 转发剥离
+ * 两枚标记时放行，语义对齐官方 connection fence）、请求体上限、显式 action
+ * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
+ * 异常）。handler 经 deps 注入，本模块不持有业务状态。
  * @module
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -90,15 +92,23 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
   return args
 }
 
-/** 同源校验（收紧口径）：loopback + Origin 精确相等 + sec-fetch-site 精确
- * same-origin。缺失头部一律拒绝（浏览器同源 fetch 恒带这两类头；缺失即非浏览器
- * 或被剥离，不得放行）。loopback 由 webServer 层强制，这里再独立核一次。 */
+/** 路由信任判定（对齐官方浏览器信任边界
+ * [api-request-trust](../../../../../packages/client/connection/src/api-request-trust.ts)）：
+ * loopback 远端是基础防线，负责把请求绑定到本机；显式 `sec-fetch-site:
+ * cross-site` 一律拒绝；显式 Origin 必须精确等于 expectedOrigin（字面 `null`、
+ * 异源都拒绝），Origin 缺失不单独视为攻击——Windows Desktop 的 Electron main
+ * 进程 `forwardWebRequest` 转发请求时会剥掉 Origin 与 Sec-Fetch-Site 两枚头，
+ * 双头缺失是 Desktop 转发的合法形态，来源边界由 loopback 承担。
+ * @param req - Node HTTP 请求。
+ * @param expectedOrigin - 本 webServer 绑定的精确 origin。
+ * @returns 是否放行。 */
 export function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
   const address = req.socket.remoteAddress ?? ''
   const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
-  return loopback
-    && req.headers.origin === expectedOrigin
-    && req.headers['sec-fetch-site'] === 'same-origin'
+  if (!loopback) return false
+  if (req.headers['sec-fetch-site'] === 'cross-site') return false
+  const origin = req.headers.origin
+  return origin === undefined || origin === expectedOrigin
 }
 
 /** Read and parse the JSON body with the size cap; malformed bodies become `{}` (schema layer rejects them). */

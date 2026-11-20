@@ -209,7 +209,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 - 所有请求由 Host 发起；
 - 浏览器只调用本地 `ctx.webServer` 同源 endpoint;
 - 请求体大小沿用现有工作台 Host 上限；
-- Host endpoint 校验 method、origin、`sec-fetch-site` 和 action;
+- Host endpoint 校验 method、来源信任和 action：显式 Origin 必须精确匹配，显式 `sec-fetch-site: cross-site` 拒绝；Desktop 的 Electron main 转发（`forwardWebRequest`）会剥掉这两枚头，缺失时以 loopback 边界放行（语义对齐官方 connection fence）;
 - 每个工作台只能访问自己的工具分组；
 - `viral` 分组只允许抖音工作台 Host 使用；
 - `tos_upload_authorize` 只允许媒体上传插件使用。
@@ -412,8 +412,8 @@ PluginPageShell
 每个 endpoint 必须：
 
 - 只接受 POST;
-- 校验 expected origin;
-- 校验 `sec-fetch-site: same-origin`;
+- 校验 expected origin：显式 Origin 必须精确匹配，字面 `null` 与异源拒绝；
+- 来源标记：显式 `sec-fetch-site: cross-site` 拒绝；Origin 与 Sec-Fetch-Site 缺失放行——Desktop Electron main 的 `forwardWebRequest` 转发会剥掉这两枚头，来源边界由 loopback 承担（对齐官方 connection fence）;
 - 限制请求体大小；
 - 显式 action allowlist;
 - 拒绝未知字段;
