@@ -441,7 +441,9 @@ function staticManifestConfig(id: string, packageDir: string, entry: string): Us
         return { ...url, url: marker }
       }
       const result = transform({ filename: file, code: await readFile(file), minify: true,
-        ...(file.endsWith('.module.css') ? { cssModules: { pattern: '[hash]_[local]' } } : {}),
+        // `container: false` keeps `@container` names unhashed: one container
+        // name is shared by every kit/plugin stylesheet around the page shell.
+        ...(file.endsWith('.module.css') ? { cssModules: { pattern: '[hash]_[local]', container: false } } : {}),
         visitor: {
           Url: rewrite,
           Image(image) {
@@ -1091,7 +1093,9 @@ function clientConfig(
         const { code, exports: cssExports } = transform({
           filename: fileId,
           code: source,
-          cssModules: { pattern: '[hash]_[local]' },
+          // `container: false` keeps `@container` names unhashed: the page
+          // shell's container name is shared across kit and plugin stylesheets.
+          cssModules: { pattern: '[hash]_[local]', container: false },
           minify: true,
           ...stylesheetAssets.options,
         })

@@ -13,6 +13,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { zh, en, NS, type WxLocaleKey } from './locales.ts'
+import './kit-styles.ts'
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
 import { WorkbenchPage } from './WorkbenchPage.tsx'
 
