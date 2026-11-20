@@ -87,10 +87,10 @@ describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣
     expect('tab.publish' in zh).toBe(false)
   })
 
-  it('切到账号管理显示分批占位，不新增页面', async () => {
+  it('切到账号管理显示账号页（添加账号按钮可达，无新增顶级页面）', async () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
-    await waitFor(() => expect(screen.getByText(en['section.pending'])).not.toBeNull())
+    await waitFor(() => expect(screen.getByRole('button', { name: en['accounts.add'] })).not.toBeNull())
   })
 })
 

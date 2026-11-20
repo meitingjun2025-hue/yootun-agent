@@ -1316,6 +1316,336 @@
   }
 }
 
+/* ---- 账号管理（12 册 §4：列表 | 主区 双栏；断点与旧 300px/240px 口径对齐）---- */
+
+.accountsLayout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 0;
+  align-items: start;
+  min-width: 0;
+}
+
+.accountsChromeBlock {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+}
+
+.accountsList {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 0 16px 32px 0;
+  border-right: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+.accountsListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.accountsLoginWaiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: color-mix(in srgb, var(--dsw-alias-business-primary) 8%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.accountsItems {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.accountsItem {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.accountsItem:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.accountsItemActive {
+  border-color: var(--dsw-alias-business-primary);
+}
+
+.accountsAvatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.accountsAvatarFallback {
+  display: grid;
+  place-items: center;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.accountsMeta {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.accountsName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.accountsId {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.accountsActions {
+  display: flex;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.accountsMain {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 0 0 32px 20px;
+  min-width: 0;
+}
+
+.accountsNoticeOk,
+.accountsNoticeWarn,
+.accountsNoticeError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  font-size: 13px;
+}
+
+.accountsNoticeOk {
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+}
+
+.accountsNoticeWarn {
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 10%, transparent);
+  color: var(--dsw-alias-state-warning-primary);
+}
+
+.accountsNoticeError {
+  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.accountsDetail {
+  display: grid;
+  gap: 16px;
+}
+
+.accountsCard {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: var(--dsw-radius-r12, 12px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.accountsCardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.accountsKv {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.accountsKv > div {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.accountsKv dt {
+  flex: none;
+  width: 72px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.accountsKv dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.accountsStats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.accountsStat {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.accountsStatLabel {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.accountsStatValue {
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.accountsStatGap {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+/* ---- 发布面板（12 册 §3.3：结果区下方）---- */
+
+.publishPanel {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--dsw-radius-r12, 12px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.publishRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.publishRow span:first-child {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.publishRow select {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+}
+
+.publishRow select:disabled {
+  opacity: 0.6;
+}
+
+.publishProgress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+/* 账号页窄容器（12 册 §6：1120 列表收窄、879 堆叠、640 统计单列）。 */
+@container yootun-kit-page (max-width: 1119px) {
+  .accountsLayout {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@container yootun-kit-page (max-width: 879px) {
+  .accountsLayout {
+    display: block;
+  }
+
+  .accountsList {
+    padding-right: 0;
+    border-right: 0;
+    border-bottom: 0.5px solid var(--dsw-alias-border-l1);
+    padding-bottom: 16px;
+  }
+
+  .accountsMain {
+    padding-left: 0;
+  }
+
+  .accountsStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .accountsStats {
+    grid-template-columns: 1fr;
+  }
+
+  .accountsKv > div {
+    flex-wrap: wrap;
+  }
+
+  .publishRow {
+    flex-wrap: wrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .progressFill {
     transition: none;

@@ -65,7 +65,7 @@ async function testDeps(root: string, options: {
 
 // --- 路由 schema 层 ---
 
-test('action allowlist：X5 白名单 26 项且全部有 schema', () => {
+test('action allowlist：X6 白名单 28 项且全部有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus',
     'account.probe', 'account.removeLocal', 'collect.start', 'collect.status',
@@ -75,6 +75,7 @@ test('action allowlist：X5 白名单 26 项且全部有 schema', () => {
     'hotboard.candidates', 'hotboard.candidateReview', 'hotboard.labels', 'hotboard.labelReview',
     'hotboard.labelSave', 'hotboard.settings',
     'hotboard.settingsUpdate',
+    'publish.start', 'publish.status',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
@@ -647,6 +648,80 @@ test('hotboard 读投影：keywords/candidates/labels/runGet 透传 data+meta；
   const run = await handlers['hotboard.runGet']!({}) as Record<string, unknown>
   assert.equal(workbench.calls.at(-1)?.name, 'workbench_xhs_hotboard_run_get')
   assert.deepEqual(run.data, { run: { runId: 'r1', status: 'queued' } })
+  await rm(root, { recursive: true, force: true })
+})
+
+// ---- publish（X6；旧 index.js handlePublishStart/handlePublishStatus 同口径）----
+
+test('publish.start：确定性校验（target 枚举/幂等键）与成功 started 投影', async () => {
+  const root = await tempRoot()
+  const fake = createFakeChrome()
+  fake.state.profileJson = userInfoPayload('acc-1', '甲', null)
+  const deps = createXhsHostDeps({
+    root, workbench: createFakeWorkbench().face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+    chromeFactory: fake.factory,
+  })
+  const handlers = buildRouteHandlers(deps)
+  const badTarget = await handlers['publish.start']!({ accountId: 'acc-1', target: 'audio', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(badTarget.reason, 'invalid_target')
+  const noKey = await handlers['publish.start']!({ accountId: 'acc-1' }) as Record<string, unknown>
+  assert.equal(noKey.reason, 'idempotency_key_required')
+  // 会话 ok（user/info 探测主口径）→ completed + step done；浏览器保持打开（closeCount 0）。
+  const started = await handlers['publish.start']!({ accountId: 'acc-1', target: 'video', idempotencyKey: 'k-2' }) as Record<string, unknown>
+  assert.equal(started.status, 'started')
+  const publish = started.publish as Record<string, unknown>
+  assert.equal(publish.publishStatus, 'running')
+  // 幂等重放：同键返回既有 publishId。
+  const replay = await handlers['publish.start']!({ accountId: 'acc-1', target: 'video', idempotencyKey: 'k-2' }) as Record<string, unknown>
+  assert.equal(replay.publishId, started.publishId)
+  // 发布 run 为后台动作（浏览器保持打开，不进任务登记表）：轮询至终态。
+  let done: Record<string, unknown> = {}
+  for (let i = 0; i < 50; i++) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const status = await handlers['publish.status']!({ publishId: String(started.publishId) }) as Record<string, unknown>
+    done = status.publish as Record<string, unknown>
+    if (done.publishStatus !== 'running') break
+  }
+  assert.equal(done.publishStatus, 'completed')
+  assert.equal(done.step, 'done')
+  assert.equal(fake.state.closeCount, 0, '红线：任何结局浏览器保持打开')
+  // 状态查询未知 id → publish_id_required。
+  const unknown = await handlers['publish.status']!({ publishId: 'pub-none' }) as Record<string, unknown>
+  assert.equal(unknown.reason, 'publish_id_required')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('publish.start：会话过期投影 SESSION_EXPIRED；profile 锁占用即拒绝', async () => {
+  const root = await tempRoot()
+  await mkdir(join(root, 'storage-state'), { recursive: true })
+  await writeFile(join(root, 'storage-state', 'acc-exp.json'), '{"cookies":[]}\n', { mode: 0o600 })
+  const fake = createFakeChrome()
+  fake.state.creatorRedirectsToLogin = true
+  const deps = createXhsHostDeps({
+    root, workbench: createFakeWorkbench().face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+    chromeFactory: fake.factory,
+  })
+  const handlers = buildRouteHandlers(deps)
+  const started = await handlers['publish.start']!({ accountId: 'acc-exp', idempotencyKey: 'k-1' }) as Record<string, unknown>
+  assert.equal(started.status, 'started')
+  let failed: Record<string, unknown> = {}
+  for (let i = 0; i < 150; i++) {
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const status = await handlers['publish.status']!({ publishId: String(started.publishId) }) as Record<string, unknown>
+    failed = status.publish as Record<string, unknown>
+    if (failed.publishStatus !== 'running') break
+  }
+  assert.equal(failed.publishStatus, 'failed')
+  assert.equal(failed.error, 'SESSION_EXPIRED')
+  // 锁占用即拒绝（发布浏览器保持打开 → 锁随 context close 释放，测试里 close
+  // 未触发所以锁仍被发布 run 持有）。
+  assert.equal(acquireProfileLock('acc-1'), null)
+  const busy = await handlers['publish.start']!({ accountId: 'acc-1', idempotencyKey: 'k-2' }) as Record<string, unknown>
+  assert.equal(busy.reason, 'PROFILE_BUSY')
   await rm(root, { recursive: true, force: true })
 })
 

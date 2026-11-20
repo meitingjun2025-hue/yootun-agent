@@ -97,12 +97,13 @@ export interface FakeChrome {
  */
 export function createFakeChrome(state: FakeCreatorState = createFakeState()): FakeChrome {
   const storageWrites: string[] = []
+  const closeListeners: Array<() => void> = []
   let contextRef: XhsBrowserContext | null = null
   const page: XhsPage = {
     async goto(url, _options) {
       state.url = url
-      // 会话失效重定向（真机：未登录访问创作者中心 302 到 /login）。
-      if (url === CREATOR_ORIGIN && state.creatorRedirectsToLogin) state.url = LOGIN_URL
+      // 会话失效重定向（真机：未登录访问创作者中心任意页面 302 到 /login）。
+      if (state.creatorRedirectsToLogin && url.includes('creator.xiaohongshu.com')) state.url = LOGIN_URL
       return null
     },
     async evaluate(fn, arg) {
@@ -153,6 +154,11 @@ export function createFakeChrome(state: FakeCreatorState = createFakeState()): F
     async close() {
       state.closed = true
       state.closeCount += 1
+      for (const listener of closeListeners.splice(0)) listener()
+    },
+    once(event, listener) {
+      if (event === 'close') closeListeners.push(listener)
+      return context
     },
     async storageState(options) {
       storageWrites.push(options.path)

@@ -475,7 +475,7 @@ Host 路由：
 - 爆款看板浏览、关键词、设置、运行和审核；
 - 标签管理；
 - 草稿发布；
-- 工作台助手与操作回执。
+- 操作回执。
 
 P3 建立在 P2 的私有 MCP 和 P1 的上传能力之上。上传链路未通过假授权测试前，不得开始任务创建 UI。
 
@@ -515,7 +515,6 @@ hotboard.runStart / runGet
 hotboard.candidates / candidateReview
 hotboard.labels / labelReview / labelSave
 publish.start / publish.status
-assistant.chat / stop
 ```
 
 上传和发布不得复用一个模糊 action；每个 action 有独立 schema 和错误码。
@@ -562,7 +561,7 @@ X2 登录与采集：扫码、账号、笔记采集、本地凭证清理
 X3 上传接入：media-upload 服务、公网 URL、失败与重试
 X4 任务链路：素材表单、task create、轮询、结果、取消
 X5 看板链路：overview、候选、关键词、标签、设置、运行
-X6 发布与助手：草稿发布、AssistantDock、回执和撤销
+X6 发布：草稿发布、回执和撤销（D-6：助手留后期，见基线清单 §8）
 X7 集成：打包、真实线上验收、UI 三档与真机
 ```
 
@@ -575,7 +574,6 @@ P3 至少交付：
 - 任务幂等、重放、冲突和取消测试；
 - 看板写操作 confirm 与幂等键测试；
 - 发布失败保留原状态测试；
-- AssistantDock 模型成功、失败、停止和草稿保留测试；
 - Host 同源与 action 测试；
 - UI / i18n / 主题 / 键盘测试；
 - 打包闭包测试；
@@ -587,9 +585,8 @@ P3 至少交付：
 2. 同一任务重试不重复计费；
 3. 生成结果按版本展示，用户可复制和重新发起；
 4. 看板写操作都有回执，失败不改变原数据；
-5. 助手只能通过 Host 模型链调用，不能读取凭证；
-6. 小红书只访问 `workbench_xhs_*` 与 `workbench_tos_upload_authorize`;
-7. 未激活或无 key 时无远端请求。
+5. 小红书只访问 `workbench_xhs_*` 与 `workbench_tos_upload_authorize`;
+6. 未激活或无 key 时无远端请求。
 
 ## 6. P4：抖音工作台
 
@@ -796,7 +793,6 @@ pnpm run typecheck
 | 小红书写操作幂等冲突 | 重试返回 IDEMPOTENCY_CONFLICT | UI 保留原回执并引导刷新，不自动换键重发 |
 | 抖音冻结点继续变化 | D0 清单无法闭合 | 继续观察，不开 P4 产品代码 |
 | 抖音新增工具未进 Workbench 90 | D0 覆盖矩阵有缺口 | 先补 tools dev 与 08 册，再回桌面批次 |
-| 模型助手写数据 | Assistant 输出直接改变业务状态 | 阻断发布，改为生成操作请求，用户确认后 Host 执行 |
 
 ## 9. 文档与验收记录
 

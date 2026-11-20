@@ -64,6 +64,8 @@ export interface XhsBrowserContext extends StorageStateSource {
   newPage(): Promise<XhsPage>
   pages(): XhsPage[]
   close(options?: { reason?: string }): Promise<void>
+  /** 一次性事件监听（publish 保持打开语义：锁随 context close 释放）。 */
+  once(event: 'close', listener: () => void): unknown
 }
 
 /** Whether the id is a login-pending placeholder. */

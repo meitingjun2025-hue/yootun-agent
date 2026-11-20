@@ -1,10 +1,10 @@
 /**
- * 已实现 14 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
+ * 已实现 16 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；profile
  * 互斥按旧口径即时占（登录/采集全程持锁，probe/删除 try 语义立即拒绝）。响应
  * 形状沿用旧路由契约（status: ready/started/created/error），client 半按同形状
  * 重译。Workbench 调用经 `ctx.yootunWorkbench`（settings 对 + 任务四项已接入；
- * hotboard 其余随 X5、publish/assistant 随 X6 批次接入）。
+ * hotboard 其余随 X5、publish 随 X6 批次接入（assistant 已定案不做，D-6））。
  * @module
  */
 import type { BrowserStatus, ChromeFactory } from './chrome.ts'
@@ -12,6 +12,7 @@ import { safeCode, STABLE_ERROR_CODES, type StableErrorCode } from './errors.ts'
 import { acquireProfileLock, isProfileLocked, tryWithProfileLock, type ProfileLockRelease } from './locks.ts'
 import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { CollectError, collectNotes, summarizeSnapshot, type SnapshotSummary } from './collector.ts'
+import { PublishError, publishDraft } from './publisher.ts'
 import {
   isPendingAccountId, loginWithQrCode, probeSession, removeLocalAccount,
   type AccountProfile, type LoginResult, type RemoveLocalResult,
@@ -115,6 +116,16 @@ export interface CollectRun {
   release: ProfileLockRelease
 }
 
+/** 发布 run（进程内；浏览器保持打开，锁随 context close 释放）。 */
+export interface PublishRun {
+  publishId: string
+  accountId: string
+  status: 'running' | 'completed' | 'failed'
+  step: 'prepare' | 'open' | 'done'
+  error: string | null
+  release: ProfileLockRelease
+}
+
 /** Host 依赖注入面（测试可整体替换）。 */
 export interface XhsHostDeps {
   root: string
@@ -136,6 +147,10 @@ export interface XhsHostDeps {
   collectRuns: Map<string, CollectRun>
   /** 创建型幂等：idempotencyKey → collectId 重放既有 run（旧 index.js 口径）。 */
   collectIdempotency: Map<string, string>
+  /** 发布 run（进程内；页面 2s 轮询 publish.status）。 */
+  publishRuns: Map<string, PublishRun>
+  /** 创建型幂等：idempotencyKey → publishId（旧 index.js 口径）。 */
+  publishIdempotency: Map<string, string>
 }
 
 /**
@@ -166,6 +181,8 @@ export function createXhsHostDeps(options: {
     collectSignals: new Map(),
     collectRuns: new Map(),
     collectIdempotency: new Map(),
+    publishRuns: new Map(),
+    publishIdempotency: new Map(),
   }
 }
 
@@ -214,6 +231,17 @@ function projectCollect(run: CollectRun): Record<string, unknown> {
     notesTotal: run.notesTotal,
     truncated: run.truncated,
     summary: run.summary,
+    error: run.error,
+  }
+}
+
+/** 发布 run 投影（旧 projectPublish 同口径）。 */
+function projectPublish(run: PublishRun): Record<string, unknown> {
+  return {
+    publishId: run.publishId,
+    accountId: run.accountId,
+    publishStatus: run.status,
+    step: run.step,
     error: run.error,
   }
 }
@@ -636,6 +664,67 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
       if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
       return { status: 'ready', collect: projectCollect(run) }
+    },
+
+    // ---- 发布（X6；旧 index.js handlePublishStart/handlePublishStatus 同口径重译，
+    // 发布降级版：只打开创作者中心发布页，浏览器保持打开由用户手动发布）----
+
+    'publish.start': async args => {
+      const accountId = stringValue(args, 'accountId')
+      if (accountId === '') return { status: 'error', reason: 'account_id_required' }
+      // 发布页目标 Tab（图文/视频）：默认 image，仅接受这两个枚举。
+      const target = stringValue(args, 'target') === '' ? 'image' : stringValue(args, 'target')
+      if (target !== 'image' && target !== 'video') return { status: 'error', reason: 'invalid_target' }
+      const idempotencyKey = stringValue(args, 'idempotencyKey')
+      if (idempotencyKey === '') return { status: 'error', reason: 'idempotency_key_required' }
+      if (deps.publishIdempotency.has(idempotencyKey)) {
+        // 幂等重放：返回既有 run 的当前状态（不重复打开浏览器）。
+        const run = deps.publishRuns.get(deps.publishIdempotency.get(idempotencyKey) ?? '')
+        if (run !== undefined) return { status: 'started', publishId: run.publishId, publish: projectPublish(run) }
+      }
+      // Profile 互斥：发布（有头）与登录/probe/采集互斥；占用即拒绝。
+      const release = acquireProfileLock(accountId)
+      if (release === null) return { status: 'error', reason: 'PROFILE_BUSY' }
+      const publishId = `pub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const run: PublishRun = { publishId, accountId, status: 'running', step: 'prepare', error: null, release }
+      deps.publishRuns.set(publishId, run)
+      deps.publishIdempotency.set(idempotencyKey, publishId)
+      // 打开发布页是后台动作：立即返回 started。完成后浏览器保持打开（README §5.3）
+      // ——互斥锁随浏览器窗口生命周期：onContext 挂钩后由 context close 释放；
+      // 早期失败（context 未创建）由 finally 释放（审查 P1）。
+      let contextHooked = false
+      void publishDraft({
+        accountId,
+        target: target as 'image' | 'video',
+        root: deps.root,
+        chromeFactory: deps.chromeFactory,
+        onStep: step => {
+          if (deps.publishRuns.get(publishId) !== run) return
+          run.step = step
+        },
+        onContext: context => {
+          contextHooked = true
+          context.once('close', () => { release() })
+        },
+      }).then(() => {
+        run.status = 'completed'
+        run.step = 'done'
+      }).catch((error: unknown) => {
+        run.status = 'failed'
+        run.error = error instanceof PublishError && (STABLE_ERROR_CODES as readonly string[]).includes(error.code)
+          ? error.code
+          : localErrorCode(error, 'PUBLISH_FAILED')
+      }).finally(() => {
+        if (!contextHooked) release()
+      })
+      return { status: 'started', publishId, publish: projectPublish(run) }
+    },
+
+    'publish.status': async args => {
+      const publishId = stringValue(args, 'publishId')
+      const run = publishId !== '' ? deps.publishRuns.get(publishId) : undefined
+      if (run === undefined) return { status: 'error', reason: 'publish_id_required' }
+      return { status: 'ready', publish: projectPublish(run) }
     },
 
     // 任务四项（X4；旧 index.js handleCreate/Status/Result/Cancel 同口径重译）。

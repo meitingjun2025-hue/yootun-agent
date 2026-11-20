@@ -37,7 +37,6 @@ X0 基线复核交付物，配套 [12-xhs-workbench-ui-layout-parity.md](12-xhs-
 | `publish.start` / `publish.status` | 同名 | 打开创作者中心发布页（target=image/video）；幂等键；浏览器保持打开锁随 context close 释放 |
 | `hotboard.overview` / `noteDetail` / `noteTagUpdate` / `noteExclude` / `keywords` / `keywordSave` / `settings` / `settingsUpdate` / `runStart` / `runGet` / `candidates` / `candidateReview` / `labels` / `labelReview` / `labelSave` | 同名 | 与 `workbench_xhs_hotboard_*` 一一映射；写操作 confirm + 幂等键（§3 对账表） |
 | （旧 client 直连）`/_dsh/uploader/pick-file` / `uploadStart` / `uploadStatus` / `media` | `upload.pick` / `upload.start` / `upload.status` / `upload.media` | 上传一律经 `@yootun/dsh-media-upload`：其既有四条同源路由承载这四组语义（1:1），schema/审计/错误码由 media-upload 自带；xhs Host 不重复代理（决策点 D-2） |
-| —（新增，X6） | `assistant.chat` / `assistant.stop` | AssistantDock Host 模型链；旧插件无对应 |
 
 幂等键口径（09 册 §5.2）：写操作 Host 侧生成或校验；同一用户点击重试复用原键，重新发起生成新键。具体落法：任务键随任务实例保存（重试取消/重放复用）；采集/发布键随 run 保存；看板写键随确认弹层发起的一次写操作生成（重试同一次操作复用，重新发起新操作新键）；UI 时间戳不作为业务键。
 
@@ -112,7 +111,7 @@ run 负载内部码（UI 文案映射，hotboard-ui.js L153–L159）：`DETAIL_
 
 ## 7. 阶段映射
 
-X1 Host 骨架消费 §2/§5；X2 登录采集消费 §4；X3 上传消费 §2 上传行与 §6；X4 任务链消费 §3 前四行 + 12 册 §3；X5 看板消费 §3 hotboard 各行 + 12 册 §5；X6 发布助手消费 §2 publish/assistant 行 + 12 册 §3.3/§7；X7 集成验收按 09 册 §5.6。
+X1 Host 骨架消费 §2/§5；X2 登录采集消费 §4；X3 上传消费 §2 上传行与 §6；X4 任务链消费 §3 前四行 + 12 册 §3；X5 看板消费 §3 hotboard 各行 + 12 册 §5；X6 发布/账号管理消费 §2 publish 行 + 12 册 §3.3/§4；X7 集成验收按 09 册 §5.6。
 
 ## 8. 决策点与风险
 
@@ -123,4 +122,5 @@ X1 Host 骨架消费 §2/§5；X2 登录采集消费 §4；X3 上传消费 §2 �
 | D-3 | `hotboard.settingsUpdate` action 保留但 UI 只读（R3）；「设置变更回执」在只读口径下无 UI 触发面，看板写回执覆盖打标/排除/关键词/候选/标签/运行六类 | 已批（2026-11-20 X0 复审；action 与单测已随 X1 批落地） |
 | D-5 | 设备端审计：旧插件 `ctx.yootunAudit`（create/cancel/终态/collect/publish/hotboard 写审计）不迁移——新客户端不做 yootunAudit 服务 / outbox / 补传 / 审计 UI；现阶段只依赖 ixicai 网关调用面（激活、Models、Workbench MCP），现状为服务端 MCP 审计（domain `yootun-workbench`，tools 侧对每次工具调用落审计）+ Host 结构化日志；操作审计留待后期 Yootun 独立建设时统一规划 | 已定案（2026-11-20 用户拍板） |
 | R-A | 旧「无头采集后可能触发会话吊销」行为（collector.js 注）：probe/发布报 SESSION_EXPIRED 时引导重新扫码，不做自动重连 | 迁移口径不变 |
+| D-6 | 工作台助手：P3 不做（2026-11-20 用户拍板，助手为用户后期独立优化项，现阶段聚焦旧客户端功能完整迁移）；09 册 P3 交付目标 / action 面 / 验收与风险表已同步去除，kit 通用 AssistantDock 组件保持未消费 |
 | R-B | 登录终态 run 读一次即清理等旧实现细节按新 TaskRegistry/lifecycle 模式重写，行为等价在 X2/X4 测试锁定 | 记录在案 |

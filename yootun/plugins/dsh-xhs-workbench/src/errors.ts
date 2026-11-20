@@ -82,6 +82,8 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'task_id_required',
   'versions_unavailable',
   'create_failed_no_task',
+  'invalid_target',
+  'publish_id_required',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */

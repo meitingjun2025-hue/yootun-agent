@@ -6,8 +6,8 @@
  * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
  * 异常）。handler 经 deps 注入，本模块不持有业务状态。
  *
- * action 集合按批次扩充：已实现 14 项（X1+X2 骨架 10 项 + X4 任务四项）；hotboard
- * 其余、publish/upload/assistant 各 action 随对应批次加入，未实现项按
+ * action 集合按批次扩充：已实现 28 项（X1+X2 骨架 10 + X4 任务 4 + X5 看板 12 + X6 发布 2）；hotboard
+ * 其余、publish/upload 各 action 随对应批次加入（assistant 已定案不做，D-6），未实现项按
  * unknown_action 拒绝（fail loud，不做静默半实现）。
  * @module
  */
@@ -106,6 +106,11 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   },
   'hotboard.settings': { fields: {} },
   'hotboard.settingsUpdate': { fields: { settings: 'object', confirm: 'boolean', idempotencyKey: 'string' }, limits: { idempotencyKey: 128 } },
+  'publish.start': {
+    fields: { accountId: 'string', target: 'string', idempotencyKey: 'string' },
+    limits: { accountId: 128, target: 16, idempotencyKey: 128 },
+  },
+  'publish.status': { fields: { publishId: 'string' }, limits: { publishId: 128 } },
 })
 
 /** stringArray 字段约束缺省：最多 9 项（旧 UI 上限，D-4）、单项 ≤2048；档位覆盖见 schema.arrays。 */

@@ -14,6 +14,7 @@ import css from './workbench.module.css'
 import { createTaskMachine, type TaskMachine, type TaskVersion } from './task-machine.ts'
 import { createUploadManager, type UploadAsset } from '../upload-machine.ts'
 import { EditableResult, type EditedCopy } from './EditableResult.tsx'
+import { PublishPanel } from './PublishPanel.tsx'
 
 /** 图片素材组上限（D-4 定案：功能对齐旧插件 = 9）。 */
 const MAX_IMAGES = 9
@@ -128,12 +129,21 @@ export function RewritePage(props: RewritePageProps): ReactNode {
   const [confirmingRegen, setConfirmingRegen] = useState(false)
   const [edited, setEdited] = useState<EditedCopy | null>(null)
   const [copyState, setCopyState] = useState('')
-
   const { task, versions, error, failure } = machineState
   const taskStatus = task?.taskStatus ?? 'idle'
   const isTerminal = taskStatus === 'succeeded' || taskStatus === 'failed' || taskStatus === 'cancelled'
   const processing = task !== null && !isTerminal
   const canCancel = task !== null && !isTerminal
+
+  // 发布面板账号来源：与账号管理页同一本地投影（只取会话有效账号）。
+  const [publishAccounts, setPublishAccounts] = useState<Array<{ accountId: string; nickname: string | null }>>([])
+  useEffect(() => {
+    if (taskStatus !== 'succeeded') return
+    void hostAction('accounts.list').then(res => {
+      const rows = Array.isArray(res.accounts) ? res.accounts as Array<{ accountId: string; nickname: string | null; sessionStatus: string }> : []
+      setPublishAccounts(rows.filter(row => row.sessionStatus === 'ok'))
+    }).catch(() => { setPublishAccounts([]) })
+  }, [taskStatus])
 
   const imageAssets = upload.list('image')
   const videoAsset = upload.list('video')[0] ?? null
@@ -485,8 +495,8 @@ export function RewritePage(props: RewritePageProps): ReactNode {
             {edited.saved ? t('action.savedEdit') : t('action.saveEdit')}
           </Button>
         </div>
-        {/* 发布面板 X6 批次接入；本批占位，不新增顶级导航（12 册 §7）。 */}
-        <div className={css.pendingBlock}>{t('result.publishPending')}</div>
+        {/* 发布面板（发布降级版）：按当前素材类型直达图文/视频发布页。 */}
+        <PublishPanel accounts={publishAccounts} target={mediaTab === 'video' ? 'video' : 'image'} t={t} />
       </>
     )
   } else if (error !== '') {
