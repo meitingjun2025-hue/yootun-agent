@@ -1,6 +1,6 @@
 # P3 小红书工作台 X0 基线清单（2026-11-20）
 
-X0 基线复核交付物，配套 [12-xhs-workbench-ui-layout-parity.md](12-xhs-workbench-ui-layout-parity.md)（本批已按复核结论修订）。基点 `cce23a2a01`，分支 `feat/plugin-xhs-workbench`。事实源：
+X0 基线复核交付物，配套 [12-xhs-workbench-ui-layout-parity.md](12-xhs-workbench-ui-layout-parity.md)（本批已按复核结论修订）。基点为 2026-11-20 的 main（最新提交为 wx-workbench 路由信任对齐官方 connection fence 的修复），分支 `feat/plugin-xhs-workbench`。事实源：
 
 - 旧插件（只读）：`docker-helm.dofe.ai/plugins/dsh-yootun-xhs-operation`（index.js / src/client.js / src/hotboard-ui.js / src/session.js / src/collector.js / src/publisher.js / src/state.js / src/chrome.js / test/*.mjs）
 - 服务端契约（只读）：`tools.dofe.ai` `src/tools_dofe/mcp/domains/yootun/workbench/server.py`（L1165–L1694 xhs 19 项）、`src/tools_dofe/mcp/domains/xhs_operation/schemas.py`（请求模型）、`src/tools_dofe/services/xhs_operation/workflow.py`（任务投影）、`hotboard_mcp.py`（看板投影）、`tests/yootun/test_workbench_xhs.py`
@@ -21,7 +21,7 @@ X0 基线复核交付物，配套 [12-xhs-workbench-ui-layout-parity.md](12-xhs-
 | R5 | §3.3 结果卡未列只读附属字段 | versions 附带只读 封面文案/评论引导/图文分页文案（client.js L798–L800） | §3.3 补只读行说明 |
 | R6 | §4.2 未提采集截断提示 | 采集触达页数上限时 truncated=true，页面显示 warn 通知条（client.js L994、collectTruncated 文案） | §4.2 补截断警示 |
 
-其余各页（总骨架三 tab、仿写两栏、素材/对标/提交行、右栏五态、账号双栏、看板四子区与 1100px 表格转卡、容器断点 1120/900/640、写操作确认与幂等键）复核一致，无遗漏需补。两处已定案口径保持不变：图片上限 18（旧 UI 为 9，服务端 schema 允许 18，12 册按服务端契约取 18，属已记录的偏差而非遗漏）；生成版本数固定 1。
+其余各页（总骨架三 tab、仿写两栏、素材/对标/提交行、右栏五态、账号双栏、看板四子区与 1100px 表格转卡、容器断点 1120/900/640、写操作确认与幂等键）复核一致，无遗漏需补。生成版本数固定 1 为已定案；图片上传上限按复审口径默认 9（对齐旧插件，实现按 9 准备；服务端 schema 允许 18，待用户拍板后修订 12 册 §8）。
 
 ## 2. 旧 action → 新 action 映射
 
