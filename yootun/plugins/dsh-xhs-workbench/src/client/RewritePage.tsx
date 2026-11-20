@@ -234,7 +234,6 @@ export function RewritePage(props: RewritePageProps): ReactNode {
         ...(refNote.trim() !== '' ? { refNote: refNote.trim() } : {}),
         ...(refAccount.trim() !== '' ? { refAccount: refAccount.trim() } : {}),
         ...(mediaTab === 'images' ? { imageUrls: submittingGroup.map(asset => asset.url).filter((url): url is string => url !== null) } : { videoUrl: videoAsset?.url ?? '', videoUnderstanding: understandVideo }),
-        versionCount: 1,
       })
     } finally {
       setBusy(false)

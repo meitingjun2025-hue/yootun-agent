@@ -56,6 +56,20 @@ test('waitForSessionCookie：Cookie 命中即成功；验证码即失败；超�
   await rm(root, { recursive: true, force: true })
 })
 
+test('waitForSessionCookie：新版创作者平台 web_session 签名命中（2026-11-20 live 校准）', async () => {
+  const { state, context, page } = createFakeChrome()
+  state.url = 'https://creator.xiaohongshu.com/login'
+  // 新版登录只落根域 web_session/id_token（预登录阶段两者均不出现，无假阳性）。
+  state.cookies = sessionCookie('web_session')
+  const hit = await waitForSessionCookie(context, page, { timeoutMs: 1000 })
+  assert.equal(hit.loggedIn, true)
+  assert.equal(hit.cookieName, 'web_session')
+  state.cookies = sessionCookie('id_token')
+  const tokenHit = await waitForSessionCookie(context, page, { timeoutMs: 1000 })
+  assert.equal(tokenHit.loggedIn, true)
+  assert.equal(tokenHit.cookieName, 'id_token')
+})
+
 test('loginWithQrCode：pending 登录迁移到正式账号（Profile/备份/记录三落位）', async () => {
   const root = await tempRoot()
   const fake = createFakeChrome()

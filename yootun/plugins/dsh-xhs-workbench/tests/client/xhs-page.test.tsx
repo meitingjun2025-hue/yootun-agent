@@ -168,7 +168,8 @@ describe('上传拦截与表单保留（铁律 3：上传失败不丢表单；fa
       const calls = taskCreateCalls()
       expect(calls).toHaveLength(1)
       const args = calls[0]?.[1] as Record<string, unknown>
-      expect(args.versionCount).toBe(1)
+      // versionCount 是 Host 侧定案（固定 1），client→Host 契约不携带该字段。
+      expect(args.versionCount).toBeUndefined()
       expect(args.imageUrls).toEqual(['https://cdn.example.com/media/b.jpg'])
       expect(typeof args.idempotencyKey).toBe('string')
       expect((args.idempotencyKey as string).length).toBeGreaterThan(0)

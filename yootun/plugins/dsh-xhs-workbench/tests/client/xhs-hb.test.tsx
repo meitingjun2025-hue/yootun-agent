@@ -3,7 +3,7 @@
  * 只读（R3：无编辑入口）、筛选草稿跨子页保留、写确认弹层。
  */
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, type XhsLocaleKey } from '../../src/client/locales.ts'
@@ -161,5 +161,37 @@ describe('筛选草稿跨子页保留（旧 §13.3 UI 状态要求）', () => {
       const chips = screen.getAllByText(en['hb.window7d']).filter(el => el.className.includes('ChipFilter'))
       expect(chips.length).toBeGreaterThan(0)
     })
+  })
+})
+
+describe('写操作路由契约（真实 e2e 回归：action→op 映射）', () => {
+  it('keywordSave 经确认后发出 op=create，不携带 action 键', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+      if (action === 'hotboard.overview') return { status: 'ready', data: { kpis: {}, filterOptions: {}, notes: [], pagination: { page: 1, pageSize: 20, total: 0 } }, meta: { total: 0, pageSize: 20 } }
+      if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 0, pageSize: 1 } }
+      if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 0, pageSize: 1 } }
+      if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 0, pageSize: 20 } }
+      if (action === 'hotboard.settings') return { status: 'ready', data: {}, meta: null }
+      if (action === 'hotboard.keywordSave') return { status: 'ready', ok: true, updatedCount: 1, idempotentReplay: false }
+      throw new Error(`unexpected action ${action}`)
+    })
+    await renderHotboard()
+    await gotoSub('keywords')
+    await waitFor(() => expect(screen.getByLabelText(en['hb.keywordPlaceholder'])).not.toBeNull(), { timeout: 4000 })
+    fireEvent.change(screen.getByLabelText(en['hb.keywordPlaceholder']), { target: { value: 'contract-check' } })
+    fireEvent.click(screen.getByRole('button', { name: en['hb.createKeyword'] }))
+    expect(await screen.findByText(/contract-check/)).not.toBeNull()
+    fireEvent.click(screen.getAllByRole('button', { name: en['action.confirmYes'] })[0] as HTMLButtonElement)
+    await waitFor(() => {
+      const call = apiMock.hostAction.mock.calls.find(([name]: [string]) => name === 'hotboard.keywordSave')
+      expect(call).toBeDefined()
+      const args = call?.[1] as Record<string, unknown>
+      expect(args.op).toBe('create')
+      expect(args.keyword).toBe('contract-check')
+      expect('action' in args).toBe(false)
+      expect(args.confirm).toBe(true)
+      expect(typeof args.idempotencyKey).toBe('string')
+    }, { timeout: 5000 })
   })
 })

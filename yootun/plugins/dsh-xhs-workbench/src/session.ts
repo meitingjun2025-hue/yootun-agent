@@ -21,8 +21,13 @@ import {
 /** 创作者中心 origin 与登录页。 */
 export const CREATOR_ORIGIN = 'https://creator.xiaohongshu.com/'
 export const LOGIN_URL = `${CREATOR_ORIGIN}login`
-/** 创作平台登录成功信号 Cookie 名（只记录名，不记录值，永不外发）。 */
+/** 创作平台登录成功信号 Cookie 名（只记录名，不记录值，永不外发）。
+ * 2026-11-20 live 校准：新版创作者中心登录后跳 `/new/home`，只设置根域
+ * `web_session`/`id_token`（user/info 实测 200）；旧四个 Cookie 名保留，
+ * 兼容仍下发旧签名的环境。 */
 export const SESSION_COOKIE_NAMES = [
+  'web_session',
+  'id_token',
   'customerClientId',
   'galaxy_creator_session_id',
   'access-token-creator.xiaohongshu.com',

@@ -19,7 +19,6 @@ export interface TaskCreateInput {
   imageUrls?: string[]
   videoUrl?: string
   videoUnderstanding?: boolean
-  versionCount: 1
 }
 
 /** 当前任务投影（machine 内部持有）。 */
@@ -128,8 +127,8 @@ export function createTaskMachine(ports: TaskMachinePorts): TaskMachine {
     let error: TaskMachineSnapshot['error'] = ''
     try {
       const result = await ports.queryResult(taskId)
-      // 期望版本数以创建时的 versionCount 为准（单版可编辑定案=1）。
-      const expected = Number(snapshot.task?.input.versionCount) || 1
+      // 单版可编辑定案：结果必须恰好 1 套（versionCount 由 Host 固定传 1）。
+      const expected = 1
       if (result !== null && Array.isArray(result.versions) && result.versions.length === expected) versions = result.versions
       else error = 'resultFailed'
     } catch {

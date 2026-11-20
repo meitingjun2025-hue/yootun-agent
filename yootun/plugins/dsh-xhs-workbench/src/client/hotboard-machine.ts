@@ -632,7 +632,9 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       return { successKey: 'hb.noteExcluded' }
     }, { successKey: 'hb.writeDone', reload: 'board' }),
     keywordSave: payload => runWrite(async () => {
-      const res = await writeCall('hotboard.keywordSave', payload, idempotencyKey(ports))
+      // 路由契约用 op 承载子动作（body.action 是宿主路由名）；UI 语义键 action 在此映射。
+      const { action, ...rest } = payload
+      const res = await writeCall('hotboard.keywordSave', { op: action, ...rest }, idempotencyKey(ports))
       if (res.status !== 'ready') throwReason(res)
       return { successKey: 'hb.keywordSaved' }
     }, { successKey: 'hb.writeDone', reload: 'keywords' }),
@@ -657,7 +659,8 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       return { successKey: 'hb.candidatesReviewed' }
     }, { successKey: 'hb.writeDone', reload: 'keywords' }),
     labelReview: payload => runWrite(async () => {
-      const res = await writeCall('hotboard.labelReview', payload, idempotencyKey(ports))
+      const { action, ...rest } = payload
+      const res = await writeCall('hotboard.labelReview', { op: action, ...rest }, idempotencyKey(ports))
       if (res.status !== 'ready') throwReason(res)
       return { successKey: 'hb.labelReviewed' }
     }, { successKey: 'hb.writeDone', reload: 'labels' }),
