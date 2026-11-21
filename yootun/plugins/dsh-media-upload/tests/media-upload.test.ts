@@ -1,6 +1,7 @@
 /**
  * 媒体上传状态机测试（node --test，真实 Cordis 组合 + 假授权 + 假 TOS）：
- * 路由同源校验、pick/uploadStart/uploadStatus/media 全流程、授权响应校验、
+ * 路由信任判定（Desktop 转发双头缺失放行、跨站/异源/非 loopback 拒绝）、
+ * pick/uploadStart/uploadStatus/media 全流程、授权响应校验、
  * MIME/大小/TOCTOU 拒绝、截断/超时/失败/重试、成功只回公网 URL、失败不泄
  * 预签名 URL 与路径、media_upload 不接受路径。
  * 运行：`pnpm --filter @yootun/dsh-media-upload test`。
@@ -9,6 +10,7 @@ import assert from 'node:assert/strict'
 import { readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:http'
+import type { IncomingMessage } from 'node:http'
 import { test, after } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -16,6 +18,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
 import * as MediaUpload from '../src/index.ts'
+import { permitted } from '../src/routes.ts'
 import type { UploaderDeps } from '../src/deps.ts'
 import type { ToolCallOutcome } from '@yootun/dsh-workbench-mcp'
 
@@ -179,7 +182,7 @@ function pngBytes(size: number): Buffer {
   return Buffer.concat([head, filler])
 }
 
-test('路由同源校验拒绝跨站与非同源请求', async () => {
+test('路由信任判定：Desktop 转发双头缺失放行，跨站与非同源拒绝', async () => {
   const h = await harness()
   try {
     const foreign = await fetch(`${h.origin}/_dsh/uploader/pick-file`, {
@@ -188,13 +191,38 @@ test('路由同源校验拒绝跨站与非同源请求', async () => {
       body: '{}',
     })
     assert.equal(foreign.status, 403)
-    const noOrigin = await fetch(`${h.origin}/_dsh/uploader/pick-file`, { method: 'POST', body: '{}' })
-    assert.equal(noOrigin.status, 403)
+    // 双头缺失 = Desktop Electron forwardWebRequest 转发的合法形态（真机
+    // 抓包证实无 Origin / Sec-Fetch-Site），来源边界由 loopback 承担 → 放行。
+    const desktopForward = await (await fetch(`${h.origin}/_dsh/uploader/pick-file`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })).json() as { uploadId: string }
+    assert.ok(desktopForward.uploadId.length > 0, 'Desktop 转发形态放行并创建会话')
     const get = await clientFetch(h.origin, '/_dsh/uploader/pick-file')
     assert.equal(get.status, 405)
   } finally {
     await h.close()
   }
+})
+
+test('permitted：Desktop 转发双头缺失放行，标记语义与 wx/xhs connection fence 对齐', () => {
+  const req = (headers: Record<string, unknown>, remote = '127.0.0.1'): IncomingMessage =>
+    ({ socket: { remoteAddress: remote }, headers }) as unknown as IncomingMessage
+  // 双头缺失放行（Desktop 转发形态）；loopback 各地址形态等价。
+  assert.equal(permitted(req({}), ORIGIN), true)
+  assert.equal(permitted(req({}, '::1'), ORIGIN), true)
+  assert.equal(permitted(req({}, '::ffff:127.0.0.1'), ORIGIN), true)
+  // 显式同源标记放行。
+  assert.equal(permitted(req({ origin: ORIGIN, 'sec-fetch-site': 'same-origin' }), ORIGIN), true)
+  // 显式 sec-fetch-site: cross-site 一律拒绝（无论 Origin 是否同源）。
+  assert.equal(permitted(req({ 'sec-fetch-site': 'cross-site' }), ORIGIN), false)
+  assert.equal(permitted(req({ origin: ORIGIN, 'sec-fetch-site': 'cross-site' }), ORIGIN), false)
+  // 显式 Origin 必须精确匹配：字面 null 与异源拒绝。
+  assert.equal(permitted(req({ origin: 'null' }), ORIGIN), false)
+  assert.equal(permitted(req({ origin: 'https://evil.example' }), ORIGIN), false)
+  // 非 loopback 拒绝。
+  assert.equal(permitted(req({ origin: ORIGIN, 'sec-fetch-site': 'same-origin' }, '10.0.0.1'), ORIGIN), false)
 })
 
 test('pick-file 创建会话并返回 accept/maxBytes，替换选择即新会话', async () => {

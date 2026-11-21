@@ -1,8 +1,9 @@
 /**
  * 本地同源路由（分册 08 §6）：pick-file 创建会话、uploadStart 接收用户经
  * 浏览器原生 file input 选中的字节并启动授权直传、uploadStatus 轮询、
- * media 预览暂存字节（单区间 Range 支持）。加固口径沿用旧插件：loopback +
- * 同源 fetch 元数据校验、体上限、固定错误码；本地路径与预签名 URL 永不
+ * media 预览暂存字节（单区间 Range 支持）。加固口径沿用旧插件并以 wx/xhs
+ * 同款信任判定收紧：loopback 远端 + 浏览器来源标记（Desktop 转发双头缺失
+ * 放行）、体上限、固定错误码；本地路径与预签名 URL 永不
  * 出现在任何响应。生产 deps 由插件入口注入；测试可用假授权与假 TOS 驱动。
  * @module
  */
@@ -84,13 +85,22 @@ function finishJson(res: ServerResponse, statusCode: number, value: object): voi
   res.end(JSON.stringify(value))
 }
 
-/** 同源校验：loopback 由 webServer 层强制，这里再独立核一次（深度防御）。 */
+/** 路由信任判定（对齐官方浏览器信任边界 api-request-trust，wx/xhs 模板同款）：
+ * loopback 远端是基础防线，负责把请求绑定到本机；显式 `sec-fetch-site:
+ * cross-site` 一律拒绝；显式 Origin 必须精确等于 expectedOrigin（字面 `null`、
+ * 异源都拒绝），Origin 缺失不单独视为攻击——Windows Desktop 的 Electron main
+ * 进程 `forwardWebRequest` 转发请求时会剥掉 Origin 与 Sec-Fetch-Site 两枚头，
+ * 双头缺失是 Desktop 转发的合法形态，来源边界由 loopback 承担。
+ * @param req - Node HTTP 请求。
+ * @param expectedOrigin - 本 webServer 绑定的精确 origin。
+ * @returns 是否放行。 */
 export function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
   const address = req.socket.remoteAddress ?? ''
   const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
-  return loopback
-    && req.headers.origin === expectedOrigin
-    && (req.headers['sec-fetch-site'] === undefined || req.headers['sec-fetch-site'] === 'same-origin')
+  if (!loopback) return false
+  if (req.headers['sec-fetch-site'] === 'cross-site') return false
+  const origin = req.headers.origin
+  return origin === undefined || origin === expectedOrigin
 }
 
 /**
