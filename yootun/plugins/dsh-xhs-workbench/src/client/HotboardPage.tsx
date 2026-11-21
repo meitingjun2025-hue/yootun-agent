@@ -96,10 +96,10 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
   })
 
   const state = useSyncExternalStore(hub.subscribe, hub.get, hub.get)
-  // 子导航角标（对齐旧版，2026-11-21 拍板）：关键词/标签总数，0 与未知不显示；
-  // 计数请求失败时回退到已加载列表 meta.total（兜底）。
+  // 子导航角标（2026-11-21 用户指认）：「关键词与扩词」=AI 扩词待审候选总数、
+  // 「标签与 AI 标记」=标签总数；0 与未知不显示，计数失败回退已加载列表 meta。
   const countBadge = (sub: 'board' | 'keywords' | 'tags' | 'rules'): number | null => {
-    if (sub === 'keywords') return state.counts.keywords !== null && state.counts.keywords > 0 ? state.counts.keywords : metaTotalOf(state.keywords?.meta)
+    if (sub === 'keywords') return state.counts.candidates !== null && state.counts.candidates > 0 ? state.counts.candidates : metaTotalOf(state.candidates?.meta)
     if (sub === 'tags') return state.counts.labels !== null && state.counts.labels > 0 ? state.counts.labels : metaTotalOf(state.labels?.meta)
     return null
   }
@@ -291,7 +291,8 @@ function BoardPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tr
 
 function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: HotboardMachine; t: Translate; disabled: boolean; windowKey: string }): ReactNode {
   const { note, hub, t, disabled, windowKey } = props
-  const tagNames = [note.styleTag?.name, note.colorTag?.name].filter(Boolean) as string[]
+  const styleTagName = note.styleTag?.name ?? null
+  const colorTagName = note.colorTag?.name ?? null
   const words = Array.isArray(note.matchedKeywords) ? note.matchedKeywords : []
   const scoreNumber = note.score === null || note.score === undefined ? null : Number(note.score)
   const exclude = (): void => {
@@ -328,11 +329,12 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
         <span className={css.hbCellDate}>{hbTime(note.publishTime)}</span>
       </td>
       <td data-label={t('hb.colTagsWords')}>
-        {tagNames.length > 0 || words.length > 0
+        {styleTagName !== null || colorTagName !== null || words.length > 0
           ? (
               <div className={css.hbChips}>
-                {/* 对齐旧版：款式/颜色标签=浅灰 chip，命中热词=纯文字。 */}
-                {tagNames.map((name, index) => <span key={`tag-${index}-${name}`} className={css.hbChip}>{name}</span>)}
+                {/* 三类三色（对齐旧版）：款式=浅灰 chip、颜色=品牌色 chip、命中热词=纯文字。 */}
+                {styleTagName !== null && <span className={css.hbChip}>{styleTagName}</span>}
+                {colorTagName !== null && <span className={`${css.hbChip} ${css.hbChipColor}`}>{colorTagName}</span>}
                 {words.map((word, index) => <span key={`word-${index}-${word}`} className={css.hbChipWord}>{word}</span>)}
               </div>
             )
@@ -344,7 +346,7 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
           <Button variant='primary' size='sm' onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
             {t('hb.viewDetail')}
           </Button>
-          <Button variant='toolbar' size='sm' disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
+          <Button variant='toolbar' size='sm' className={css.hbSoftAction} disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
             {t('hb.exclude')}
           </Button>
         </span>
@@ -451,8 +453,8 @@ function KeywordsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t:
                   <td>{row.status === 'active' ? <span className={css.hbStatusChip}>{t('hb.statusActive')}</span> : <span className={css.hbStatusMuted}>{t('hb.statusDisabled')}</span>}</td>
                   <td>{hbEnumText(t, SOURCE_KEYS, row.source)}</td>
                   <td>
-                    {/* 对齐旧版：启用=黑色实心（primary），停用=浅灰实心（toolbar）。 */}
-                    <Button variant={row.status === 'active' ? 'toolbar' : 'primary'} size='sm' disabled={disabled || row.keywordId === ''}
+                    {/* 对齐旧版：启用=黑色实心（primary），停用=浅灰实心（toolbar，hbSoftAction 调浅）。 */}
+                    <Button variant={row.status === 'active' ? 'toolbar' : 'primary'} size='sm' className={row.status === 'active' ? css.hbSoftAction : undefined} disabled={disabled || row.keywordId === ''}
                       onClick={() => {
                         hub.askConfirm(
                           tf(t, row.status === 'active' ? 'hb.confirmDisableKeyword' : 'hb.confirmEnableKeyword', { keyword: row.keyword }),
@@ -661,7 +663,7 @@ function TagsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tra
                       </Button>
                       {row.status === 'active'
                         ? (
-                            <Button variant='toolbar' size='sm' disabled={disabled}
+                            <Button variant='toolbar' size='sm' className={css.hbSoftAction} disabled={disabled}
                               onClick={() => { hub.askConfirm(tf(t, 'hb.confirmRetireLabel', { label: row.name }), () => { void hub.labelReview({ action: 'retire', labelId: row.labelId }) }, 'warning') }}>
                               {t('hb.retire')}
                             </Button>

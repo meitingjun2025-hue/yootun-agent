@@ -34,9 +34,9 @@ async function defaultHostAction(action: string): Promise<Record<string, unknown
       meta: { total: 12, pageSize: 20 },
     }
   }
-  if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 7, pageSize: 1 } }
-  if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 3, pageSize: 1 } }
-  if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 40, pageSize: 20 } }
+  if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 40, pageSize: 20 } }
+  if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 3, pageSize: 20 } }
+  if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 29, pageSize: 20 } }
   if (action === 'hotboard.settings') {
     return {
       status: 'ready',
@@ -76,7 +76,7 @@ describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
     expect(subTabs[0]?.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('关键词与标签总数角标来自独立计数请求（对齐旧版口径）', async () => {
+  it('待审候选与标签总数角标来自独立计数请求（对齐旧版口径）', async () => {
     await renderHotboard()
     await waitFor(() => {
       const kwTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subKeywords']))
@@ -86,9 +86,9 @@ describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
     })
   })
 
-  it('计数请求失败时关键词角标回退到已加载列表 meta.total', async () => {
+  it('计数请求失败时关键词角标回退到已加载候选列表 meta.total', async () => {
     apiMock.hostAction.mockImplementationOnce(async (action: string, args?: Record<string, unknown>) => {
-      if (action === 'hotboard.keywords') return { status: 'error', code: 'XHS_HOTBOARD_INVALID_ARGUMENT' }
+      if (action === 'hotboard.candidates') return { status: 'error', code: 'XHS_HOTBOARD_INVALID_ARGUMENT' }
       return await defaultHostAction(action, args)
     })
     await renderHotboard()

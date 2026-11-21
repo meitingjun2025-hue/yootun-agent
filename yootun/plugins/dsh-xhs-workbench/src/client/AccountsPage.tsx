@@ -1,9 +1,9 @@
 /**
- * 账号管理页（12 册 §4；旧 client.js AccountsPage/AccountSummary 重译）：
- * Chrome 缺失时页面顶部阻断提示；左栏账号列表（添加账号/重新登录/检测/移除
- * 确认、状态徽标、探测与采集中禁用）；右栏通知条 + 工具栏（采集数据/刷新数据，
- * 运行中显示页数与笔记进度、truncated 警示）+ 账号信息卡 + 基本数据卡
- * （指标缺失显示缺口提示，不补 0）。
+ * 账号管理页（12 册 §4；旧 client.js AccountsPage/AccountSummary 重译；布局
+ * 对齐视频号工作台）：顶部工具栏（标题 + 采集按钮 + 上次采集时间）；左栏账号
+ * 卡片列表（卡片内检测/重新登录/移除本地，移除确认）+ 底部通栏添加账号；
+ * 右栏通知条 + 账号信息卡 + 基本数据卡（指标缺失显示缺口提示，不补 0）。
+ * Chrome 缺失时页面顶部阻断提示。
  * @module
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -37,7 +37,7 @@ function getAccountsMachine(): AccountsMachine {
 export interface AccountsPageProps { t: Translate }
 
 /**
- * Render the accounts page (账号列表 | 账号主区).
+ * Render the accounts page (顶部工具栏 | 账号列表 + 账号主区).
  * @param props - page translator.
  * @returns the page node.
  */
@@ -57,21 +57,37 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
   const loginWaiting = state.login !== null && state.login.status === 'waiting'
   const collectRunning = state.collect !== null && state.collect.collectStatus === 'running' && (state.collect.accountId === (selected?.accountId ?? ''))
   const anyRunning = loginWaiting || (state.collect !== null && state.collect.collectStatus === 'running') || state.probing.size > 0
+  const capturedAt = selected?.summary?.capturedAt ?? null
 
   return (
     <div className={css.accountsLayout}>
       {state.chromeAvailable === false && (
         <p className={css.accountsChromeBlock} role='alert'>{t('accounts.chromeBlock')}</p>
       )}
+      <div className={css.accountsToolbar}>
+        <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
+        <Button
+          variant='primary'
+          disabled={selected === null || collectRunning || anyRunning}
+          onClick={() => { void machine.startCollectFlow(selected?.accountId ?? '') }}
+        >
+          {collectRunning
+            ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
+            : t('accounts.collectData')}
+        </Button>
+        {/* 采集全部：占位按钮，功能后续接入（置灰防误触）。 */}
+        <Button variant='primary' disabled title={t('accounts.collectAllSoon')}>
+          {t('accounts.collectAll')}
+        </Button>
+        <Button variant='ghost' disabled={selected === null || anyRunning}
+          onClick={() => { void machine.probeNow(selected?.accountId ?? '') }}>
+          {t('accounts.refreshData')}
+        </Button>
+        {capturedAt !== null && capturedAt !== undefined && (
+          <span className={css.hint}>{t('accounts.lastCollected', { time: formatDateTime(capturedAt) })}</span>
+        )}
+      </div>
       <aside className={css.accountsList} aria-label={t('accounts.title')}>
-        <div className={css.accountsListHead}>
-          <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
-          <Button variant='primary' disabled={loginWaiting}
-            onClick={() => { void machine.beginLoginFlow({}) }}>
-            {t('accounts.add')}
-          </Button>
-        </div>
-        <p className={css.hint}>{t('accounts.hint')}</p>
         {loginWaiting && (
           <p className={css.accountsLoginWaiting} role='status'>
             <StateDot state='ongoing' /> {t('accounts.loginWaiting')}
@@ -83,10 +99,10 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
           : (
               <ul className={css.accountsItems}>
                 {state.accounts.map(account => (
-                  <li key={account.accountId}>
+                  <li key={account.accountId} className={`${css.accountsItemCard} ${account.accountId === state.selectedId ? css.accountsItemActive : ''}`}>
                     <button
                       type='button'
-                      className={`${css.accountsItem} ${account.accountId === state.selectedId ? css.accountsItemActive : ''}`}
+                      className={css.accountsItemMain}
                       aria-current={account.accountId === state.selectedId || undefined}
                       onClick={() => { machine.select(account.accountId) }}
                     >
@@ -95,50 +111,39 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                         : <span className={`${css.accountsAvatar} ${css.accountsAvatarFallback}`} aria-hidden='true'>{(account.nickname ?? account.accountId ?? '?').slice(0, 1)}</span>}
                       <span className={css.accountsMeta}>
                         <span className={css.accountsName}>{account.nickname ?? account.accountId}</span>
+                        {account.lastCollectedAt !== null && account.lastCollectedAt !== undefined
+                          ? <span className={css.accountsSync}>{t('accounts.syncLabel', { time: formatDateTime(account.lastCollectedAt) })}</span>
+                          : null}
+                        <StatusBadge status={account.sessionStatus} probing={state.probing.has(account.accountId)} t={t} />
                       </span>
-                      <StatusBadge status={account.sessionStatus} probing={state.probing.has(account.accountId)} t={t} />
                     </button>
-                    <div className={css.accountsActions}>
-                      <Button variant='ghost' disabled={state.probing.has(account.accountId) || anyRunning}
+                    <div className={css.accountsCardActions}>
+                      <button type='button' className={css.accountsLinkAction} disabled={state.probing.has(account.accountId) || anyRunning}
                         onClick={() => { void machine.probeNow(account.accountId) }}>
                         {state.probing.has(account.accountId) ? t('accounts.probing') : t('accounts.probe')}
-                      </Button>
-                      <Button variant='ghost' disabled={loginWaiting || anyRunning}
+                      </button>
+                      <button type='button' className={css.accountsLinkAction} disabled={loginWaiting || anyRunning}
                         onClick={() => { void machine.beginLoginFlow({ accountId: account.accountId }) }}>
                         {t('accounts.relogin')}
-                      </Button>
-                      <Button variant='ghost' disabled={anyRunning} onClick={() => { setRemoving(account) }}>
+                      </button>
+                      <button type='button' className={`${css.accountsLinkAction} ${css.accountsDangerAction}`} disabled={anyRunning}
+                        onClick={() => { setRemoving(account) }}>
                         {t('accounts.removeLocal')}
-                      </Button>
+                      </button>
                     </div>
                   </li>
                 ))}
               </ul>
             )}
+        <Button variant='primary' className={css.accountsAddWide} disabled={loginWaiting}
+          onClick={() => { void machine.beginLoginFlow({}) }}>
+          {t('accounts.add')}
+        </Button>
       </aside>
       <div className={css.accountsMain}>
         {state.notice !== null && <NoticeBar notice={state.notice} machine={machine} t={t} />}
         {selected !== null
-          ? (
-              <>
-                <div className={css.actionRow}>
-                  <Button
-                    variant='primary'
-                    disabled={collectRunning || anyRunning}
-                    onClick={() => { void machine.startCollectFlow(selected.accountId) }}
-                  >
-                    {collectRunning
-                      ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
-                      : t('accounts.collectData')}
-                  </Button>
-                  <Button variant='ghost' disabled={anyRunning}
-                    onClick={() => { void machine.probeNow(selected.accountId) }}>
-                    {t('accounts.refreshData')}
-                  </Button>
-                </div>
-                <AccountSummary account={selected} t={t} />
-              </>
-            )
+          ? <AccountSummary account={selected} t={t} />
           : (
               <div className={css.stateBlock} role='status'>
                 <p>{state.loading ? t('state.loading') : t('accounts.empty')}</p>

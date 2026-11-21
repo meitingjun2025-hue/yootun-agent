@@ -316,6 +316,12 @@
   gap: 10px;
 }
 
+/* 标题输入撑满整行（与正文行右缘对齐，计数常宽）。 */
+.resultTitleInput {
+  flex: 1;
+  min-width: 0;
+}
+
 .titleCount {
   flex: none;
   color: var(--dsw-alias-label-secondary);
@@ -751,6 +757,19 @@
   white-space: nowrap;
 }
 
+/* 行操作浅灰按钮（toolbar 变体）调浅：button+类特异性 (0,1,1) 覆盖官方
+   .toolbar (0,1,0)，只调背景色不改按钮结构与尺寸（2026-11-21 真机反馈
+   官方 fill 过深；覆盖看板过滤/关键词停用/标签退役三处容器）。 */
+button.hbSoftAction {
+  background: color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill) 45%, transparent);
+}
+
+@media (hover: hover) {
+  button.hbSoftAction:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill) 70%, transparent);
+  }
+}
+
 .hbCaseMain {
   display: grid;
   gap: 3px;
@@ -889,6 +908,13 @@
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   white-space: nowrap;
+}
+
+/* 颜色标签 chip（品牌色底字，与款式浅灰 chip、热词纯文字三类三色）。 */
+.hbChipColor {
+  background: color-mix(in srgb, var(--dsw-alias-business-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--dsw-alias-business-primary) 30%, transparent);
+  color: var(--dsw-alias-business-primary);
 }
 
 /* 状态启用 chip（对齐旧版浅绿底绿字）；停用/退役纯文字次级。 */
@@ -1389,12 +1415,27 @@
 
 /* ---- 账号管理（12 册 §4：列表 | 主区 双栏；断点与旧 300px/240px 口径对齐）---- */
 
+/* 布局对齐视频号工作台：顶部工具栏横贯，下方左列表 + 右主区。 */
 .accountsLayout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  gap: 0;
+  grid-template-rows: auto 1fr;
+  gap: 0 20px;
   align-items: start;
   min-width: 0;
+}
+
+.accountsToolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 16px;
+}
+
+.accountsToolbar .hint {
+  margin-left: auto;
 }
 
 .accountsChromeBlock {
@@ -1415,11 +1456,9 @@
   border-right: 0.5px solid var(--dsw-alias-border-l1);
 }
 
-.accountsListHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+/* 底部通栏添加账号（对齐视频号）。 */
+.accountsAddWide {
+  width: 100%;
 }
 
 .accountsLoginWaiting {
@@ -1442,27 +1481,37 @@
   gap: 10px;
 }
 
-.accountsItem {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 10px;
+/* 账号卡片（对齐视频号）：卡内主区可点 + 底部文字操作行。 */
+.accountsItemCard {
+  display: grid;
+  gap: 8px;
   padding: 10px;
   border: 0.5px solid var(--dsw-alias-border-l1);
   border-radius: var(--dsw-radius-r8, 8px);
   background: var(--dsw-alias-bg-layer-1);
+}
+
+.accountsItemCard:hover {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.accountsItemCard.accountsItemActive {
+  border-color: var(--dsw-alias-business-primary);
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+.accountsItemMain {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.accountsItem:hover {
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-.accountsItemActive {
-  border-color: var(--dsw-alias-business-primary);
 }
 
 .accountsAvatar {
@@ -1497,10 +1546,42 @@
   font-weight: 500;
 }
 
-.accountsActions {
+.accountsSync {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+/* 卡内文字操作行：黑字次级 + 移除红字（error token 语义）。 */
+.accountsCardActions {
   display: flex;
-  gap: 6px;
-  padding: 0 2px;
+  gap: 16px;
+  padding: 0 2px 2px;
+}
+
+.accountsLinkAction {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.accountsLinkAction:hover:not(:disabled) {
+  color: var(--dsw-alias-business-primary);
+}
+
+.accountsLinkAction:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.accountsDangerAction {
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .accountsMain {

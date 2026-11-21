@@ -165,8 +165,8 @@ export interface HotboardSnapshot {
   pending: number
   notice: { kind: 'ok' | 'error'; key: string; extra?: Record<string, string | number> } | null
   confirm: { message: string; action: () => void; tone?: 'warning' } | null
-  /** 子导航角标（对齐旧版，2026-11-21 用户拍板）：关键词/标签总数（独立计数请求取 meta.total）。 */
-  counts: { keywords: number | null; labels: number | null }
+  /** 子导航角标（2026-11-21 用户指认）：「关键词与扩词」=AI 扩词待审候选总数、「标签与 AI 标记」=标签总数（独立计数请求取 meta.total）。 */
+  counts: { candidates: number | null; labels: number | null }
 }
 
 /** Host 响应形状（{data, meta} 读 / projectHotboardWrite 写）：machine 内部全为
@@ -242,7 +242,7 @@ function emptySnapshot(): HotboardSnapshot {
     pending: 0,
     notice: null,
     confirm: null,
-    counts: { keywords: null, labels: null },
+    counts: { candidates: null, labels: null },
   }
 }
 
@@ -397,8 +397,8 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
   }
 
   async function readCounts(): Promise<void> {
-    const [kw, lbl] = await Promise.all([
-      call('hotboard.keywords', { page: 1, pageSize: 20 }),
+    const [cand, lbl] = await Promise.all([
+      call('hotboard.candidates', { status: 'pending', page: 1, pageSize: 20 }),
       call('hotboard.labels', { page: 1, pageSize: 20 }),
     ])
     const metaOf = (res: HotboardCallResult): number | null => {
@@ -407,7 +407,7 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       const num = Number(meta?.total)
       return Number.isFinite(num) ? num : null
     }
-    update({ counts: { keywords: metaOf(kw), labels: metaOf(lbl) } })
+    update({ counts: { candidates: metaOf(cand), labels: metaOf(lbl) } })
   }
 
   // --- run 轮询（active run 时轮询 run_get；页面隐藏 stop 停止） ---

@@ -72,6 +72,7 @@ export function EditableResult(props: EditableResultProps): ReactNode {
         <div className={css.titleRow}>
           <Input
             type='text'
+            className={css.resultTitleInput ?? ''}
             value={edited.title}
             maxLength={MAX_TITLE_CHARS}
             aria-label={t('result.titleLabel')}
