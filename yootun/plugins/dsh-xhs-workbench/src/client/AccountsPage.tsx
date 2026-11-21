@@ -1,9 +1,11 @@
 /**
  * 账号管理页（12 册 §4；旧 client.js AccountsPage/AccountSummary 重译；布局
- * 对齐视频号工作台）：左栏头部（标题 + 采集全部占位）+ 账号卡片列表（卡内
- * 检测/重新登录/移除本地，移除确认）+ 底部通栏添加账号；右栏通知条 + 工具栏
- * （采集数据/刷新数据/上次采集时间）+ 基本数据卡（指标缺失显示缺口提示，
- * 不补 0）。Chrome 缺失时页面顶部阻断提示。
+ * 结构与样式逐字对齐视频号 AccountSidebar/WorksPanel）：左侧账号管理栏
+ * （标题+采集全部 → 账号卡片列表[头像/昵称/最近同步/会话状态行 + 按状态
+ * 分流的 ghost sm 操作：检测或重新登录 + 红字移除本地] → 通栏添加账号）；
+ * 右栏通知条 + 工具栏（采集本账号全部 primary sm/刷新 outline sm/上次采集
+ * 时间）+ 基本数据卡（指标缺失显示缺口提示，不补 0）。Chrome 缺失时页面
+ * 顶部阻断提示。
  * @module
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -64,65 +66,76 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
       {state.chromeAvailable === false && (
         <p className={css.accountsChromeBlock} role='alert'>{t('accounts.chromeBlock')}</p>
       )}
-      <aside className={css.accountsList} aria-label={t('accounts.title')}>
-        <div className={css.accountsListHead}>
-          {/* 标题字号/字重与按钮规格逐字对齐视频号 AccountSidebar（sidebarTitle 13px/500、采集全部 primary sm）。 */}
-          <h2 className={css.accountsTitle}>{t('accounts.title')}</h2>
+      <aside className={css.sidebar} aria-label={t('accounts.title')}>
+        {/* 侧栏结构与样式逐字对齐视频号 AccountSidebar。 */}
+        <div className={css.sidebarHead}>
+          <h2 className={css.sidebarTitle}>{t('accounts.title')}</h2>
+          {/* 采集全部：占位按钮，功能后续接入（置灰防误触）。 */}
           <Button variant='primary' size='sm' disabled title={t('accounts.collectAllSoon')}>
             {t('accounts.collectAll')}
           </Button>
         </div>
-        {loginWaiting && (
-          <p className={css.accountsLoginWaiting} role='status'>
-            <StateDot state='ongoing' /> {t('accounts.loginWaiting')}
-          </p>
-        )}
-        {state.listError !== null && <p className={css.errorText} role='alert'>{t(state.listError as Parameters<Translate>[0])}</p>}
-        {state.accounts.length === 0
-          ? <p className={css.hint}>{state.loading ? t('state.loading') : t('accounts.empty')}</p>
-          : (
-              <ul className={css.accountsItems}>
-                {state.accounts.map(account => (
-                  <li key={account.accountId} className={`${css.accountsItemCard} ${account.accountId === state.selectedId ? css.accountsItemActive : ''}`}>
-                    <button
-                      type='button'
-                      className={css.accountsItemMain}
-                      aria-current={account.accountId === state.selectedId || undefined}
-                      onClick={() => { machine.select(account.accountId) }}
-                    >
+        <div className={css.accountList}>
+          {state.listError !== null && <p className={css.sidebarHint} role='alert'>{t(state.listError as Parameters<Translate>[0])}</p>}
+          {state.accounts.length === 0
+            ? <p className={css.sidebarHint}>{state.loading ? t('state.loading') : t('accounts.empty')}</p>
+            : state.accounts.map(account => {
+              const name = account.nickname ?? account.accountId
+              const probing = state.probing.has(account.accountId)
+              return (
+                <article key={account.accountId} className={css.accountCard} aria-current={account.accountId === state.selectedId ? 'true' : undefined}>
+                  <button type='button' className={css.accountCardMain} onClick={() => { machine.select(account.accountId) }}>
+                    <span className={css.accountAvatar} aria-hidden='true'>
                       {account.avatar !== null
-                        ? <img className={css.accountsAvatar} src={account.avatar} alt='' />
-                        : <span className={`${css.accountsAvatar} ${css.accountsAvatarFallback}`} aria-hidden='true'>{(account.nickname ?? account.accountId ?? '?').slice(0, 1)}</span>}
-                      <span className={css.accountsMeta}>
-                        <span className={css.accountsName}>{account.nickname ?? account.accountId}</span>
-                        {account.lastCollectedAt !== null && account.lastCollectedAt !== undefined
-                          ? <span className={css.accountsSync}>{t('accounts.syncLabel', { time: formatDateTime(account.lastCollectedAt) })}</span>
-                          : null}
-                        <StatusBadge status={account.sessionStatus} probing={state.probing.has(account.accountId)} t={t} />
+                        ? <img className={css.accountAvatarImg} src={account.avatar} alt='' loading='lazy' referrerPolicy='no-referrer' />
+                        : name.slice(0, 2)}
+                    </span>
+                    <span className={css.accountCardBody}>
+                      <span className={css.accountName} title={name}>{name}</span>
+                      <span className={css.accountMeta}>
+                        {account.lastCollectedAt !== null
+                          ? t('accounts.syncLabel', { time: formatDateTime(account.lastCollectedAt) })
+                          : '—'}
                       </span>
-                    </button>
-                    <div className={css.accountsCardActions}>
-                      <button type='button' className={css.accountsLinkAction} disabled={state.probing.has(account.accountId) || anyRunning}
-                        onClick={() => { void machine.probeNow(account.accountId) }}>
-                        {state.probing.has(account.accountId) ? t('accounts.probing') : t('accounts.probe')}
-                      </button>
-                      <button type='button' className={css.accountsLinkAction} disabled={loginWaiting || anyRunning}
-                        onClick={() => { void machine.beginLoginFlow({ accountId: account.accountId }) }}>
-                        {t('accounts.relogin')}
-                      </button>
-                      <button type='button' className={`${css.accountsLinkAction} ${css.accountsDangerAction}`} disabled={anyRunning}
-                        onClick={() => { setRemoving(account) }}>
-                        {t('accounts.removeLocal')}
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-        <Button variant='primary' className={css.accountsAddWide} disabled={loginWaiting}
+                      <span className={css.accountStateLine}>
+                        <StateDot state={account.sessionStatus === 'ok' ? 'done' : account.sessionStatus === 'expired' ? 'error' : 'idle'} />
+                        <span>{account.sessionStatus === 'ok' ? t('accounts.statusOk') : account.sessionStatus === 'expired' ? t('accounts.statusExpired') : t('accounts.statusUnknown')}</span>
+                      </span>
+                    </span>
+                  </button>
+                  {/* 操作按会话状态分流（视频号同款）：ok=检测、expired/unknown=重新登录、移除恒在（红字）。 */}
+                  <div className={css.accountActions}>
+                    {account.sessionStatus === 'ok'
+                      ? (
+                        <Button variant='ghost' size='sm' disabled={probing || anyRunning}
+                          onClick={() => { void machine.probeNow(account.accountId) }}>
+                          {probing ? t('accounts.probing') : t('accounts.probe')}
+                        </Button>
+                      )
+                      : (
+                        <Button variant='ghost' size='sm' disabled={loginWaiting || anyRunning}
+                          onClick={() => { void machine.beginLoginFlow({ accountId: account.accountId }) }}>
+                          {t('accounts.relogin')}
+                        </Button>
+                      )}
+                    <Button variant='ghost' size='sm' className={css.dangerButton} disabled={anyRunning}
+                      onClick={() => { setRemoving(account) }}>
+                      {t('accounts.removeLocal')}
+                    </Button>
+                  </div>
+                </article>
+              )
+            })}
+        </div>
+        <Button variant='primary' className={css.addAccountButton} disabled={loginWaiting}
           onClick={() => { void machine.beginLoginFlow({}) }}>
           {t('accounts.add')}
         </Button>
+        {loginWaiting && (
+          <p className={css.sidebarHint} role='status'>
+            <StateDot state='ongoing' /> {t('accounts.loginWaiting')}
+          </p>
+        )}
       </aside>
       <div className={css.accountsMain}>
         {state.notice !== null && <NoticeBar notice={state.notice} machine={machine} t={t} />}
@@ -133,6 +146,8 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                 <div className={css.accountsMainBar}>
                   <Button
                     variant='primary'
+                    size='sm'
+                    aria-busy={collectRunning || undefined}
                     disabled={collectRunning || anyRunning}
                     onClick={() => { void machine.startCollectFlow(selected.accountId) }}
                   >
@@ -151,7 +166,7 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                     {t('accounts.refreshData')}
                   </Button>
                   {capturedAt !== null && capturedAt !== undefined && (
-                    <span className={css.hint}>{t('accounts.lastCollected', { time: formatDateTime(capturedAt) })}</span>
+                    <span className={css.toolbarNote}>{t('accounts.lastCollected', { time: formatDateTime(capturedAt) })}</span>
                   )}
                 </div>
                 <AccountSummary account={selected} t={t} />
@@ -184,21 +199,6 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
   )
 }
 
-/** 会话状态徽标：ok/expired/unknown，检测中显示探测态（颜色不作唯一信息）。 */
-function StatusBadge(props: { status: string; probing: boolean; t: Translate }): ReactNode {
-  const key = props.probing
-    ? 'accounts.statusProbing'
-    : props.status === 'ok' ? 'accounts.statusOk' : props.status === 'expired' ? 'accounts.statusExpired' : 'accounts.statusUnknown'
-  const state = props.probing
-    ? 'ongoing'
-    : props.status === 'ok' ? 'done' : props.status === 'expired' ? 'error' : 'idle'
-  return (
-    <span className={css.hbBadgeWrap}>
-      <StateDot state={state} />
-      {props.t(key)}
-    </span>
-  )
-}
 
 /** 通知条：成功/警告/错误均可关闭；错误走稳定码文案映射（不透出原始码）。 */
 function NoticeBar(props: { notice: AccountsNotice; machine: AccountsMachine; t: Translate }): ReactNode {

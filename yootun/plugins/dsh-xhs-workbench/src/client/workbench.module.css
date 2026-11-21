@@ -860,7 +860,8 @@ button.hbSoftAction {
   width: 96px;
   height: 4px;
   border-radius: 2px;
-  background: var(--dsw-alias-bg-layer-3);
+  /* 确定性可见轨道：前景色混合（浅色 10% 墨色/深色 10% 白色；layer token 浅色近白不可用）。 */
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 10%, transparent);
   overflow: clip;
 }
 
@@ -1410,13 +1411,12 @@ button.hbSoftAction {
 
 /* ---- 账号管理（12 册 §4：列表 | 主区 双栏；断点与旧 300px/240px 口径对齐）---- */
 
-/* 布局对齐视频号工作台：左栏（头部标题+采集全部 / 卡片列表 / 通栏添加）
-   + 右栏（工具栏 + 基本数据卡）。 */
+/* 账号管理页布局与侧栏逐字对齐视频号 worksLayout/AccountSidebar：
+   ≥880px 双列（280px 侧栏 + 主区，gap 16）；以下单列堆叠（无边框分栏）。 */
 .accountsLayout {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 0 20px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -1430,24 +1430,31 @@ button.hbSoftAction {
   font-size: 13px;
 }
 
-.accountsList {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  padding: 0 16px 32px 0;
-  border-right: 0.5px solid var(--dsw-alias-border-l1);
+@container yootun-kit-page (min-width: 880px) {
+  .accountsLayout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
 }
 
-/* 左栏头部：标题 + 采集全部（对齐视频号，仅此一个按钮）。 */
-.accountsListHead {
+/* 左侧账号管理栏：类名与取值逐字对齐视频号 AccountSidebar。 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sidebarHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-/* 栏标题逐字对齐视频号 sidebarTitle（13px/500，非面板级 16px）。 */
-.accountsTitle {
+.sidebarTitle {
   margin: 0;
   font-size: 13px;
   font-weight: 500;
@@ -1455,58 +1462,31 @@ button.hbSoftAction {
   color: var(--dsw-alias-label-primary);
 }
 
-/* 右栏工具栏：采集本账号 + 刷新（浅灰实心）+ 最近采集时间自然排列（对齐视频号）。 */
-.accountsMainBar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+.sidebarHint {
+  margin: 0;
+  padding: 0 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 
-/* 底部通栏添加账号（对齐视频号）。 */
-.accountsAddWide {
-  width: 100%;
-}
-
-.accountsLoginWaiting {
+.accountList {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: var(--dsw-radius-r8, 8px);
-  background: color-mix(in srgb, var(--dsw-alias-business-primary) 8%, transparent);
-  color: var(--dsw-alias-label-primary);
-  font-size: 13px;
+  min-width: 0;
 }
 
-.accountsItems {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 10px;
-}
-
-/* 账号卡片（对齐视频号）：卡内主区可点 + 底部文字操作行。 */
-.accountsItemCard {
+.accountCard {
   position: relative;
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 0.5px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-r8, 8px);
+  border-radius: var(--dsw-radius-xl);
   background: var(--dsw-alias-bg-layer-1);
   overflow: hidden;
+  min-width: 0;
 }
 
-.accountsItemCard:hover {
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-/* 选中态与视频号同机制：左缘 3px 主色指示条（定位伪元素，避免被子元素
-   hover 背景盖住）+ 高亮底。 */
-.accountsItemCard.accountsItemActive::before {
+/* 选中账号：主色左侧指示条 + 高亮背景（定位伪元素按卡片圆角裁剪）。 */
+.accountCard[aria-current='true']::before {
   content: '';
   position: absolute;
   left: 0;
@@ -1516,130 +1496,128 @@ button.hbSoftAction {
   background: var(--dsw-alias-border-selected);
 }
 
-.accountsItemCard.accountsItemActive {
+.accountCard[aria-current='true'] {
   background: var(--dsw-alias-bg-multi-select);
 }
 
-.accountsItemMain {
-  display: flex;
-  width: 100%;
-  align-items: center;
+.accountCardMain {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
   gap: 10px;
-  padding: 0;
+  align-items: center;
+  width: 100%;
+  padding: 10px;
   border: 0;
   background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
+  font: inherit;
+  min-width: 0;
 }
 
-.accountsAvatar {
-  flex: none;
+.accountCardMain:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: -2px;
+  border-radius: var(--dsw-radius-xl);
+}
+
+.accountAvatar {
   width: 36px;
   height: 36px;
-  border-radius: 50%;
-  object-fit: cover;
-  background: var(--dsw-alias-bg-layer-2);
-}
-
-.accountsAvatarFallback {
   display: grid;
   place-items: center;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 15px;
-  font-weight: 500;
-}
-
-.accountsMeta {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.accountsName {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.accountsSync {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  flex: none;
 }
 
-/* 卡内文字操作行：黑字次级 + 移除红字（error token 语义）。 */
-.accountsCardActions {
+.accountAvatarImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.accountCardBody {
   display: flex;
-  gap: 16px;
-  padding: 0 2px 2px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.accountsLinkAction {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
+.accountName {
+  min-width: 0;
   font-size: 13px;
-  cursor: pointer;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.accountsLinkAction:hover:not(:disabled) {
-  color: var(--dsw-alias-business-primary);
+.accountMeta {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
 }
 
-.accountsLinkAction:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.accountStateLine {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
 }
 
-.accountsDangerAction {
+.accountActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px 8px;
+  flex-wrap: wrap;
+}
+
+.dangerButton {
   color: var(--dsw-alias-state-error-primary);
+}
+
+.addAccountButton {
+  width: 100%;
+}
+
+/* 右栏工具栏行与时间注释对齐视频号 workToolbarRow/toolbarNote。 */
+.accountsMainBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolbarNote {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .accountsMain {
   display: grid;
   gap: 16px;
   align-content: start;
-  padding: 0 0 32px 20px;
+  padding: 0 0 32px;
   min-width: 0;
-}
-
-.accountsNoticeOk,
-.accountsNoticeWarn,
-.accountsNoticeError {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0;
-  padding: 10px 14px;
-  border-radius: var(--dsw-radius-r8, 8px);
-  font-size: 13px;
-}
-
-.accountsNoticeOk {
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-success-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-}
-
-.accountsNoticeWarn {
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-warning-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-state-warning-primary) 10%, transparent);
-  color: var(--dsw-alias-state-warning-primary);
-}
-
-.accountsNoticeError {
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 40%, transparent);
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
-  color: var(--dsw-alias-state-error-primary);
 }
 
 .accountsCard {
@@ -1726,29 +1704,8 @@ button.hbSoftAction {
   font-size: 13px;
 }
 
-/* 账号页窄容器（12 册 §6：1120 列表收窄、879 堆叠、640 统计单列）。 */
-@container yootun-kit-page (max-width: 1119px) {
-  .accountsLayout {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
-}
-
+/* 账号页窄容器（对齐视频号 880 断点；640 统计单列）。 */
 @container yootun-kit-page (max-width: 879px) {
-  .accountsLayout {
-    display: block;
-  }
-
-  .accountsList {
-    padding-right: 0;
-    border-right: 0;
-    border-bottom: 0.5px solid var(--dsw-alias-border-l1);
-    padding-bottom: 16px;
-  }
-
-  .accountsMain {
-    padding-left: 0;
-  }
-
   .accountsStats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

@@ -55,14 +55,20 @@ async function renderAccounts(): Promise<void> {
 }
 
 describe('账号管理页（12 册 §4）', () => {
-  it('左栏列表：账号名/状态徽标/三个操作（账号 ID 不展示）；右栏工具栏与基本数据卡', async () => {
+  it('左侧账号管理栏（视频号同构）：按状态分流操作 + 红字移除；右栏工具栏与基本数据卡', async () => {
     await renderAccounts()
-    await waitFor(() => expect(screen.getAllByRole('button', { name: en['accounts.probe'] }).length).toBeGreaterThanOrEqual(2))
+    // 卡操作按会话状态分流（视频号 AccountSidebar 同款）：ok=检测、unknown=重新登录。
+    await waitFor(() => expect(screen.getAllByRole('button', { name: en['accounts.probe'] }).length).toBe(1))
+    expect(screen.getAllByRole('button', { name: en['accounts.relogin'] }).length).toBe(1)
+    expect(screen.getAllByRole('button', { name: en['accounts.removeLocal'] }).length).toBe(2)
     expect(screen.getAllByText('甲').length).toBeGreaterThanOrEqual(1)
     // 账号 ID 不在任何界面展示（2026-11-21 真机反馈）。
     expect(screen.queryByText('acc-a')).toBeNull()
     expect(screen.getAllByText(en['accounts.statusOk']).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(en['accounts.statusUnknown']).length).toBeGreaterThanOrEqual(1)
+    // 右栏工具栏（视频号 WorksPanel 同款）与基本数据卡。
+    expect(screen.getByRole('button', { name: en['accounts.collectData'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: en['accounts.refreshData'] })).not.toBeNull()
     expect(screen.getByText(en['accounts.basicData'])).not.toBeNull()
   })
 
