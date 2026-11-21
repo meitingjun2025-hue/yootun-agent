@@ -608,7 +608,7 @@ P3 至少交付：
 
 2026-11-21 基线刷新：RQ-2026-013「发布排期看板」已在旧客户端、旧 `douyin-operation` route 和 yootun MCP 同步。公网 `tools/list` 实测 Agent 39 项、Workbench 94 项、Catalog 5 项；发布排期在 Agent 面为 list / create / update 三项，在 Workbench 面为 list / create / update / delete 四项。该结果仍需进入 D0 冻结矩阵，不能替代旧插件 action、状态 schema、测试与 E2E 对账。
 
-当前 main 的共享连接器仍锁定旧 36 / 90 契约。P4 D0 除旧插件对账外，还必须同步 `@yootun/dsh-managed-mcp` 与 `@yootun/dsh-workbench-mcp` 的清单、guard 分类和测试到 39 / 94；未同步前生产 endpoint 会被精确契约校验拒绝。
+2026-11-21 P4 前置 Stage 0 已把共享连接器同步到 Agent 39 / Workbench 94（guard 分类与测试一并更新）。P4 D0 只做旧插件对账与冻结，不再改连接器清单。
 
 ### 6.2 迁移目标
 
