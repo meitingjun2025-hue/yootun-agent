@@ -1,4 +1,4 @@
-# 分册 15：P4 抖音工作台 D0 冻结基线（草案）
+# 分册 15：P4 抖音工作台 D0 冻结基线
 
 状态：**已冻结（2026-11-21 用户确认冻结）**。本册是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §6 P4 D0 的冻结基线总册：冻结点、Host action 矩阵、远端工具覆盖矩阵、状态目录 schema、错误码矩阵、UI 基线摘要、发布排期行为矩阵、测试对账与近期 delta。逐页 UI 契约在 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)，服务端工具 schema 以 tools.dofe.ai dev 分支 `docs/1116/yootun-mcp.md` 为单一事实源，本册不复制参数与返回结构。用户确认冻结前本册不是开工依据；确认后旧客户端新增功能只进 §11 观察清单，不改本册。
 
