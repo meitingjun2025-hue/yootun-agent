@@ -1,5 +1,5 @@
 /**
- * 车衣爆款看板 client 测试（jsdom）：四子区导航与待办角标、KPI 行、规则页
+ * 车衣爆款看板 client 测试（jsdom）：四子区导航与总数角标、KPI 行、规则页
  * 只读（R3：无编辑入口）、筛选草稿跨子页保留、写确认弹层。
  */
 // @vitest-environment jsdom
@@ -40,6 +40,7 @@ beforeEach(() => {
     }
     if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 7, pageSize: 1 } }
     if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 3, pageSize: 1 } }
+    if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 40, pageSize: 20 } }
     if (action === 'hotboard.settings') {
       return {
         status: 'ready',
@@ -64,7 +65,7 @@ async function renderHotboard(): Promise<void> {
   await waitFor(() => expect(screen.getByRole('tablist', { name: en['hb.title'] })).not.toBeNull())
 }
 
-describe('看板子导航（12 册 §5：四子区 + 待办角标）', () => {
+describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
   it('子区为 4 个（案例看板/关键词与扩词/标签与 AI 标记/采集与规则），默认案例看板', async () => {
     await renderHotboard()
     const subTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en['hb.title'])
@@ -72,11 +73,11 @@ describe('看板子导航（12 册 §5：四子区 + 待办角标）', () => {
     expect(subTabs[0]?.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('待审候选与待确认提案角标来自 pageSize=1 的 meta.total', async () => {
+  it('关键词与标签总数角标来自 pageSize=1 的 meta.total（对齐旧版口径）', async () => {
     await renderHotboard()
     await waitFor(() => {
       const kwTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subKeywords']))
-      expect(kwTab?.textContent).toContain('7')
+      expect(kwTab?.textContent).toContain('40')
       const tagsTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subTags']))
       expect(tagsTab?.textContent).toContain('3')
     })

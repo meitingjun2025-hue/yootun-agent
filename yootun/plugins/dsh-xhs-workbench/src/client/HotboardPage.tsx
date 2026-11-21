@@ -1,14 +1,14 @@
 /**
  * 车衣爆款看板页（12 册 §5 含 R1–R3 修订；旧 hotboard-ui.js HotboardPage 系列
- * 重译）：二级子导航（案例看板/关键词与扩词/标签与 AI 标记/采集与规则）+ 待办
- * 角标 + 写操作通知条（失败保留原数据）+ KPI 行 + 筛选行与 chips + 1100px 表格
- * 转卡 + 案例详情抽屉/图片灯箱/运行历史抽屉/确认弹层。配置只读（R3：仅
- * scheduleEnabled 真实生效，页面只读展示，无编辑入口）。写操作全部先确认并
- * 携幂等键（machine 内生成）。
+ * 重译）：二级子导航（案例看板/关键词与扩词/标签与 AI 标记/采集与规则）+ 总数
+ * 角标（12 册决策 #5）+ 写操作通知条（失败保留原数据）+ KPI 行 + 筛选行与 chips
+ * + 1100px 表格转卡 + 案例详情抽屉/图片灯箱/运行历史抽屉/确认弹层。配置只读
+ * （R3：仅 scheduleEnabled 真实生效，页面只读展示，无编辑入口）。写操作全部
+ * 先确认并携幂等键（machine 内生成）。
  * @module
  */
 import { useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, Checkbox, Input, Modal, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, MarkdownText, Modal, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import css from './workbench.module.css'
@@ -90,9 +90,10 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
   })
 
   const state = useSyncExternalStore(hub.subscribe, hub.get, hub.get)
-  const todoBadge = (sub: 'board' | 'keywords' | 'tags' | 'rules'): number | null => {
-    if (sub === 'keywords' && state.todos.candidates !== null && state.todos.candidates > 0) return state.todos.candidates
-    if (sub === 'tags' && state.todos.proposals !== null && state.todos.proposals > 0) return state.todos.proposals
+  // 子导航角标（对齐旧版，2026-11-21 拍板）：关键词/标签总数，0 与未知不显示。
+  const countBadge = (sub: 'board' | 'keywords' | 'tags' | 'rules'): number | null => {
+    if (sub === 'keywords') return state.counts.keywords !== null && state.counts.keywords > 0 ? state.counts.keywords : null
+    if (sub === 'tags') return state.counts.labels !== null && state.counts.labels > 0 ? state.counts.labels : null
     return null
   }
 
@@ -109,7 +110,7 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
             onClick={() => { hub.setSub(item.id) }}
           >
             {t(item.key)}
-            {todoBadge(item.id) !== null && <span className={css.hbCount}>{String(todoBadge(item.id))}</span>}
+            {countBadge(item.id) !== null && <span className={css.hbCount}>{String(countBadge(item.id))}</span>}
           </button>
         ))}
       </div>
@@ -136,13 +137,16 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
           open={true}
           onClose={() => { hub.dismissConfirm() }}
           title={t('hb.confirm')}
+          {...(state.confirm.tone === 'warning' ? { tone: 'warning' as const } : {})}
           closeLabel={t('action.confirmNo')}
+          footer={(
+            <>
+              <Button variant='outline' onClick={() => { hub.dismissConfirm() }}>{t('action.confirmNo')}</Button>
+              <Button variant='primary' onClick={() => { hub.resolveConfirm() }}>{t('action.confirmYes')}</Button>
+            </>
+          )}
         >
           <p className={css.confirmText}>{state.confirm.message}</p>
-          <div className={css.actionRow}>
-            <Button variant='primary' onClick={() => { hub.resolveConfirm() }}>{t('action.confirmYes')}</Button>
-            <Button variant='ghost' onClick={() => { hub.dismissConfirm() }}>{t('action.confirmNo')}</Button>
-          </div>
         </Modal>
       )}
     </div>
@@ -328,30 +332,46 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
       </td>
       <td data-label={t('hb.colDupGroup')}>{note.duplicateGroupId !== null && note.duplicateGroupId !== undefined ? `${t('hb.dupGroupShort')} ${String(note.duplicateGroupId).slice(0, 8)}` : t('hb.mainRecord')}</td>
       <td data-label={t('hb.colActions')}>
-        <span className={css.hbCellFlex}>
-          <button type='button' className={css.hbMiniPrimary} onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
+        <span className={css.hbCellActions}>
+          <Button size='sm' onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
             {t('hb.viewDetail')}
-          </button>
-          <button type='button' className={css.hbMiniSecondary} disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
+          </Button>
+          <Button variant='outline' size='sm' disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
             {t('hb.exclude')}
-          </button>
+          </Button>
         </span>
       </td>
     </tr>
   )
 }
 
-/** 案例缩略图：coverUrl 缺失或加载失败显示类型占位（旧 NoteThumb 同口径）。 */
+/**
+ * 附加 OSS 系缩略参数（宽度 = 显示尺寸 ×2 取整）：列表缩略只拉小图，避免
+ * 56px 显示拉原图的加载延迟；CDN 不支持该参数时由调用方 onError 回退原图。
+ * @param url - 原图 URL（可能已带 query）。
+ * @param width - 目标像素宽（按显示尺寸 ×2）。
+ * @returns 附加缩略参数后的 URL。
+ */
+function thumbUrlOf(url: string, width: number): string {
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}x-oss-process=image/resize,w_${String(width)}`
+}
+
+/** 案例缩略图：缩略变体失败回退原图再失败显示类型占位（旧 NoteThumb 同口径）。 */
 function NoteThumb(props: { note: HotboardNoteRow; t: Translate }): ReactNode {
-  const [broken, setBroken] = useState(false)
+  const [stage, setStage] = useState<'thumb' | 'full' | 'broken'>('thumb')
   const url = props.note.coverUrl
   const typeLabel = props.note.noteType === 'video' ? props.t('hb.typeVideo') : props.t('hb.typeImage')
-  if (url === null || url === undefined || broken) {
+  if (url === null || url === undefined || stage === 'broken') {
     return <span className={`${css.hbThumb} ${css.hbThumbEmpty}`}><span className={css.hbThumbFallback}>{typeLabel}</span></span>
   }
   return (
     <span className={css.hbThumb}>
-      <img src={url} alt='' loading='lazy' onError={() => { setBroken(true) }} />
+      <img
+        src={stage === 'thumb' ? thumbUrlOf(url, 112) : url}
+        alt='' loading='lazy' decoding='async'
+        onError={() => { setStage(prev => prev === 'thumb' ? 'full' : 'broken') }}
+      />
       <span className={css.hbThumbBadge}>{typeLabel}</span>
     </span>
   )
@@ -428,7 +448,8 @@ function KeywordsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t:
                   </td>
                   <td>{hbEnumText(t, SOURCE_KEYS, row.source)}</td>
                   <td>
-                    <Button variant={row.status === 'active' ? 'ghost' : 'primary'} disabled={disabled || row.keywordId === ''}
+                    {/* 启用为行内高频写操作：outline 浅色可辨识按钮（对齐旧版）；停用纯文字次级。 */}
+                    <Button variant={row.status === 'active' ? 'ghost' : 'outline'} size='sm' disabled={disabled || row.keywordId === ''}
                       onClick={() => {
                         hub.askConfirm(
                           tf(t, row.status === 'active' ? 'hb.confirmDisableKeyword' : 'hb.confirmEnableKeyword', { keyword: row.keyword }),
@@ -627,22 +648,28 @@ function TagsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tra
                       : '—'}
                   </td>
                   <td>{row.tagType === 'style' ? t('hb.styleType') : t('hb.colorType')}</td>
-                  <td>{row.status === 'active' ? t('hb.statusActive') : t('hb.statusRetired')}</td>
+                  <td>
+                    <span className={css.hbBadgeWrap}>
+                      <StateDot state={row.status === 'active' ? 'done' : 'idle'} />
+                      {row.status === 'active' ? t('hb.statusActive') : t('hb.statusRetired')}
+                    </span>
+                  </td>
                   <td>
                     <div className={css.hbRowActions}>
-                      <Button variant='ghost' disabled={disabled}
+                      {/* 行操作对齐旧版描边小按钮：编辑/退役 outline，恢复启用为正向主操作 primary。 */}
+                      <Button variant='outline' size='sm' disabled={disabled}
                         onClick={() => { setEditor({ labelId: row.labelId, tagType: row.tagType ?? 'style', code: row.code, name: row.name, aliases: row.aliases ?? [], definition: row.definition ?? '' }) }}>
                         {t('hb.edit')}
                       </Button>
                       {row.status === 'active'
                         ? (
-                            <Button variant='ghost' disabled={disabled}
-                              onClick={() => { hub.askConfirm(tf(t, 'hb.confirmRetireLabel', { label: row.name }), () => { void hub.labelReview({ action: 'retire', labelId: row.labelId }) }) }}>
+                            <Button variant='outline' size='sm' disabled={disabled}
+                              onClick={() => { hub.askConfirm(tf(t, 'hb.confirmRetireLabel', { label: row.name }), () => { void hub.labelReview({ action: 'retire', labelId: row.labelId }) }, 'warning') }}>
                               {t('hb.retire')}
                             </Button>
                           )
                         : (
-                            <Button variant='primary' disabled={disabled}
+                            <Button variant='primary' size='sm' disabled={disabled}
                               onClick={() => { hub.askConfirm(tf(t, 'hb.confirmEnableLabel', { label: row.name }), () => { void hub.labelReview({ action: 'enable', labelId: row.labelId }) }) }}>
                               {t('hb.enable')}
                             </Button>
@@ -749,7 +776,7 @@ function RulesPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tr
         {settings !== null
           ? (
               <div className={css.hbSettingsReadonly}>
-                <div className={css.hbSettingRow}>
+                <div className={`${css.hbSettingRow} ${css.hbSettingWide}`}>
                   <span className={css.hbSettingLabel}>{t('hb.setScheduleEnabled')}</span>
                   <span className={css.hbSettingValue}>
                     <StateDot state={scheduleEnabled ? 'done' : 'idle'} />
@@ -757,7 +784,7 @@ function RulesPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tr
                   </span>
                 </div>
                 {settings.fullScheduleCron !== null && settings.fullScheduleCron !== undefined && settings.fullScheduleCron !== '' && (
-                  <div className={css.hbSettingRow}>
+                  <div className={`${css.hbSettingRow} ${css.hbSettingWide}`}>
                     <span className={css.hbSettingLabel}>{t('hb.kpiNextRun')}</span>
                     <span className={css.hbSettingValue}>{scheduleEnabled ? hotboardScheduleText(settings.fullScheduleCron, t) : '—'}</span>
                   </div>
@@ -781,8 +808,18 @@ function RulesPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tr
 
 // ---- 抽屉与灯箱 ----
 
-/** 正文话题高亮（#xx# 封闭式与行内 #词 开放式；React 元素切分，绝无 innerHTML）。 */
-function renderNoteBody(body: string): ReactNode[] {
+/**
+ * markdown 结构特征（行首标题/列表/引用/代码栅栏/表格分隔或行内粗体链接）。
+ * 小红书正文以纯文本+话题为主，故仅在检出这些特征时切换 markdown 渲染；
+ * 话题 `#xx#` 无空格不满足标题特征，不会误判。
+ */
+const MARKDOWN_PATTERN = /(^|\n)\s*(#{1,6}\s+|[-*+]\s+|\d+\.\s+|>\s+|```|\|)|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\([^)\n]+\)/u
+
+/**
+ * 正文话题高亮（#xx# 封闭式与行内 #词 开放式；React 元素切分，绝无 innerHTML）。
+ * 输入为单行文本（分段由调用方按换行切）。
+ */
+function renderNoteBody(line: string): ReactNode[] {
   const closed = /#[^#\n]{1,64}#/gu
   const open = /(^|\s)(#[^\s#]{1,64})/gu
   const nodes: ReactNode[] = []
@@ -790,12 +827,12 @@ function renderNoteBody(body: string): ReactNode[] {
   let match: RegExpExecArray | null
   let index = 0
   closed.lastIndex = 0
-  while ((match = closed.exec(body)) !== null) {
-    if (match.index > last) nodes.push(...renderPlain(body.slice(last, match.index), nodes.length))
+  while ((match = closed.exec(line)) !== null) {
+    if (match.index > last) nodes.push(...renderPlain(line.slice(last, match.index), nodes.length))
     nodes.push(<span key={`c-${index++}`} className={css.hbTopic}>{match[0]}</span>)
     last = match.index + match[0].length
   }
-  if (last < body.length) nodes.push(...renderPlain(body.slice(last), nodes.length))
+  if (last < line.length) nodes.push(...renderPlain(line.slice(last), nodes.length))
   function renderPlain(text: string, offset: number): ReactNode[] {
     const plain: ReactNode[] = []
     let plainLast = 0
@@ -813,6 +850,26 @@ function renderNoteBody(body: string): ReactNode[] {
     return plain
   }
   return nodes
+}
+
+/**
+ * 正文渲染：检出 markdown 结构特征时走官方 MarkdownText（富文本/markdown
+ * 兼容），否则按换行分段 + 行内话题高亮（纯文本路径）。
+ */
+function NoteBody(props: { body: string; t: Translate }): ReactNode {
+  if (MARKDOWN_PATTERN.test(props.body)) {
+    return (
+      <MarkdownText
+        text={props.body}
+        labels={{ code: { copyLabel: props.t('action.copyAll'), copiedLabel: props.t('action.copiedAll') }, footnotes: '' }}
+      />
+    )
+  }
+  return (
+    <div className={css.hbNoteBody}>
+      {props.body.split('\n').map((line, index) => <p key={index} className={css.hbBodyLine}>{renderNoteBody(line)}</p>)}
+    </div>
+  )
 }
 
 function DrawerSection(props: { title: string; children: ReactNode }): ReactNode {
@@ -869,11 +926,22 @@ function NoteDrawer(props: { state: HotboardSnapshot; hub: HotboardMachine; t: T
   const { state, hub, t } = props
   const drawer = state.noteDrawer
   const [broken, setBroken] = useState<Set<string>>(new Set())
+  /** 已回退原图的 url：缩略变体失败后改拉原图，原图再失败才进 broken。 */
+  const [fallbacked, setFallbacked] = useState<Set<string>>(new Set())
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null)
   if (drawer === null) return null
   const data = drawer.data
   const markBroken = (url: string): void => {
     setBroken(prev => new Set(prev).add(url))
+  }
+  /** 缩略失败回退原图；原图再失败才标记 broken（与 NoteThumb 回退链同口径）。 */
+  const demoteImage = (url: string, width: number): string => {
+    if (fallbacked.has(url)) return url
+    return thumbUrlOf(url, width)
+  }
+  const onImageError = (url: string): void => {
+    if (fallbacked.has(url)) markBroken(url)
+    else setFallbacked(prev => new Set(prev).add(url))
   }
   const note = data?.note ?? null
   const metrics = data?.metrics ?? null
@@ -927,7 +995,7 @@ function NoteDrawer(props: { state: HotboardSnapshot; hub: HotboardMachine; t: T
                     <div className={css.hbImages}>
                       {imageUrls.map((url, index) => broken.has(url)
                         ? <div key={url} className={`${css.hbImage} ${css.hbImageBroken}`}>{t('hb.imageBroken')}</div>
-                        : <img key={url} className={css.hbImage} src={url} alt='' loading='lazy' onClick={() => { setLightboxIndex(index) }} onError={() => { markBroken(url) }} />)}
+                        : <img key={url} className={css.hbImage} src={demoteImage(url, 200)} alt='' loading='lazy' decoding='async' onClick={() => { setLightboxIndex(index) }} onError={() => { onImageError(url) }} />)}
                     </div>
                   )
                 : <p className={css.hbHint}>{t('hb.noImages')}</p>}
@@ -949,21 +1017,23 @@ function NoteDrawer(props: { state: HotboardSnapshot; hub: HotboardMachine; t: T
             </DrawerSection>
             {note?.body !== null && note?.body !== undefined && note.body !== '' && (
               <DrawerSection title={t('hb.noteBody')}>
-                <div className={css.hbNoteBody}>
-                  {renderNoteBody(note.body).map((node, index) => <p key={index} className={css.hbBodyLine}>{node}</p>)}
-                </div>
+                <NoteBody body={note.body} t={t} />
               </DrawerSection>
             )}
             <DrawerSection title={t('hb.similarNotes')}>
               {similarNotes.length > 0
                 ? (
                     <ul className={css.hbSimilar}>
-                      {similarNotes.map(item => (
-                        <li key={item.noteId}>
-                          {item.coverUrl !== null && item.coverUrl !== undefined && <img className={css.hbSimilarThumb} src={item.coverUrl} alt='' loading='lazy' />}
-                          <span className={css.hbSimilarTitle}>{hbText(item.title)}</span>
-                        </li>
-                      ))}
+                      {similarNotes.map(item => {
+                        const cover = item.coverUrl
+                        return (
+                          <li key={item.noteId}>
+                            {cover !== null && cover !== undefined && !broken.has(cover)
+                              && <img className={css.hbSimilarThumb} src={demoteImage(cover, 96)} alt='' loading='lazy' decoding='async' onError={() => { onImageError(cover) }} />}
+                            <span className={css.hbSimilarTitle}>{hbText(item.title)}</span>
+                          </li>
+                        )
+                      })}
                     </ul>
                   )
                 : <p className={css.hbHint}>—</p>}

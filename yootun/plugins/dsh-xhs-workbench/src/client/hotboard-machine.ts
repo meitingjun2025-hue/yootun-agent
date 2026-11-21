@@ -164,8 +164,9 @@ export interface HotboardSnapshot {
   noteDrawer: { noteId: string; data: HotboardNoteDetail | null; loading: boolean; error: string } | null
   pending: number
   notice: { kind: 'ok' | 'error'; key: string; extra?: Record<string, string | number> } | null
-  confirm: { message: string; action: () => void } | null
-  todos: { candidates: number | null; proposals: number | null }
+  confirm: { message: string; action: () => void; tone?: 'warning' } | null
+  /** 子导航角标（对齐旧版，2026-11-21 用户拍板）：关键词/标签总数（pageSize=1 只取 meta.total）。 */
+  counts: { keywords: number | null; labels: number | null }
 }
 
 /** Host 响应形状（{data, meta} 读 / projectHotboardWrite 写）：machine 内部全为
@@ -203,7 +204,7 @@ export interface HotboardMachine {
   candidateReview(action: string, candidateIds: string[]): Promise<boolean>
   labelReview(payload: { action: string; proposalId?: string; labelId?: string; targetLabelId?: string }): Promise<boolean>
   labelSave(payload: { labelId?: string; tagType?: string; code?: string; name?: string; aliases?: string[]; definition?: string }): Promise<boolean>
-  askConfirm(message: string, action: () => void): void
+  askConfirm(message: string, action: () => void, tone?: 'warning'): void
   resolveConfirm(): void
   dismissConfirm(): void
   dismissNotice(): void
@@ -241,7 +242,7 @@ function emptySnapshot(): HotboardSnapshot {
     pending: 0,
     notice: null,
     confirm: null,
-    todos: { candidates: null, proposals: null },
+    counts: { keywords: null, labels: null },
   }
 }
 
@@ -386,26 +387,26 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
     update({ settings: (res.data ?? null) as HotboardSettings | null })
   }
 
-  /** 待办数（子导航角标）：pending 候选与 pending 提案的 total（pageSize=1 只取 meta）。 */
-  async function refreshTodos(): Promise<void> {
+  /** 角标总数（子导航）：关键词与标签列表 total（pageSize=1 只取 meta）。 */
+  async function refreshCounts(): Promise<void> {
     try {
-      await readTodos()
+      await readCounts()
     } catch (error) {
       void error // 徽标失败不打扰主数据。
     }
   }
 
-  async function readTodos(): Promise<void> {
-    const [cand, prop] = await Promise.all([
-      call('hotboard.candidates', { status: 'pending', page: 1, pageSize: 1 }),
-      call('hotboard.labels', { proposalStatus: 'pending', page: 1, pageSize: 1 }),
+  async function readCounts(): Promise<void> {
+    const [kw, lbl] = await Promise.all([
+      call('hotboard.keywords', { page: 1, pageSize: 1 }),
+      call('hotboard.labels', { page: 1, pageSize: 1 }),
     ])
     const metaOf = (res: HotboardCallResult): number | null => {
       const meta = res.meta as { total?: unknown } | null
       const total = meta?.total
       return typeof total === 'number' ? total : null
     }
-    update({ todos: { candidates: metaOf(cand), proposals: metaOf(prop) } })
+    update({ counts: { keywords: metaOf(kw), labels: metaOf(lbl) } })
   }
 
   // --- run 轮询（active run 时轮询 run_get；页面隐藏 stop 停止） ---
@@ -472,7 +473,7 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
   }
 
   async function refresh(): Promise<void> {
-    void refreshTodos()
+    void refreshCounts()
     const sub = snapshot.sub
     if (sub === 'board') await loadBoard()
     else if (sub === 'keywords') await Promise.all([loadKeywords(), loadCandidates()])
@@ -582,7 +583,7 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       const outcome = await executor()
       update({ pending: Math.max(0, snapshot.pending - 1) })
       notify('ok', outcome?.successKey ?? options.successKey, outcome?.detail)
-      void refreshTodos()
+      void refreshCounts()
       if (options.reload === 'board') await loadBoard()
       else if (options.reload === 'keywords') await Promise.all([loadKeywords(), loadCandidates()])
       else if (options.reload === 'labels') await loadLabels()
@@ -669,7 +670,7 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
       if (res.status !== 'ready') throwReason(res)
       return { successKey: 'hb.labelSaved' }
     }, { successKey: 'hb.writeDone', reload: 'labels' }),
-    askConfirm: (message, action) => { update({ confirm: { message, action } }) },
+    askConfirm: (message, action, tone) => { update({ confirm: tone === undefined ? { message, action } : { message, action, tone } }) },
     resolveConfirm: () => {
       const { confirm } = snapshot
       if (confirm === null) return

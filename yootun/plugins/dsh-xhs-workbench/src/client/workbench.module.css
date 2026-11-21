@@ -1,7 +1,10 @@
 /* 爆款仿写页局部样式（12 册 §3 布局 / §6 断点；视觉全部官方 token，
    容器名 yootun-kit-page 与 kit 页面壳共享）。 */
 
+/* 顶部三级 tab 限宽左对齐（对齐 wx 工作台口径，不平分整行）。 */
 .tabsRow {
+  padding-top: 12px;
+  max-width: 480px;
   margin-bottom: 12px;
 }
 
@@ -727,6 +730,14 @@
   min-width: 0;
 }
 
+/* 操作列：官方 Button 变体成组，禁止换行挤压。 */
+.hbCellActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .hbCaseMain {
   display: grid;
   gap: 3px;
@@ -812,10 +823,10 @@
 }
 
 .hbScoreBar {
-  width: 72px;
+  width: 96px;
   height: 4px;
   border-radius: 2px;
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-layer-3);
   overflow: clip;
 }
 
@@ -859,6 +870,7 @@
 .hbChip {
   padding: 1px 8px;
   border-radius: var(--dsw-radius-r4, 4px);
+  border: 0.5px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
@@ -966,45 +978,54 @@
   gap: 6px;
 }
 
+/* 只读配置：卡片网格（卡内 label 上 / 值下，值以字号突出）；状态与调度两卡跨双列。 */
 .hbSettingsReadonly {
   display: grid;
-  padding: 4px 14px;
-  border: 0.5px solid var(--dsw-alias-border-l1);
-  border-radius: var(--dsw-radius-r8, 8px);
-  background: var(--dsw-alias-bg-layer-2);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 .hbSettingRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 0;
-  border-bottom: 0.5px dashed var(--dsw-alias-border-l1);
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-r8, 8px);
+  background: var(--dsw-alias-bg-layer-1);
   font-size: 13px;
 }
 
-.hbSettingRow:last-child {
-  border-bottom: 0;
+.hbSettingRow.hbSettingWide {
+  grid-column: span 2;
 }
 
 .hbSettingLabel {
   color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
 }
 
 .hbSettingValue {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--dsw-alias-label-primary);
   font-variant-numeric: tabular-nums;
+  word-break: break-word;
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .hbSettingRow.hbSettingWide {
+    grid-column: auto;
+  }
 }
 
 .hbDrawerOverlay {
   position: fixed;
-  inset: 0;
+  /* 顶部让开 Windows 自定义标题栏（与官方 Modal mask 同口径），关闭按钮不被窗口控制按钮遮挡。 */
+  inset: var(--dsh-frame-chrome-top, 0px) 0 0 0;
   z-index: 40;
   display: flex;
   justify-content: flex-end;
@@ -1070,19 +1091,22 @@
   font-weight: 500;
 }
 
+/* 原始笔记外链：链接语义（主题色 + hover 下划线），不做按钮观感。 */
 .hbExternal {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   justify-self: start;
-  padding: 7px 14px;
-  border-radius: var(--dsw-radius-r8, 8px);
-  background: color-mix(in srgb, var(--dsw-alias-business-primary) 12%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--dsw-alias-business-primary) 40%, transparent);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--dsw-alias-business-primary);
   font-size: 13px;
-  font-weight: 500;
   text-decoration: none;
+}
+
+.hbExternal:hover {
+  text-decoration: underline;
 }
 
 .hbMetricGrid {
@@ -1226,7 +1250,7 @@
 
 .hbLightbox {
   position: fixed;
-  inset: 0;
+  inset: var(--dsh-frame-chrome-top, 0px) 0 0 0;
   z-index: 50;
   display: flex;
   align-items: center;
@@ -1243,7 +1267,7 @@
 
 .hbLightboxCounter {
   position: fixed;
-  top: 20px;
+  top: calc(var(--dsh-frame-chrome-top, 0px) + 20px);
   left: 50%;
   transform: translateX(-50%);
   color: var(--dsw-alias-label-primary-foreground);
@@ -1254,7 +1278,7 @@
 
 .hbLightboxNav {
   position: fixed;
-  top: calc(50% - 22px);
+  top: calc(50% + var(--dsh-frame-chrome-top, 0px) / 2 - 22px);
   display: grid;
   place-items: center;
   width: 44px;
