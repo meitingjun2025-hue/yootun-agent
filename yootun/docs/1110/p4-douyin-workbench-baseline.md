@@ -1,6 +1,6 @@
 # 分册 15：P4 抖音工作台 D0 冻结基线（草案）
 
-状态：**冻结基线草案，待用户确认冻结**（2026-11-21 起草）。本册是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §6 P4 D0 的冻结基线总册：冻结点、Host action 矩阵、远端工具覆盖矩阵、状态目录 schema、错误码矩阵、UI 基线摘要、发布排期行为矩阵、测试对账与近期 delta。逐页 UI 契约在 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)，服务端工具 schema 以 tools.dofe.ai dev 分支 `docs/1116/yootun-mcp.md` 为单一事实源，本册不复制参数与返回结构。用户确认冻结前本册不是开工依据；确认后旧客户端新增功能只进 §11 观察清单，不改本册。
+状态：**已冻结（2026-11-21 用户确认冻结）**。本册是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §6 P4 D0 的冻结基线总册：冻结点、Host action 矩阵、远端工具覆盖矩阵、状态目录 schema、错误码矩阵、UI 基线摘要、发布排期行为矩阵、测试对账与近期 delta。逐页 UI 契约在 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)，服务端工具 schema 以 tools.dofe.ai dev 分支 `docs/1116/yootun-mcp.md` 为单一事实源，本册不复制参数与返回结构。用户确认冻结前本册不是开工依据；确认后旧客户端新增功能只进 §11 观察清单，不改本册。
 
 ## 1. 冻结点
 
@@ -8,7 +8,7 @@
 - 旧插件 `@dofe/dsh-yootun-douyin-operation` 版本 0.1.0；仓库最新提交为 2026-11-20 22:30（+08:00）的文档提交「yootun Agent 面计数 39/133（排期 list/create/update 追加）」，无裸 commit hash 记录。
 - 冻结窗口内最后一个功能提交序列（2026-11-20 及之前）：排期看板真机交互与刷新体验迭代（多条 fix）、排期复选框列与工具栏修复、排期业务反馈五项优化（折叠/横排/排序/斑马纹/行底色统一）、浅色主题斑马纹可见性、yootun 计数文档同步。
 - `schedule-ui.test.mjs` 工作区修改时间晚于其余测试文件（2026-11-20），与五项优化迭代同期，已包含在干净工作树内。
-- 状态：待用户确认冻结。确认后进入 D1；确认前旧客户端任何新增 action、工具、页面或字段先登记 §11，不进入实现。
+- 状态：已冻结（2026-11-21 用户确认）。后续进入 D1；冻结后旧客户端任何新增 action、工具、页面或字段先登记 §11，不进入实现。
 
 ## 2. 公网契约复核（2026-11-21）
 

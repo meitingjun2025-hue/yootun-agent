@@ -1,6 +1,6 @@
 # P4 抖音工作台 UI 布局与功能对齐方案
 
-状态：**D0 基线草案，待冻结复核**（2026-11-21 依据旧插件当前 master 与 RQ-2026-013 发布排期实现起草；公网 yootun MCP `tools/list` 实测 Agent 39 项、Workbench 94 项、Catalog 5 项。D0 冻结基线总册见 [p4-douyin-workbench-baseline.md](p4-douyin-workbench-baseline.md)，待用户确认冻结）。
+状态：**D0 已冻结（2026-11-21 用户确认）**（2026-11-21 依据旧插件当前 master 与 RQ-2026-013 发布排期实现起草；公网 yootun MCP `tools/list` 实测 Agent 39 项、Workbench 94 项、Catalog 5 项。D0 冻结基线总册见 [p4-douyin-workbench-baseline.md](p4-douyin-workbench-baseline.md)）。
 
 本册是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) P4 抖音工作台的 UI 布局、信息架构与功能对齐契约。吸取 P2 视频号教训：只列组件栈会让实现重新发明导航与页面结构，导致布局返工（见 [11-wx-workbench-ui-layout-parity.md](11-wx-workbench-ui-layout-parity.md)）。P3 小红书按 [12-xhs-workbench-ui-layout-parity.md](12-xhs-workbench-ui-layout-parity.md) 先锚定旧布局再实现，基本避免同类问题。P4 必须沿用 P3 口径。
 
