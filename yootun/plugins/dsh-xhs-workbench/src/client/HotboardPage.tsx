@@ -69,10 +69,10 @@ function getHub(): HotboardMachine {
 
 export interface HotboardPageProps { t: Translate }
 
-/** 分页 meta 的 total（>0 才作角标兜底；结构异常返回 null）。 */
+/** 分页 meta 的 total（>0 才作角标兜底；数字字符串强转，结构异常返回 null）。 */
 function metaTotalOf(meta: Record<string, unknown> | null | undefined): number | null {
-  const total = meta?.total
-  return typeof total === 'number' && total > 0 ? total : null
+  const num = Number(meta?.total)
+  return Number.isFinite(num) && num > 0 ? num : null
 }
 
 /**
@@ -331,8 +331,9 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
         {tagNames.length > 0 || words.length > 0
           ? (
               <div className={css.hbChips}>
-                {tagNames.map((name, index) => <span key={`tag-${index}-${name}`} className={`${css.hbChip} ${css.hbChipTag}`}>{name}</span>)}
-                {words.map((word, index) => <span key={`word-${index}-${word}`} className={css.hbChip}>{word}</span>)}
+                {/* 对齐旧版：款式/颜色标签=浅灰 chip，命中热词=纯文字。 */}
+                {tagNames.map((name, index) => <span key={`tag-${index}-${name}`} className={css.hbChip}>{name}</span>)}
+                {words.map((word, index) => <span key={`word-${index}-${word}`} className={css.hbChipWord}>{word}</span>)}
               </div>
             )
           : '—'}
@@ -447,16 +448,11 @@ function KeywordsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t:
                 <tr key={row.keywordId}>
                   <td>{hbText(row.keyword)}</td>
                   <td>{hbEnumText(t, { product: 'hb.categoryProduct', scene: 'hb.categoryScene' }, row.category)}</td>
-                  <td>
-                    <span className={css.hbBadgeWrap}>
-                      <StateDot state={row.status === 'active' ? 'done' : 'idle'} />
-                      {row.status === 'active' ? t('hb.statusActive') : t('hb.statusDisabled')}
-                    </span>
-                  </td>
+                  <td>{row.status === 'active' ? <span className={css.hbStatusChip}>{t('hb.statusActive')}</span> : <span className={css.hbStatusMuted}>{t('hb.statusDisabled')}</span>}</td>
                   <td>{hbEnumText(t, SOURCE_KEYS, row.source)}</td>
                   <td>
-                    {/* 行操作对齐旧版浅灰实心小按钮（toolbar 变体），启用/停用同款可辨识。 */}
-                    <Button variant='toolbar' size='sm' disabled={disabled || row.keywordId === ''}
+                    {/* 对齐旧版：启用=黑色实心（primary），停用=浅灰实心（toolbar）。 */}
+                    <Button variant={row.status === 'active' ? 'toolbar' : 'primary'} size='sm' disabled={disabled || row.keywordId === ''}
                       onClick={() => {
                         hub.askConfirm(
                           tf(t, row.status === 'active' ? 'hb.confirmDisableKeyword' : 'hb.confirmEnableKeyword', { keyword: row.keyword }),
@@ -655,16 +651,11 @@ function TagsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tra
                       : '—'}
                   </td>
                   <td>{row.tagType === 'style' ? t('hb.styleType') : t('hb.colorType')}</td>
-                  <td>
-                    <span className={css.hbBadgeWrap}>
-                      <StateDot state={row.status === 'active' ? 'done' : 'idle'} />
-                      {row.status === 'active' ? t('hb.statusActive') : t('hb.statusRetired')}
-                    </span>
-                  </td>
+                  <td>{row.status === 'active' ? <span className={css.hbStatusChip}>{t('hb.statusActive')}</span> : <span className={css.hbStatusMuted}>{t('hb.statusRetired')}</span>}</td>
                   <td>
                     <div className={css.hbRowActions}>
-                      {/* 行操作对齐旧版浅灰实心小按钮（toolbar 变体）；恢复启用为正向主操作 primary。 */}
-                      <Button variant='toolbar' size='sm' disabled={disabled}
+                      {/* 对齐旧版：编辑=白底描边（outline），退役=浅灰实心（toolbar）；恢复启用为正向主操作 primary。 */}
+                      <Button variant='outline' size='sm' disabled={disabled}
                         onClick={() => { setEditor({ labelId: row.labelId, tagType: row.tagType ?? 'style', code: row.code, name: row.name, aliases: row.aliases ?? [], definition: row.definition ?? '' }) }}>
                         {t('hb.edit')}
                       </Button>

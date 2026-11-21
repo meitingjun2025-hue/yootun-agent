@@ -403,8 +403,9 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
     ])
     const metaOf = (res: HotboardCallResult): number | null => {
       const meta = res.meta as { total?: unknown } | null
-      const total = meta?.total
-      return typeof total === 'number' ? total : null
+      // 服务端 total 允许数字或数字字符串（Pager 同用 Number 强转口径）。
+      const num = Number(meta?.total)
+      return Number.isFinite(num) ? num : null
     }
     update({ counts: { keywords: metaOf(kw), labels: metaOf(lbl) } })
   }

@@ -91,7 +91,7 @@
   padding: 1px 6px;
   border-radius: var(--dsw-radius-r4, 4px);
   background: var(--dsw-alias-bg-mask-1);
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
   font-size: 11px;
 }
 
@@ -106,7 +106,7 @@
   border: 0;
   border-radius: var(--dsw-radius-r4, 4px);
   background: var(--dsw-alias-bg-mask-1);
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
   cursor: pointer;
 }
 
@@ -128,7 +128,8 @@
   display: flex;
   justify-content: space-between;
   gap: 4px;
-  color: var(--dsw-alias-label-primary);
+  /* 遮罩覆盖层上的文字恒用前景色（浅色主题下白色可读）。 */
+  color: var(--dsw-alias-label-primary-foreground);
   font-size: 10px;
   line-height: 1.2;
 }
@@ -254,6 +255,7 @@
   display: grid;
   gap: 12px;
   padding: 16px;
+  border: 0.5px solid var(--dsw-alias-border-l1);
   border-radius: var(--dsw-radius-r12, 12px);
   background: var(--dsw-alias-bg-layer-1);
 }
@@ -330,7 +332,7 @@
 
 .bodyEditor {
   width: 100%;
-  min-height: 180px;
+  height: 220px;
   padding: 10px 12px;
   border-radius: var(--dsw-radius-r8, 8px);
   border: 0.5px solid var(--dsw-alias-border-l1);
@@ -339,7 +341,18 @@
   font: inherit;
   font-size: 14px;
   line-height: 1.6;
-  resize: vertical;
+  overflow-y: auto;
+  resize: none;
+}
+
+/* 正文预览容器与编辑区同构（边框圆角、固定高滚动，对齐旧版）。 */
+.bodyPreview {
+  height: 220px;
+  padding: 10px 12px;
+  border-radius: var(--dsw-radius-r8, 8px);
+  border: 0.5px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-layer-1);
+  overflow-y: auto;
 }
 
 .tagRow {
@@ -745,7 +758,8 @@
 }
 
 .hbCaseTitle {
-  font-weight: 500;
+  /* 作品标题加粗（2026-11-21 真机反馈对齐旧版）。 */
+  font-weight: 600;
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -796,7 +810,7 @@
   padding: 0 4px;
   border-radius: var(--dsw-radius-r4, 4px);
   background: var(--dsw-alias-bg-mask-1);
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
   font-size: 10px;
   line-height: 16px;
 }
@@ -877,9 +891,29 @@
   white-space: nowrap;
 }
 
-.hbChipTag {
-  background: color-mix(in srgb, var(--dsw-alias-business-primary) 12%, transparent);
-  color: var(--dsw-alias-business-primary);
+/* 状态启用 chip（对齐旧版浅绿底绿字）；停用/退役纯文字次级。 */
+.hbStatusChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 14%, transparent);
+  color: var(--dsw-alias-state-success-primary);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hbStatusMuted {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+/* 命中热词：纯文字次级（对齐旧版，与标签 chip 区分）。 */
+.hbChipWord {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .hbCellReason {
@@ -1461,15 +1495,6 @@
   white-space: nowrap;
   font-size: 14px;
   font-weight: 500;
-}
-
-.accountsId {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 .accountsActions {

@@ -479,15 +479,16 @@ export function RewritePage(props: RewritePageProps): ReactNode {
           t={t}
         />
         <div className={css.resultActions}>
+          {/* 对齐旧版：重新生成/复制全文描边按钮，保存编辑黑色实心。 */}
           <Button
-            variant='ghost'
+            variant='outline'
             disabled={busy || !hasMaterial || uploadingInGroup}
             aria-disabled={uploadingInGroup || undefined}
             onClick={() => { setConfirmingRegen(true) }}
           >
             {t('action.regenerate')}
           </Button>
-          <Button variant='ghost' onClick={() => { void onCopyAll() }}>
+          <Button variant='outline' onClick={() => { void onCopyAll() }}>
             {copyState === 'copied' ? t('action.copiedAll') : copyState === 'failed' ? t('action.copyAllFailed') : t('action.copyAll')}
           </Button>
           <Button variant='primary' onClick={() => { setEdited({ ...edited, saved: true }) }}>

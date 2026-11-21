@@ -55,11 +55,12 @@ async function renderAccounts(): Promise<void> {
 }
 
 describe('账号管理页（12 册 §4）', () => {
-  it('左栏列表：账号名/ID/状态徽标/三个操作；右栏双卡与工具栏', async () => {
+  it('左栏列表：账号名/状态徽标/三个操作（账号 ID 不展示）；右栏双卡与工具栏', async () => {
     await renderAccounts()
     await waitFor(() => expect(screen.getAllByRole('button', { name: en['accounts.probe'] }).length).toBeGreaterThanOrEqual(2))
     expect(screen.getAllByText('甲').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('acc-a').length).toBeGreaterThanOrEqual(1)
+    // 账号 ID 不在任何界面展示（2026-11-21 真机反馈）。
+    expect(screen.queryByText('acc-a')).toBeNull()
     expect(screen.getAllByText(en['accounts.statusOk']).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(en['accounts.statusUnknown']).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(en['accounts.accountInfo'])).not.toBeNull()

@@ -5,7 +5,7 @@
  * @module
  */
 import { useState, type ReactNode } from 'react'
-import { Input, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Input, MarkdownText, SegmentedControl } from '@deepseek-ai/dsh-client-ui-primitives'
 import { issueKeys, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import type { TaskVersion } from './task-machine.ts'
@@ -81,41 +81,34 @@ export function EditableResult(props: EditableResultProps): ReactNode {
         </div>
       </div>
       <div className={css.fieldGrid}>
+        {/* 编辑/预览切换在正文 label 行右侧（对齐旧版；官方 SegmentedControl）。 */}
         <div className={css.bodyHead}>
           <span className={css.fieldLabel}>{t('result.bodyLabel')}</span>
+          <SegmentedControl
+            id='xhs-body-mode'
+            value={bodyMode}
+            onChange={setBodyMode}
+            options={[
+              { value: 'edit', label: t('result.bodyModeEdit') },
+              { value: 'preview', label: t('result.bodyModePreview') },
+            ]}
+            label={t('result.bodyLabel')}
+          />
         </div>
         {bodyMode === 'edit'
           ? (
               <textarea
                 className={css.bodyEditor}
                 value={edited.body}
-                rows={10}
                 aria-label={t('result.bodyLabel')}
                 onChange={event => { onEditedChange({ ...edited, body: event.target.value }) }}
               />
             )
           : (
-              <div className={css.extraBody}>
+              <div className={css.bodyPreview}>
                 <MarkdownText text={edited.body} labels={{ code: { copyLabel: t('action.copyAll'), copiedLabel: t('action.copiedAll') }, footnotes: '' }} />
               </div>
             )}
-        <div className={css.actionRow}>
-          <button
-            type='button'
-            className={bodyMode === 'edit' ? css.tagRemove : undefined}
-            aria-current={bodyMode === 'edit' || undefined}
-            onClick={() => { setBodyMode('edit') }}
-          >
-            {t('result.bodyModeEdit')}
-          </button>
-          <button
-            type='button'
-            aria-current={bodyMode === 'preview' || undefined}
-            onClick={() => { setBodyMode('preview') }}
-          >
-            {t('result.bodyModePreview')}
-          </button>
-        </div>
       </div>
       <div className={css.fieldGrid}>
         <span className={css.fieldLabel}>{t('result.tagsLabel')}</span>

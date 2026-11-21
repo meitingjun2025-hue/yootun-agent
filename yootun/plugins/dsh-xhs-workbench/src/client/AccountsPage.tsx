@@ -95,7 +95,6 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                         : <span className={`${css.accountsAvatar} ${css.accountsAvatarFallback}`} aria-hidden='true'>{(account.nickname ?? account.accountId ?? '?').slice(0, 1)}</span>}
                       <span className={css.accountsMeta}>
                         <span className={css.accountsName}>{account.nickname ?? account.accountId}</span>
-                        <span className={css.accountsId}>{account.accountId}</span>
                       </span>
                       <StatusBadge status={account.sessionStatus} probing={state.probing.has(account.accountId)} t={t} />
                     </button>
@@ -198,14 +197,14 @@ function NoticeBar(props: { notice: AccountsNotice; machine: AccountsMachine; t:
   )
 }
 
-/** 右栏双卡：账号信息（昵称/账号 ID/授权状态）+ 基本数据（缺口提示，不补 0）。 */
+/** 右栏双卡：账号信息（昵称/授权状态，账号 ID 不展示）+ 基本数据（缺口提示，不补 0）。 */
 function AccountSummary(props: { account: AccountRow; t: Translate }): ReactNode {
   const { account, t } = props
   const summary = account.summary ?? null
   const totals = summary?.totals ?? { plays: undefined, likes: undefined, collects: undefined, comments: undefined, shares: undefined } as Record<string, number | undefined>
   const gaps = summary?.gaps ?? {} as Record<string, number | undefined>
   const stats: Array<{ key: Parameters<Translate>[0]; value: string; gap: number | undefined }> = [
-    { key: 'accounts.statNotes', value: summary !== null ? String(summary.notesCount) : '—', gap: undefined },
+    { key: 'accounts.statNotes', value: summary !== null ? formatCount(summary.notesCount) : '—', gap: undefined },
     { key: 'accounts.statPlays', value: formatCount(totals.plays), gap: gaps.plays },
     { key: 'accounts.statLikes', value: formatCount(totals.likes), gap: gaps.likes },
     { key: 'accounts.statCollects', value: formatCount(totals.collects), gap: gaps.collects },
@@ -218,7 +217,6 @@ function AccountSummary(props: { account: AccountRow; t: Translate }): ReactNode
         <h3 className={css.hbPanelTitle}>{t('accounts.accountInfo')}</h3>
         <dl className={css.accountsKv}>
           <div><dt>{t('accounts.nickname')}</dt><dd>{account.nickname ?? '—'}</dd></div>
-          <div><dt>{t('accounts.accountId')}</dt><dd className={css.hbMono}>{account.accountId}</dd></div>
           <div><dt>{t('accounts.authStatus')}</dt><dd><StatusBadge status={account.sessionStatus} probing={false} t={t} /></dd></div>
         </dl>
       </section>
@@ -247,10 +245,16 @@ function AccountSummary(props: { account: AccountRow; t: Translate }): ReactNode
   )
 }
 
-/** 计数展示：非法/缺失 → —（不补 0，不编造）。 */
+/** 计数展示：≥1w 缩写为 x.xw（去尾零）；非法/缺失 → —（不补 0，不编造）。 */
 function formatCount(value: unknown): string {
   const num = Number(value)
-  return Number.isFinite(num) && num >= 0 ? String(num) : '—'
+  if (!Number.isFinite(num) || num < 0) return '—'
+  if (num >= 10_000) {
+    const w = num / 10_000
+    const text = w >= 100 ? String(Math.round(w)) : w.toFixed(1).replace(/\.0$/u, '')
+    return `${text}w`
+  }
+  return String(num)
 }
 
 /** ISO → `YYYY-MM-DD HH:mm`；非法 → —。 */
