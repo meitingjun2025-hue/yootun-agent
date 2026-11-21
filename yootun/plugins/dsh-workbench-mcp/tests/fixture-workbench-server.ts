@@ -1,6 +1,6 @@
 /**
  * 假 Workbench 面 MCP server（stateless Streamable HTTP fixture）：精确暴露
- * 90 项白名单工具，记录 Authorization 头与连接观测；特殊工具覆盖业务错误、
+ * 94 项白名单工具，记录 Authorization 头与连接观测；特殊工具覆盖业务错误、
  * 慢调用与悬挂调用；可注入 serverName 不匹配与清单数量漂移两类协议异常。
  * 仅测试使用。
  * @module

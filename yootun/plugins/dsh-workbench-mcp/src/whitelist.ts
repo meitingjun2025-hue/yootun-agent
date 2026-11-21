@@ -1,5 +1,5 @@
 /**
- * Workbench 面 90 项白名单（tools.dofe.ai docs/1116/yootun-mcp.md §4 为单一
+ * Workbench 面 94 项白名单（tools.dofe.ai docs/1116/yootun-mcp.md §4 为单一
  * 事实源，分册 08 §5：任何白名单外工具直接拒绝，不尝试调用）。按工具名精确
  * 匹配；分组只用于白名单与调用方约束，不改变服务端 contract。契约变化时先
  * 更新 tools 文档，再同步本表与测试。
@@ -58,7 +58,7 @@ const XHS_TOOLS: readonly string[] = Object.freeze([
   'workbench_xhs_hotboard_label_save',
 ])
 
-/** 抖音数据域，29 项（§4.2）。 */
+/** 抖音数据域，33 项（§4.2）。 */
 const DOUYIN_TOOLS: readonly string[] = Object.freeze([
   'workbench_douyin_account_save',
   'workbench_douyin_account_remove',
@@ -72,6 +72,10 @@ const DOUYIN_TOOLS: readonly string[] = Object.freeze([
   'workbench_douyin_collect_run_cancel',
   'workbench_douyin_account_owner_set',
   'workbench_douyin_work_promotion_save',
+  'workbench_douyin_publish_schedule_list',
+  'workbench_douyin_publish_schedule_row_create',
+  'workbench_douyin_publish_schedule_row_update',
+  'workbench_douyin_publish_schedule_row_delete',
   'workbench_douyin_account_list',
   'workbench_douyin_work_list',
   'workbench_douyin_work_get',
@@ -120,7 +124,7 @@ const VIRAL_TOOLS: readonly string[] = Object.freeze([
 /** 上传授权，1 项（§4.5），仅 media-upload 可用。 */
 const TOS_TOOLS: readonly string[] = Object.freeze(['workbench_tos_upload_authorize'])
 
-/** Tools list by domain: 19 + 19 + 29 + 22 + 1 = 90. */
+/** Tools list by domain: 19 + 19 + 33 + 22 + 1 = 94. */
 export const WORKBENCH_GROUP_TOOLS: Readonly<Record<WorkbenchDomain, ReadonlySet<string>>> = Object.freeze({
   wx: new Set(WX_TOOLS),
   xhs: new Set(XHS_TOOLS),
@@ -129,7 +133,7 @@ export const WORKBENCH_GROUP_TOOLS: Readonly<Record<WorkbenchDomain, ReadonlySet
   tos: new Set(TOS_TOOLS),
 })
 
-/** The full 90-name contract as one flat set. */
+/** The full 94-name contract as one flat set. */
 export const WORKBENCH_TOOL_WHITELIST: ReadonlySet<string> = new Set([
   ...WX_TOOLS, ...XHS_TOOLS, ...DOUYIN_TOOLS, ...VIRAL_TOOLS, ...TOS_TOOLS,
 ])

@@ -1,7 +1,7 @@
 /**
  * Workbench MCP 连接生命周期（直接使用 MCP SDK Streamable HTTP client，
  * 不经官方 dsh-mcp-client——后者会把工具注册进 ctx.tools，破坏普通会话不可
- * 见的边界）。连接时校验 serverName 与 tools/list 精确 90 契约；每个调用
+ * 见的边界）。连接时校验 serverName 与 tools/list 精确 94 契约；每个调用
  * 显式超时与取消；错误按稳定码投影，上游原文不进入诊断文本。
  * @module
  */
@@ -13,7 +13,7 @@ import { WorkbenchMcpError } from './errors.ts'
 /** One live connection: the SDK client plus its validated tools/list cache. */
 export interface WorkbenchConnection {
   client: Client
-  /** The exact tool names the server advertised (validated: precisely the 90-name whitelist). */
+  /** The exact tool names the server advertised (validated: precisely the 94-name whitelist). */
   toolNames: ReadonlySet<string>
 }
 
@@ -27,7 +27,7 @@ export interface ConnectOptions {
 
 /**
  * Open one Workbench connection: attach the resolved Authorization value
- * (never logged), connect, validate the server identity and the 90-name
+ * (never logged), connect, validate the server identity and the 94-name
  * tools/list contract.
  * @param authorization - the resolved `MODELS_API_KEY` value; secret, used only in request headers.
  * @param options - explicit budgets and cancellation for the connect phase.
