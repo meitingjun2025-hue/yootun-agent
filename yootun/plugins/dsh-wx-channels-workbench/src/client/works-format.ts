@@ -1,8 +1,7 @@
 /**
  * 作品页纯函数：加权完播率、缺口计数、表头排序状态机与客户端排序、最近采集
- * 时间、按日趋势行装配（发布日前补 0、发布日后缺失断线）。排序白名单与 tools
- * work_list 的 sort 枚举对齐；完播率 / 平均播放时长服务端不可排序，本地排序
- * 只作用于已入库数据，缺失值恒沉底。
+ * 时间、按日趋势行装配（发布日前补 0、发布日后缺失断线）。排序全部在客户端
+ * 完成（列表已整表入库，排序不再触发服务端重新查询），缺失值恒沉底。
  * @module
  */
 import { CORE_GAP_FIELDS, type WorkDailyRow, type WorkRow } from './schema.ts'
@@ -29,18 +28,6 @@ export type SortKey =
 
 /** 默认排序态：发布时间降序（进入页面即最近发布在前）。 */
 export const DEFAULT_SORT_STATE: SortState = { key: 'publish_time', direction: 'desc' }
-
-/** 服务端可排序键（tools work_list sort 枚举）；其余键走客户端排序。 */
-export const SERVER_SORT_KEYS: ReadonlySet<SortKey> = new Set([
-  'publish_time',
-  'play_count',
-  'like_count',
-  'favorite_count',
-  'comment_count',
-  'share_count',
-  'forward_count',
-  'follow_count',
-])
 
 /** 排序键 → WorkRow 可排序字段（客户端排序取值；均为 string | number | null）。 */
 type SortableField = 'publishTime' | 'completionRatePct' | 'avgPlayDurationS' | 'playCount' | 'likeCount'
@@ -73,8 +60,9 @@ export function nextSortState(currentState: SortState, columnKey: SortKey): Sort
 }
 
 /**
- * 客户端排序（本地、只基于已入库数据）：缺失值恒沉底且不参与方向翻转；
- * 稳定排序保持接口原序。
+ * 客户端排序（本地、只基于已入库数据；表头排序不重新查询服务端）：缺失值恒
+ * 沉底且不参与方向翻转；发布时间按时间戳比较（ISO 字符串字典序在不同精度下
+ * 不可靠）；稳定排序保持接口原序。
  * @param rows - 已入库作品行。
  * @param sortState - 表头排序态。
  * @returns 排序后的行。
@@ -82,19 +70,27 @@ export function nextSortState(currentState: SortState, columnKey: SortKey): Sort
 export function sortWorkRows(rows: readonly WorkRow[], sortState: SortState): WorkRow[] {
   const field = SORT_FIELD[sortState.key]
   const sign = sortState.direction === 'asc' ? 1 : -1
+  const timeOf = (value: string | number | null): number | null => {
+    if (value === null || typeof value === 'number') return value
+    const time = Date.parse(value)
+    return Number.isNaN(time) ? null : time
+  }
   return rows
     .map((row, index) => ({ row, index }))
     .sort((left, right) => {
       const av: number | string | null = left.row[field]
       const bv: number | string | null = right.row[field]
-      if (av === null && bv === null) return left.index - right.index
-      if (av === null) return 1
-      if (bv === null) return -1
-      if (av === bv) return left.index - right.index
-      if (typeof av === 'string' || typeof bv === 'string') {
-        return String(av).localeCompare(String(bv)) * sign
+      const at = field === 'publishTime' ? timeOf(av) : av
+      const bt = field === 'publishTime' ? timeOf(bv) : bv
+      if (at === null && bt === null) return left.index - right.index
+      if (at === null) return 1
+      if (bt === null) return -1
+      if (typeof at === 'number' && typeof bt === 'number') {
+        if (at === bt) return left.index - right.index
+        return (at - bt) * sign
       }
-      return (av - bv) * sign
+      if (at === bt) return left.index - right.index
+      return String(at).localeCompare(String(bt)) * sign
     })
     .map(entry => entry.row)
 }

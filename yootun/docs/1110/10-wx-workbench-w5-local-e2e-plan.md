@@ -181,10 +181,9 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 |---|---|---|
 | 总览 | `account.overview` | KPI 与 `metrics.totals`、`fans_trend.totals` 对齐；关注变化按 fans_trend 源定态 |
 | 画像 | `fans.profile.get` | 只消费 `fans_profile` envelope；无画像显示 no_data，不渲染假分布 |
-| 作品列表 | `works.list` | 真实 `works[]`、snake_case 字段、null 显示占位；排序与日期窗参数进入服务端 |
+| 作品列表 | `works.list` | 真实 `works[]`、snake_case 字段、null 显示占位；表头排序本地完成，不重新查询服务端 |
 | 作品详情 | `work.get` | 只消费 `{ work }` 包装；封面、基础信息、核心指标、来源、留存、按日数据和缺口与远端一致 |
 | 作品趋势 | `work.trend` | 只消费顶层 `snapshots[]`；Dialog 内折线点与 `day`、`daily_play_count` 对齐 |
-| run 查询 | `run.get` | 显示 `{ run, batches }` 的字段与批次表；RUN_NOT_FOUND 与服务失败区分 |
 | 账号页 | `accounts.list` | 本地状态、远端资料和会话状态合并一致 |
 
 证据脚本保存每个 MCP structuredContent 的脱敏摘要，并与 UI 中可见值对账。账号头像、昵称和 finderId 在截图前遮挡；finderId 可保留在本地 manifest 中用于失败排查。
@@ -257,7 +256,7 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 2. Agent 36、Workbench 90 / 19 与 Catalog 5 工具契约通过，且普通会话隔离成立；
 3. 用户完成真实扫码，账号保存、探活和本地状态迁移通过；
 4. 单账号真实采集完成或得到真实 partial 结果，且本地 run 与远端 run 一致；
-5. 总览、画像、作品、详情、趋势、run 查询均用真实返回对账通过；
+5. 总览、画像、作品、详情、趋势均用真实返回对账通过；
 6. 明暗 × 三档宽度 × 两个页面截图齐全；
 7. 键盘路径与 reduced-motion 检查通过；
 8. 删除两步链路通过；

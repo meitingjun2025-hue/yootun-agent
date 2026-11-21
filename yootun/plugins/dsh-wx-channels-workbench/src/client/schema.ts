@@ -2,8 +2,8 @@
  * Host action 载荷 → 页面视图模型的投影层：字段名以 tools 真实 schema 为准
  * （snake_case：work_id / cover_url / completion_rate_pct / daily_play_count /
  * follower_net_count / fans_profile envelope；work.trend 顶层 snapshots；
- * run.get 顶层 `{ run, batches }`；collectAll.status 顶层 items）。缺失与非数值
- * 一律 null，不补 0；封面 URL 只接受 http(s)。
+ * collectAll.status 顶层 items）。缺失与非数值一律 null，不补 0；封面 URL 只
+ * 接受 http(s)。
  * @module
  */
 import type { WxLocaleKey } from './locales.ts'
@@ -134,30 +134,6 @@ export interface WorkDetailData {
   trafficRows: TrafficRow[]
   retentionPoints: RetentionPoint[]
   dailyRows: WorkDailyRow[]
-}
-
-/** 远端 run 的一条批次行（workbench_wx_collect_run_get）。 */
-export interface RunBatchRow {
-  batchNo: number | null
-  batchType: string | null
-  batchStatus: string | null
-  itemCount: number | null
-  succeededCount: number | null
-  failedCount: number | null
-}
-
-/** run.get 的运行投影（tools 真实形状：顶层 `{ run, batches }`）。 */
-export interface RunView {
-  runId: string | null
-  accountId: string | null
-  status: string | null
-  errorCode: string | null
-  startedAt: string | null
-  finishedAt: string | null
-  expectedWorkCount: number | null
-  succeededWorkCount: number | null
-  failedWorkCount: number | null
-  batches: RunBatchRow[]
 }
 
 /** collectAll.status 的单账号条目（终态含稳定 reason）。 */
@@ -484,50 +460,6 @@ export function readWorkTrend(payload: Record<string, unknown>): WorkTrendData {
     }
   }).filter((point): point is WorkTrendPoint => point !== null)
   return { points }
-}
-
-/** 一条批次行：batch_no / batch_type / batch_status / item_count / 对象数组取长度；契约保证 batch_no，缺失即无效行丢弃。 */
-function runBatchRow(entry: unknown): RunBatchRow | null {
-  const record = recordOf(entry)
-  if (record === undefined) return null
-  const batchNo = numberOf(record.batch_no)
-  if (batchNo === null) return null
-  const objects = (key: string): number | null => {
-    const value = record[key]
-    return Array.isArray(value) ? value.length : null
-  }
-  return {
-    batchNo,
-    batchType: textOf(record.batch_type),
-    batchStatus: textOf(record.batch_status),
-    itemCount: numberOf(record.item_count),
-    succeededCount: objects('succeeded_objects'),
-    failedCount: objects('failed_objects'),
-  }
-}
-
-/**
- * run.get → 运行投影（tools 真实形状：顶层 `{ run: {...}, batches: [...] }`；
- * run 字段为 run_id / account_id / status / error_code / started_at /
- * finished_at / expected_work_count / succeeded_work_count /
- * failed_work_count）。无 `run` 对象的载荷返回 null（调用方按未命中处理）。
- */
-export function readRunView(payload: Record<string, unknown>): RunView | null {
-  const run = recordOf(payload.run)
-  if (run === undefined) return null
-  const rawBatches = Array.isArray(payload.batches) ? payload.batches : []
-  return {
-    runId: textOf(pick(run, 'run_id')),
-    accountId: textOf(pick(run, 'account_id')),
-    status: textOf(pick(run, 'status')),
-    errorCode: textOf(pick(run, 'error_code')),
-    startedAt: textOf(pick(run, 'started_at')),
-    finishedAt: textOf(pick(run, 'finished_at')),
-    expectedWorkCount: numberOf(pick(run, 'expected_work_count')),
-    succeededWorkCount: numberOf(pick(run, 'succeeded_work_count')),
-    failedWorkCount: numberOf(pick(run, 'failed_work_count')),
-    batches: rawBatches.map(runBatchRow).filter((row): row is RunBatchRow => row !== null),
-  }
 }
 
 /** collectAll.status → 批量投影（items 只留 accountId/status/reason 三个渲染字段）。 */

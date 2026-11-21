@@ -6,7 +6,7 @@
  * （§5.2/§5.3：键盘路径等价于 hover）；分布行文本即键盘等价明细。
  * @module
  */
-import { useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
 import { ChartTooltip, type ChartTooltipRow, type YtChartColor } from '@yootun/dsh-client-ui-kit'
 import type { PortraitSlice } from './schema.ts'
 import css from './workbench.module.css'
@@ -25,29 +25,6 @@ export interface TrendSeries {
 export interface TrendRow {
   day: string
   values: Record<string, number | null>
-}
-
-interface TooltipState {
-  point: { x: number; y: number }
-  title: string
-  rows: readonly ChartTooltipRow[]
-}
-
-/** 容器内坐标的 tooltip 状态与显隐回调（hover 与 focus 共用）。 */
-function usePlotTooltip(): {
-  container: HTMLDivElement | null
-  mountContainer: (element: HTMLDivElement | null) => void
-  tooltip: TooltipState | undefined
-  show(point: { x: number; y: number }, title: string, rows: readonly ChartTooltipRow[]): void
-  hide(): void
-} {
-  const [container, setContainer] = useState<HTMLDivElement | null>(null)
-  const [tooltip, setTooltip] = useState<TooltipState | undefined>(undefined)
-  const show = (point: { x: number; y: number }, title: string, rows: readonly ChartTooltipRow[]): void => {
-    setTooltip({ point, title, rows })
-  }
-  const hide = (): void => setTooltip(undefined)
-  return { container, mountContainer: setContainer, tooltip, show, hide }
 }
 
 /** locale 整数千分位格式化（模块级缓存，按 locale 复用）。 */
@@ -72,8 +49,10 @@ function axisLabel(value: number, span: number, locale: string): string {
 /**
  * 多系列折线趋势：统一真实 y 轴刻度（5 档横网格 + 左侧数值标签）、x 轴为行
  * 给出的自然日（MM-DD）；缺失值断线（不跨缺口连线、不造 0）；每个日期列是
- * 一个可聚焦的按钮层，focus/hover 都出全系列 tooltip。主系列（首项）最后
- * 绘制、压在最上层。
+ * 一个可聚焦的透明热区，focus/hover 都在当日 x 位置画一根贯穿绘图区的竖虚线
+ * 并弹出全系列 tooltip（虚线止于日期带上方，不遮日期文字）。focus 与 hover
+ * 是两个独立来源：任一路结束都回落到另一路的指示，键盘焦点指示不因鼠标划过
+ * 而消失。主系列（首项）最后绘制、压在最上层。
  * @param props.rows - 顺序日行（已按最近 N 日补齐）。
  * @param props.series - 系列定义（首项为主系列）。
  * @param props.locale - 数值格式化的 locale 标签。
@@ -86,7 +65,12 @@ export function LineTrendChart(props: {
   locale: string
   trendEmpty: string
 }): ReactNode {
-  const { container, mountContainer, tooltip, show, hide } = usePlotTooltip()
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  /** hover 与 focus 分开记录：activeIndex = hover 优先，其次 focus。 */
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [focusIndex, setFocusIndex] = useState<number | null>(null)
+  /** 激活列的 tooltip 锚点（容器 CSS 像素坐标；由 viewBox 坐标等比换算）。 */
+  const [anchor, setAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const rows = props.rows
   const series = props.series
   const width = 680
@@ -99,6 +83,8 @@ export function LineTrendChart(props: {
   const plotHeight = height - padTop - padBottom
   const stepX = rows.length > 1 ? plotWidth / (rows.length - 1) : 0
   const xAt = (index: number): number => padLeft + index * stepX
+  const activeIndex = hoverIndex ?? focusIndex
+  const activeRow = activeIndex !== null ? rows[activeIndex] : undefined
 
   const values: number[] = []
   for (const line of series) {
@@ -128,8 +114,24 @@ export function LineTrendChart(props: {
       color: line.color,
     }))
 
+  // 行数变化后旧索引可能越界 / 错位（数据刷新换行）：重置两路激活态。
+  const rowCount = rows.length
+  useEffect(() => {
+    setHoverIndex(null)
+    setFocusIndex(null)
+  }, [rowCount])
+
+  // 激活列变化时按 viewBox → 容器的等比缩放重算 tooltip 锚点。
+  useLayoutEffect(() => {
+    const plotRect = container?.getBoundingClientRect()
+    if (plotRect !== undefined && activeIndex !== null) {
+      setAnchor({ x: (xAt(activeIndex) / width) * plotRect.width, y: 8 })
+    }
+    // xAt 随 rows.length 变化；anchor 只依赖激活列与容器宽度。
+  }, [activeIndex, container, rowCount])
+
   return (
-    <div ref={mountContainer} className={css.plotLayer}>
+    <div ref={setContainer} className={css.plotLayer}>
       <svg className={css.axisSvg} viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
         {ticks.map((tick, index) => (
           <g key={index}>
@@ -183,6 +185,17 @@ export function LineTrendChart(props: {
           </text>
         ))}
       </svg>
+      {activeRow !== undefined && (
+        // 竖虚线只贯穿数值绘图区：止于日期带上方，不遮挡 x 轴日期文字。
+        <span
+          className={css.plotCrosshair}
+          aria-hidden="true"
+          style={{
+            left: `${(xAt(activeIndex as number) / width) * 100}%`,
+            height: `${((height - padBottom) / height) * 100}%`,
+          }}
+        />
+      )}
       {rows.map((row, index) => (
         <button
           key={row.day}
@@ -190,29 +203,17 @@ export function LineTrendChart(props: {
           className={css.plotColumn}
           style={{ left: `${(xAt(index) / width) * 100}%` }}
           aria-label={dayAria(row, series, locale)}
-          onFocus={event => {
-            const plotRect = container?.getBoundingClientRect()
-            const rect = event.currentTarget.getBoundingClientRect()
-            if (plotRect !== undefined) {
-              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
-            }
-          }}
-          onBlur={hide}
-          onMouseEnter={event => {
-            const plotRect = container?.getBoundingClientRect()
-            const rect = event.currentTarget.getBoundingClientRect()
-            if (plotRect !== undefined) {
-              show({ x: rect.left - plotRect.left + rect.width / 2, y: 8 }, row.day, dayTooltipRows(row))
-            }
-          }}
-          onMouseLeave={hide}
+          onFocus={() => { setFocusIndex(index) }}
+          onBlur={() => { setFocusIndex(null) }}
+          onMouseEnter={() => { setHoverIndex(index) }}
+          onMouseLeave={() => { setHoverIndex(null) }}
         />
       ))}
       <ChartTooltip
-        visible={tooltip !== undefined}
-        point={tooltip?.point ?? { x: 0, y: 0 }}
-        title={tooltip?.title ?? ''}
-        rows={tooltip?.rows ?? []}
+        visible={activeRow !== undefined}
+        point={anchor}
+        title={activeRow !== undefined ? activeRow.day : ''}
+        rows={activeRow !== undefined ? dayTooltipRows(activeRow) : []}
         container={container}
       />
     </div>
