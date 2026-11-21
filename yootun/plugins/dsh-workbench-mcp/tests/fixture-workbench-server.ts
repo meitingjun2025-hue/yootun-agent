@@ -1,7 +1,8 @@
 /**
  * 假 Workbench 面 MCP server（stateless Streamable HTTP fixture）：精确暴露
  * 90 项白名单工具，记录 Authorization 头与连接观测；特殊工具覆盖业务错误、
- * 慢调用与悬挂调用；可注入 serverName 不匹配与清单数量漂移两类协议异常。
+ * 慢调用与悬挂调用；可注入 serverName 不匹配、生产 94 前向多工具与白名单
+ * 缺项三类清单形态。
  * 仅测试使用。
  * @module
  */
@@ -11,11 +12,25 @@ import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotoc
 import { z } from 'zod'
 import { WORKBENCH_TOOL_WHITELIST } from '../src/whitelist.ts'
 
+/** 服务端 2026-11-21 公网基线在白名单外新增的 4 个抖音排期工具（RQ-2026-013）。 */
+const PRODUCTION_EXTRA_TOOLS: readonly string[] = Object.freeze([
+  'workbench_douyin_publish_schedule_list',
+  'workbench_douyin_publish_schedule_row_create',
+  'workbench_douyin_publish_schedule_row_update',
+  'workbench_douyin_publish_schedule_row_delete',
+])
+/** `'missing'` 注入时从白名单内移除的工具。 */
+const MISSING_TOOL = 'workbench_xhs_hotboard_overview'
+
 export interface WorkbenchFixtureOptions {
   /** initialize 返回的 serverInfo.name（缺省 'yootun-workbench'）。 */
   serverName?: string
-  /** 清单漂移注入：'extra' 多注册一个白名单外工具。 */
-  toolCountMode?: 'exact' | 'extra'
+  /**
+   * 清单形态注入：`'production-94'` 在白名单外追加 4 个生产新增工具（共 94，
+   * 模拟服务端先升级）；`'missing'` 移除一个白名单内工具（模拟服务端缺项）。
+   * 缺省 `'exact'` 精确 90。
+   */
+  toolCountMode?: 'exact' | 'production-94' | 'missing'
 }
 
 export interface WorkbenchFixture {
@@ -50,7 +65,11 @@ export async function startWorkbenchFixture(options: WorkbenchFixtureOptions = {
       { capabilities: { tools: {} } },
     )
     const names = [...WORKBENCH_TOOL_WHITELIST]
-    if (options.toolCountMode === 'extra') names.push('workbench_douyin_unknown_extra')
+    if (options.toolCountMode === 'production-94') names.push(...PRODUCTION_EXTRA_TOOLS)
+    if (options.toolCountMode === 'missing') {
+      const index = names.indexOf(MISSING_TOOL)
+      if (index >= 0) names.splice(index, 1)
+    }
     for (const toolName of names) {
       mcp.registerTool(toolName, { description: `fixture ${toolName}`, inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
         toolCalls.push(toolName)

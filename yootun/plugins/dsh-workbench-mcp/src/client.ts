@@ -1,7 +1,8 @@
 /**
  * Workbench MCP 连接生命周期（直接使用 MCP SDK Streamable HTTP client，
  * 不经官方 dsh-mcp-client——后者会把工具注册进 ctx.tools，破坏普通会话不可
- * 见的边界）。连接时校验 serverName 与 tools/list 精确 90 契约；每个调用
+ * 见的边界）。连接时校验 serverName 与 tools/list 子集契约（安装包白名单
+ * ⊆ 服务端广播；服务端新增工具为前向兼容，由调用层白名单隔离）；每个调用
  * 显式超时与取消；错误按稳定码投影，上游原文不进入诊断文本。
  * @module
  */
@@ -13,7 +14,12 @@ import { WorkbenchMcpError } from './errors.ts'
 /** One live connection: the SDK client plus its validated tools/list cache. */
 export interface WorkbenchConnection {
   client: Client
-  /** The exact tool names the server advertised (validated: precisely the 90-name whitelist). */
+  /**
+   * The tool names the server advertised. Validated as a superset of
+   * `WORKBENCH_TOOL_WHITELIST`: every whitelisted name is present; the set may
+   * additionally contain newer server-side tools, which stay unreachable
+   * through the caller×domain gate.
+   */
   toolNames: ReadonlySet<string>
 }
 
@@ -27,13 +33,17 @@ export interface ConnectOptions {
 
 /**
  * Open one Workbench connection: attach the resolved Authorization value
- * (never logged), connect, validate the server identity and the 90-name
- * tools/list contract.
+ * (never logged), connect, validate the server identity and the subset
+ * tools/list contract. Forward compatibility: the server may advertise tools
+ * beyond the whitelist (e.g. shipped before this client build); connection
+ * requires only that every whitelisted name is advertised, and server-side
+ * additions stay unreachable through the caller×domain call gate.
  * @param authorization - the resolved `MODELS_API_KEY` value; secret, used only in request headers.
  * @param options - explicit budgets and cancellation for the connect phase.
  * @returns the live connection.
  * @throws {WorkbenchMcpError} `workbench_network_error` on transport failure,
- * `workbench_protocol_error` when the identity or tool contract does not match.
+ * `workbench_protocol_error` when the identity does not match or a whitelisted
+ * tool is missing from the server advertisement.
  */
 export async function connectWorkbench(authorization: string, options: ConnectOptions = {}): Promise<WorkbenchConnection> {
   const client = new Client({ name: CLIENT_INFO_NAME, version: '1.0.0' })
@@ -64,9 +74,10 @@ export async function connectWorkbench(authorization: string, options: ConnectOp
     throw new WorkbenchMcpError('workbench_network_error', `workbench tools/list failed: ${describeErrorName(error)}`)
   }
   const advertised = new Set(tools.map(tool => tool.name))
-  if (advertised.size !== WORKBENCH_TOOL_WHITELIST.size || [...WORKBENCH_TOOL_WHITELIST].some(name => !advertised.has(name))) {
+  const missing = [...WORKBENCH_TOOL_WHITELIST].filter(name => !advertised.has(name))
+  if (missing.length > 0) {
     await closeClient(client)
-    throw new WorkbenchMcpError('workbench_protocol_error', `workbench tools/list contract mismatch: expected exactly ${String(WORKBENCH_TOOL_WHITELIST.size)} whitelisted tools, server advertised ${String(advertised.size)}`)
+    throw new WorkbenchMcpError('workbench_protocol_error', `workbench tools/list contract mismatch: missing ${String(missing.length)} required tools: ${missing.join(', ')}`)
   }
   return { client, toolNames: advertised }
 }

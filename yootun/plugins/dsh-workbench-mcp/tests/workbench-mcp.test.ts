@@ -1,7 +1,8 @@
 /**
  * Workbench 私有 MCP 连接器测试（node --test，真实 Cordis 组合 + 假 server）：
- * 90 项白名单精确匹配、调用方分组隔离、viral/tos 专属约束、Catalog 拒绝、
- * 超时/取消/网络/协议/业务错误分开投影、credential 缓存失效、卸载无泄漏。
+ * 90 项白名单子集契约（服务端多出工具前向兼容、缺项拒绝并点名）、调用方
+ * 分组隔离、viral/tos 专属约束、Catalog 拒绝、超时/取消/网络/协议/业务错误
+ * 分开投影、credential 缓存失效、卸载无泄漏。
  * 运行：`pnpm --filter @yootun/dsh-workbench-mcp test`。
  */
 import assert from 'node:assert/strict'
@@ -314,7 +315,7 @@ test('慢调用超时与悬挂调用取消', async () => {
   await assertRejects(() => pending, 'workbench_call_cancelled', '调用方取消')
 })
 
-test('serverName 不匹配与清单漂移按协议错误投影', async () => {
+test('serverName 不匹配按协议错误投影', async () => {
   const wrongName = await startWorkbenchFixture({ serverName: 'imposter' })
   const booted = await boot({ fixture: wrongName })
   await assertRejects(
@@ -322,14 +323,32 @@ test('serverName 不匹配与清单漂移按协议错误投影', async () => {
     'workbench_protocol_error',
     'serverName 校验',
   )
-  const drifted = await startWorkbenchFixture({ toolCountMode: 'extra' })
-  const booted2 = await boot({ fixture: drifted })
+  assert.equal(booted.fixture.toolCalls.length, 0, 'serverName 不匹配时不发起业务调用')
+})
+
+test('服务端广播 94（白名单外新增 4 项）前向兼容，连接与调用成功', async () => {
+  const production = await startWorkbenchFixture({ toolCountMode: 'production-94' })
+  const booted = await boot({ fixture: production })
+  const outcome = await booted.service.callTool('xhs-workbench', 'xhs', 'workbench_xhs_hotboard_overview', {})
+  assert.deepEqual(outcome.structuredContent, { ok: true, tool: 'workbench_xhs_hotboard_overview' })
+  // 服务端多出的工具不可达：即使 douyin 调用方，调用层白名单仍拒绝。
   await assertRejects(
-    () => booted2.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {}),
-    'workbench_protocol_error',
-    'tools/list 必须精确 90',
+    () => booted.service.callTool('douyin-workbench', 'douyin', 'workbench_douyin_publish_schedule_list', {}),
+    'workbench_tool_denied',
+    '白名单外新增工具不可达',
   )
-  assert.equal(booted2.fixture.toolCalls.length, 0, '契约不匹配时不发起业务调用')
+})
+
+test('缺失白名单任一项拒绝连接且 message 含缺失工具名', async () => {
+  const incomplete = await startWorkbenchFixture({ toolCountMode: 'missing' })
+  const booted = await boot({ fixture: incomplete })
+  const error = await assertRejects(
+    () => booted.service.callTool('xhs-workbench', 'xhs', 'workbench_xhs_hotboard_overview', {}),
+    'workbench_protocol_error',
+    '缺项拒绝连接',
+  )
+  assert.ok(error.message.includes('workbench_xhs_hotboard_overview'), 'message 列出缺失工具名')
+  assert.equal(booted.fixture.toolCalls.length, 0, '缺项时不发起业务调用')
 })
 
 test('credential 更新使连接缓存失效并重连', async () => {

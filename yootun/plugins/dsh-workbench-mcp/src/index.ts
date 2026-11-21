@@ -2,7 +2,7 @@
  * yootun Workbench 面私有 MCP 连接器（`ctx.yootunWorkbench`，Service 插件）。
  * 三个工作台 Host 与媒体上传插件共享；不注册 `ctx.tools`，普通会话不可见。
  * 每次调用内部执行：调用方分组与白名单校验 → 激活门禁 → credential 解析 →
- * 连接与 tools/list 缓存（精确 90 校验）→ tools/call（显式超时/取消）→
+ * 连接与 tools/list 缓存（白名单子集校验）→ tools/call（显式超时/取消）→
  * 稳定错误投影。凭证更新即失效连接缓存；卸载关闭全部连接与 in-flight 请求。
  * @module @yootun/dsh-workbench-mcp
  */

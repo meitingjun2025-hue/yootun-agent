@@ -204,7 +204,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 7. 错误 envelope 安全投影；
 8. 新 domain/tool 审计辅助信息。
 
-白名单以 Tools 文档的 94 项 Workbench 契约为准。任何白名单外工具必须直接拒绝，不得尝试调用。2026-11-20 追加的 4 个 `workbench_douyin_publish_schedule_*` 工具属于抖音数据域；`viral` 分组仍仅由抖音工作台调用。
+连接器按子集契约校验 `tools/list`：安装包白名单内的每一项工具必须出现在服务端广播中，缺失任一项以 `workbench_protocol_error` 拒绝连接，message 列出缺失工具名；服务端多出的工具属于前向兼容，容忍但不可达——调用层按 caller×domain 白名单隔离，任何白名单外工具直接拒绝，不得尝试调用。2026-11-20 追加的 4 个 `workbench_douyin_publish_schedule_*` 工具属于抖音数据域；`viral` 分组仍仅由抖音工作台调用。
 
 ### 5.3 请求约束
 
@@ -498,7 +498,8 @@ tools.dofe.ai dev
 ### 12.2 Workbench MCP
 
 - initialize / tools/list / tools/call;
-- 94 项白名单精确匹配；
+- 子集契约：服务端广播 94 项（含白名单外新增 4 项）连接与调用成功；
+- 缺失白名单任一项拒绝连接，message 含缺失工具名；
 - 白名单外工具拒绝；
 - 三个工作台互不可访问对方分组；
 - Workbench client 不能调用 `yootun_business_*` Catalog 工具；
