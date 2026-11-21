@@ -7,7 +7,7 @@
  * 先确认并携幂等键（machine 内生成）。
  * @module
  */
-import { useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Checkbox, Input, MarkdownText, Modal, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import { KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
@@ -96,6 +96,21 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
   })
 
   const state = useSyncExternalStore(hub.subscribe, hub.get, hub.get)
+  const subNavRef = useRef<HTMLDivElement | null>(null)
+
+  // 二级子导航切换同样滚回顶部（长面板切短面板的滚动钳制同顶部 tab）。
+  const switchSub = (sub: 'board' | 'keywords' | 'tags' | 'rules'): void => {
+    hub.setSub(sub)
+    let node = subNavRef.current?.parentElement ?? null
+    while (node !== null) {
+      const overflowY = getComputedStyle(node).overflowY
+      if (overflowY === 'auto' || overflowY === 'scroll') {
+        node.scrollTop = 0
+        return
+      }
+      node = node.parentElement
+    }
+  }
   // 子导航角标（2026-11-21 用户指认）：「关键词与扩词」=AI 扩词待审候选总数、
   // 「标签与 AI 标记」=标签总数；0 与未知不显示，计数失败回退已加载列表 meta。
   const countBadge = (sub: 'board' | 'keywords' | 'tags' | 'rules'): number | null => {
@@ -106,7 +121,7 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
 
   return (
     <div className={css.hbRoot}>
-      <div className={css.hbSubNav} role='tablist' aria-label={t('hb.title')}>
+      <div className={css.hbSubNav} role='tablist' aria-label={t('hb.title')} ref={subNavRef}>
         {SUB_PAGES.map(item => (
           <button
             key={item.id}
@@ -114,7 +129,7 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
             role='tab'
             aria-selected={state.sub === item.id}
             className={css.hbSubTab}
-            onClick={() => { hub.setSub(item.id) }}
+            onClick={() => { switchSub(item.id) }}
           >
             {t(item.key)}
             {countBadge(item.id) !== null && <span className={css.hbCount}>{String(countBadge(item.id))}</span>}
@@ -332,9 +347,9 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
         {styleTagName !== null || colorTagName !== null || words.length > 0
           ? (
               <div className={css.hbChips}>
-                {/* 三类三色（对齐旧版）：款式=浅灰 chip、颜色=品牌色 chip、命中热词=纯文字。 */}
+                {/* 对齐旧版：标签（款式/颜色）=浅灰 chip，命中热词=纯文字。 */}
                 {styleTagName !== null && <span className={css.hbChip}>{styleTagName}</span>}
-                {colorTagName !== null && <span className={`${css.hbChip} ${css.hbChipColor}`}>{colorTagName}</span>}
+                {colorTagName !== null && <span className={css.hbChip}>{colorTagName}</span>}
                 {words.map((word, index) => <span key={`word-${index}-${word}`} className={css.hbChipWord}>{word}</span>)}
               </div>
             )

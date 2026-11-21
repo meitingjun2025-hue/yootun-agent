@@ -1,6 +1,6 @@
 /**
  * 账号管理页 + 发布面板 client 测试（jsdom；12 册 §4/§3.3 行为锁定）：
- * Chrome 阻断、账号列表与禁用规则、双卡缺口提示、移除确认弹层、发布面板
+ * Chrome 阻断、账号列表与禁用规则、基本数据缺口提示、移除确认弹层、发布面板
  * 账号选择与轮询。
  */
 // @vitest-environment jsdom
@@ -55,7 +55,7 @@ async function renderAccounts(): Promise<void> {
 }
 
 describe('账号管理页（12 册 §4）', () => {
-  it('左栏列表：账号名/状态徽标/三个操作（账号 ID 不展示）；右栏双卡与工具栏', async () => {
+  it('左栏列表：账号名/状态徽标/三个操作（账号 ID 不展示）；右栏工具栏与基本数据卡', async () => {
     await renderAccounts()
     await waitFor(() => expect(screen.getAllByRole('button', { name: en['accounts.probe'] }).length).toBeGreaterThanOrEqual(2))
     expect(screen.getAllByText('甲').length).toBeGreaterThanOrEqual(1)
@@ -63,10 +63,7 @@ describe('账号管理页（12 册 §4）', () => {
     expect(screen.queryByText('acc-a')).toBeNull()
     expect(screen.getAllByText(en['accounts.statusOk']).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(en['accounts.statusUnknown']).length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText(en['accounts.accountInfo'])).not.toBeNull()
     expect(screen.getByText(en['accounts.basicData'])).not.toBeNull()
-    // 基本数据：缺口提示（summary 缺失 → 占位 —，不补 0）。
-    expect(screen.getByText(en['accounts.neverCollected'])).not.toBeNull()
   })
 
   it('采集数据运行 → truncated 警示通知条 + 列表刷新', async () => {

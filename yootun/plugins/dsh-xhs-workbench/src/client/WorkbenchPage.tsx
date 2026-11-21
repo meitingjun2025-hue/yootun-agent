@@ -5,7 +5,7 @@
  * 浏览器状态在页头辅助信息位呈现（阻断文案，无设备路径细节）。
  * @module
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { SegmentedTabs, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createKitTranslate, DataState, KitLocaleProvider, PluginHeader, PluginPageShell } from '@yootun/dsh-client-ui-kit'
 import { en as kitEn, zh as kitZh } from '@yootun/dsh-client-ui-kit'
@@ -31,11 +31,34 @@ export function localeTagOf(t: Translate): string {
   return t('panel') === xhsZh.panel ? 'zh' : 'en'
 }
 
+/**
+ * 把元素最近的可滚动祖先滚回顶部：面板切换 = 新视图起点，避免上一面板
+ * 遗留的滚动位置在新面板被钳制产生跳动。
+ * @param el - 页内锚点元素（其祖先链含 shell 滚动容器）。
+ */
+function scrollAncestorToTop(el: HTMLElement | null): void {
+  let node = el?.parentElement ?? null
+  while (node !== null) {
+    const overflowY = getComputedStyle(node).overflowY
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      node.scrollTop = 0
+      return
+    }
+    node = node.parentElement
+  }
+}
+
 /** 页面组件：三 tab 导航与爆款仿写页接线。 */
 export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const t = props.t
   const [tab, setTab] = useState<TabValue>('rewrite')
   const [browser, setBrowser] = useState<BrowserState>('loading')
+  const tabsRef = useRef<HTMLDivElement | null>(null)
+
+  const switchTab = useCallback((next: TabValue): void => {
+    setTab(next)
+    scrollAncestorToTop(tabsRef.current)
+  }, [])
 
   const checkBrowser = useCallback((): void => {
     setBrowser('loading')
@@ -76,8 +99,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
           />
         )}
       >
-        <div className={css.tabsRow}>
-          <SegmentedTabs items={tabs} value={tab} onChange={setTab} label={t('panel')} />
+        <div className={css.tabsRow} ref={tabsRef}>
+          <SegmentedTabs items={tabs} value={tab} onChange={switchTab} label={t('panel')} />
         </div>
         <DataState state='ready' shape='rows'>
           <div id='xhs-panel-body' role='tabpanel' aria-label={t('panel')}>

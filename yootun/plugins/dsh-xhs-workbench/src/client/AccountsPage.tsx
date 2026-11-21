@@ -1,9 +1,9 @@
 /**
  * 账号管理页（12 册 §4；旧 client.js AccountsPage/AccountSummary 重译；布局
- * 对齐视频号工作台）：顶部工具栏（标题 + 采集按钮 + 上次采集时间）；左栏账号
- * 卡片列表（卡片内检测/重新登录/移除本地，移除确认）+ 底部通栏添加账号；
- * 右栏通知条 + 账号信息卡 + 基本数据卡（指标缺失显示缺口提示，不补 0）。
- * Chrome 缺失时页面顶部阻断提示。
+ * 对齐视频号工作台）：左栏头部（标题 + 采集全部占位）+ 账号卡片列表（卡内
+ * 检测/重新登录/移除本地，移除确认）+ 底部通栏添加账号；右栏通知条 + 工具栏
+ * （采集数据/刷新数据/上次采集时间）+ 基本数据卡（指标缺失显示缺口提示，
+ * 不补 0）。Chrome 缺失时页面顶部阻断提示。
  * @module
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
@@ -37,7 +37,7 @@ function getAccountsMachine(): AccountsMachine {
 export interface AccountsPageProps { t: Translate }
 
 /**
- * Render the accounts page (顶部工具栏 | 账号列表 + 账号主区).
+ * Render the accounts page (左栏账号列表 | 右栏工具栏与基本数据卡).
  * @param props - page translator.
  * @returns the page node.
  */
@@ -64,30 +64,14 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
       {state.chromeAvailable === false && (
         <p className={css.accountsChromeBlock} role='alert'>{t('accounts.chromeBlock')}</p>
       )}
-      <div className={css.accountsToolbar}>
-        <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
-        <Button
-          variant='primary'
-          disabled={selected === null || collectRunning || anyRunning}
-          onClick={() => { void machine.startCollectFlow(selected?.accountId ?? '') }}
-        >
-          {collectRunning
-            ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
-            : t('accounts.collectData')}
-        </Button>
-        {/* 采集全部：占位按钮，功能后续接入（置灰防误触）。 */}
-        <Button variant='primary' disabled title={t('accounts.collectAllSoon')}>
-          {t('accounts.collectAll')}
-        </Button>
-        <Button variant='ghost' disabled={selected === null || anyRunning}
-          onClick={() => { void machine.probeNow(selected?.accountId ?? '') }}>
-          {t('accounts.refreshData')}
-        </Button>
-        {capturedAt !== null && capturedAt !== undefined && (
-          <span className={css.hint}>{t('accounts.lastCollected', { time: formatDateTime(capturedAt) })}</span>
-        )}
-      </div>
       <aside className={css.accountsList} aria-label={t('accounts.title')}>
+        <div className={css.accountsListHead}>
+          <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
+          {/* 采集全部：占位按钮，功能后续接入（置灰防误触；对齐视频号左栏头部）。 */}
+          <Button variant='primary' size='sm' disabled title={t('accounts.collectAllSoon')}>
+            {t('accounts.collectAll')}
+          </Button>
+        </div>
         {loginWaiting && (
           <p className={css.accountsLoginWaiting} role='status'>
             <StateDot state='ongoing' /> {t('accounts.loginWaiting')}
@@ -143,7 +127,30 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
       <div className={css.accountsMain}>
         {state.notice !== null && <NoticeBar notice={state.notice} machine={machine} t={t} />}
         {selected !== null
-          ? <AccountSummary account={selected} t={t} />
+          ? (
+              <>
+                {/* 右栏工具栏（对齐视频号）：采集本账号 + 刷新（浅灰实心）+ 最近采集时间。 */}
+                <div className={css.accountsMainBar}>
+                  <Button
+                    variant='primary'
+                    disabled={collectRunning || anyRunning}
+                    onClick={() => { void machine.startCollectFlow(selected.accountId) }}
+                  >
+                    {collectRunning
+                      ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
+                      : t('accounts.collectData')}
+                  </Button>
+                  <Button variant='toolbar' size='sm' disabled={anyRunning}
+                    onClick={() => { void machine.probeNow(selected.accountId) }}>
+                    {t('accounts.refreshData')}
+                  </Button>
+                  {capturedAt !== null && capturedAt !== undefined && (
+                    <span className={css.hint}>{t('accounts.lastCollected', { time: formatDateTime(capturedAt) })}</span>
+                  )}
+                </div>
+                <AccountSummary account={selected} t={t} />
+              </>
+            )
           : (
               <div className={css.stateBlock} role='status'>
                 <p>{state.loading ? t('state.loading') : t('accounts.empty')}</p>
@@ -202,7 +209,7 @@ function NoticeBar(props: { notice: AccountsNotice; machine: AccountsMachine; t:
   )
 }
 
-/** 右栏双卡：账号信息（昵称/授权状态，账号 ID 不展示）+ 基本数据（缺口提示，不补 0）。 */
+/** 右栏基本数据卡（账号信息不重复展示：昵称与授权状态在左栏卡片；缺口提示不补 0）。 */
 function AccountSummary(props: { account: AccountRow; t: Translate }): ReactNode {
   const { account, t } = props
   const summary = account.summary ?? null
@@ -217,36 +224,20 @@ function AccountSummary(props: { account: AccountRow; t: Translate }): ReactNode
     { key: 'accounts.statShares', value: formatCount(totals.shares), gap: gaps.shares },
   ]
   return (
-    <div className={css.accountsDetail}>
-      <section className={css.accountsCard} aria-label={t('accounts.accountInfo')}>
-        <h3 className={css.hbPanelTitle}>{t('accounts.accountInfo')}</h3>
-        <dl className={css.accountsKv}>
-          <div><dt>{t('accounts.nickname')}</dt><dd>{account.nickname ?? '—'}</dd></div>
-          <div><dt>{t('accounts.authStatus')}</dt><dd><StatusBadge status={account.sessionStatus} probing={false} t={t} /></dd></div>
-        </dl>
-      </section>
-      <section className={css.accountsCard} aria-label={t('accounts.basicData')}>
-        <div className={css.accountsCardHead}>
-          <h3 className={css.hbPanelTitle}>{t('accounts.basicData')}</h3>
-          <p className={css.hint}>
-            {summary?.capturedAt !== null && summary?.capturedAt !== undefined
-              ? t('accounts.lastCollected', { time: formatDateTime(summary.capturedAt) })
-              : t('accounts.neverCollected')}
-          </p>
-        </div>
-        <div className={css.accountsStats}>
-          {stats.map(stat => (
-            <div key={stat.key} className={css.accountsStat}>
-              <span className={css.accountsStatLabel}>{t(stat.key)}</span>
-              <span className={css.accountsStatValue}>{stat.value}</span>
-              {stat.gap !== undefined && stat.gap > 0 && (
-                <span className={css.accountsStatGap}>{t('accounts.gapHint', { count: stat.gap })}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
+    <section className={css.accountsCard} aria-label={t('accounts.basicData')}>
+      <h3 className={css.hbPanelTitle}>{t('accounts.basicData')}</h3>
+      <div className={css.accountsStats}>
+        {stats.map(stat => (
+          <div key={stat.key} className={css.accountsStat}>
+            <span className={css.accountsStatLabel}>{t(stat.key)}</span>
+            <span className={css.accountsStatValue}>{stat.value}</span>
+            {stat.gap !== undefined && stat.gap > 0 && (
+              <span className={css.accountsStatGap}>{t('accounts.gapHint', { count: stat.gap })}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

@@ -510,7 +510,8 @@
   margin-left: 6px;
   padding: 0 7px;
   border-radius: 999px;
-  background: var(--dsw-alias-business-primary);
+  /* 黑底白字（对齐旧版徽标；label-primary 双主题反色，浅色近黑/深色近白）。 */
+  background: var(--dsw-alias-label-primary);
   color: var(--dsw-alias-label-primary-foreground);
   font-size: 11px;
   font-weight: 500;
@@ -903,18 +904,11 @@ button.hbSoftAction {
 .hbChip {
   padding: 1px 8px;
   border-radius: var(--dsw-radius-r4, 4px);
-  border: 0.5px solid var(--dsw-alias-border-l1);
+  /* bg-layer-2 浅色下为可见浅灰（layer-1/3 表底同为纯白，零对比不可用）。 */
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
   font-size: 11px;
   white-space: nowrap;
-}
-
-/* 颜色标签 chip（品牌色底字，与款式浅灰 chip、热词纯文字三类三色）。 */
-.hbChipColor {
-  background: color-mix(in srgb, var(--dsw-alias-business-primary) 12%, transparent);
-  border-color: color-mix(in srgb, var(--dsw-alias-business-primary) 30%, transparent);
-  color: var(--dsw-alias-business-primary);
 }
 
 /* 状态启用 chip（对齐旧版浅绿底绿字）；停用/退役纯文字次级。 */
@@ -1415,27 +1409,14 @@ button.hbSoftAction {
 
 /* ---- 账号管理（12 册 §4：列表 | 主区 双栏；断点与旧 300px/240px 口径对齐）---- */
 
-/* 布局对齐视频号工作台：顶部工具栏横贯，下方左列表 + 右主区。 */
+/* 布局对齐视频号工作台：左栏（头部标题+采集全部 / 卡片列表 / 通栏添加）
+   + 右栏（工具栏 + 基本数据卡）。 */
 .accountsLayout {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
   gap: 0 20px;
   align-items: start;
   min-width: 0;
-}
-
-.accountsToolbar {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 16px;
-}
-
-.accountsToolbar .hint {
-  margin-left: auto;
 }
 
 .accountsChromeBlock {
@@ -1454,6 +1435,22 @@ button.hbSoftAction {
   align-content: start;
   padding: 0 16px 32px 0;
   border-right: 0.5px solid var(--dsw-alias-border-l1);
+}
+
+/* 左栏头部：标题 + 采集全部（对齐视频号，仅此一个按钮）。 */
+.accountsListHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 右栏工具栏：采集本账号 + 刷新（浅灰实心）+ 最近采集时间自然排列（对齐视频号）。 */
+.accountsMainBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 /* 底部通栏添加账号（对齐视频号）。 */
@@ -1483,21 +1480,34 @@ button.hbSoftAction {
 
 /* 账号卡片（对齐视频号）：卡内主区可点 + 底部文字操作行。 */
 .accountsItemCard {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 10px;
   border: 0.5px solid var(--dsw-alias-border-l1);
   border-radius: var(--dsw-radius-r8, 8px);
   background: var(--dsw-alias-bg-layer-1);
+  overflow: hidden;
 }
 
 .accountsItemCard:hover {
   background: var(--dsw-alias-bg-layer-2);
 }
 
+/* 选中态与视频号同机制：左缘 3px 主色指示条（定位伪元素，避免被子元素
+   hover 背景盖住）+ 高亮底。 */
+.accountsItemCard.accountsItemActive::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--dsw-alias-border-selected);
+}
+
 .accountsItemCard.accountsItemActive {
-  border-color: var(--dsw-alias-business-primary);
-  background: var(--dsw-alias-bg-layer-2);
+  background: var(--dsw-alias-bg-multi-select);
 }
 
 .accountsItemMain {
@@ -1622,53 +1632,12 @@ button.hbSoftAction {
   color: var(--dsw-alias-state-error-primary);
 }
 
-.accountsDetail {
-  display: grid;
-  gap: 16px;
-}
-
 .accountsCard {
   display: grid;
   gap: 14px;
   padding: 16px;
   border-radius: var(--dsw-radius-r12, 12px);
   background: var(--dsw-alias-bg-layer-1);
-}
-
-.accountsCardHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.accountsKv {
-  margin: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.accountsKv > div {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.accountsKv dt {
-  flex: none;
-  width: 72px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 13px;
-}
-
-.accountsKv dd {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14px;
 }
 
 .accountsStats {
@@ -1778,10 +1747,6 @@ button.hbSoftAction {
 @container yootun-kit-page (max-width: 639px) {
   .accountsStats {
     grid-template-columns: 1fr;
-  }
-
-  .accountsKv > div {
-    flex-wrap: wrap;
   }
 
   .publishRow {
