@@ -66,9 +66,9 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
       )}
       <aside className={css.accountsList} aria-label={t('accounts.title')}>
         <div className={css.accountsListHead}>
-          <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
-          {/* 采集全部：占位按钮，功能后续接入（置灰防误触；对齐视频号左栏头部）。 */}
-          <Button variant='primary' disabled title={t('accounts.collectAllSoon')}>
+          {/* 标题字号/字重与按钮规格逐字对齐视频号 AccountSidebar（sidebarTitle 13px/500、采集全部 primary sm）。 */}
+          <h2 className={css.accountsTitle}>{t('accounts.title')}</h2>
+          <Button variant='primary' size='sm' disabled title={t('accounts.collectAllSoon')}>
             {t('accounts.collectAll')}
           </Button>
         </div>
