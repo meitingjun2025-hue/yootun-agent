@@ -37,6 +37,8 @@
   /* 横向滚动只发生在表格/图表内部（§2.2）。 */
   overflow-x: clip;
   overflow-y: auto;
+  /* 滚动条槽位恒定：tab/分区切换内容高度变化时页面宽度不再回弹（5px 占宽滚动条）。 */
+  scrollbar-gutter: stable;
   padding-top: 16px;
 }
 
