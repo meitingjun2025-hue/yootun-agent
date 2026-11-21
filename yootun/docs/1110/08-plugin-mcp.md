@@ -4,7 +4,7 @@
 
 本册是第三步「三个内置工作台迁移」的总体契约，覆盖普通会话 MCP、三个工作台 Host 的私有 MCP 通道、媒体上传能力和桌面插件接入边界。UI 实施以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 为准；本册只定义产品能力、Host 架构、凭证、权限、迁移批次和验收。固定执行顺序、逐批实施阶段和验收记录要求见 [09-workbench-migration-plan.md](09-workbench-migration-plan.md)。
 
-Tools 服务端的详细契约、工具清单、代码健壮性约束和测试矩阵见 `tools.dofe.ai` dev 分支的 `docs/1116/yootun-mcp.md`。该文档是服务端单一事实源；本文不复制完整 90 项 Workbench 映射，只维护桌面消费边界。
+Tools 服务端的详细契约、工具清单、代码健壮性约束和测试矩阵见 `tools.dofe.ai` dev 分支的 `docs/1116/yootun-mcp.md`。2026-11-21 公网 `tools/list` 基线为 Agent 39 项、Workbench 94 项、Catalog 5 项。该文档是服务端单一事实源；本文不复制完整 Workbench 映射，只维护桌面消费边界。
 
 新公共入口固定为：
 
@@ -42,7 +42,7 @@ https://ixicai.cn/mcp/tools/yootun/v1/catalog
 | 工作台 | 远端数据依赖 | 设备端能力 |
 |---|---|---|
 | 小红书工作台 | Agent/Workbench 面的小红书能力 + Workbench 上传授权 | 系统 Chrome 扫码、本地账号、素材上传、笔记采集、草稿发布 |
-| 抖音工作台 | Workbench 面的抖音数据能力 + 22 个爆款拆解/素材/知识能力 | 系统 Chrome 扫码、创作者中心采集、本地账号状态 |
+| 抖音工作台 | Workbench 面的抖音数据与发布排期能力 + 22 个爆款拆解/素材/知识能力 | 系统 Chrome 扫码、创作者中心采集、本地账号状态、发布排期 |
 | 视频号工作台 | Workbench 面的视频号能力 | 系统 Chrome 扫码、视频号助手采集、本地账号状态 |
 
 不迁移其他业务插件，不接入其他 MCP route。`viral-video` 与 `tos-upload` 不是额外用户可见插件：前者作为抖音工作台的数据依赖被收进 Workbench 面，后者作为小红书素材上传的支撑能力由 Host 上传插件消费。
@@ -63,7 +63,7 @@ yootun desktop profile
 ├─ 抖音工作台 Host
 │   ├─ 本地 Chrome / storage_state / 采集
 │   ├─ @yootun/dsh-workbench-mcp
-│   └─ 抖音数据 + 爆款拆解/素材/知识工具
+│   └─ 抖音数据 + 发布排期 + 爆款拆解/素材/知识工具
 │
 ├─ 视频号工作台 Host
 │   ├─ 本地 Chrome / storage_state / 采集
@@ -169,6 +169,8 @@ Agent 面服务端已按产品任务收敛，桌面侧仍需注册 `tools/pre-ex
 - 高风险批量采集、模型生成、报表重建类工具 ask 或 deny;
 - Workbench Host 的私有调用不走 Agent 面，因此不受该 guard 影响。
 
+2026-11-20 追加的抖音发布排期能力在 Agent 面暴露 `yootun_douyin_publish_schedule_list`、`..._row_create`、`..._row_update` 三项：list 只读；create / update 是同步幂等写，会话 guard 按 ask 处理；`row_delete` 按产品决策仅进入 Workbench 面，不进入普通会话。
+
 guard 只按公开工具名和执行上下文判断，不读取参数中的身份字段，不修改业务 schema。
 
 ## 5. Workbench 面：`@yootun/dsh-workbench-mcp`
@@ -202,7 +204,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 7. 错误 envelope 安全投影；
 8. 新 domain/tool 审计辅助信息。
 
-白名单以 Tools 文档的 90 项 Workbench 契约为准。任何白名单外工具必须直接拒绝，不得尝试调用。
+白名单以 Tools 文档的 94 项 Workbench 契约为准。任何白名单外工具必须直接拒绝，不得尝试调用。2026-11-20 追加的 4 个 `workbench_douyin_publish_schedule_*` 工具属于抖音数据域；`viral` 分组仍仅由抖音工作台调用。
 
 ### 5.3 请求约束
 
@@ -447,7 +449,7 @@ object key
 ```text
 tools.dofe.ai dev
 └─ docs/1116/yootun-mcp.md 已评审、实现并部署
-   Agent 36 项 / Workbench 90 项 / Catalog 5 项
+   Agent 39 项 / Workbench 94 项 / Catalog 5 项
 ```
 
 桌面侧从 P1 开始实现连接器与工作台，不伪造服务端契约。
@@ -474,7 +476,7 @@ tools.dofe.ai dev
 
 ### 批次 P4：抖音工作台
 
-交付抖音数据、AI 分析、报表、爆款拆解、素材看板和知识库。
+交付抖音数据、发布排期、AI 分析、报表、爆款拆解、素材看板和知识库。
 
 ### 批次 P5：集成验收与出包
 
@@ -496,7 +498,7 @@ tools.dofe.ai dev
 ### 12.2 Workbench MCP
 
 - initialize / tools/list / tools/call;
-- 90 项白名单精确匹配；
+- 94 项白名单精确匹配；
 - 白名单外工具拒绝；
 - 三个工作台互不可访问对方分组；
 - Workbench client 不能调用 `yootun_business_*` Catalog 工具；
@@ -527,7 +529,7 @@ tools.dofe.ai dev
 
 - `/mcp/yootun-catalog` 的 `tools/list` 精确返回 5 个工具；
 - 工具名精确为 `yootun_business_*`；
-- Catalog 只描述 Agent 36 项与 Workbench 90 项，合计 126 项；
+- Catalog 只描述 Agent 39 项与 Workbench 94 项，合计 133 项；
 - Catalog 结果不包含 legacy domain 或 legacy 工具；
 - 旧 `/mcp/tools/platform` 的 tools/list schema 与 discovery 输出保持 dev 基线；
 - 旧 platform 无过滤 search total 保持 267，category 保持 8 / 267；
@@ -560,7 +562,7 @@ tools.dofe.ai dev
 - [ ] 普通会话仅挂 Agent 面，不挂 Workbench 面或 Catalog 面；
 - [ ] Agent 工具数与 Tools 契约一致；
 - [ ] Workbench 私有 client 不注册 `ctx.tools`;
-- [ ] Catalog 面仅包含 5 个 `yootun_business_*` 工具，并只描述 126 个 yootun 业务工具；
+- [ ] Catalog 面仅包含 5 个 `yootun_business_*` 工具，并只描述 133 个 yootun 业务工具；
 - [ ] 旧 platform 能力发现 schema 与输出保持 dev 基线；
 - [ ] 三个工作台只使用自己的白名单；
 - [ ] 抖音 Host 独占 viral 分组；

@@ -2,7 +2,7 @@
 
 ## 0. 定位与固定顺序
 
-本册把 [08-plugin-mcp.md](08-plugin-mcp.md) 的三工作台方案拆成可执行的开发顺序、交付边界和验收口径。服务端契约已经完成并部署：Agent 36 项、Workbench 90 项、Catalog 5 项，公共入口为 `https://ixicai.cn/mcp/tools/yootun/v1/{agent,workbench,catalog}`。
+本册把 [08-plugin-mcp.md](08-plugin-mcp.md) 的三工作台方案拆成可执行的开发顺序、交付边界和验收口径。服务端契约已经完成并部署：Agent 39 项、Workbench 94 项、Catalog 5 项（2026-11-21 公网 `tools/list` 复核），公共入口为 `https://ixicai.cn/mcp/tools/yootun/v1/{agent,workbench,catalog}`。
 
 迁移顺序固定为：
 
@@ -201,7 +201,7 @@ P1 不预先造超出视频号需求的组件。视频号完成后，第二个�
 
 - 只挂 Agent 面；
 - 依赖官方 `@deepseek-ai/dsh-mcp-client`;
-- 将 36 个 `yootun_*` 工具注册进 `ctx.tools`;
+- 将 39 个 `yootun_*` 工具注册进 `ctx.tools`;
 - serverName 固定 `yootun-agent`;
 - URL 固定 `https://ixicai.cn/mcp/tools/yootun/v1/agent`;
 - Authorization 使用 credential ref，诊断脱敏；
@@ -235,7 +235,7 @@ viral:  workbench_viral_*（仅 douyin）
 tos:    workbench_tos_upload_authorize（仅 xhs media-upload）
 ```
 
-验收要求 90 项精确匹配、跨分组拒绝、Catalog 元工具拒绝、超时取消和生命周期无泄漏。
+验收要求 94 项精确匹配、跨分组拒绝、Catalog 元工具拒绝、超时取消和生命周期无泄漏。
 
 ### 3.5 `@yootun/dsh-media-upload`
 
@@ -441,7 +441,7 @@ P2 至少交付：
 3. 断网或中断后可恢复且不重复批次；
 4. 删除账号先清本地再远端，失败路径可解释；
 5. 页面不出现 Cookie、storage_state、本地路径或 Authorization;
-6. 普通会话仍只见 Agent 36，不见 Workbench 90;
+6. 普通会话仍只见 Agent 39，不见 Workbench 94;
 7. 视频号工作台只调用 19 个 `workbench_wx_*` 白名单。
 
 ## 5. P3：小红书工作台
@@ -604,7 +604,11 @@ P3 至少交付：
 
 在等待期间只维护“抖音变更观察清单”，记录新增 action、工具、页面和数据字段，不提前实现。旧客户端独立新增功能不改变 P1–P3 范围；只有确认未来要迁入新桌面时，才进入观察清单。
 
-旧 route 与 yootun Workbench 是两套独立 registry，不会同步注册。旧客户端在 `/mcp/tools/douyin-operation` 或 `/mcp/tools/viral-video` 新增工具，不会自动进入 Workbench 90。D0 必须同时导出旧 route tools/list 与 `WORKBENCH_TOOLS` 做覆盖矩阵；发现缺口时先补 tools dev 与 08 册，再进入桌面实现。
+旧 route 与 yootun Workbench 是两套独立 registry，不会同步注册。旧客户端在 `/mcp/tools/douyin-operation` 或 `/mcp/tools/viral-video` 新增工具，不会自动进入 Workbench 94。D0 必须同时导出旧 route tools/list 与 `WORKBENCH_TOOLS` 做覆盖矩阵；发现缺口时先补 tools dev 与 08 册，再进入桌面实现。
+
+2026-11-21 基线刷新：RQ-2026-013「发布排期看板」已在旧客户端、旧 `douyin-operation` route 和 yootun MCP 同步。公网 `tools/list` 实测 Agent 39 项、Workbench 94 项、Catalog 5 项；发布排期在 Agent 面为 list / create / update 三项，在 Workbench 面为 list / create / update / delete 四项。该结果仍需进入 D0 冻结矩阵，不能替代旧插件 action、状态 schema、测试与 E2E 对账。
+
+当前 main 的共享连接器仍锁定旧 36 / 90 契约。P4 D0 除旧插件对账外，还必须同步 `@yootun/dsh-managed-mcp` 与 `@yootun/dsh-workbench-mcp` 的清单、guard 分类和测试到 39 / 94；未同步前生产 endpoint 会被精确契约校验拒绝。
 
 ### 6.2 迁移目标
 
@@ -633,21 +637,22 @@ Host 路由：
 3. 作品数据：列表、详情、趋势、导出；
 4. 账号洞察：总览、单账号分析、趋势、导出、热门作品；
 5. AI 分析与报表：AI 分析受理与轮询、报表列表、详情、重建；
-6. 归属与投放：负责人设置、投流保存；
-7. 爆款拆解：归档、下载、工作流、故事板、状态、导出；
-8. 素材看板：seed 池、手动采集、run 历史、候选与 facets;
-9. 爆款基因知识库：搜索、详情、列表、更新、重建。
+6. 发布排期：账号切换、行新增、整行失焦保存、二次确认删除、乐观版本与幂等恢复；
+7. 归属与投放：负责人设置、投流保存；
+8. 爆款拆解：归档、下载、工作流、故事板、状态、导出；
+9. 素材看板：seed 池、手动采集、run 历史、候选与 facets;
+10. 爆款基因知识库：搜索、详情、列表、更新、重建。
 
 ### 6.3 远端工具面
 
 抖音工作台独占两组：
 
 ```text
-workbench_douyin_*：29 项
+workbench_douyin_*：33 项
 workbench_viral_*：22 项
 ```
 
-合计 51 项。其他工作台不得访问 `workbench_viral_*`。
+合计 55 项。其他工作台不得访问 `workbench_viral_*`。`workbench_douyin_publish_schedule_list / row_create / row_update / row_delete` 四项随 RQ-2026-013 进入抖音数据域。
 
 工具 owner 必须在 Host 服务定义中分组：
 
@@ -657,6 +662,7 @@ douyin-collect
 douyin-read
 douyin-analysis
 douyin-report
+douyin-schedule
 douyin-owner
 viral-breakdown
 viral-material
@@ -667,12 +673,14 @@ viral-gene
 
 ### 6.4 UI 信息架构
 
-下表是能力域提示，不是导航定案。顶级导航与各页结构必须以旧插件冻结基线为产品基准，D0 交付等价的布局对齐文档并经用户确认后才能开工 UI；视觉与 CSS 按新版规范重做。
+顶级导航与各页结构完全参考旧插件的布局、信息架构、功能与任务动线；视觉与 CSS 按本仓库规范重做。逐页契约见 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)，D0 复核冻结后才能开工 UI。
+
+P2 曾因只列组件栈而重新发明导航与页面结构，后续通过 [11-wx-workbench-ui-layout-parity.md](11-wx-workbench-ui-layout-parity.md) 单独回正；P3 按 [12-xhs-workbench-ui-layout-parity.md](12-xhs-workbench-ui-layout-parity.md) 先锚定旧布局再实现，基本避免同类返工。P4 必须沿用 P3 口径。
 
 ```text
 PluginPageShell
 ├─ PluginHeader：账号、会话、采集、导出
-├─ SegmentedTabs：总览 / 作品 / 分析 / 报表 / 爆款 / 素材 / 知识库
+├─ SegmentedTabs：账号总览 / 账号作品 / 发布排期看板 / 爆款素材看板 / 爆款拆解 / 爆款基因库 / AI 报表
 ├─ FilterBar：账号、时间、状态、负责人、来源、标签
 ├─ KpiCard：播放、互动、粉丝、热门命中、素材池、知识库
 ├─ ChartFrame：趋势、构成、对比、报表指标
@@ -683,7 +691,8 @@ PluginPageShell
 
 由于信息域最多，P4 必须先做导航层级裁剪：
 
-- 顶层 Tab 不超过 7 个；
+- 顶层 Tab 固定为旧插件的 7 个，不新增、不拆分、不重排；
+- 单账号分析从账号总览下钻进入，不做成顶级 Tab；
 - 每层任务路径不超过三步；
 - 相邻低频操作合并到详情页；
 - 每个图表回答一个业务问题；
@@ -696,7 +705,7 @@ PluginPageShell
 D0 冻结基线：旧插件 delta、新增 action、tools 覆盖矩阵、布局对齐文档、用户确认
 D1 Host 骨架：action schema、状态目录、错误模型
 D2 登录与采集：扫码、run、心跳、批次、日度、finish、cancel
-D3 作品与总览：列表、详情、趋势、导出、热门作品
+D3 作品、总览与发布排期：列表、详情、趋势、导出、热门作品、排期行状态机
 D4 分析与报表：单账号分析、AI 分析、报表列表 / 详情 / 重建
 D5 归属与基础写：负责人、投流、幂等和回执
 D6 爆款拆解：归档、下载、工作流、故事板、导出
@@ -709,7 +718,8 @@ D9 集成：真实线上 MCP、打包、真机（D-6：三工作台均不做助�
 
 P4 至少交付：
 
-- 51 项白名单精确测试；
+- 55 项白名单精确测试；
+- 发布排期新增、整行保存、删除的乐观版本、幂等重试、结果未知和账号切换互斥测试；
 - 采集与日度数据边界测试；
 - AI 分析和报表异步受理 / 轮询 / 失败测试；
 - 归档、下载、工作流和知识库写操作幂等测试；
@@ -723,8 +733,8 @@ P4 至少交付：
 验收通过标准：
 
 1. 抖音扫码与采集状态和旧插件冻结基线等价；
-2. 创作者中心数据、AI 报表和爆款域在 UI 中可闭环；
-3. 51 项白名单外全部拒绝；
+2. 创作者中心数据、发布排期、AI 报表和爆款域在 UI 中可闭环；
+3. 55 项白名单外全部拒绝；
 4. 任何模型或异步操作都有受理、状态、失败和重试路径；
 5. 新增旧客户端冻结点功能已逐项对账，不遗漏；
 6. 抖音工作台不暴露 Catalog 工具，不影响普通会话 Agent 面。
@@ -737,7 +747,7 @@ P5 不新增产品功能，只做三工作台收敛。
 
 1. yootun bundle 只包含预期插件；
 2. 三个工作台内置启用；
-3. 普通会话 Agent tools/list 精确 36;
+3. 普通会话 Agent tools/list 精确 39;
 4. Workbench client 不进入 `ctx.tools`;
 5. Catalog 默认不挂载；
 6. 三个 Host API 互不访问对方白名单；
@@ -772,7 +782,7 @@ pnpm run typecheck
 - [ ] 视频号真实扫码、采集、查询、删除链路通过；
 - [ ] 小红书上传、任务、看板、发布链路通过；
 - [ ] 抖音冻结基线全部对账；
-- [ ] 抖音 29 + viral 22 白名单精确通过；
+- [ ] 抖音 33 + viral 22 白名单精确通过；
 - [ ] Agent / Workbench / Catalog 隔离通过；
 - [ ] 三个工作台 UI 规范评审通过；
 - [ ] 主题、键盘、响应式、reduced-motion 通过；
@@ -788,13 +798,13 @@ pnpm run typecheck
 | 官方插件 API 不支持预期挂载或生命周期 | P1 假插件无法稳定 mount/dispose | 停止业务批次，先做官方机制验证和文档修订 |
 | Workbench 私有连接不可复用 | P1 并发或生命周期测试泄漏 | 收敛为每工作台独立 client，仍保持不进 `ctx.tools` |
 | UI kit 过度抽象 | 组件无第二消费者却预做配置 | 删除 speculative API，保留视频号实际需要的最小面 |
-| UI 信息架构偏离旧插件 | UI 契约只列组件栈，或出现旧插件不存在的顶级导航 | UI 代码开工前先交付布局对齐册（P2 见 11 册、P3 见 12 册、P4 在 D0 交付），复审对照旧源码逐页核对 |
+| UI 信息架构偏离旧插件 | UI 契约只列组件栈，或出现旧插件不存在的顶级导航 | UI 代码开工前先交付布局对齐册（P2 见 11 册、P3 见 12 册、P4 见 14 册），复审对照旧源码逐页核对 |
 | 旧状态不可识别 | P2 只读探测失败 | 不改写旧状态，提供导出 / 手动恢复说明 |
 | Chrome 采集行为漂移 | 真机无法定位选择器或会话失效 | 先修设备端适配，不改 Tools 契约 |
 | 上传授权校验失败 | P3 假授权或线上 TOS 返回异常 | 阻断任务创建，上传链路不得伪造成功 |
 | 小红书写操作幂等冲突 | 重试返回 IDEMPOTENCY_CONFLICT | UI 保留原回执并引导刷新，不自动换键重发 |
 | 抖音冻结点继续变化 | D0 清单无法闭合 | 继续观察，不开 P4 产品代码 |
-| 抖音新增工具未进 Workbench 90 | D0 覆盖矩阵有缺口 | 先补 tools dev 与 08 册，再回桌面批次 |
+| 抖音新增工具未进 Workbench 94 | D0 覆盖矩阵有缺口 | 先补 tools dev 与 08 册，再回桌面批次 |
 
 ## 9. 文档与验收记录
 

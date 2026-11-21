@@ -8,7 +8,7 @@
 
 本地验证要证明：
 
-1. 生产 Workbench endpoint（`https://ixicai.cn/mcp/tools/yootun/v1/workbench`，不设本地覆盖）完成 initialize 与 tools/list，契约精确 90 项，其中 19 项 `workbench_xhs_*` 与白名单一致；`workbench_xhs_hotboard_settings_get` 读通；
+1. 生产 Workbench endpoint（`https://ixicai.cn/mcp/tools/yootun/v1/workbench`，不设本地覆盖）完成 initialize 与 tools/list，契约精确 94 项（2026-11-21 抖音发布排期同步后的当前基线），其中 19 项 `workbench_xhs_*` 与白名单一致；`workbench_xhs_hotboard_settings_get` 读通；
 2. Desktop 小红书工作台能用系统 Chrome 打开真实小红书扫码页，操作者扫码后完成登录、本地状态落盘与账号列表呈现；
 3. 爆款仿写链路用真实素材走通：media-upload 上传得到公网 URL、task.create 幂等创建、轮询至终态、结果单版可编辑可复制、发布面板打开创作者中心并轮询回执；
 4. 车衣爆款看板四子区读取真实数据，写操作（候选审核/关键词/标签）回执就近呈现且失败不改原数据；
@@ -46,7 +46,7 @@ MODELS_API_KEY=<有效 key> node .ui-review/xhs-x7-smoke/prod-smoke.mjs
 |---|---|
 | endpoint 可达 | connect 不抛传输错误（2026-11-20 无 key 探测已确认：endpoint 可达、MCP 协议响应、服务端要求 Models API key） |
 | serverName | `getServerVersion().name === 'yootun-workbench'` |
-| tools/list 总量 | 精确 90 项（connectWorkbench 同口径） |
+| tools/list 总量 | 精确 94 项（connectWorkbench 同口径；发布排期同步前的 90 项记录只保留历史证据） |
 | xhs 子集 | 精确包含 19 项 `workbench_xhs_*`，无多无少（脚本内置清单比对） |
 | settings 读通 | `workbench_xhs_hotboard_settings_get` 非 isError，返回结构化 settings |
 | 白名单边界 | 无任何 `workbench_xhs_` 前缀外工具混入（脚本对前缀集合做差集） |

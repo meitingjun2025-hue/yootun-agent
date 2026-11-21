@@ -125,15 +125,15 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9333')` 连接 rend
 
 | 检查 | 通过标准 |
 |---|---|
-| Agent identity | `serverInfo.name === 'yootun-agent'`，tools/list 精确 36 项 `yootun_*` 工具 |
-| Workbench identity | `serverInfo.name === 'yootun-workbench'`，tools/list 精确 90 项 |
+| Agent identity | `serverInfo.name === 'yootun-agent'`，tools/list 精确 39 项 `yootun_*` 工具 |
+| Workbench identity | `serverInfo.name === 'yootun-workbench'`，tools/list 精确 94 项 |
 | Catalog identity | `serverInfo.name === 'yootun-catalog'`，tools/list 精确 5 项 `yootun_business_*` 工具 |
 | wx subset | Workbench 精确包含 19 个 `workbench_wx_*` 工具 |
-| session isolation | 普通会话只注册 Agent 36，不出现 Workbench 90 或 Catalog 5 |
+| session isolation | 普通会话只注册 Agent 39，不出现 Workbench 94 或 Catalog 5 |
 | catalog isolation | Agent 与 Workbench 列表均不出现 `yootun_business_*` |
 | UI projection | 账号页无远端错误；服务不可用时必须显示 partial/error，不伪装空列表 |
 
-manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Agent 36 / Workbench 90 / Catalog 5 工具名哈希与 19 项 wx 工具名。工具输出只保留业务字段和稳定错误码。
+manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Agent 39 / Workbench 94 / Catalog 5 工具名哈希与 19 项 wx 工具名。工具输出只保留业务字段和稳定错误码。
 
 ## 7. 阶段 B：扫码登录与账号状态
 
@@ -237,7 +237,7 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 | toolsDofeCommit | Tools 仓库 `git rev-parse HEAD` |
 | endpoints | 三个本地 MCP URL，不得包含凭据 |
 | serverNames | `yootun-agent`、`yootun-workbench`、`yootun-catalog` |
-| toolCounts | Agent 36、Workbench 90、Catalog 5 与 19 项 wx 子集校验结果 |
+| toolCounts | Agent 39、Workbench 94、Catalog 5 与 19 项 wx 子集校验结果 |
 | accountId | 测试 finderId，仅本地保存 |
 | runId | UI 与远端一致的 runId |
 | runStatus | UI 与远端一致的终态 |
@@ -253,7 +253,7 @@ manifest 记录两个仓库 HEAD、三个本地 Tools URL、MCP serverName、Age
 本地 W5-A / W5-B 判定通过要求全部成立：
 
 1. Tools 服务健康检查通过；
-2. Agent 36、Workbench 90 / 19 与 Catalog 5 工具契约通过，且普通会话隔离成立；
+2. Agent 39、Workbench 94 / 19 与 Catalog 5 工具契约通过，且普通会话隔离成立；
 3. 用户完成真实扫码，账号保存、探活和本地状态迁移通过；
 4. 单账号真实采集完成或得到真实 partial 结果，且本地 run 与远端 run 一致；
 5. 总览、画像、作品、详情、趋势均用真实返回对账通过；
