@@ -46,7 +46,7 @@ MODELS_API_KEY=<有效 key> node .ui-review/xhs-x7-smoke/prod-smoke.mjs
 |---|---|
 | endpoint 可达 | connect 不抛传输错误（2026-11-20 无 key 探测已确认：endpoint 可达、MCP 协议响应、服务端要求 Models API key） |
 | serverName | `getServerVersion().name === 'yootun-workbench'` |
-| tools/list 总量 | 精确 94 项（connectWorkbench 同口径；发布排期同步前的 90 项记录只保留历史证据） |
+| tools/list 总量 | 服务端广播 94 项（连接器按子集契约只要求白名单 90 项全部出现，不校验总量相等；发布排期同步前的 90 项记录只保留历史证据） |
 | xhs 子集 | 精确包含 19 项 `workbench_xhs_*`，无多无少（脚本内置清单比对） |
 | settings 读通 | `workbench_xhs_hotboard_settings_get` 非 isError，返回结构化 settings |
 | 白名单边界 | 无任何 `workbench_xhs_` 前缀外工具混入（脚本对前缀集合做差集） |

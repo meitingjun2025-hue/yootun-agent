@@ -1,6 +1,6 @@
 /**
  * Agent 面 managed MCP 生命周期与 guard 测试（node --test，真实 Cordis 组合 +
- * 假 MCP server）：未激活零连接、激活后仅 Agent 36、key 更新/移除、guard
+ * 假 MCP server）：未激活零连接、激活后仅 Agent 39、key 更新/移除、guard
  * 读/写/未识别、Workbench/Catalog 拒绝、卸载清理。
  * 运行：`pnpm --filter @yootun/dsh-managed-mcp test`。
  */
@@ -105,14 +105,20 @@ async function shutdown(booted: Booted): Promise<void> {
   await booted.fixture.close().catch(() => undefined)
 }
 
-test('36 项 Agent 契约分类无遗漏且无未知', () => {
-  assert.equal(AGENT_TOOL_NAMES.length, 36)
-  assert.equal(new Set(AGENT_TOOL_NAMES).size, 36)
+test('39 项 Agent 契约分类无遗漏且无未知', () => {
+  assert.equal(AGENT_TOOL_NAMES.length, 39)
+  assert.equal(new Set(AGENT_TOOL_NAMES).size, 39)
   for (const toolName of AGENT_TOOL_NAMES) assert.notEqual(classifyAgentTool(toolName), 'unknown')
   assert.equal(classifyAgentTool('workbench_wx_account_list'), 'unknown')
   assert.equal(classifyAgentTool('yootun_business_tools_search'), 'unknown')
   assert.equal(classifyAgentTool('yootun_xhs_creative_task_start'), 'task-write')
   assert.equal(classifyAgentTool('yootun_wx_accounts_list'), 'read')
+  // 抖音发布排期三项（分册 08 §4.3）：list 只读，row 写按 ask。
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_list'), 'read')
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_create'), 'task-write')
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_update'), 'task-write')
+  // row_delete 按产品决策仅进 Workbench 面，会话中未识别 → deny。
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_delete'), 'unknown')
 })
 
 test('未激活时零连接、零工具', async () => {
@@ -137,10 +143,10 @@ test('缺 settings 或 credentials 服务时同样零连接', async () => {
   }
 })
 
-test('激活后仅 Agent 面 36 项注册，且假 server 走通 initialize / tools/list / tools/call', async () => {
+test('激活后仅 Agent 面 39 项注册，且假 server 走通 initialize / tools/list / tools/call', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, '36 agent tools registered')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, '39 agent tools registered')
     const agentNames = booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).map(name => name.slice('mcp__yootun-agent__'.length))
     assert.deepEqual(new Set(agentNames), new Set(AGENT_TOOL_NAMES))
     assert.equal(booted.fixture.authorization.length > 0, true, '激活后连接建立')
@@ -152,11 +158,14 @@ test('激活后仅 Agent 面 36 项注册，且假 server 走通 initialize / to
       signal: AbortSignal.timeout(10_000),
       calls: [
         { type: 'tool-call' as const, id: brandString<ToolCallId>('read-1'), name: 'mcp__yootun-agent__yootun_wx_accounts_list', arguments: '{}' },
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('read-2'), name: 'mcp__yootun-agent__yootun_douyin_publish_schedule_list', arguments: '{}' },
       ],
     })
-    assert.equal(batch.results.length, 1)
+    assert.equal(batch.results.length, 2)
     assert.equal(batch.results[0]?.result.isError, false)
+    assert.equal(batch.results[1]?.result.isError, false, '发布排期 list 只读放行')
     assert.ok(booted.fixture.toolCalls.includes('yootun_wx_accounts_list'), 'tools/call 到达假 server')
+    assert.ok(booted.fixture.toolCalls.includes('yootun_douyin_publish_schedule_list'), '发布排期 list 到达假 server')
   } finally {
     await shutdown(booted)
   }
@@ -165,14 +174,14 @@ test('激活后仅 Agent 面 36 项注册，且假 server 走通 initialize / to
 test('key 更新销毁重建、key 移除卸载', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
     const connectionsAfterMount = booted.fixture.authorization.length
 
     // key 更新：reference-updated 事件触发销毁重建（新 client 重新连接）。
     booted.setKey('rotated-model-key')
     booted.emitCredentialUpdate()
     // 等待「重建后工具重新到齐」，轮换期间的旧连接/新连接都会推高授权头计数。
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39
       && booted.fixture.authorization.length > connectionsAfterMount, 'client rebuilt after key rotation')
     assert.equal(booted.fixture.authorization.length > connectionsAfterMount, true)
     assert.ok(booted.fixture.authorization.includes('Bearer rotated-model-key'), '重建后连接携带轮换后的 key')
@@ -193,7 +202,7 @@ test('setupComplete 翻转控制挂载', async () => {
     assert.equal(booted.fixture.authorization.length, 0)
     booted.setAccess(ACTIVATED_SNAPSHOT)
     booted.emitSettingsUpdate()
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, 'mounted after activation')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'mounted after activation')
   } finally {
     await shutdown(booted)
   }
@@ -213,7 +222,7 @@ test('validationVersion 不匹配时不挂载', async () => {
 test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
     const batch = await booted.ctx.tools.execute({
       signal: AbortSignal.timeout(10_000),
       calls: [
@@ -221,9 +230,11 @@ test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', 
         { type: 'tool-call' as const, id: brandString<ToolCallId>('wb-1'), name: 'mcp__yootun-workbench__workbench_wx_account_list', arguments: '{}' },
         { type: 'tool-call' as const, id: brandString<ToolCallId>('cat-1'), name: 'mcp__yootun-catalog__yootun_business_capabilities_list', arguments: '{}' },
         { type: 'tool-call' as const, id: brandString<ToolCallId>('write-1'), name: 'mcp__yootun-agent__yootun_xhs_creative_task_start', arguments: '{}' },
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('write-2'), name: 'mcp__yootun-agent__yootun_douyin_publish_schedule_row_create', arguments: '{}' },
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('write-3'), name: 'mcp__yootun-agent__yootun_douyin_publish_schedule_row_update', arguments: '{}' },
       ],
     })
-    assert.equal(batch.results.length, 4)
+    assert.equal(batch.results.length, 6)
     for (const outcome of batch.results) {
       assert.equal(outcome.result.isError, true, `${outcome.callId} 应被 guard 拒绝`)
     }
@@ -237,7 +248,7 @@ test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', 
 test('卸载后无残留工具、无新增连接', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
     const connectionsBefore = booted.fixture.authorization.length
     await booted.pluginFiber.dispose()
     assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0, '卸载后 ctx.tools 无 yootun 工具')
@@ -266,7 +277,7 @@ test('初始连接失败不阻塞插件加载，不伪造工具可用', async ()
 test('guard 对 serverName 大小写变体同样拒绝', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 36, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
     const batch = await booted.ctx.tools.execute({
       signal: AbortSignal.timeout(10_000),
       calls: [

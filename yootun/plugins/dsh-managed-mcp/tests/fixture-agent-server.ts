@@ -1,6 +1,6 @@
 /**
  * 假 Agent 面 MCP server（stateless Streamable HTTP fixture）：精确暴露
- * Agent 契约 36 项工具，记录每次 HTTP 请求的 Authorization 头（连接观测）
+ * Agent 契约 39 项工具，记录每次 HTTP 请求的 Authorization 头（连接观测）
  * 与 tools/call 调用名。仅测试使用。
  * @module
  */

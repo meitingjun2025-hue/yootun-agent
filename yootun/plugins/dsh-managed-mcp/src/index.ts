@@ -2,7 +2,7 @@
  * yootun Agent 面 MCP 管理插件（普通会话唯一 yootun 远端挂载层）。
  * 职责两项：
  * 1. 按激活门禁动态挂载官方 `@deepseek-ai/dsh-mcp-client`（serverName
- *    `yootun-agent`），Agent 面 36 个 `yootun_*` 工具经它注册进 `ctx.tools`；
+ *    `yootun-agent`），Agent 面 39 个 `yootun_*` 工具经它注册进 `ctx.tools`；
  *    未激活零连接、key 更新销毁重建、key 移除销毁、卸载无残留；
  * 2. 注册 `tools/pre-execute` guard：读工具允许、任务型写/可能计费 ask、
  *    未识别与 Workbench/Catalog 面 deny（会话权限边界 = 挂载清单之外的纵深防御）。
