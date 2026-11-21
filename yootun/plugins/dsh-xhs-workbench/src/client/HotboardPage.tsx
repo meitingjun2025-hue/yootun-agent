@@ -69,6 +69,12 @@ function getHub(): HotboardMachine {
 
 export interface HotboardPageProps { t: Translate }
 
+/** 分页 meta 的 total（>0 才作角标兜底；结构异常返回 null）。 */
+function metaTotalOf(meta: Record<string, unknown> | null | undefined): number | null {
+  const total = meta?.total
+  return typeof total === 'number' && total > 0 ? total : null
+}
+
 /**
  * Render the hotboard page (四子区 + 抽屉 + 确认弹层).
  * @param props - page translator.
@@ -90,10 +96,11 @@ export function HotboardPage(props: HotboardPageProps): ReactNode {
   })
 
   const state = useSyncExternalStore(hub.subscribe, hub.get, hub.get)
-  // 子导航角标（对齐旧版，2026-11-21 拍板）：关键词/标签总数，0 与未知不显示。
+  // 子导航角标（对齐旧版，2026-11-21 拍板）：关键词/标签总数，0 与未知不显示；
+  // 计数请求失败时回退到已加载列表 meta.total（兜底）。
   const countBadge = (sub: 'board' | 'keywords' | 'tags' | 'rules'): number | null => {
-    if (sub === 'keywords') return state.counts.keywords !== null && state.counts.keywords > 0 ? state.counts.keywords : null
-    if (sub === 'tags') return state.counts.labels !== null && state.counts.labels > 0 ? state.counts.labels : null
+    if (sub === 'keywords') return state.counts.keywords !== null && state.counts.keywords > 0 ? state.counts.keywords : metaTotalOf(state.keywords?.meta)
+    if (sub === 'tags') return state.counts.labels !== null && state.counts.labels > 0 ? state.counts.labels : metaTotalOf(state.labels?.meta)
     return null
   }
 
@@ -333,10 +340,10 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
       <td data-label={t('hb.colDupGroup')}>{note.duplicateGroupId !== null && note.duplicateGroupId !== undefined ? `${t('hb.dupGroupShort')} ${String(note.duplicateGroupId).slice(0, 8)}` : t('hb.mainRecord')}</td>
       <td data-label={t('hb.colActions')}>
         <span className={css.hbCellActions}>
-          <Button size='sm' onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
+          <Button variant='primary' size='sm' onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
             {t('hb.viewDetail')}
           </Button>
-          <Button variant='outline' size='sm' disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
+          <Button variant='toolbar' size='sm' disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
             {t('hb.exclude')}
           </Button>
         </span>
@@ -448,8 +455,8 @@ function KeywordsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t:
                   </td>
                   <td>{hbEnumText(t, SOURCE_KEYS, row.source)}</td>
                   <td>
-                    {/* 启用为行内高频写操作：outline 浅色可辨识按钮（对齐旧版）；停用纯文字次级。 */}
-                    <Button variant={row.status === 'active' ? 'ghost' : 'outline'} size='sm' disabled={disabled || row.keywordId === ''}
+                    {/* 行操作对齐旧版浅灰实心小按钮（toolbar 变体），启用/停用同款可辨识。 */}
+                    <Button variant='toolbar' size='sm' disabled={disabled || row.keywordId === ''}
                       onClick={() => {
                         hub.askConfirm(
                           tf(t, row.status === 'active' ? 'hb.confirmDisableKeyword' : 'hb.confirmEnableKeyword', { keyword: row.keyword }),
@@ -656,14 +663,14 @@ function TagsPage(props: { state: HotboardSnapshot; hub: HotboardMachine; t: Tra
                   </td>
                   <td>
                     <div className={css.hbRowActions}>
-                      {/* 行操作对齐旧版描边小按钮：编辑/退役 outline，恢复启用为正向主操作 primary。 */}
-                      <Button variant='outline' size='sm' disabled={disabled}
+                      {/* 行操作对齐旧版浅灰实心小按钮（toolbar 变体）；恢复启用为正向主操作 primary。 */}
+                      <Button variant='toolbar' size='sm' disabled={disabled}
                         onClick={() => { setEditor({ labelId: row.labelId, tagType: row.tagType ?? 'style', code: row.code, name: row.name, aliases: row.aliases ?? [], definition: row.definition ?? '' }) }}>
                         {t('hb.edit')}
                       </Button>
                       {row.status === 'active'
                         ? (
-                            <Button variant='outline' size='sm' disabled={disabled}
+                            <Button variant='toolbar' size='sm' disabled={disabled}
                               onClick={() => { hub.askConfirm(tf(t, 'hb.confirmRetireLabel', { label: row.name }), () => { void hub.labelReview({ action: 'retire', labelId: row.labelId }) }, 'warning') }}>
                               {t('hb.retire')}
                             </Button>

@@ -18,43 +18,46 @@ vi.mock('../../src/client/api.ts', () => apiMock)
 
 afterEach(cleanup)
 
+/** 默认 host 假实现（单测用 mockImplementationOnce 可逐次覆写后委托到这里）。 */
+async function defaultHostAction(action: string): Promise<Record<string, unknown>> {
+  if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+  if (action === 'hotboard.overview') {
+    return {
+      status: 'ready',
+      data: {
+        kpis: { totalCases: 12, coverageRate: 0.8, aiTaggedRate: 0.5, duplicateGroupCount: 2, lowQualityCount: 1, failedKeywordCount: 0, lastCollectedAt: '2026-11-20T10:00:00Z', nextRun: { scheduleEnabled: true, cron: '30 1 * * 1' } },
+        filterOptions: { keywords: [{ keyword: '车衣', category: 'product' }], styles: [], colors: [], noteWords: [], commentWords: [] },
+        runStatus: null,
+        notes: [],
+        pagination: { page: 1, pageSize: 20, total: 12 },
+      },
+      meta: { total: 12, pageSize: 20 },
+    }
+  }
+  if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 7, pageSize: 1 } }
+  if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 3, pageSize: 1 } }
+  if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 40, pageSize: 20 } }
+  if (action === 'hotboard.settings') {
+    return {
+      status: 'ready',
+      data: {
+        scheduleEnabled: true, fullScheduleCron: '30 1 * * 1', publishWindowDays: 30, perKeywordLimit: 5,
+        commentTopN: 50, commentMaxPerNote: 20, minInteractionTotal: 200, dedupHammingThreshold: 6,
+        minValidSample: 20, searchMaxCallsPerDay: 800, commentMaxCallsPerDay: 400, detailMaxCallsPerRun: 300,
+        ruleVersion: 'r7',
+      },
+      meta: null,
+    }
+  }
+  throw new Error(`unexpected action ${action}`)
+}
+
 beforeEach(() => {
   apiMock.hostAction.mockReset()
   apiMock.startUploadSession.mockReset()
   apiMock.sendUploadBytes.mockReset()
   apiMock.pollUploadStatus.mockReset()
-  apiMock.hostAction.mockImplementation(async (action: string) => {
-    if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
-    if (action === 'hotboard.overview') {
-      return {
-        status: 'ready',
-        data: {
-          kpis: { totalCases: 12, coverageRate: 0.8, aiTaggedRate: 0.5, duplicateGroupCount: 2, lowQualityCount: 1, failedKeywordCount: 0, lastCollectedAt: '2026-11-20T10:00:00Z', nextRun: { scheduleEnabled: true, cron: '30 1 * * 1' } },
-          filterOptions: { keywords: [{ keyword: '车衣', category: 'product' }], styles: [], colors: [], noteWords: [], commentWords: [] },
-          runStatus: null,
-          notes: [],
-          pagination: { page: 1, pageSize: 20, total: 12 },
-        },
-        meta: { total: 12, pageSize: 20 },
-      }
-    }
-    if (action === 'hotboard.candidates') return { status: 'ready', data: { candidates: [] }, meta: { total: 7, pageSize: 1 } }
-    if (action === 'hotboard.labels') return { status: 'ready', data: { labels: [], proposals: [] }, meta: { total: 3, pageSize: 1 } }
-    if (action === 'hotboard.keywords') return { status: 'ready', data: { keywords: [] }, meta: { total: 40, pageSize: 20 } }
-    if (action === 'hotboard.settings') {
-      return {
-        status: 'ready',
-        data: {
-          scheduleEnabled: true, fullScheduleCron: '30 1 * * 1', publishWindowDays: 30, perKeywordLimit: 5,
-          commentTopN: 50, commentMaxPerNote: 20, minInteractionTotal: 200, dedupHammingThreshold: 6,
-          minValidSample: 20, searchMaxCallsPerDay: 800, commentMaxCallsPerDay: 400, detailMaxCallsPerRun: 300,
-          ruleVersion: 'r7',
-        },
-        meta: null,
-      }
-    }
-    throw new Error(`unexpected action ${action}`)
-  })
+  apiMock.hostAction.mockImplementation(defaultHostAction)
 })
 
 const t = (key: XhsLocaleKey): string => en[key] ?? key
@@ -73,7 +76,7 @@ describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
     expect(subTabs[0]?.getAttribute('aria-selected')).toBe('true')
   })
 
-  it('关键词与标签总数角标来自 pageSize=1 的 meta.total（对齐旧版口径）', async () => {
+  it('关键词与标签总数角标来自独立计数请求（对齐旧版口径）', async () => {
     await renderHotboard()
     await waitFor(() => {
       const kwTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subKeywords']))
@@ -81,6 +84,22 @@ describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
       const tagsTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subTags']))
       expect(tagsTab?.textContent).toContain('3')
     })
+  })
+
+  it('计数请求失败时关键词角标回退到已加载列表 meta.total', async () => {
+    apiMock.hostAction.mockImplementationOnce(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'hotboard.keywords') return { status: 'error', code: 'XHS_HOTBOARD_INVALID_ARGUMENT' }
+      return await defaultHostAction(action, args)
+    })
+    await renderHotboard()
+    await gotoSub('keywords')
+    await waitFor(() => {
+      const kwTab = screen.getAllByRole('tab').find(tab => tab.textContent?.startsWith(en['hb.subKeywords']))
+      expect(kwTab?.textContent).toContain('40')
+    })
+    // hub 是模块级单例：切回 board 恢复子页状态，避免影响后续用例的初始假设。
+    await gotoSub('board')
+    await waitFor(() => expect(screen.getByText(en['hb.kpiCases'])).not.toBeNull())
   })
 })
 

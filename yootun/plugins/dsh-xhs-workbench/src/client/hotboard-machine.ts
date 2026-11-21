@@ -165,7 +165,7 @@ export interface HotboardSnapshot {
   pending: number
   notice: { kind: 'ok' | 'error'; key: string; extra?: Record<string, string | number> } | null
   confirm: { message: string; action: () => void; tone?: 'warning' } | null
-  /** 子导航角标（对齐旧版，2026-11-21 用户拍板）：关键词/标签总数（pageSize=1 只取 meta.total）。 */
+  /** 子导航角标（对齐旧版，2026-11-21 用户拍板）：关键词/标签总数（独立计数请求取 meta.total）。 */
   counts: { keywords: number | null; labels: number | null }
 }
 
@@ -387,7 +387,7 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
     update({ settings: (res.data ?? null) as HotboardSettings | null })
   }
 
-  /** 角标总数（子导航）：关键词与标签列表 total（pageSize=1 只取 meta）。 */
+  /** 角标总数（子导航）：关键词与标签列表 total（与主列表同分页形态，规避服务端对极小 pageSize 的约束）。 */
   async function refreshCounts(): Promise<void> {
     try {
       await readCounts()
@@ -398,8 +398,8 @@ export function createHotboardHub(ports: HotboardMachinePorts): HotboardMachine 
 
   async function readCounts(): Promise<void> {
     const [kw, lbl] = await Promise.all([
-      call('hotboard.keywords', { page: 1, pageSize: 1 }),
-      call('hotboard.labels', { page: 1, pageSize: 1 }),
+      call('hotboard.keywords', { page: 1, pageSize: 20 }),
+      call('hotboard.labels', { page: 1, pageSize: 20 }),
     ])
     const metaOf = (res: HotboardCallResult): number | null => {
       const meta = res.meta as { total?: unknown } | null

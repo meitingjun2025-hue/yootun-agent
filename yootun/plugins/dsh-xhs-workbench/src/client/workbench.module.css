@@ -904,15 +904,28 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.hbPanel {
+/* 四子区页面容器（分区规范：相邻一级分区纵向 20px；标题与子导航留呼吸空间）。 */
+.hbBoard,
+.hbKeywords,
+.hbTags,
+.hbRules {
   display: grid;
-  gap: 10px;
+  gap: 20px;
+  padding-top: 4px;
+  align-content: start;
+  min-width: 0;
 }
 
+.hbPanel {
+  display: grid;
+  gap: 12px;
+}
+
+/* 面板标题加粗（2026-11-21 真机反馈对齐旧版观感；16px/600）。 */
 .hbPanelTitle {
   margin: 0;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .hbEditor {
