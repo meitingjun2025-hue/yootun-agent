@@ -165,7 +165,10 @@ async function handleUploadStartInner(
     return finishJson(res, 400, { error: 'extension_not_allowed' })
   }
   if (size > deps.maxUploadBytes) return finishJson(res, 400, { error: 'file_too_large' })
-  const declaredLength = Number(req.headers['content-length'] ?? '-1')
+  // Desktop forwardWebRequest 流式转发时 Chromium 剔除 content-length（fetch
+  // forbidden header）→ chunked 传输无该头；缺失即跳过前置快检，实际字节数由
+  // staging 兜底（流中超限中止 / 声明≠实际 file_changed / 落盘复核）。
+  const declaredLength = req.headers['content-length'] === undefined ? size : Number(req.headers['content-length'])
   if (declaredLength !== size) return finishJson(res, 400, { error: 'invalid_request' })
   // 声明占用：先绑元数据再暂存；失败回滚到 failed 终态。
   session.name = filename

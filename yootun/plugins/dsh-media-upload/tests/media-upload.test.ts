@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import { readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createServer } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import { test, after } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
@@ -201,6 +201,69 @@ test('路由信任判定：Desktop 转发双头缺失放行，跨站与非同源
     assert.ok(desktopForward.uploadId.length > 0, 'Desktop 转发形态放行并创建会话')
     const get = await clientFetch(h.origin, '/_dsh/uploader/pick-file')
     assert.equal(get.status, 405)
+  } finally {
+    await h.close()
+  }
+})
+
+/** 模拟 Desktop 转发的 chunked 上传：流式 write，避免 Node 按 buffer 长度自动补 content-length。 */
+function chunkedUpload(origin: string, headers: Record<string, string>, body: Buffer): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`${origin}/_dsh/uploader/uploadStart`)
+    const req = httpRequest(
+      { host: url.hostname, port: url.port, path: url.pathname, method: 'POST', transferEncoding: 'chunked', headers },
+      res => { void res.resume(); resolve(res.statusCode ?? 0) },
+    )
+    req.on('error', reject)
+    // write + end（而非 end(body)）：end(buffer) 会按长度自动补 content-length，
+    // 覆盖 chunked 意图导致用例不命中「无 content-length」分支。
+    req.write(body)
+    req.end()
+  })
+}
+
+test('uploadStart 接受 chunked 无 content-length 传输（Desktop 转发形态）', async () => {
+  const h = await harness()
+  try {
+    const pick = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json() as { uploadId: string }
+    // Chromium 流式转发剔除 content-length（fetch forbidden header）→ chunked
+    // 无该头；声明的字节数完整性由 staging 兜底校验，此处应放行。
+    const status = await chunkedUpload(h.origin, {
+      origin: ORIGIN,
+      'sec-fetch-site': 'same-origin',
+      'content-type': 'image/png',
+      'x-yootun-upload-id': pick.uploadId,
+      'x-yootun-filename': 'a.png',
+      'x-yootun-content-type': 'image/png',
+      'x-yootun-size': '4096',
+    }, pngBytes(4096))
+    assert.equal(status, 200, 'chunked 无 content-length 放行')
+  } finally {
+    await h.close()
+  }
+})
+
+test('uploadStart 对 content-length 与声明 size 不符仍拒绝（防截断语义保留）', async () => {
+  const h = await harness()
+  try {
+    const pick = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json() as { uploadId: string }
+    const status = await new Promise<number>((resolve, reject) => {
+      const url = new URL(`${h.origin}/_dsh/uploader/uploadStart`)
+      const req = httpRequest(
+        {
+          host: url.hostname, port: url.port, path: url.pathname, method: 'POST',
+          headers: {
+            origin: ORIGIN, 'sec-fetch-site': 'same-origin', 'content-type': 'image/png',
+            'x-yootun-upload-id': pick.uploadId, 'x-yootun-filename': 'a.png', 'x-yootun-content-type': 'image/png',
+            'x-yootun-size': '4096', 'content-length': '100',
+          },
+        },
+        res => { void res.resume(); resolve(res.statusCode ?? 0) },
+      )
+      req.on('error', reject)
+      req.end(pngBytes(4096))
+    })
+    assert.equal(status, 400, 'content-length ≠ 声明 size 拒绝')
   } finally {
     await h.close()
   }
