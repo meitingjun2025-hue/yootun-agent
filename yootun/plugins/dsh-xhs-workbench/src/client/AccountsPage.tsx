@@ -68,7 +68,7 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
         <div className={css.accountsListHead}>
           <h2 className={css.sectionTitle}>{t('accounts.title')}</h2>
           {/* 采集全部：占位按钮，功能后续接入（置灰防误触；对齐视频号左栏头部）。 */}
-          <Button variant='primary' size='sm' disabled title={t('accounts.collectAllSoon')}>
+          <Button variant='primary' disabled title={t('accounts.collectAllSoon')}>
             {t('accounts.collectAll')}
           </Button>
         </div>
@@ -140,8 +140,14 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                       ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
                       : t('accounts.collectData')}
                   </Button>
-                  <Button variant='toolbar' size='sm' disabled={anyRunning}
-                    onClick={() => { void machine.probeNow(selected.accountId) }}>
+                  {/* 刷新按钮对齐视频号：outline sm + 文案「刷新」。 */}
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={anyRunning}
+                    aria-busy={collectRunning || undefined}
+                    onClick={() => { void machine.probeNow(selected.accountId) }}
+                  >
                     {t('accounts.refreshData')}
                   </Button>
                   {capturedAt !== null && capturedAt !== undefined && (
