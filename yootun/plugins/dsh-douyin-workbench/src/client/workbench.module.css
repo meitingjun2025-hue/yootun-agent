@@ -2309,3 +2309,203 @@
     transition: none;
   }
 }
+
+/* ---- 爆款素材看板（D7）：筛选条 / 候选表 / 抽屉 / 横幅 ---- */
+
+.matFilters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.matFilters > :first-child {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.matBoardTable td,
+.matBoardTable th {
+  white-space: nowrap;
+}
+
+.matBoardTable th:last-child,
+.matBoardTable td:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+}
+
+.matBoardTable td:last-child {
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: -10px 0 10px -10px var(--dsw-alias-shadow-ambient, var(--dsw-alias-border-l1));
+}
+
+.matCover {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--dsw-radius-sm);
+  display: block;
+}
+
+.matCoverFallback {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-inset);
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.matVideoTitle {
+  display: block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.matTags {
+  display: flex;
+  gap: 4px;
+  overflow: hidden;
+  margin-top: 4px;
+  max-width: 280px;
+}
+
+.matTag {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-multi-select);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.matTagMiss {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--dsw-radius-xs);
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: 12px;
+}
+
+.matScore {
+  margin-right: 6px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.matSource {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.matSourceTag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.matActionsCell {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.matMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.matActiveBanner {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px dashed var(--dsw-alias-state-warn-primary);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-info-subtle, var(--dsw-alias-bg-inset));
+  font-size: 13px;
+}
+
+.matDrawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  width: min(440px, 92vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
+  overflow: auto;
+}
+
+.matDrawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.matDrawerHead h3,
+.matDrawer h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.matReasonList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.matReasonItem {
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-inset);
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.matEllipsis {
+  display: block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matSeedInput {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 260px;
+}
+
+.matFormButtons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

@@ -1445,6 +1445,280 @@ function safeShareWorkUrl(value: unknown): string | null {
   }
 }
 
+// ---- 爆款素材看板（material.*） ----
+
+/** 素材候选行（candidates_list 投影字段；缺失 null 不补 0）。 */
+export interface MaterialCandidateRow {
+  candidateId: string
+  awemeId: string | null
+  title: string | null
+  coverUrl: string | null
+  shareUrl: string | null
+  tags: string[] | null
+  hotScore: number | null
+  hotLevel: string | null
+  playCount: number | null
+  likeCount: number | null
+  commentCount: number | null
+  collectCount: number | null
+  shareCount: number | null
+  interactionRate: number | null
+  publishedAt: string | null
+  sourceMatches: { keyword: string | null; accountSeedId: string | null }[]
+  scoreReasons: string[]
+  scoreReasonDetails: { name: string; observed: number | null; threshold: number | null; points: number | null; hit: boolean }[]
+  scoreRuleVersion: string | null
+}
+
+/** 看板响应投影（total 服务端口径；hotLevelSummary 筛选聚合可缺省）。 */
+export interface MaterialBoard {
+  rows: MaterialCandidateRow[]
+  total: number | null
+  levelSummary: Record<string, number> | null
+  offset: number
+  limit: number
+}
+
+export function readMaterialBoard(payload: Record<string, unknown>): MaterialBoard {
+  const data = recordOf(payload.data) ?? {}
+  const summary = recordOf(data.hotLevelSummary)
+  let levelSummary: Record<string, number> | null = null
+  if (summary !== undefined) {
+    const levels: Record<string, number> = {}
+    for (const [level, count] of Object.entries(summary)) {
+      const num = numberOf(count)
+      if (num !== null) levels[level] = num
+    }
+    levelSummary = levels
+  }
+  return {
+    rows: arrayOf(data.candidates).map(candidateOf).filter((row): row is MaterialCandidateRow => row !== null),
+    total: numberOf(data.total),
+    levelSummary,
+    offset: numberOf(data.offset) ?? 0,
+    limit: numberOf(data.limit) ?? 20,
+  }
+}
+
+/** 单候选投影（无 candidateId 的行丢弃）。 */
+function candidateOf(entry: unknown): MaterialCandidateRow | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  const candidateId = textOf(record.candidateId)
+  if (candidateId === null) return null
+  return {
+    candidateId,
+    awemeId: textOf(record.awemeId),
+    title: textOf(record.title),
+    coverUrl: safeHttpUrl(record.coverUrl),
+    shareUrl: safeHttpUrl(record.shareUrl),
+    tags: Array.isArray(record.tags)
+      ? record.tags.map(tag => typeof tag === 'string' ? tag : '').filter(tag => tag !== '')
+      : null,
+    hotScore: numberOf(record.hotScore),
+    hotLevel: textOf(record.hotLevel),
+    playCount: numberOf(record.playCount),
+    likeCount: numberOf(record.likeCount),
+    commentCount: numberOf(record.commentCount),
+    collectCount: numberOf(record.collectCount),
+    shareCount: numberOf(record.shareCount),
+    interactionRate: numberOf(record.interactionRate),
+    publishedAt: textOf(record.publishedAt),
+    sourceMatches: arrayOf(record.sourceMatches).map(match => {
+      const item = recordOf(match)
+      return item === undefined ? null : { keyword: textOf(item.keyword), accountSeedId: textOf(item.accountSeedId) }
+    }).filter((row): row is { keyword: string | null; accountSeedId: string | null } => row !== null),
+    scoreReasons: arrayOf(record.scoreReasons).map(reason => typeof reason === 'string' ? reason : '').filter(reason => reason !== ''),
+    scoreReasonDetails: arrayOf(record.scoreReasonDetails).map(detail => {
+      const item = recordOf(detail)
+      if (item === undefined) return null
+      return {
+        name: textOf(item.name) ?? '',
+        observed: numberOf(item.observed),
+        threshold: numberOf(item.threshold),
+        points: numberOf(item.points),
+        hit: booleanOf(item.hit),
+      }
+    }).filter((row): row is { name: string; observed: number | null; threshold: number | null; points: number | null; hit: boolean } => row !== null),
+    scoreRuleVersion: textOf(record.scoreRuleVersion),
+  }
+}
+
+/** 关键词 seed 行。 */
+export interface KeywordSeedRow {
+  seedId: string
+  keyword: string
+  priority: string | null
+  status: string
+  searchCount: number | null
+  updatedAt: string | null
+}
+
+/** 对标账号 seed 行。 */
+export interface AccountSeedRow {
+  accountSeedId: string
+  displayName: string | null
+  inputForm: string
+  inputValue: string
+  priority: string | null
+  status: string
+  maxVideos: number | null
+  resolved: boolean
+  verificationStatus: string | null
+  lastResolutionError: string | null
+  lastContentFetchedAt: string | null
+}
+
+/** seeds.list 投影（两表 + 启用计数）。 */
+export interface MaterialSeeds {
+  keywords: KeywordSeedRow[]
+  accounts: AccountSeedRow[]
+  activeKeywords: number | null
+  activeAccounts: number | null
+}
+
+export function readMaterialSeeds(payload: Record<string, unknown>): MaterialSeeds {
+  const data = recordOf(payload.data) ?? {}
+  const keywordByStatus = recordOf(data.keywordByStatus)
+  const accountByStatus = recordOf(data.accountByStatus)
+  return {
+    keywords: arrayOf(data.keywords).map(entry => {
+      const record = recordOf(entry)
+      if (record === undefined) return null
+      const seedId = textOf(record.seedId)
+      const keyword = textOf(record.keyword)
+      if (seedId === null || keyword === null) return null
+      return {
+        seedId,
+        keyword,
+        priority: textOf(record.priority),
+        status: textOf(record.status) ?? 'active',
+        searchCount: numberOf(record.searchCount),
+        updatedAt: textOf(record.updatedAt),
+      } satisfies KeywordSeedRow
+    }).filter((row): row is KeywordSeedRow => row !== null),
+    accounts: arrayOf(data.accounts).map(entry => {
+      const record = recordOf(entry)
+      if (record === undefined) return null
+      const accountSeedId = textOf(record.accountSeedId)
+      if (accountSeedId === null) return null
+      return {
+        accountSeedId,
+        displayName: textOf(record.displayName),
+        inputForm: textOf(record.inputForm) ?? 'douyin_id',
+        inputValue: textOf(record.inputValue) ?? '',
+        priority: textOf(record.priority),
+        status: textOf(record.status) ?? 'active',
+        maxVideos: numberOf(record.maxVideos),
+        resolved: booleanOf(record.resolved),
+        verificationStatus: textOf(record.verificationStatus),
+        lastResolutionError: textOf(recordOf(record.lastResolutionError)?.reason),
+        lastContentFetchedAt: textOf(record.lastContentFetchedAt),
+      } satisfies AccountSeedRow
+    }).filter((row): row is AccountSeedRow => row !== null),
+    activeKeywords: keywordByStatus === undefined ? null : numberOf(keywordByStatus.active),
+    activeAccounts: accountByStatus === undefined ? null : numberOf(accountByStatus.active),
+  }
+}
+
+/** 采集 run 行（runs_list 投影字段）。 */
+export interface MaterialRunRow {
+  runId: string
+  runStatus: string
+  startedAt: string | null
+  durationSeconds: number | null
+  keywordCount: number | null
+  accountCount: number | null
+  succeededJobs: number | null
+  failedJobs: number | null
+  newVideos: number | null
+  promotedCandidates: number | null
+  duplicatesSkipped: number | null
+  discovered: number | null
+  candidatesInserted: number | null
+  materialCandidateCount: number | null
+  hotLevelSummary: Record<string, number> | null
+  failedKeywords: string[]
+  failedAccounts: string[]
+  runError: { code: string | null; message: string | null } | null
+}
+
+export function readMaterialRuns(payload: Record<string, unknown>): MaterialRunRow[] {
+  const data = recordOf(payload.data) ?? {}
+  return arrayOf(data.runs).map(entry => {
+    const record = recordOf(entry)
+    if (record === undefined) return null
+    const runId = textOf(record.runId)
+    if (runId === null) return null
+    const summary = recordOf(record.hotLevelSummary)
+    let hotLevelSummary: Record<string, number> | null = null
+    if (summary !== undefined) {
+      const levels: Record<string, number> = {}
+      for (const [level, count] of Object.entries(summary)) {
+        const num = numberOf(count)
+        if (num !== null) levels[level] = num
+      }
+      hotLevelSummary = levels
+    }
+    const runError = recordOf(record.runError)
+    return {
+      runId,
+      runStatus: textOf(record.runStatus) ?? '',
+      startedAt: textOf(record.startedAt),
+      durationSeconds: numberOf(record.durationSeconds),
+      keywordCount: numberOf(record.keywordCount),
+      accountCount: numberOf(record.accountCount),
+      succeededJobs: numberOf(record.succeededJobs),
+      failedJobs: numberOf(record.failedJobs),
+      newVideos: numberOf(record.newVideos),
+      promotedCandidates: numberOf(record.promotedCandidates),
+      duplicatesSkipped: numberOf(record.duplicatesSkipped),
+      discovered: numberOf(record.discovered),
+      candidatesInserted: numberOf(record.candidatesInserted),
+      materialCandidateCount: numberOf(record.materialCandidateCount),
+      hotLevelSummary,
+      failedKeywords: arrayOf(record.failedKeywords).map(item => typeof item === 'string' ? item : '').filter(item => item !== ''),
+      failedAccounts: arrayOf(record.failedAccounts).map(item => typeof item === 'string' ? item : '').filter(item => item !== ''),
+      runError: runError === undefined ? null : { code: textOf(runError.code), message: textOf(runError.message) },
+    } satisfies MaterialRunRow
+  }).filter((row): row is MaterialRunRow => row !== null)
+}
+
+/** 采集受理/轮询回执（async_submit_get 投影）。 */
+export interface MaterialRunStatus {
+  runId: string | null
+  runStatus: string
+  startedAt: string | null
+  nextAction: string | null
+}
+
+export function readMaterialRunStatus(payload: Record<string, unknown>): MaterialRunStatus | null {
+  const data = recordOf(payload.data)
+  if (data === undefined) return null
+  return {
+    runId: textOf(data.runId),
+    runStatus: textOf(data.runStatus) ?? '',
+    startedAt: textOf(data.startedAt),
+    nextAction: textOf(data.nextAction),
+  }
+}
+
+/** 标签 facets（dashboard_get materialFacets.tags 窄投影）。 */
+export interface MaterialFacetTag {
+  tag: string
+  count: number
+}
+
+export function readMaterialFacets(payload: Record<string, unknown>): MaterialFacetTag[] {
+  return arrayOf(payload.tags).map(entry => {
+    const record = recordOf(entry)
+    if (record === undefined) return null
+    const tag = textOf(record.tag)
+    if (tag === null) return null
+    return { tag, count: numberOf(record.count) ?? 0 }
+  }).filter((row): row is MaterialFacetTag => row !== null)
+}
+
 // ---- 导出 ----
 
 /** 导出载荷投影（base64 + 字节数 + 文件名）。 */

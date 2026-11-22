@@ -116,6 +116,10 @@ beforeEach(() => {
     if (action === 'collectAll.status') return { status: 'ready', batch: null }
     if (action === 'breakdown.rewriteRules') return { status: 'ready', rules: [], total: 0 }
     if (action === 'breakdown.history') return { status: 'ready', history: [], total: 0 }
+    if (action === 'material.videos.list') return { status: 'ready', data: { candidates: [], total: 0, offset: 0, limit: 20 } }
+    if (action === 'material.facets') return { status: 'ready', tags: [] }
+    if (action === 'material.seeds.list') return { status: 'ready', data: { keywords: [], accounts: [], keywordByStatus: {}, accountByStatus: {} } }
+    if (action === 'material.runs.list') return { status: 'ready', data: { runs: [], total: 0 } }
     throw new Error(`unexpected action ${action}`)
   })
 })
@@ -156,16 +160,14 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 })
 
-describe('D7/D8 Tab 占位（本开发阶段未接入，绝不显示假数据）；D6 拆解为真实实现', () => {
-  for (const tabKey of ['tab.material', 'tab.gene'] as const) {
-    it(`${en[tabKey]} 面板为「${en['tab.notReady']}」占位且无表格/假数据`, async () => {
-      render(<WorkbenchPage t={t} />)
-      fireEvent.click(screen.getByRole('tab', { name: en[tabKey] }))
-      expect(await screen.findByText(en['tab.notReady'])).not.toBeNull()
-      expect(document.querySelector('table')).toBeNull()
-      expect(apiMock.hostAction).not.toHaveBeenCalledWith(expect.stringMatching(/material\.|gene\./u), expect.anything())
-    })
-  }
+describe('D8 Tab 占位（本开发阶段未接入，绝不显示假数据）；D6/D7 为真实实现', () => {
+  it(`${en['tab.gene']} 面板为「${en['tab.notReady']}」占位且无表格/假数据`, async () => {
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
+    expect(await screen.findByText(en['tab.notReady'])).not.toBeNull()
+    expect(document.querySelector('table')).toBeNull()
+    expect(apiMock.hostAction).not.toHaveBeenCalledWith(expect.stringMatching(/^gene\./u), expect.anything())
+  })
 
   it('爆款拆解面板为真实实现（新建区 + 历史列表加载 breakdown action）', async () => {
     render(<WorkbenchPage t={t} />)
@@ -174,6 +176,20 @@ describe('D7/D8 Tab 占位（本开发阶段未接入，绝不显示假数据）
     expect(screen.getByRole('button', { name: en['bd.downloadButton'] })).not.toBeNull()
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('breakdown.rewriteRules', expect.anything()))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('breakdown.history', expect.anything()))
+  })
+
+  it('爆款素材看板为真实实现（四子页 + KPI + 看板表加载 material action）', async () => {
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ scope: 'material' })))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.facets', expect.anything()))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.seeds.list', expect.anything()))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.runs.list', expect.anything()))
+    // 四子页 SegmentedControl（页内二级 tablist，aria-label 区别于顶级导航）。
+    const sectionTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en['tab.material'])
+    expect(sectionTabs.map(tab => tab.textContent?.replace(/ \d+$/u, ''))).toEqual([
+      en['mat.section.board'], en['mat.section.keywords'], en['mat.section.accounts'], en['mat.section.runs'],
+    ])
   })
 })
 
