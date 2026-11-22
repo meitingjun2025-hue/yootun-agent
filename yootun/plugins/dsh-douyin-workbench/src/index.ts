@@ -1,11 +1,10 @@
 /**
  * yootun 抖音工作台插件——`/api/desktop/yootun/douyin-workbench` 同源路由 +
  * action 契约（56 项冻结）+ 本地状态/登录/采集编排 + 经 Workbench MCP 的
- * douyin/viral 分组调用通道与 dispose 收口。D2–D5 已交付 Host 33 个 action
- * 与 client 半（src/client，7 Tab 工作台）；D6–D8（breakdown/material/gene
- * 共 23 项）Host 与 client 面板同批实现。插件未插入 yootun bundle（client
- * 入口接入属后续批次）。Cookie/storage_state/本地路径不进响应、日志、tools
- * 参数或审计。
+ * douyin/viral 分组调用通道（55 项工具面）与 dispose 收口。D2–D8 各批
+ * Host action 与 client 面板（src/client，7 个顶级 Tab 工作台）已全量交付；
+ * 插件随 D9 集成批次插入 yootun bundle。Cookie/storage_state/本地路径不进
+ * 响应、日志、tools 参数或审计。
  * @module @yootun/dsh-douyin-workbench
  */
 import z from '@deepseek-ai/schemastery'
@@ -58,7 +57,7 @@ export function registerSignal(deps: DouyinHandlerDeps, key: string): AbortContr
 }
 
 /**
- * Build the route handlers (D2 面 11 项；browser.status 与登录/采集链)。
+ * Build the route handlers (56 项全量；browser.status、登录/采集链与各数据域链)。
  * @param deps - handler deps.
  * @returns the action handler table consumed by the route.
  */

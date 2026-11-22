@@ -714,6 +714,8 @@ D8 知识库：搜索、详情、列表、更新、重建、回执
 D9 集成：真实线上 MCP、打包、真机（D-6：三工作台均不做助手，AssistantDock 留待后期产品化）
 ```
 
+2026-11-22 D9 进度：抖音工作台已随 D9 集成批次插入 yootun bundle（内置启用，Catalog 仍不挂载）。本地真实链路验证方案见 [p4-douyin-workbench-d9-local-e2e-plan.md](p4-douyin-workbench-d9-local-e2e-plan.md)（起草待执行）；Windows 真机与出包仍按 §6.6 / §7 另行执行。
+
 ### 6.6 测试与验收
 
 P4 至少交付：
