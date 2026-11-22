@@ -25,6 +25,24 @@ test('quoteLongNumbers：19 位 aweme_id 裸数字加引号（float64 舍入防�
   assert.equal(parseJsonPreservingIds('not json'), null)
 })
 
+test('quoteLongNumbers 字符串感知（D9B 真机缺陷回归）：字符串内长数字不加引号', () => {
+  // 旧插件 parse.js 同款语义：字符串值内部（含转义嵌套 JSON，如 work_list 的
+  // luna_song_id）长数字原样保留；朴素加引号会写出嵌套引号破坏 JSON，整页
+  // 解析失败被归因 invalid_json（2026-11-22 D9B 真机 run 8140786a 复现）。
+  const text = '{"meta":"{\\"luna_song_id\\":\\"7388141571378841638\\",\\"scene\\":0}","aweme_id":7699086779752475881}'
+  const parsed = parseJsonPreservingIds(text) as { meta: string; aweme_id: string } | null
+  assert.notEqual(parsed, null, '嵌套转义字符串内的长数字不得破坏 JSON')
+  assert.equal(parsed?.aweme_id, '7699086779752475881', '字符串外裸数字仍加引号保真')
+  assert.ok((parsed?.meta ?? '').includes('7388141571378841638'), '字符串内长数字原样保留')
+  // 字符串内 16+ 位数字（正文出现）原样保留。
+  const prose = quoteLongNumbers('{"desc":"订单号 1234567890123456 已核销"}')
+  assert.equal((JSON.parse(prose) as { desc: string }).desc, '订单号 1234567890123456 已核销')
+  // 小数与科学计数不被拆引（prev 字符防御）。
+  const numeric = parseJsonPreservingIds('{"ratio":1.2345678901234567,"big":1e21}') as { ratio: number; big: number }
+  assert.equal(numeric.ratio > 1.2, true)
+  assert.equal(numeric.big, 1e21)
+})
+
 test('toNumber/toInt/round2/pct：-0 收敛、定义域守卫不造值', () => {
   assert.equal(Object.is(toNumber(-0), 0), true)
   assert.equal(toNumber(''), null)

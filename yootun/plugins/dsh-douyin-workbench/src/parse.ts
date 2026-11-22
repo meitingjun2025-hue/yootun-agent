@@ -107,26 +107,49 @@ export function firstUrl(value: unknown): string | null {
 }
 
 /**
- * Quote standalone integer literals with ≥16 digits so JSON.parse keeps them
- * as strings（19 位 aweme_id 裸数字会被 float64 舍入）。
+ * Quote integer literals with ≥16 digits **outside JSON strings** so
+ * JSON.parse keeps them as strings（19 位 aweme_id 裸数字会被 float64 舍入）。
+ * String-aware：字符串值内部（含转义嵌套 JSON）的长数字原样保留——对正文
+ * 里的长数字加引号会写出嵌套引号，直接破坏 JSON（旧插件 parse.js 同款语义）。
  * @param text - raw response text.
  * @returns quoted text safe for JSON.parse.
  */
 export function quoteLongNumbers(text: string): string {
   let out = ''
   let index = 0
+  let inString = false
   while (index < text.length) {
     const char = text[index] ?? ''
+    if (inString) {
+      if (char === '\\') {
+        out += char + (text[index + 1] ?? '')
+        index += 2
+        continue
+      }
+      if (char === '"') inString = false
+      out += char
+      index += 1
+      continue
+    }
+    if (char === '"') {
+      inString = true
+      out += char
+      index += 1
+      continue
+    }
     if (char >= '0' && char <= '9') {
+      const prev = index > 0 ? text[index - 1] ?? '' : ''
+      if (/[0-9A-Za-z_.\-+]/u.test(prev)) {
+        out += char
+        index += 1
+        continue
+      }
       let end = index
       while (end < text.length && (text[end] ?? '') >= '0' && (text[end] ?? '') <= '9') end += 1
       const digits = text.slice(index, end)
-      const prev = index > 0 ? text[index - 1] ?? '' : ''
       const next = end < text.length ? text[end] ?? '' : ''
-      const prevOk = prev === '' || !/[0-9A-Za-z_.\-+]/u.test(prev)
-      const nextOk = next === '' || /[,}\]\s]/u.test(next)
-      if (digits.length >= 16 && prevOk && nextOk) out += `"${digits}"`
-      else out += digits
+      const terminates = next === '' || /[,}\]\s]/u.test(next)
+      out += digits.length >= 16 && terminates ? `"${digits}"` : digits
       index = end
       continue
     }

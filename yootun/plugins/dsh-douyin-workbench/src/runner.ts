@@ -249,6 +249,17 @@ export interface CollectResult {
   sessionReportError?: string | null
 }
 
+/**
+ * 编排结果 → 面板横幅三态（旧 client.js run 横幅语义）：编排 ready 但服务端
+ * run 判 partial（settlement/缺口）或列表扫描不完整时绝不显示「采集完成」。
+ * @param result - 单账号采集的终态结果。
+ * @returns completed / partial / failed。
+ */
+export function collectOutcomeStatus(result: Pick<CollectResult, 'status' | 'runStatus' | 'listComplete'>): 'completed' | 'partial' | 'failed' {
+  if (result.status !== 'ready') return 'failed'
+  return result.runStatus === 'partial' || result.listComplete !== true ? 'partial' : 'completed'
+}
+
 /** runCollection 的注入（在 RunnerDeps 之上扩展）。 */
 export interface RunOptions {
   accountId: string
@@ -578,7 +589,7 @@ export function progressFromEvent(event: Record<string, unknown>): Record<string
 /** 单账号 run 记录（进程内；页面轮询 collect.status）。 */
 export interface CollectRecord {
   accountId: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'partial' | 'failed'
   startedAt: string
   finishedAt: string | null
   events: Record<string, unknown>[]
@@ -643,7 +654,7 @@ export function createCollectController(deps: RunnerDeps, hooks: {
       })
       hooks.taskRegistry?.track(task.then(() => undefined).catch(() => undefined))
       void task.then(result => {
-        record.status = result.status === 'ready' ? 'completed' : 'failed'
+        record.status = collectOutcomeStatus(result)
         record.result = result
         record.error = result.reason ?? null
       }).catch((error: unknown) => {
@@ -706,7 +717,7 @@ function projectResult(result: CollectResult): Record<string, unknown> {
 /** 批量条目投影。 */
 export interface BatchItem {
   accountId: string
-  status: 'queued' | 'probing' | 'ready' | 'running' | 'completed' | 'failed' | 'skipped'
+  status: 'queued' | 'probing' | 'ready' | 'running' | 'completed' | 'partial' | 'failed' | 'skipped'
   reason: string | null
   collect?: { status: string; error: string | null; result: Record<string, unknown> | null } | undefined
 }
@@ -724,6 +735,7 @@ export interface BatchStatus {
   runnableTotal: number
   runnableDone: number
   completedCount: number
+  partialCount: number
   failedCount: number
   skippedCount: number
   probedCount: number
@@ -772,13 +784,14 @@ export function createBatchCollectController(options: {
     // 闭包内不保留 let 收窄：进入即快照。
     const snapshot = state
     if (snapshot === null) {
-      return { batchId: null, status: null, phase: null, startedAt: null, finishedAt: null, error: null, currentAccountId: null, total: 0, runnableTotal: 0, runnableDone: 0, completedCount: 0, failedCount: 0, skippedCount: 0, probedCount: 0, items: [] }
+      return { batchId: null, status: null, phase: null, startedAt: null, finishedAt: null, error: null, currentAccountId: null, total: 0, runnableTotal: 0, runnableDone: 0, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 0, items: [] }
     }
     const count = (status: BatchItem['status']): number => snapshot.items.filter(item => item.status === status).length
     const skipped = count('skipped')
     const completed = count('completed')
+    const partial = count('partial')
     const failed = count('failed')
-    const probed = snapshot.items.filter(item => ['ready', 'running', 'completed', 'failed'].includes(item.status)).length
+    const probed = snapshot.items.filter(item => ['ready', 'running', 'completed', 'partial', 'failed'].includes(item.status)).length
     return {
       batchId: snapshot.batchId,
       status: snapshot.status,
@@ -789,8 +802,9 @@ export function createBatchCollectController(options: {
       currentAccountId: snapshot.currentAccountId,
       total: snapshot.items.length,
       runnableTotal: snapshot.items.length - skipped,
-      runnableDone: completed + failed,
+      runnableDone: completed + partial + failed,
       completedCount: completed,
+      partialCount: partial,
       failedCount: failed,
       skippedCount: skipped,
       probedCount: probed,
@@ -924,8 +938,10 @@ export function createBatchCollectController(options: {
             continue
           }
           const result = await options.collect.wait(item.accountId)
+          // 与单账号同口径（collectOutcomeStatus）：部分失败绝不伪装成整体成功。
+          const outcome = result !== null ? collectOutcomeStatus(result) : 'failed'
           item.collect = {
-            status: result !== null && result.status === 'ready' ? 'completed' : 'failed',
+            status: outcome,
             error: result?.reason ?? null,
             result: result === null ? null : projectResult(result),
           }
@@ -935,7 +951,7 @@ export function createBatchCollectController(options: {
             current.currentAccountId = null
             continue
           }
-          item.status = result !== null && result.status === 'ready' ? 'completed' : 'failed'
+          item.status = outcome
           item.reason = item.status === 'failed' ? result?.reason ?? 'collect_failed' : null
           current.currentAccountId = null
         }
@@ -948,8 +964,9 @@ export function createBatchCollectController(options: {
       } finally {
         if (current.status === 'running') {
           const completed = current.items.filter(item => item.status === 'completed').length
+          const partial = current.items.filter(item => item.status === 'partial').length
           const failed = current.items.filter(item => item.status === 'failed').length
-          current.status = completed === 0 ? 'failed' : failed > 0 ? 'partial' : 'completed'
+          current.status = completed === 0 && partial === 0 ? 'failed' : failed > 0 || partial > 0 ? 'partial' : 'completed'
           current.finishedAt = new Date().toISOString()
         }
       }

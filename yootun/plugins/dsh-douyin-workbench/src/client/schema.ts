@@ -93,6 +93,7 @@ export interface BatchView {
   runnableTotal: number
   runnableDone: number
   completedCount: number
+  partialCount: number
   failedCount: number
   skippedCount: number
   probedCount: number
@@ -193,6 +194,7 @@ export function readBatchStatus(payload: Record<string, unknown>): BatchView {
     runnableTotal: numberOf(record.runnableTotal) ?? 0,
     runnableDone: numberOf(record.runnableDone) ?? 0,
     completedCount: numberOf(record.completedCount) ?? 0,
+    partialCount: numberOf(record.partialCount) ?? 0,
     failedCount: numberOf(record.failedCount) ?? 0,
     skippedCount: numberOf(record.skippedCount) ?? 0,
     probedCount: numberOf(record.probedCount) ?? 0,

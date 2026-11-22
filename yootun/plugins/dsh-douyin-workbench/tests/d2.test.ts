@@ -191,3 +191,16 @@ test('G-1：ACTION_TOOL_MAP 无 collect_run_cancel 绑定（采集取消只经�
     assert.ok(!binding.tools.includes('workbench_douyin_collect_run_cancel'), 'cancel 不得绑定 action')
   }
 })
+
+test('collectOutcomeStatus：ready + 服务端 partial / 列表不完整 → partial（不伪装采集完成）', async () => {
+  const { collectOutcomeStatus } = await import('../src/runner.ts')
+  // 旧 client.js run 横幅语义：编排 ready 但 run 判 partial 或列表扫描不完整
+  // 必须呈现 partial（D9B 真机 run 8140786a：列表读取失败 expected 0 却显示
+  // 采集完成——2026-11-22 修复回归锚点）。
+  assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'partial', listComplete: true }), 'partial', '服务端 partial 不得显示完成')
+  assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'completed', listComplete: false }), 'partial', '列表不完整不得显示完成')
+  assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'completed', listComplete: true }), 'completed')
+  assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: null, listComplete: true }), 'completed', '无服务端 run 的空采集按列表完整性判定')
+  assert.equal(collectOutcomeStatus({ status: 'collect_failed', runStatus: null, listComplete: false }), 'failed')
+  assert.equal(collectOutcomeStatus({ status: 'ingest_failed', runStatus: 'completed', listComplete: true }), 'failed')
+})

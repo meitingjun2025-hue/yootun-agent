@@ -304,7 +304,7 @@ function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: Ac
   const summaryKey = batch.status === 'completed' ? 'batch.summary.completed'
     : batch.status === 'partial' ? 'batch.summary.partial'
       : 'batch.summary.failed'
-  const unfinished = running ? [] : batch.items.filter(item => item.status === 'failed' || item.status === 'skipped')
+  const unfinished = running ? [] : batch.items.filter(item => item.status === 'failed' || item.status === 'partial' || item.status === 'skipped')
   return (
     <div
       className={css.batchPanel}
@@ -320,14 +320,14 @@ function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: Ac
             <p className={css.batchLine}>{t('batch.current', { name: nameOf(batch.currentAccountId) })}</p>
           )}
           <p className={css.batchLine}>
-            {t('batch.counts', { completed: batch.completedCount, failed: batch.failedCount, skipped: batch.skippedCount })}
+            {t('batch.counts', { completed: batch.completedCount, partial: batch.partialCount, failed: batch.failedCount, skipped: batch.skippedCount })}
           </p>
         </>
       )}
       {!running && (
         <>
           <p className={css.batchSummary} data-tone={batch.status === 'completed' ? 'ok' : batch.status === 'partial' ? 'partial' : 'error'} role='status'>
-            {t(summaryKey, { completed: batch.completedCount, failed: batch.failedCount, skipped: batch.skippedCount })}
+            {t(summaryKey, { completed: batch.completedCount, partial: batch.partialCount, failed: batch.failedCount, skipped: batch.skippedCount })}
           </p>
           {unfinished.length > 0 && (
             <div className={css.batchDetail}>
