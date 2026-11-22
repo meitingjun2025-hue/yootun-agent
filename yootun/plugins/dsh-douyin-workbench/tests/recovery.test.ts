@@ -9,8 +9,9 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { apply, buildRouteHandlers, createDouyinHostDeps, Config } from '../src/index.ts'
+import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createFakeContext, createFakeWorkbench, tempRoot } from './fakes.ts'
-import { readRuns, updateRun, runsFilePath } from '../src/runs.ts'
+import { readRuns, recoverInterruptedRuns, updateRun, runsFilePath } from '../src/runs.ts'
 
 /** 等待异步条件成立（轮询；超时抛错）。 */
 async function waitForAsync(condition: () => Promise<boolean>, timeoutMs = 2000, label = 'condition'): Promise<void> {
@@ -138,6 +139,49 @@ test('runs.json 语义损坏 → 恢复失败，业务 action 一律 run_state_c
     await assert.rejects(() => handlers['collect.status']({ accountId: 'a' }), (error: unknown) => (error as { code?: string }).code === 'run_state_corrupt')
     // 损坏文件保持原样（不得被恢复/查询改写）。
     assert.equal(await readFile(join(root, 'runs.json'), 'utf8'), corrupt)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('startup recovery 纳入 dispose：pending 时 activeCount=1，release 前 dispose 不返回，返回后无后台写入', async () => {
+  const { root, cleanup } = await tempRoot()
+  try {
+    await updateRun(root, 'acc-track', 'attempt-track', { status: 'running', runId: null })
+    let release: (() => void) | undefined
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const deps = createDouyinHostDeps({
+      root,
+      workbenchFace: createFakeWorkbench().face,
+      // 受控恢复：gate 之后执行真实恢复（落盘可观测）。
+      recovery: async target => {
+        await gate
+        return recoverInterruptedRuns(target)
+      },
+    })
+    // ① recovery pending：任务登记表必须可见（dispose 等它）。
+    assert.equal(deps.taskRegistry.activeCount, 1, 'startupReady 必须 track 进任务登记表')
+    // ② dispose pending：release 前不得返回。
+    let disposeSettled = false
+    const disposing = disposeHostTasks({ deps }).then(() => { disposeSettled = true })
+    await new Promise(resolve => setTimeout(resolve, 120))
+    assert.equal(disposeSettled, false, 'recovery release 前 dispose 不得返回')
+    // ③ release：恢复完成、dispose 返回、状态落盘。
+    release?.()
+    await disposing
+    assert.equal(disposeSettled, true)
+    const runs = await readRuns(root)
+    assert.equal(runs['attempt-track']?.status, 'interrupted')
+    // ④ dispose 返回后无新的 runs.json 写入（mtime 与内容稳定）。
+    const file = join(root, 'runs.json')
+    const before = await readFile(file, 'utf8')
+    const statBefore = (await import('node:fs/promises')).stat
+    const mtimeBefore = (await statBefore(file)).mtimeMs
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const after = await readFile(file, 'utf8')
+    const mtimeAfter = (await statBefore(file)).mtimeMs
+    assert.equal(after, before, 'dispose 返回后 runs.json 内容不得变化')
+    assert.equal(mtimeAfter, mtimeBefore, 'dispose 返回后不得再写 runs.json')
   } finally {
     await cleanup()
   }

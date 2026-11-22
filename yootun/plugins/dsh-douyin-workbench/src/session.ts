@@ -514,10 +514,16 @@ export async function refreshSessionState(options: {
   accountId: string
   root?: string
   chromeFactory?: ChromeFactory | undefined
+  /** 登录链路取消：探测前后检查（浏览器路径本身不受 signal 影响）。 */
+  signal?: AbortSignal | undefined
 }): Promise<RefreshedSession> {
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
+  // abort 检查走函数边界（第二次在 await 之后；const 收窄不跨 await）。
+  const aborted = (): boolean => options.signal?.aborted === true
+  if (aborted()) throw new DouyinError('login_aborted', 'login_aborted')
   const probe = await probeSession({ accountId, root, chromeFactory: options.chromeFactory })
+  if (aborted()) throw new DouyinError('login_aborted', 'login_aborted')
   const vaultRef = paths(root).vaultRef(accountId)
   const nowIso = new Date().toISOString()
   if (probe.status === 'ok') {

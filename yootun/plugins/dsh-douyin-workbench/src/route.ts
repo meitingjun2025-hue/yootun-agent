@@ -752,8 +752,9 @@ export type HandlerPayload =
   | ({ status: 'ready' | 'started' } & Record<string, unknown>)
   | ({ status: 'error'; reason: StableErrorCode } & Record<string, unknown>)
 
-/** One action's business handler: receives validated args, returns the JSON payload. */
-export type ActionHandler = (args: ActionArgs) => Promise<HandlerPayload>
+/** One action's business handler: receives validated args and the request-level
+ * abort signal（dispose 取消在途请求；后台任务型 action 不消费它）, returns the JSON payload. */
+export type ActionHandler = (args: ActionArgs, signal?: AbortSignal) => Promise<HandlerPayload>
 
 /**
  * Build the POST handler for the route.

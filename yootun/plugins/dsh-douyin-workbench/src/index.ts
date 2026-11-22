@@ -182,4 +182,4 @@ export { createCollectController, createBatchCollectController, batchCandidates,
 export { createIngestClient, ingestCollectedWorks, BATCH_SIZE, DETERMINISTIC_ERRORS, RECOVERABLE_ERRORS, type IngestClient, type IngestOutcome } from './ingest.ts'
 export * as collector from './collector.ts'
 export * as parse from './parse.ts'
-export { buildDouyinHandlers, createHandlerDeps, projectAccounts, resolveAccountAlias, resolveAccountId, type DouyinHandlerDeps, type LoginRun, type ResolveAccountOutcome } from './handlers.ts'
+export { buildDouyinHandlers, completeLoginAfterSuccess, createHandlerDeps, projectAccounts, resolveAccountAlias, resolveAccountId, type DouyinHandlerDeps, type LoginRun, type ResolveAccountOutcome, type StartupRecovery } from './handlers.ts'

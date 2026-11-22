@@ -109,11 +109,15 @@ export function createHandlerDeps(options: {
     startupReady: Promise.resolve(),
   }
   // G-2 启动恢复：立即启动（不阻塞 route 注册），完成前业务 action 等待。
+  // recovery promise 纳入任务登记表：dispose 等它 settle——pending 期间
+  // activeCount ≥ 1，release 前 dispose 不返回，返回后不再有 runs.json 写入。
+  // 错误在链内吞掉并记 startupError（不产生 unhandled rejection）。
   const run = (options.recovery ?? recoverInterruptedRuns)(options.root)
   deps.startupReady = run.then(() => undefined, (error: unknown) => {
     deps.startupError = safeCode(error)
     deps.logger.warn('douyin startup run recovery failed', error)
   })
+  deps.taskRegistry.track(deps.startupReady)
   return deps
 }
 
@@ -191,7 +195,7 @@ export interface ResolveAccountOutcome {
  * 占位账号解析（旧 resolveAccountId）：非 pending 原样返回；有在途采集不升级；
  * 升级成功后幂等补 account_save（真实 ID）并远端墓碑清理占位行（失败不阻断）。
  */
-export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunning: (accountId: string) => boolean, accountId: string): Promise<ResolveAccountOutcome> {
+export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunning: (accountId: string) => boolean, accountId: string, signal?: AbortSignal): Promise<ResolveAccountOutcome> {
   if (!isPendingAccountId(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   if (collectHasRunning(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   const promoted = await promotePendingAccount({ accountId, root: deps.root, chromeFactory: deps.chromeFactory })
@@ -207,7 +211,7 @@ export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunnin
     }
     if (typeof record?.nickname === 'string' && record.nickname !== '') payload.nickname = record.nickname
     if (typeof record?.fanCount === 'number' && Number.isFinite(record.fanCount)) payload.fanCount = record.fanCount
-    await deps.callTool('workbench_douyin_account_save', payload)
+    await deps.callTool('workbench_douyin_account_save', payload, signal)
   } catch (error) {
     saveError = safeCode(error)
   }
@@ -217,7 +221,7 @@ export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunnin
       accountId,
       confirm: true,
       idempotencyKey: accountRemoveIdempotencyKey(accountId),
-    })
+    }, signal)
   } catch (error) {
     remoteCleanup = safeCode(error)
   }
@@ -245,10 +249,12 @@ async function callExport(deps: DouyinHandlerDeps, tool: string, args: Record<st
   fallback: string
   /** 服务端码 → 本地稳定码映射（值必须是稳定码白名单成员）。 */
   errorMap?: Partial<Record<string, StableErrorCode>>
+  /** 请求级取消（dispose 取消在途导出）。 */
+  signal?: AbortSignal
 }): Promise<HandlerPayload> {
   let payload: Record<string, unknown>
   try {
-    const outcome = await deps.callTool(tool, args)
+    const outcome = await deps.callTool(tool, args, options.signal)
     payload = outcome.structuredContent && typeof outcome.structuredContent === 'object'
       ? outcome.structuredContent as Record<string, unknown>
       : {}
@@ -294,13 +300,85 @@ function definedArgs(args: ActionArgs, keys: readonly string[]): Record<string, 
   return out
 }
 
+/**
+ * 登录成功后的后续链路（beginLogin 内联提取，生产路径零变化；测试可直调）：
+ * 顺序冻结——先 account_save（saveError 透出），再翻 ok，最后会话上报。每个
+ * 阶段 await 前检查 login signal：abort 后不再发起后续调用（含 session
+ * report）；本地登录态（storage_state/profile 迁移已在 loginWithQrCode 内
+ * 完成）一律保留不清理；run 稳定落 failed + login_aborted（既有稳定码）。
+ * 日志只记稳定码，不含 Cookie/storage_state/本地路径。
+ */
+export async function completeLoginAfterSuccess(
+  deps: DouyinHandlerDeps,
+  signal: AbortSignal,
+  run: LoginRun,
+  result: { status: 'ok'; accountId: string; profile: DouyinProfile | null } | { status: 'timeout' } | { status: 'failed'; reason: string },
+): Promise<void> {
+  if (result.status !== 'ok') {
+    if (result.status === 'timeout') {
+      run.status = 'timeout'
+      run.error = 'login_timeout'
+    } else {
+      run.status = 'failed'
+      run.error = result.reason
+    }
+    return
+  }
+  run.accountId = result.accountId
+  // abort 检查走函数边界（const 收窄不跨 await）。
+  const aborted = (): boolean => signal.aborted
+  if (aborted()) {
+    run.status = 'failed'
+    run.error = 'login_aborted'
+    return
+  }
+  // ① account_save（携带 login signal；失败记 saveError 不阻断翻态）。
+  try {
+    const payload: Record<string, unknown> = {
+      accountId: result.accountId,
+      sessionRef: paths(deps.root).vaultRef(result.accountId),
+      idempotencyKey: accountSaveIdempotencyKey(result.accountId),
+    }
+    const profile: DouyinProfile | null = result.profile
+    if (profile?.nickname != null) payload.nickname = profile.nickname
+    if (profile?.avatar != null) payload.avatar = profile.avatar
+    if (profile?.fanCount != null) payload.fanCount = profile.fanCount
+    await deps.callTool('workbench_douyin_account_save', payload, signal)
+    run.saveError = null
+  } catch (error) {
+    run.saveError = safeCode(error)
+    deps.logger.warn('douyin account_save after login failed', error)
+  }
+  if (aborted()) {
+    run.status = 'failed'
+    run.error = 'login_aborted'
+    return
+  }
+  run.status = 'ok'
+  // ② 会话上报（新 seq；携带 login signal；失败不影响 run 终态）。
+  try {
+    const state = await refreshSessionState({ accountId: result.accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal })
+    if (aborted()) return
+    const report = await reportSessionStatus(
+      { callTool: deps.callTool, root: deps.root, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
+      result.accountId,
+      state,
+      signal,
+    )
+    if (!report.ok) deps.logger.warn(`douyin session report after login failed: ${report.error ?? ''}`)
+  } catch (error) {
+    deps.logger.warn('douyin session report after login failed', error)
+  }
+}
+
 /** D2–D5 全量 action 处理器表（33 项全量；D6–D8 缺席即 unknown_action）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
 }): Record<string, ActionHandler> {
   const asString = (args: ActionArgs, key: string): string => typeof args[key] === 'string' ? args[key] as string : ''
-  const guard = (handler: ActionHandler): ActionHandler => async (args: ActionArgs) => {
+  let actionSeq = 0
+  const guard = (handler: ActionHandler): ActionHandler => async (args: ActionArgs, _requestSignal?: AbortSignal) => {
     if (deps.disposing) throw new DouyinError('plugin_disposing', 'plugin is disposing')
     // G-2：业务 action 等待启动恢复 settle（route 注册不被阻塞；recovery 期间
     // 任何 collect.start 都进不了控制器，无竞态）。
@@ -309,7 +387,17 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       // runs.json 语义损坏：不得继续读写采集状态（文件保持原样，绝不改写）。
       throw new DouyinError(deps.startupError, 'startup run recovery failed')
     }
-    return deps.taskRegistry.runTracked(() => handler(args))
+    // 请求级 signal：登记进 deps.signals，dispose abort 时取消在途远端调用；
+    // handler settle 后清理（后台任务型 handler 不消费该 signal）。
+    actionSeq += 1
+    const controller = new AbortController()
+    const signalKey = `action:${String(actionSeq)}`
+    deps.signals.set(signalKey, controller)
+    try {
+      return await deps.taskRegistry.runTracked(() => handler(args, controller.signal))
+    } finally {
+      if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
+    }
   }
   const runnerDeps: RunnerDeps = {
     callTool: deps.callTool,
@@ -318,9 +406,9 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     maxPages: deps.maxPages,
     logger: { warn: message => { deps.logger.warn(message) } },
   }
-  /** 远端调用 → {status:'ready', data: payload} 直通投影。 */
-  const passthrough = async (tool: string, args: Record<string, unknown>): Promise<HandlerPayload> => {
-    const outcome = await deps.callTool(tool, args)
+  /** 远端调用 → {status:'ready', data: payload} 直通投影（signal 透传）。 */
+  const passthrough = async (tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<HandlerPayload> => {
+    const outcome = await deps.callTool(tool, args, signal)
     const payload = outcome.structuredContent
     return { status: 'ready', data: payload && typeof payload === 'object' ? payload : {} }
   }
@@ -331,12 +419,12 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', chromeAvailable: status.chromeAvailable, driverAvailable: status.driverAvailable, platform: status.platform, hint: status.hint }
     },
 
-    'accounts.list': async () => {
+    'accounts.list': async (_args, signal) => {
       const local = await readAccounts(deps.root)
       let remote: Record<string, unknown>[] = []
       let remoteError: string | null = null
       try {
-        const outcome = await deps.callTool('workbench_douyin_account_list', {})
+        const outcome = await deps.callTool('workbench_douyin_account_list', {}, signal)
         const payload = outcome.structuredContent
         remote = payload && typeof payload === 'object' && Array.isArray((payload as { accounts?: unknown }).accounts)
           ? (payload as { accounts: Record<string, unknown>[] }).accounts
@@ -366,49 +454,14 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
-      }).then(async result => {
-        if (result.status === 'ok') {
-          run.accountId = result.accountId
-          // 顺序冻结：先 account_save（saveError 透出），再翻 ok（页面在首个
-          // 非 waiting 轮询即停止，先翻 ok 会让 saveError 永远丢失）。
-          try {
-            const payload: Record<string, unknown> = {
-              accountId: result.accountId,
-              sessionRef: paths(deps.root).vaultRef(result.accountId),
-              idempotencyKey: accountSaveIdempotencyKey(result.accountId),
-            }
-            const profile: DouyinProfile | null = result.profile
-            if (profile?.nickname != null) payload.nickname = profile.nickname
-            if (profile?.avatar != null) payload.avatar = profile.avatar
-            if (profile?.fanCount != null) payload.fanCount = profile.fanCount
-            await deps.callTool('workbench_douyin_account_save', payload)
-            run.saveError = null
-          } catch (error) {
-            run.saveError = safeCode(error)
-            deps.logger.warn('douyin account_save after login failed', error)
-          }
-          run.status = 'ok'
-          // 登录成功后的会话上报（新 seq；失败不影响 run 终态）。
-          try {
-            const state = await refreshSessionState({ accountId: result.accountId, root: deps.root, chromeFactory: deps.chromeFactory })
-            const report = await reportSessionStatus(runnerDeps, result.accountId, state)
-            if (!report.ok) deps.logger.warn(`douyin session report after login failed: ${report.error ?? ''}`)
-          } catch (error) {
-            deps.logger.warn('douyin session report after login failed', error)
-          }
-        } else if (result.status === 'timeout') {
-          run.status = 'timeout'
-          run.error = 'login_timeout'
-        } else {
+      }).then(result => completeLoginAfterSuccess(deps, controller.signal, run, result))
+        .catch((error: unknown) => {
           run.status = 'failed'
-          run.error = result.reason
-        }
-      }).catch((error: unknown) => {
-        run.status = 'failed'
-        run.error = safeCode(error)
-      }).finally(() => {
-        if (deps.signals.get(`login:${key}`) === controller) deps.signals.delete(`login:${key}`)
-      }))
+          run.error = safeCode(error)
+        })
+        .finally(() => {
+          if (deps.signals.get(`login:${key}`) === controller) deps.signals.delete(`login:${key}`)
+        }))
       return { status: 'ready', login: projectLogin(run) }
     },
 
@@ -423,12 +476,12 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', login: projectLogin(run) }
     },
 
-    'account.probe': async args => {
+    'account.probe': async (args, signal) => {
       const requested = asString(args, 'accountId')
-      const resolved = await resolveAccountId(deps, id => controllers.collect.status(id) !== null && (controllers.collect.status(id)?.status === 'running'), requested)
+      const resolved = await resolveAccountId(deps, id => controllers.collect.status(id) !== null && (controllers.collect.status(id)?.status === 'running'), requested, signal)
       const session = await withProfileLock(resolved.accountId, () =>
-        refreshSessionState({ accountId: resolved.accountId, root: deps.root, chromeFactory: deps.chromeFactory }))
-      const report = await reportSessionStatus(runnerDeps, resolved.accountId, session)
+        refreshSessionState({ accountId: resolved.accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal }))
+      const report = await reportSessionStatus(runnerDeps, resolved.accountId, session, signal)
       return {
         status: 'ready',
         accountId: resolved.accountId,
@@ -457,13 +510,13 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', accountId, localCleared: true }
     },
 
-    'account.removeRemote': async args => {
+    'account.removeRemote': async (args, signal) => {
       const accountId = asString(args, 'accountId')
       const outcome = await deps.callTool('workbench_douyin_account_remove', {
         accountId,
         confirm: true,
         idempotencyKey: accountRemoveIdempotencyKey(accountId),
-      })
+      }, signal)
       const payload = outcome.structuredContent
       const deleteState = payload && typeof payload === 'object' && typeof (payload as { deleteState?: unknown }).deleteState === 'string'
         ? (payload as { deleteState: string }).deleteState
@@ -478,13 +531,23 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       const usable = await hasStorageState(resolved.accountId, deps.root)
       if (!usable) return { status: 'error', reason: 'session_required' }
       const maxPages = typeof args.maxPages === 'number' ? args.maxPages : deps.maxPages
+      // 后台采集使用 collect controller 信号（不消费请求级 signal——本 action
+      // 启动后台任务后立即返回）；登记进 deps.signals 供 dispose abort，run
+      // settle 后清理。
+      const controller = new AbortController()
+      const signalKey = `collect:${resolved.accountId}`
+      deps.signals.set(signalKey, controller)
       const started = controllers.collect.start({
         accountId: resolved.accountId,
-        options: { maxPages },
+        options: { maxPages, signal: controller.signal },
       })
       if (!started.started) {
+        if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
         return { status: 'error', reason: started.reason ?? 'collect_busy' }
       }
+      deps.taskRegistry.track(controllers.collect.wait(resolved.accountId).then(() => undefined, () => undefined).then(() => {
+        if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
+      }))
       const record = controllers.collect.status(resolved.accountId)
       return {
         status: 'ready',
@@ -493,7 +556,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }
     },
 
-    'collect.status': async args => {
+    'collect.status': async (args, signal) => {
       const alias = await resolveAccountAlias(asString(args, 'accountId'), deps.root)
       const record = controllers.collect.status(alias)
       // G-2：内存态丢失（重启）时给 runs.json 最近一条记录 + 恢复判定。
@@ -519,7 +582,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         // 远端终态查询：终态 → 同步本地 runs.json；仍 running / 查询失败 →
         // recovery_required（不伪造本地 running）。
         try {
-          const outcome = await deps.callTool('workbench_douyin_collect_run_get', { runId: last.runId })
+          const outcome = await deps.callTool('workbench_douyin_collect_run_get', { runId: last.runId }, signal)
           const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
           const run = payload.run && typeof payload.run === 'object' ? payload.run as Record<string, unknown> : {}
           const remoteStatus = typeof run.status === 'string' ? run.status : null
@@ -561,12 +624,12 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
 
     // ---- D3：作品 / 总览 / 导出 / 排期 ----
 
-    'works.list': async args => {
+    'works.list': async (args, signal) => {
       const accountId = await resolveAccountAlias(asString(args, 'accountId'), deps.root)
       const outcome = await deps.callTool('workbench_douyin_work_list', {
         accountId,
         includeNotInList: args.includeNotInList === true,
-      })
+      }, signal)
       const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
       return {
         status: 'ready',
@@ -576,65 +639,66 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }
     },
 
-    'work.get': async args => passthrough('workbench_douyin_work_get', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }),
-    'work.trend': async args => passthrough('workbench_douyin_work_trend', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }),
-    'run.get': async args => passthrough('workbench_douyin_collect_run_get', { runId: asString(args, 'runId') }),
+    'work.get': async (args, signal) => passthrough('workbench_douyin_work_get', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }, signal),
+    'work.trend': async (args, signal) => passthrough('workbench_douyin_work_trend', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }, signal),
+    'run.get': async (args, signal) => passthrough('workbench_douyin_collect_run_get', { runId: asString(args, 'runId') }, signal),
 
-    'export': async args => callExport(deps, 'workbench_douyin_export', {
+    'export': async (args, signal) => callExport(deps, 'workbench_douyin_export', {
       accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
       format: 'xlsx',
-    }, { prefix: 'douyin-export', fallback: 'douyin-export.xlsx' }),
+    }, { prefix: 'douyin-export', fallback: 'douyin-export.xlsx', ...(signal !== undefined ? { signal } : {}) }),
 
-    'overview.get': async args => {
+    'overview.get': async (args, signal) => {
       const toolArgs = definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'ownerName', 'sort', 'topN', 'hotType', 'cursor', 'limit', 'ruleVersion'])
-      const outcome = await deps.callTool('workbench_douyin_account_overview', toolArgs)
+      const outcome = await deps.callTool('workbench_douyin_account_overview', toolArgs, signal)
       return { status: 'ready', overview: outcome.structuredContent }
     },
 
-    'hotWorks.list': async args => {
+    'hotWorks.list': async (args, signal) => {
       // 与 overview.get 同参面但无 ownerName（旧 hot_work_list DTO 不收负责人）。
       const toolArgs = definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'sort', 'topN', 'hotType', 'cursor', 'limit', 'ruleVersion'])
-      const outcome = await deps.callTool('workbench_douyin_hot_work_list', toolArgs)
+      const outcome = await deps.callTool('workbench_douyin_hot_work_list', toolArgs, signal)
       return { status: 'ready', hotWorks: outcome.structuredContent }
     },
 
-    'overview.export': async args => callExport(deps, 'workbench_douyin_overview_export', definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'ruleVersion']), {
+    'overview.export': async (args, signal) => callExport(deps, 'workbench_douyin_overview_export', definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'ruleVersion']), {
       prefix: 'douyin-overview-',
       fallback: 'douyin-overview-export.xlsx',
       errorMap: { TOO_MANY_ACCOUNTS: 'overview_too_many_accounts' },
+      ...(signal !== undefined ? { signal } : {}),
     }),
 
-    'account.analysis': async args => {
+    'account.analysis': async (args, signal) => {
       const toolArgs = { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), ...definedArgs(args, ['publishFrom', 'publishTo', 'sort', 'ruleVersion']) }
-      const outcome = await deps.callTool('workbench_douyin_account_analysis', toolArgs)
+      const outcome = await deps.callTool('workbench_douyin_account_analysis', toolArgs, signal)
       return { status: 'ready', analysis: outcome.structuredContent }
     },
 
-    'account.trend': async args => {
+    'account.trend': async (args, signal) => {
       const toolArgs: Record<string, unknown> = {
         accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
         metric: asString(args, 'metric') !== '' ? asString(args, 'metric') : 'play',
         ...definedArgs(args, ['fromDay', 'toDay', 'contractVersion']),
       }
       if (args.cohortDelta === true) toolArgs.cohortDelta = true
-      const outcome = await deps.callTool('workbench_douyin_account_trend', toolArgs)
+      const outcome = await deps.callTool('workbench_douyin_account_trend', toolArgs, signal)
       return { status: 'ready', trend: outcome.structuredContent }
     },
 
-    'accountAnalysis.export': async args => callExport(deps, 'workbench_douyin_account_analysis_export', {
+    'accountAnalysis.export': async (args, signal) => callExport(deps, 'workbench_douyin_account_analysis_export', {
       accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
       ...definedArgs(args, ['publishFrom', 'publishTo', 'ruleVersion']),
-    }, { prefix: 'douyin-account-analysis-', fallback: 'douyin-account-analysis-report.xlsx' }),
+    }, { prefix: 'douyin-account-analysis-', fallback: 'douyin-account-analysis-report.xlsx', ...(signal !== undefined ? { signal } : {}) }),
 
-    'schedule.list': async args => passthrough('workbench_douyin_publish_schedule_list', { accountId: asString(args, 'accountId') }),
+    'schedule.list': async (args, signal) => passthrough('workbench_douyin_publish_schedule_list', { accountId: asString(args, 'accountId') }, signal),
 
-    'schedule.rowCreate': async args => passthrough('workbench_douyin_publish_schedule_row_create', {
+    'schedule.rowCreate': async (args, signal) => passthrough('workbench_douyin_publish_schedule_row_create', {
       accountId: asString(args, 'accountId'),
       confirm: true,
       idempotencyKey: asString(args, 'idempotencyKey'),
-    }),
+    }, signal),
 
-    'schedule.rowUpdate': async args => {
+    'schedule.rowUpdate': async (args, signal) => {
       // 缺失业务字段显式转 null、整行提交（route 层已剔空串与非法枚举）。
       const row = {
         accountId: asString(args, 'accountId'),
@@ -653,49 +717,49 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         confirm: true,
         idempotencyKey: asString(args, 'idempotencyKey'),
       }
-      return passthrough('workbench_douyin_publish_schedule_row_update', row)
+      return passthrough('workbench_douyin_publish_schedule_row_update', row, signal)
     },
 
-    'schedule.rowDelete': async args => passthrough('workbench_douyin_publish_schedule_row_delete', {
+    'schedule.rowDelete': async (args, signal) => passthrough('workbench_douyin_publish_schedule_row_delete', {
       accountId: asString(args, 'accountId'),
       rowId: args.rowId as number,
       expectedVersion: args.expectedVersion as number,
       confirm: true,
       idempotencyKey: asString(args, 'idempotencyKey'),
-    }),
+    }, signal),
 
     // ---- D4：AI 分析与报表 ----
 
-    'aiAnalysis.start': async args => passthrough('workbench_douyin_account_ai_analysis_start', {
+    'aiAnalysis.start': async (args, signal) => passthrough('workbench_douyin_account_ai_analysis_start', {
       accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
       idempotencyKey: asString(args, 'idempotencyKey'),
-    }),
+    }, signal),
 
-    'aiAnalysis.get': async args => {
+    'aiAnalysis.get': async (args, signal) => {
       // 展平单层投影：aiStatus 是运行态，analysis=null 表示从未分析。
       const outcome = await deps.callTool('workbench_douyin_account_ai_analysis_get', {
         accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
-      })
+      }, signal)
       const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
       return { status: 'ready', aiStatus: payload.status ?? null, analysis: payload.analysis ?? null }
     },
 
-    'report.list': async args => passthrough('workbench_douyin_report_list', definedArgs(args, ['reportType', 'periodStart', 'status', 'limit', 'cursor', 'allVersions'])),
-    'report.get': async args => passthrough('workbench_douyin_report_get', { reportId: asString(args, 'reportId') }),
-    'report.regenerate': async args => passthrough('workbench_douyin_report_regenerate', {
+    'report.list': async (args, signal) => passthrough('workbench_douyin_report_list', definedArgs(args, ['reportType', 'periodStart', 'status', 'limit', 'cursor', 'allVersions']), signal),
+    'report.get': async (args, signal) => passthrough('workbench_douyin_report_get', { reportId: asString(args, 'reportId') }, signal),
+    'report.regenerate': async (args, signal) => passthrough('workbench_douyin_report_regenerate', {
       reportId: asString(args, 'reportId'),
       idempotencyKey: asString(args, 'idempotencyKey'),
-    }),
+    }, signal),
 
     // ---- D5：负责人与投流 ----
 
-    'account.owner.set': async args => passthrough('workbench_douyin_account_owner_set', {
+    'account.owner.set': async (args, signal) => passthrough('workbench_douyin_account_owner_set', {
       accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
       ownerName: asString(args, 'ownerName'),
       idempotencyKey: asString(args, 'idempotencyKey'),
-    }),
+    }, signal),
 
-    'work.promotion.save': async args => {
+    'work.promotion.save': async (args, signal) => {
       const payload: Record<string, unknown> = {
         accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
         workId: asString(args, 'workId'),
@@ -707,7 +771,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }
       // recordId 仅显式携带（stale-add 恢复路径由页面重拉后带 recordId 转更新）。
       if (typeof args.recordId === 'number') payload.recordId = args.recordId
-      return passthrough('workbench_douyin_work_promotion_save', payload)
+      return passthrough('workbench_douyin_work_promotion_save', payload, signal)
     },
   }
 
