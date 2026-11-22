@@ -624,7 +624,7 @@ export function parseItemSummarize(json: unknown): Map<string, SummarizeRow> {
 export interface HotwordResult {
   status: 'ok' | 'unavailable'
   statusCode: number | null
-  words: { word: string; rank: number | null; rawScore: string | null }[]
+  words: { word: string; rank: number | null; raw_score: string | null }[]
   error?: string | undefined
 }
 
@@ -641,7 +641,7 @@ export function parseWordCloud(json: unknown): HotwordResult {
     const word = clampText(firstPresent(record.word, record.keyword), 128)
     if (word === null) continue
     const rank = toInt(record.rank)
-    words.push({ word, rank: rank !== null && rank >= 0 ? rank : null, rawScore: clampText(record.raw_score, 64) })
+    words.push({ word, rank: rank !== null && rank >= 0 ? rank : null, raw_score: clampText(record.score, 64) })
   }
   return { status: 'ok', statusCode, words }
 }

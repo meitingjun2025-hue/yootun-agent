@@ -183,6 +183,9 @@ test('buildWorkPayload 契约键集（ingest_batch works[] 冻结 DTO，D9B 真�
   for (const point of payload.play_trend_daily ?? []) {
     assert.deepEqual(Object.keys(point), ['day', 'play_count'])
   }
+  for (const word of (payload.hotword as { words: { word: string; rank: number | null; raw_score: string | null }[] }).words) {
+    assert.deepEqual(Object.keys(word).sort(), ['rank', 'raw_score', 'word'])
+  }
   for (const curve of [payload.progress_analysis?.drag_back_curve, payload.progress_analysis?.drag_forward_curve]) {
     for (const point of curve ?? []) {
       assert.deepEqual(Object.keys(point), ['key', 'value'])
@@ -223,7 +226,7 @@ test('buildWorkPayload 契约键集（ingest_batch works[] 冻结 DTO，D9B 真�
       bounceGap: null,
       mget,
       summarize,
-      hotword: { status: 'ok', statusCode: 0, words: [{ word: '热词', rank: 1, rawScore: null }] },
+      hotword: { status: 'ok', statusCode: 0, words: [{ word: '热词', rank: 1, raw_score: null }] },
       metricsTrend: [{ day: '2026-11-20', playCount: 5 }, { day: '2026-11-21', playCount: 6 }],
       metricsTrendGap: null,
       observedAt: '2026-11-22T00:00:00.000Z',
