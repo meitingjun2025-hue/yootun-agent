@@ -124,7 +124,7 @@ export function quoteLongNumbers(text: string): string {
       const prev = index > 0 ? text[index - 1] ?? '' : ''
       const next = end < text.length ? text[end] ?? '' : ''
       const prevOk = prev === '' || !/[0-9A-Za-z_.\-+]/u.test(prev)
-      const nextOk = next === '' || /[,\]}]\s/u.test(next)
+      const nextOk = next === '' || /[,}\]\s]/u.test(next)
       if (digits.length >= 16 && prevOk && nextOk) out += `"${digits}"`
       else out += digits
       index = end
