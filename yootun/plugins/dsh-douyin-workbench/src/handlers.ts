@@ -275,7 +275,7 @@ function definedArgs(args: ActionArgs, keys: readonly string[]): Record<string, 
   return out
 }
 
-/** D2–D5 全量 action 处理器表（D2+D3 批；后续批在同一表内扩充）。 */
+/** D2–D5 全量 action 处理器表（D2–D4 批；D5 批在同一表内扩充）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
@@ -606,6 +606,30 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       confirm: true,
       idempotencyKey: asString(args, 'idempotencyKey'),
     }),
+
+    // ---- D4：AI 分析与报表 ----
+
+    'aiAnalysis.start': async args => passthrough('workbench_douyin_account_ai_analysis_start', {
+      accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }),
+
+    'aiAnalysis.get': async args => {
+      // 展平单层投影：aiStatus 是运行态，analysis=null 表示从未分析。
+      const outcome = await deps.callTool('workbench_douyin_account_ai_analysis_get', {
+        accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+      })
+      const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
+      return { status: 'ready', aiStatus: payload.status ?? null, analysis: payload.analysis ?? null }
+    },
+
+    'report.list': async args => passthrough('workbench_douyin_report_list', definedArgs(args, ['reportType', 'periodStart', 'status', 'limit', 'cursor', 'allVersions'])),
+    'report.get': async args => passthrough('workbench_douyin_report_get', { reportId: asString(args, 'reportId') }),
+    'report.regenerate': async args => passthrough('workbench_douyin_report_regenerate', {
+      reportId: asString(args, 'reportId'),
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }),
+
   }
 
   const guarded: Record<string, ActionHandler> = {}

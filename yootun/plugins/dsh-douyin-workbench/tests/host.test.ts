@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { WORKBENCH_GROUP_TOOLS } from '@yootun/dsh-workbench-mcp'
-import { ACTION_TOOL_MAP, ROUTE_PATH } from '../src/route.ts'
+import { ACTION_SCHEMAS, ACTION_TOOL_MAP, ROUTE_PATH } from '../src/route.ts'
 import { DOUYIN_CALLER, createWorkbenchCaller } from '../src/workbench.ts'
 import { STABLE_ERROR_CODES, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers } from '../src/index.ts'
@@ -37,7 +37,7 @@ test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/
   for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
 })
 
-test('D2+D3 批 25 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
+test('D2–D4 全量 31 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -68,6 +68,11 @@ test('D2+D3 批 25 个 action 精确实现；browser.status 投影不回传设�
       'schedule.rowCreate',
       'schedule.rowUpdate',
       'schedule.rowDelete',
+      'aiAnalysis.start',
+      'aiAnalysis.get',
+      'report.list',
+      'report.get',
+      'report.regenerate',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')
@@ -99,12 +104,14 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
   }
 })
 
-test('未实现 action 在 handler 表缺席（fail loud 由 route 层 unknown_action 收敛）', async () => {
+test('D6–D8 的 23 个 action 在 handler 表缺席（fail loud 由 route 层 unknown_action 收敛）', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    for (const action of ['report.list', 'report.get', 'account.owner.set', 'work.promotion.save', 'aiAnalysis.start', 'aiAnalysis.get', 'breakdown.archiveStart', 'material.videos.list', 'gene.search']) {
-      assert.equal(handlers[action], undefined, `${action} 不得在 D3 假实现`)
+    const d68 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('breakdown.') || action.startsWith('material.') || action.startsWith('gene.'))
+    assert.equal(d68.length, 23, 'D6–D8 冻结 23 项（breakdown 9 + material 8 + gene 6）')
+    for (const action of d68) {
+      assert.equal(handlers[action], undefined, `${action} 属 D6–D8，本阶段不得实现`)
     }
   } finally {
     await cleanup()
