@@ -55,6 +55,8 @@ export interface DouyinHandlerDeps {
   startupReady: Promise<void>
   /** 启动恢复失败（runs.json 语义损坏）的稳定码；非 null 时业务 action 拒绝。 */
   startupError: StableErrorCode | null
+  /** pending 提升接缝（缺省 promotePendingAccount；测试注入受控实现）。 */
+  promote: (input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined }) => Promise<{ promoted: boolean; accountId: string; reason?: string }>
 }
 
 /** 从 Workbench face 构建直接调用通道（handlers 用；caller 前缀校验已在 workbench.ts；signal 原样透传）。 */
@@ -92,6 +94,8 @@ export function createHandlerDeps(options: {
   maxPages?: number
   taskRegistry?: TaskRegistry
   recovery?: StartupRecovery
+  /** pending 提升接缝（测试注入；生产缺省 promotePendingAccount）。 */
+  promote?: DouyinHandlerDeps['promote']
 }): DouyinHandlerDeps {
   const taskRegistry = options.taskRegistry ?? createTaskRegistry()
   const deps: DouyinHandlerDeps = {
@@ -107,6 +111,8 @@ export function createHandlerDeps(options: {
     maxPages: options.maxPages ?? 1000,
     startupError: null,
     startupReady: Promise.resolve(),
+    promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined }) =>
+      promotePendingAccount({ accountId: input.accountId, root: input.root, chromeFactory: input.chromeFactory })),
   }
   // G-2 启动恢复：立即启动（不阻塞 route 注册），完成前业务 action 等待。
   // recovery promise 纳入任务登记表：dispose 等它 settle——pending 期间
@@ -198,7 +204,7 @@ export interface ResolveAccountOutcome {
 export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunning: (accountId: string) => boolean, accountId: string, signal?: AbortSignal): Promise<ResolveAccountOutcome> {
   if (!isPendingAccountId(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   if (collectHasRunning(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
-  const promoted = await promotePendingAccount({ accountId, root: deps.root, chromeFactory: deps.chromeFactory })
+  const promoted = await deps.promote({ accountId, root: deps.root, chromeFactory: deps.chromeFactory })
   if (!promoted.promoted) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   const realId = promoted.accountId
   let saveError: string | null = null
@@ -379,22 +385,26 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   const asString = (args: ActionArgs, key: string): string => typeof args[key] === 'string' ? args[key] as string : ''
   let actionSeq = 0
   const guard = (handler: ActionHandler): ActionHandler => async (args: ActionArgs, _requestSignal?: AbortSignal) => {
-    if (deps.disposing) throw new DouyinError('plugin_disposing', 'plugin is disposing')
-    // G-2：业务 action 等待启动恢复 settle（route 注册不被阻塞；recovery 期间
-    // 任何 collect.start 都进不了控制器，无竞态）。
-    await deps.startupReady
-    if (deps.startupError !== null) {
-      // runs.json 语义损坏：不得继续读写采集状态（文件保持原样，绝不改写）。
-      throw new DouyinError(deps.startupError, 'startup run recovery failed')
-    }
-    // 请求级 signal：登记进 deps.signals，dispose abort 时取消在途远端调用；
-    // handler settle 后清理（后台任务型 handler 不消费该 signal）。
+    // 请求进入即登记 signal 与任务追踪（覆盖 startup 等待期）：dispose 竞态下
+    // 等待中的请求也被 abort——恢复 settle 后复查 disposing/aborted，绝不发出
+    // Workbench 调用；dispose 等待 recovery 与在途/等待中的请求共同 settle。
     actionSeq += 1
     const controller = new AbortController()
     const signalKey = `action:${String(actionSeq)}`
     deps.signals.set(signalKey, controller)
     try {
-      return await deps.taskRegistry.runTracked(() => handler(args, controller.signal))
+      return await deps.taskRegistry.runTracked(async () => {
+        // G-2：业务 action 等待启动恢复 settle（route 注册不被阻塞）。
+        await deps.startupReady
+        if (deps.startupError !== null) {
+          // runs.json 语义损坏：不得继续读写采集状态（文件保持原样，绝不改写）。
+          throw new DouyinError(deps.startupError, 'startup run recovery failed')
+        }
+        if (deps.disposing || controller.signal.aborted) {
+          throw new DouyinError('plugin_disposing', 'plugin is disposing')
+        }
+        return handler(args, controller.signal)
+      })
     } finally {
       if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
     }
@@ -524,11 +534,18 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', accountId, deleteState }
     },
 
-    'collect.start': async args => {
+    'collect.start': async (args, requestSignal) => {
       const requested = asString(args, 'accountId')
-      const resolved = await resolveAccountId(deps, () => controllers.collect.hasRunning() || controllers.batch.hasRunning(), requested)
+      // 前置阶段（pending 提升的 account_save/account_remove）携带请求级
+      // signal；每个 await 后复查——abort 返回稳定 collect_cancelled，不启动
+      // 后台采集、不创建 collect: 信号。
+      const resolved = await resolveAccountId(deps, () => controllers.collect.hasRunning() || controllers.batch.hasRunning(), requested, requestSignal)
+      // abort 检查走函数边界（const 收窄不跨 await）。
+      const reqAborted = (): boolean => requestSignal?.aborted === true
+      if (reqAborted()) throw new DouyinError('collect_cancelled', 'collect.start aborted')
       // 就绪检查（storage_state 前置）。
       const usable = await hasStorageState(resolved.accountId, deps.root)
+      if (reqAborted()) throw new DouyinError('collect_cancelled', 'collect.start aborted')
       if (!usable) return { status: 'error', reason: 'session_required' }
       const maxPages = typeof args.maxPages === 'number' ? args.maxPages : deps.maxPages
       // 后台采集使用 collect controller 信号（不消费请求级 signal——本 action
@@ -608,15 +625,26 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', collect: record }
     },
 
-    'collectAll.start': async () => {
-      const accounts = await batchCandidates(runnerDeps)
-      const started = controllers.batch.start(accounts)
+    'collectAll.start': async (_args, requestSignal) => {
+      // 前置候选筛选携带请求级 signal（abort → collect_cancelled，不启动 batch）。
+      const accounts = await batchCandidates(runnerDeps, requestSignal)
+      // batch 正式启动前创建后台 controller（请求级 signal 随 handler 返回清理，
+      // 后台归 dispose 管理；采集取消只经该信号）。
+      const controller = new AbortController()
+      const started = controllers.batch.start(accounts, { signal: controller.signal })
       if (!started.started) {
         const reason = started.reason ?? 'collect_busy'
         const payload: HandlerPayload = { status: 'error', reason: isStableCode(reason) ? reason : 'collect_busy' }
         if (started.skipped !== undefined) return { ...payload, skipped: started.skipped }
         return payload
       }
+      const batchStatus = controllers.batch.status
+      const batchKey = `collect:batch:${batchStatus.batchId ?? 'unknown'}`
+      deps.signals.set(batchKey, controller)
+      const runPromise = started.runPromise ?? Promise.resolve()
+      deps.taskRegistry.track(runPromise.then(() => undefined).then(() => {
+        if (deps.signals.get(batchKey) === controller) deps.signals.delete(batchKey)
+      }))
       return { status: 'ready', batch: controllers.batch.status }
     },
 

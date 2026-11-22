@@ -73,10 +73,11 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
   const collect = createCollectController(runnerDeps, { taskRegistry: deps.taskRegistry })
   const batch = createBatchCollectController({
     collect,
-    // probe 回调 = 本地实测 + 尽力上报（旧 deps.batchController 口径）。
-    probe: async accountId => {
-      const session = await refreshSessionState({ accountId, root: deps.root, chromeFactory: deps.chromeFactory })
-      const report = await reportSessionStatus(runnerDeps, accountId, session)
+    // probe 回调 = 本地实测 + 尽力上报（旧 deps.batchController 口径；batch
+    // signal 贯穿探测与上报，dispose 可取消）。
+    probe: async (accountId, signal) => {
+      const session = await refreshSessionState({ accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal })
+      const report = await reportSessionStatus(runnerDeps, accountId, session, signal)
       void report
       return { sessionStatus: session.sessionStatus, reason: session.reason }
     },
@@ -105,6 +106,8 @@ export function createDouyinHostDeps(options: {
   maxPages?: number
   /** G-2 启动恢复接缝（缺省 recoverInterruptedRuns；测试注入受控实现）。 */
   recovery?: import('./handlers.ts').StartupRecovery
+  /** pending 提升接缝（测试注入；生产缺省 promotePendingAccount）。 */
+  promote?: import('./handlers.ts').DouyinHandlerDeps['promote']
 }): DouyinHandlerDeps {
   return createHandlerDeps({
     root: options.root,
@@ -114,6 +117,7 @@ export function createDouyinHostDeps(options: {
     ...(options.chromeFactory !== undefined ? { chromeFactory: options.chromeFactory } : {}),
     ...(options.maxPages !== undefined ? { maxPages: options.maxPages } : {}),
     ...(options.recovery !== undefined ? { recovery: options.recovery } : {}),
+    ...(options.promote !== undefined ? { promote: options.promote } : {}),
   })
 }
 

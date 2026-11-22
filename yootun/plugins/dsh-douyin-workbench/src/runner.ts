@@ -739,6 +739,8 @@ interface BatchState {
   error: string | null
   currentAccountId: string | null
   items: BatchItem[]
+  /** batch 级取消信号（dispose/采集取消贯穿 probe 与逐账号采集）。 */
+  signal: AbortSignal | undefined
 }
 
 let batchSeq = 0
@@ -754,7 +756,7 @@ export function createBatchCollectController(options: {
     wait(accountId: string): Promise<CollectResult | null>
     hasRunning(): boolean
   }
-  probe: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null }>
+  probe: (accountId: string, signal?: AbortSignal) => Promise<{ sessionStatus: string; reason: string | null }>
   logger?: { warn(message: string): void } | undefined
   /** 整次 batch run promise 交给调用方任务登记；dispose 等待它。 */
   trackRun?: ((promise: Promise<void>) => void) | undefined
@@ -801,7 +803,7 @@ export function createBatchCollectController(options: {
     hasRunning(): boolean { return this.running },
 
     /** Start one batch (single-flight; probes then collects serially). */
-    start(accounts: Array<{ accountId: string; skipped: boolean; reason: string | null }>): { started: boolean; batch?: BatchStatus; reason?: string; skipped?: Record<string, unknown>[] } {
+    start(accounts: Array<{ accountId: string; skipped: boolean; reason: string | null }>, startOptions?: { signal?: AbortSignal }): { started: boolean; batch?: BatchStatus; reason?: string; skipped?: Record<string, unknown>[]; runPromise?: Promise<void> } {
       if (state !== null && state.status === 'running') {
         return { started: false, reason: 'collect_busy', batch: project() }
       }
@@ -825,6 +827,7 @@ export function createBatchCollectController(options: {
         error: null,
         currentAccountId: null,
         items,
+        signal: startOptions?.signal,
       }
       const run = this.run().catch((error: unknown) => {
         const reason = safeCode(error)
@@ -842,24 +845,45 @@ export function createBatchCollectController(options: {
         }
       })
       options.trackRun?.(run)
-      return { started: true, batch: project() }
+      return { started: true, batch: project(), runPromise: run }
     },
 
     async run(): Promise<void> {
       // let 捕获变量的收窄不跨 await：进入即快照到 const。
       const current = state
       if (current === null) return
+      // batch 级取消检查（函数边界；abort 后剩余项稳定落失败、不再启动下一账号、
+      // 不再发起任何 Workbench 写调用）。
+      const cancelled = (): boolean => current.signal?.aborted === true
+      const failRest = (reason: string): void => {
+        for (const item of current.items) {
+          if (item.status === 'queued' || item.status === 'probing' || item.status === 'running' || item.status === 'ready') {
+            item.status = 'failed'
+            item.reason = reason
+          }
+        }
+      }
       try {
         // 阶段 1：串行 probing（缓存口径的 ok 只是上次探测结果，实测才诚实）。
         current.phase = 'probing'
         for (const item of current.items) {
           if (item.status !== 'queued') continue
+          if (cancelled()) {
+            item.status = 'failed'
+            item.reason = 'collect_cancelled'
+            continue
+          }
           item.status = 'probing'
           let probeResult: { sessionStatus: string; reason: string | null }
           try {
-            probeResult = await options.probe(item.accountId)
+            probeResult = await options.probe(item.accountId, current.signal)
           } catch (error) {
             probeResult = { sessionStatus: 'unknown', reason: safeCode(error) }
+          }
+          if (cancelled()) {
+            item.status = 'failed'
+            item.reason = 'collect_cancelled'
+            continue
           }
           if (probeResult.sessionStatus === 'ok') {
             item.status = 'ready'
@@ -868,6 +892,12 @@ export function createBatchCollectController(options: {
             item.status = 'skipped'
             item.reason = probeResult.sessionStatus === 'expired' ? 'session_required' : 'probe_failed'
           }
+        }
+        if (cancelled()) {
+          failRest('collect_cancelled')
+          current.status = 'failed'
+          current.error = 'collect_cancelled'
+          return
         }
         const runnable = current.items.filter(item => item.status === 'ready')
         if (runnable.length === 0) {
@@ -879,9 +909,14 @@ export function createBatchCollectController(options: {
         // 阶段 2：严格串行 collecting（上一个账号完全结束才启动下一个）。
         current.phase = 'collecting'
         for (const item of runnable) {
+          if (cancelled()) {
+            item.status = 'failed'
+            item.reason = 'collect_cancelled'
+            continue
+          }
           current.currentAccountId = item.accountId
           item.status = 'running'
-          const started = options.collect.start({ accountId: item.accountId })
+          const started = options.collect.start({ accountId: item.accountId, options: { signal: current.signal } })
           if (!started.started || started.record === null) {
             item.status = 'failed'
             item.reason = started.reason ?? 'collect_failed'
@@ -894,9 +929,21 @@ export function createBatchCollectController(options: {
             error: result?.reason ?? null,
             result: result === null ? null : projectResult(result),
           }
+          if (cancelled()) {
+            item.status = 'failed'
+            item.reason = 'collect_cancelled'
+            current.currentAccountId = null
+            continue
+          }
           item.status = result !== null && result.status === 'ready' ? 'completed' : 'failed'
           item.reason = item.status === 'failed' ? result?.reason ?? 'collect_failed' : null
           current.currentAccountId = null
+        }
+        if (cancelled()) {
+          failRest('collect_cancelled')
+          current.status = 'failed'
+          current.error = 'collect_cancelled'
+          return
         }
       } finally {
         if (current.status === 'running') {
@@ -911,10 +958,13 @@ export function createBatchCollectController(options: {
 }
 
 /** 批量入口的候选筛选（缓存口径，纯本地：pending/非 ok/无凭证 → skipped）。 */
-export async function batchCandidates(deps: RunnerDeps): Promise<Array<{ accountId: string; skipped: boolean; reason: string | null }>> {
+export async function batchCandidates(deps: RunnerDeps, signal?: AbortSignal): Promise<Array<{ accountId: string; skipped: boolean; reason: string | null }>> {
   const local = await readAccounts(deps.root)
   const result: Array<{ accountId: string; skipped: boolean; reason: string | null }> = []
+  // abort 检查走函数边界（const 收窄不跨 await）。
+  const aborted = (): boolean => signal?.aborted === true
   for (const record of Object.values(local.accounts)) {
+    if (aborted()) throw new DouyinError('collect_cancelled', 'batch candidates aborted')
     if (isPendingAccountId(record.accountId)) {
       result.push({ accountId: record.accountId, skipped: true, reason: 'pending_account' })
       continue
@@ -924,9 +974,11 @@ export async function batchCandidates(deps: RunnerDeps): Promise<Array<{ account
       continue
     }
     if (!(await hasStorageState(record.accountId, deps.root))) {
+      if (aborted()) throw new DouyinError('collect_cancelled', 'batch candidates aborted')
       result.push({ accountId: record.accountId, skipped: true, reason: 'storage_state_missing' })
       continue
     }
+    if (aborted()) throw new DouyinError('collect_cancelled', 'batch candidates aborted')
     result.push({ accountId: record.accountId, skipped: false, reason: null })
   }
   return result
