@@ -37,7 +37,7 @@ test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/
   for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
 })
 
-test('D2–D4 全量 31 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
+test('D2–D5 全量 33 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -73,6 +73,8 @@ test('D2–D4 全量 31 个 action 精确实现；browser.status 投影不回传
       'report.list',
       'report.get',
       'report.regenerate',
+      'account.owner.set',
+      'work.promotion.save',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')

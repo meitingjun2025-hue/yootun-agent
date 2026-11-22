@@ -275,7 +275,7 @@ function definedArgs(args: ActionArgs, keys: readonly string[]): Record<string, 
   return out
 }
 
-/** D2–D5 全量 action 处理器表（D2–D4 批；D5 批在同一表内扩充）。 */
+/** D2–D5 全量 action 处理器表（33 项全量；D6–D8 缺席即 unknown_action）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
@@ -630,6 +630,28 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       idempotencyKey: asString(args, 'idempotencyKey'),
     }),
 
+    // ---- D5：负责人与投流 ----
+
+    'account.owner.set': async args => passthrough('workbench_douyin_account_owner_set', {
+      accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+      ownerName: asString(args, 'ownerName'),
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }),
+
+    'work.promotion.save': async args => {
+      const payload: Record<string, unknown> = {
+        accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+        workId: asString(args, 'workId'),
+        playCount: args.playCount as number,
+        fansCount: args.fansCount as number,
+        costAmount: asString(args, 'costAmount'),
+        durationHours: asString(args, 'durationHours'),
+        idempotencyKey: asString(args, 'idempotencyKey'),
+      }
+      // recordId 仅显式携带（stale-add 恢复路径由页面重拉后带 recordId 转更新）。
+      if (typeof args.recordId === 'number') payload.recordId = args.recordId
+      return passthrough('workbench_douyin_work_promotion_save', payload)
+    },
   }
 
   const guarded: Record<string, ActionHandler> = {}

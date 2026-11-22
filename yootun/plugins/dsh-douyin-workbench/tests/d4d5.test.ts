@@ -1,5 +1,6 @@
 /**
- * D4 行为测试（node --test）：AI 分析受理与轮询投影、报表三 action。
+ * D4/D5 行为测试（node --test）：AI 分析受理与轮询投影、报表三 action、负责人
+ * 与投流写入（recordId 条件携带、stale-add 错误原样投影）。
  * 运行：`node --test tests/d4d5.test.ts`。
  */
 import assert from 'node:assert/strict'
@@ -60,6 +61,46 @@ test('report.list：只带已定义参数；report.get/regenerate 直通', async
     assert.deepEqual(calls[1]?.args, { reportId: 'r1' })
     await handlers['report.regenerate']({ reportId: 'r1', idempotencyKey: `douyin:report_regenerate:r1:${uuid}` })
     assert.deepEqual(calls[2]?.args, { reportId: 'r1', idempotencyKey: `douyin:report_regenerate:r1:${uuid}` })
+  } finally {
+    await cleanup()
+  }
+})
+
+test('account.owner.set：全量透传（trim/超长由 route 层拒）', async () => {
+  const { handlers, calls, cleanup } = await d45Deps({ outcomes: [{ structuredContent: { ownerName: '张三' } }] })
+  try {
+    const payload = await handlers['account.owner.set']({ accountId: 'a', ownerName: '张三', idempotencyKey: `douyin:account_owner_set:${uuid}` })
+    assert.equal(payload.status, 'ready')
+    assert.deepEqual(calls[0]?.args, { accountId: 'a', ownerName: '张三', idempotencyKey: `douyin:account_owner_set:${uuid}` })
+  } finally {
+    await cleanup()
+  }
+})
+
+test('work.promotion.save：定点串/整数原样、recordId 仅显式携带', async () => {
+  const { handlers, calls, cleanup } = await d45Deps({ outcomes: [{ structuredContent: { id: 9 } }, { structuredContent: { id: 9 } }] })
+  try {
+    await handlers['work.promotion.save']({ accountId: 'a', workId: 'w1', playCount: 100, fansCount: 3, costAmount: '12.50', durationHours: '2.00', idempotencyKey: `douyin:work_promotion_save:${uuid}` })
+    const first = calls[0]?.args as Record<string, unknown>
+    assert.equal(first.costAmount, '12.50')
+    assert.equal(first.durationHours, '2.00')
+    assert.equal(first.playCount, 100)
+    assert.ok(!('recordId' in first), 'recordId 缺省不携带')
+    await handlers['work.promotion.save']({ accountId: 'a', workId: 'w1', playCount: 1, fansCount: 0, costAmount: '0', durationHours: '1', recordId: 9, idempotencyKey: `douyin:work_promotion_save:${uuid}` })
+    assert.equal((calls[1]?.args as Record<string, unknown>).recordId, 9)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('work.promotion.save：PROMOTION_ALREADY_EXISTS 原样投影（不自动换键重发）', async () => {
+  const { handlers, calls, cleanup } = await d45Deps({ outcomes: [{ throwCode: 'PROMOTION_ALREADY_EXISTS' }] })
+  try {
+    await assert.rejects(() => handlers['work.promotion.save']({ accountId: 'a', workId: 'w1', playCount: 1, fansCount: 0, costAmount: '0', durationHours: '1', idempotencyKey: `douyin:work_promotion_save:${uuid}` }), (error: unknown) => {
+      const envelope = (error as { payload?: { error?: { code?: string } } }).payload?.error?.code
+      return envelope === 'PROMOTION_ALREADY_EXISTS'
+    })
+    assert.equal(calls.length, 1, 'Host 不自动重发（stale-add 恢复由页面重拉转更新）')
   } finally {
     await cleanup()
   }
