@@ -9,6 +9,12 @@ import { access, chmod, constants, mkdir, readFile, rename, rm, stat, writeFile 
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
+/** Storage-state 来源（Playwright BrowserContext 的最小投影）。 */
+export interface StorageStateSource {
+  /** Serialize the context's cookies + origins. */
+  storageState(): Promise<unknown>
+}
+
 /** 状态文件结构版本（分册 15 §5：恒 1）。 */
 export const STATE_VERSION = 1
 /** 状态目录环境覆盖（沿用旧名，升级免迁移）。 */
@@ -228,6 +234,55 @@ export async function nextSessionSeq(accountId: string, root: string = stateRoot
     await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
     return seq
   })
+}
+
+/**
+ * Bump the session sequence while applying one profile patch in the same
+ * locked write（旧 session.js markSessionOk 语义：序号与资料一次 RMW，两次
+ * 分离写会让 seq 回退）；`floor` 把多设备推高的远端序号对齐为本地下限后再 +1
+ * （不对齐则本地 ok 上报会被服务端按旧序号拒绝）。
+ * @param accountId - account id.
+ * @param patch - profile patch applied together with the bump.
+ * @param floor - minimum sequence (remote floor).
+ * @param root - state root directory.
+ * @returns the patched record and the new sequence.
+ */
+export async function bumpSessionSeqWith(
+  accountId: string,
+  patch: Partial<AccountRecord>,
+  floor = 0,
+  root: string = stateRoot(),
+): Promise<{ record: AccountRecord; seq: number }> {
+  return withRootLock(root, async () => {
+    const file = paths(root).accountsFile
+    await ensureDir(dirname(file))
+    let state = emptyState()
+    try {
+      state = parseAccounts(await readFile(file, 'utf8'))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    const previous: AccountRecord = state.accounts[accountId] ?? { accountId }
+    const seq = Math.max(Number(previous.sessionSeq ?? 0), floor) + 1
+    const record: AccountRecord = { ...previous, ...patch, sessionSeq: seq, accountId }
+    state.accounts[accountId] = record
+    await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
+    return { record, seq }
+  })
+}
+
+/**
+ * Persist the context's storage_state backup (0600 file under 0700 dir).
+ * 备份只在登录/探活仍持有登录态时写（上下文关闭后 Cookie 即不可得）。
+ * @param accountId - account id.
+ * @param context - the still-open browser context.
+ * @param root - state root directory.
+ */
+export async function saveStorageState(accountId: string, context: StorageStateSource, root: string = stateRoot()): Promise<void> {
+  const file = paths(root).storageStatePath(accountId)
+  await ensureDir(dirname(file))
+  const state: unknown = await context.storageState()
+  await writeFile(file, `${JSON.stringify(state)}\n`, { mode: 0o600 })
 }
 
 /**

@@ -110,6 +110,16 @@ export const SERVER_COMMON_ERROR_CODES = Object.freeze([
 export const LOCAL_ERROR_CODES = Object.freeze([
   'GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING',
+  // Workbench MCP 连接器传输层稳定码（分册 15 §6：原样投影，不收敛兜底）。
+  'workbench_tool_denied',
+  'workbench_not_activated',
+  'workbench_network_error',
+  'workbench_protocol_error',
+  'workbench_call_timeout',
+  'workbench_call_cancelled',
+  'workbench_call_failed',
+  'workbench_credential_unavailable',
+  'workbench_unavailable',
   'DOUYIN_TOOL_UNAVAILABLE',
   'DOUYIN_ROUTE_UNKNOWN_ACTION',
   'DOUYIN_ROUTE_INVALID_REQUEST',
@@ -129,6 +139,21 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'probe_failed',
   'refresh_failed',
   'account_save_failed',
+  // D2 登录/探测/采集链路细分原因（run error 槽与 handler reason 槽取值）。
+  'run_state_corrupt',
+  'recovery_required',
+  'login_aborted',
+  'identity_not_stable',
+  'no_session_cookie',
+  'account_mismatch',
+  'collect_cancelled',
+  'ingest_failed',
+  'start_failed',
+  'stale_report',
+  'session_report_rejected',
+  'already_ok',
+  'remote_account_unavailable',
+  'profile_unverified',
   // 旧路由确定性校验小写 reason（handlers 直返，client 半据此映射提示）。
   'account_id_required',
   'work_id_required',
@@ -210,7 +235,8 @@ export function safeCode(error: unknown): StableErrorCode {
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
   if (typeof direct === 'string' && (STABLE_ERROR_CODES as readonly string[]).includes(direct)) return direct as StableErrorCode
   const server = serverCodeOf(error)
-  if (server !== undefined && (SERVER_ERROR_CODES as readonly string[]).includes(server)) return server as StableErrorCode
+  // envelope 稳定码投影按全量稳定码集合判白（服务端业务码 + workbench 传输码）。
+  if (server !== undefined && (STABLE_ERROR_CODES as readonly string[]).includes(server)) return server as StableErrorCode
   return 'douyin_operation_request_failed'
 }
 

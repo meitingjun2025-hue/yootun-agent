@@ -9,8 +9,8 @@ import { Config, apply, buildRouteHandlers, registerSignal } from '../src/index.
 import { createTaskRegistry, disposeHostTasks } from '../src/lifecycle.ts'
 import { createFakeContext, createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
 
-test('插件 Config：stateDir 缺省空串', () => {
-  assert.deepEqual(Config({}), { stateDir: '' })
+test('插件 Config：stateDir 缺省空串、maxPages 缺省 1000', () => {
+  assert.deepEqual(Config({}), { stateDir: '', maxPages: 1000 })
 })
 
 test('taskRegistry：track 登记、settle 自动移除、rejection 旁路不炸 dispose', async () => {
