@@ -1,9 +1,11 @@
 /**
  * Host action 实现（依赖注入面 + 处理器表；分批扩充）。D2 批：browser.status /
  * accounts.list / 登录三态 / probe（含 pending 提升）/ 删除两步 / 采集单账号与
- * 批量（互斥 collect_busy、runs.json G-2 恢复投影）。登录/采集均为进程内
- * AbortController 生命周期（dispose 统一 abort + 等待 settle）；Workbench 调用
- * 经 douyin-workbench caller；稳定错误码收敛不透传原文。
+ * 批量（互斥 collect_busy、runs.json G-2 恢复投影）。D3–D5：作品/总览/导出/
+ * 排期/AI 分析报表/负责人投流。D6–D8：breakdown 10 + material 8 + gene 5
+ * （viral 域直通与窄投影）。登录/采集均为进程内 AbortController 生命周期
+ * （dispose 统一 abort + 等待 settle）；Workbench 调用经 douyin-workbench
+ * caller；稳定错误码收敛不透传原文。
  * @module
  */
 import { normalizeAvatarUrl } from './avatar.ts'
@@ -280,10 +282,11 @@ async function callExport(deps: DouyinHandlerDeps, tool: string, args: Record<st
   // base64 长度与声明字节数必须自洽（截断/篡改防御）。
   if (base64.length !== Math.ceil(contentBytes / 3) * 4) throw new DouyinError('export_failed', 'base64 size mismatch')
   const fileName = projectFileName(payload.file_name ?? payload.fileName, options.prefix, options.fallback)
+  const mimeType = payload.mime_type ?? payload.mimeType
   const projected: HandlerPayload = {
     status: 'ready',
     file_name: fileName,
-    mime_type: typeof payload.mime_type === 'string' && payload.mime_type !== '' ? payload.mime_type : XLSX_MIME,
+    mime_type: typeof mimeType === 'string' && mimeType !== '' ? mimeType : XLSX_MIME,
     content_base64: base64,
     content_bytes: contentBytes,
     row_counts: payload.row_counts ?? null,
@@ -304,6 +307,21 @@ function definedArgs(args: ActionArgs, keys: readonly string[]): Record<string, 
     out[key] = value
   }
   return out
+}
+
+/** workflow 行投影：服务端蛇形 candidate_id 归一为 candidateId，其余字段原样。 */
+function projectWorkflowItem(item: unknown): Record<string, unknown> {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) return {}
+  const { candidate_id: candidateId, ...rest } = item as Record<string, unknown>
+  return candidateId !== undefined ? { ...rest, candidateId } : rest
+}
+
+/** workflow_get 载荷投影：items 逐行归一 + total（缺失回退本页计数）。 */
+function projectWorkflowItems(payload: unknown): { items: Record<string, unknown>[]; total: number } {
+  const record = payload !== null && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+  const items = Array.isArray(record.items) ? record.items.map(projectWorkflowItem) : []
+  const total = Number(record.total)
+  return { items, total: Number.isFinite(total) ? total : items.length }
 }
 
 /**
@@ -377,7 +395,7 @@ export async function completeLoginAfterSuccess(
   }
 }
 
-/** D2–D5 全量 action 处理器表（33 项全量；D6–D8 缺席即 unknown_action）。 */
+/** 全量 action 处理器表（分册 15 §3 的 56 项：D2–D5 33 项 + D6–D8 23 项）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
@@ -800,6 +818,129 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       // recordId 仅显式携带（stale-add 恢复路径由页面重拉后带 recordId 转更新）。
       if (typeof args.recordId === 'number') payload.recordId = args.recordId
       return passthrough('workbench_douyin_work_promotion_save', payload, signal)
+    },
+
+    // ---- D6：爆款拆解（viral 域 10 action） ----
+
+    'breakdown.rewriteRules': async (_args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_rewrite_rules_list', {}, signal)
+      const payload = outcome.structuredContent
+      // items 只含 rewriteRuleId/name/description：prompt 正文留在服务端配置，不下发。
+      const items = payload !== null && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
+        ? (payload as { items: Record<string, unknown>[] }).items
+        : []
+      return { status: 'ready', rules: items, total: items.length }
+    },
+
+    // 服务端从幂等键摘要派生 runId：同键重放返回同一 run 回执，不重复下载/入库。
+    'breakdown.archiveStart': async (args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_archive_submit', {
+        douyinVideoUrl: asString(args, 'shareUrl'),
+        confirm: true,
+        idempotencyKey: asString(args, 'idempotencyKey'),
+      }, signal)
+      return { status: 'ready', archive: outcome.structuredContent }
+    },
+
+    'breakdown.archiveStatus': async (args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_async_submit_get', { runId: asString(args, 'runId') }, signal)
+      return { status: 'ready', archive: outcome.structuredContent }
+    },
+
+    'breakdown.downloadStart': async (args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_douyin_download_url_start', {
+        douyinVideoUrl: asString(args, 'shareUrl'),
+        idempotencyKey: asString(args, 'idempotencyKey'),
+      }, signal)
+      return { status: 'ready', download: outcome.structuredContent }
+    },
+
+    'breakdown.downloadStatus': async (args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_douyin_download_url_get', { jobId: asString(args, 'jobId') }, signal)
+      return { status: 'ready', download: outcome.structuredContent }
+    },
+
+    'breakdown.workflowStart': async (args, signal) => {
+      // 规则单选可选：不传 = 默认改写链路；force 仅显式 true 透传（失败终态强制
+      // 重试，服务端重置可恢复失败并重新投递）。
+      const toolArgs: Record<string, unknown> = {
+        candidateId: asString(args, 'candidateId'),
+        idempotencyKey: asString(args, 'idempotencyKey'),
+        confirm: true,
+      }
+      if (typeof args.rewriteRuleId === 'string' && args.rewriteRuleId !== '') toolArgs.rewriteRuleId = args.rewriteRuleId
+      if (args.force === true) toolArgs.force = true
+      const outcome = await deps.callTool('workbench_viral_workflow_start', toolArgs, signal)
+      return { status: 'ready', workflow: outcome.structuredContent }
+    },
+
+    'breakdown.workflowStatus': async (args, signal) => {
+      // 优先 workflowId 精确查询（同候选可并存多条工作流；candidateId「最新一条」
+      // 不保证是本次受理目标）。
+      const toolArgs: Record<string, unknown> = {}
+      if (typeof args.workflowId === 'string' && args.workflowId !== '') toolArgs.workflowId = args.workflowId
+      else if (typeof args.candidateId === 'string' && args.candidateId !== '') toolArgs.candidateId = args.candidateId
+      if (typeof args.limit === 'number') toolArgs.limit = args.limit
+      const outcome = await deps.callTool('workbench_viral_workflow_get', toolArgs, signal)
+      const projected = projectWorkflowItems(outcome.structuredContent)
+      return { status: 'ready', workflows: projected.items, total: projected.total }
+    },
+
+    'breakdown.detail': async (args, signal) => {
+      const candidateId = asString(args, 'candidateId')
+      // 三源独立降级：storyboards 是详情主体（失败即整单失败，不渲染假详情）；
+      // analysis 步骤状态与候选公开指标是辅助源，失败单独透出稳定码。
+      let storyboards: Record<string, unknown>[]
+      try {
+        const outcome = await deps.callTool('workbench_viral_storyboards_list', { candidateId, limit: 20 }, signal)
+        const payload = outcome.structuredContent
+        storyboards = payload !== null && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
+          ? (payload as { items: Record<string, unknown>[] }).items
+          : []
+      } catch (error) {
+        throw new DouyinError(safeCode(error), 'storyboards_list failed')
+      }
+      let analysis: unknown = null
+      let analysisError: string | null = null
+      try {
+        const outcome = await deps.callTool('workbench_viral_analysis_status_get', { candidateId }, signal)
+        analysis = outcome.structuredContent
+      } catch (error) {
+        analysisError = safeCode(error)
+      }
+      let candidate: Record<string, unknown> | null = null
+      let candidateError: string | null = null
+      try {
+        const outcome = await deps.callTool('workbench_viral_candidates_list', { candidateId, limit: 1 }, signal)
+        const payload = outcome.structuredContent
+        candidate = payload !== null && typeof payload === 'object' && Array.isArray((payload as { candidates?: unknown }).candidates)
+          ? ((payload as { candidates: Record<string, unknown>[] }).candidates[0] ?? null)
+          : null
+      } catch (error) {
+        candidateError = safeCode(error)
+      }
+      return { status: 'ready', storyboards, analysis, analysisError, candidate, candidateError }
+    },
+
+    'breakdown.export': async (args, signal) => callExport(deps, 'workbench_viral_storyboard_export', {
+      candidateId: asString(args, 'candidateId'),
+    }, {
+      prefix: 'douyin-storyboard-',
+      fallback: 'douyin-storyboard-export.xlsx',
+      // 服务端码原样透出（UI 有专属文案：候选不存在 / 故事板未就绪）。
+      errorMap: { CANDIDATE_NOT_FOUND: 'CANDIDATE_NOT_FOUND', STORYBOARD_NOT_READY: 'STORYBOARD_NOT_READY' },
+      ...(signal !== undefined ? { signal } : {}),
+    }),
+
+    // 上限 200 与「加载更多」一致：服务端无游标，翻页只能 limit 递增全量拉；
+    // hasStoryboard 用 status=succeeded 保守判定（双成功后置位，标 true 必有内容）。
+    'breakdown.history': async (args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_workflow_get', {
+        limit: typeof args.limit === 'number' ? args.limit : 10,
+      }, signal)
+      const projected = projectWorkflowItems(outcome.structuredContent)
+      const history = projected.items.map(item => ({ ...item, hasStoryboard: item.status === 'succeeded' }))
+      return { status: 'ready', history, total: projected.total }
     },
   }
 

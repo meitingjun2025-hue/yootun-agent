@@ -1,11 +1,11 @@
 /**
  * yootun 抖音工作台插件——`/api/desktop/yootun/douyin-workbench` 同源路由 +
  * action 契约（56 项冻结）+ 本地状态/登录/采集编排 + 经 Workbench MCP 的
- * douyin/viral 分组调用通道与 dispose 收口。D2–D5 已交付：Host 33 个 action
+ * douyin/viral 分组调用通道与 dispose 收口。D2–D5 已交付 Host 33 个 action
  * 与 client 半（src/client，7 Tab 工作台）；D6–D8（breakdown/material/gene
- * 共 23 项）未实现，allowlist 内缺席即 unknown_action。插件未插入 yootun
- * bundle（client 入口接入属后续批次）。Cookie/storage_state/本地路径不进
- * 入响应、日志、tools 参数或审计。
+ * 共 23 项）Host 与 client 面板同批实现。插件未插入 yootun bundle（client
+ * 入口接入属后续批次）。Cookie/storage_state/本地路径不进响应、日志、tools
+ * 参数或审计。
  * @module @yootun/dsh-douyin-workbench
  */
 import z from '@deepseek-ai/schemastery'

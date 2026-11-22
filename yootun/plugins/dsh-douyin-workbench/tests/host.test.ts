@@ -37,7 +37,7 @@ test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/
   for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
 })
 
-test('D2–D5 全量 33 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
+test('D2–D6 全量 43 个 action 精确实现（D7/D8 缺席）；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -75,6 +75,16 @@ test('D2–D5 全量 33 个 action 精确实现；browser.status 投影不回传
       'report.regenerate',
       'account.owner.set',
       'work.promotion.save',
+      'breakdown.rewriteRules',
+      'breakdown.archiveStart',
+      'breakdown.archiveStatus',
+      'breakdown.downloadStart',
+      'breakdown.downloadStatus',
+      'breakdown.workflowStart',
+      'breakdown.workflowStatus',
+      'breakdown.detail',
+      'breakdown.export',
+      'breakdown.history',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')
@@ -106,14 +116,17 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
   }
 })
 
-test('D6–D8 的 23 个 action 在 handler 表缺席（fail loud 由 route 层 unknown_action 收敛）', async () => {
+test('D6 爆款拆解 10 个 action 全部实现；D7/D8 的 13 个 action 缺席即 unknown_action', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const d68 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('breakdown.') || action.startsWith('material.') || action.startsWith('gene.'))
-    assert.equal(d68.length, 23, 'D6–D8 冻结 23 项（breakdown 10 + material 8 + gene 5）')
-    for (const action of d68) {
-      assert.equal(handlers[action], undefined, `${action} 属 D6–D8，本阶段不得实现`)
+    const d78 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('material.') || action.startsWith('gene.'))
+    assert.equal(d78.length, 13, 'D7+D8 冻结 13 项（material 8 + gene 5）')
+    for (const action of d78) {
+      assert.equal(handlers[action], undefined, `${action} 属 D7/D8，本批次不得实现`)
+    }
+    for (const action of ['breakdown.rewriteRules', 'breakdown.archiveStart', 'breakdown.archiveStatus', 'breakdown.downloadStart', 'breakdown.downloadStatus', 'breakdown.workflowStart', 'breakdown.workflowStatus', 'breakdown.detail', 'breakdown.export', 'breakdown.history']) {
+      assert.equal(typeof handlers[action], 'function', `${action} 属 D6，本批次必须实现`)
     }
   } finally {
     await cleanup()
