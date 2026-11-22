@@ -1,6 +1,6 @@
 # P4 抖音工作台 D2–D5 UI parity 矩阵
 
-状态：D2–D5 开工锚定（2026-11-22）。上游基准：[p4-douyin-workbench-baseline.md](p4-douyin-workbench-baseline.md)（D0 冻结）与 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)。本册逐区域锚定「旧页面 → 新落位」：旧插件决定页面结构、功能与任务动线；本仓库决定视觉语言（kit 组件 + 官方 primitives + `--dsw-*`/`--yt-chart-*` token + CSS Modules）。每个按钮先分语义层级再选组件；相邻不同语义按钮不得同为白底。D6–D8（爆款素材看板/拆解/基因库）本阶段只渲染 DataState「未接入」占位，不显示假数据。
+状态：D2–D5 开工锚定（2026-11-22）。上游基准：[p4-douyin-workbench-baseline.md](p4-douyin-workbench-baseline.md)（D0 冻结）与 [14-douyin-workbench-ui-layout-parity.md](14-douyin-workbench-ui-layout-parity.md)。本册逐区域锚定「旧页面 → 新落位」：旧插件决定页面结构、功能与任务动线；本仓库决定视觉语言（kit 组件 + 官方 primitives + `--dsw-*`/`--yt-chart-*` token + CSS Modules）。每个按钮先分语义层级再选组件；相邻不同语义按钮不得同为白底。D6–D8（爆款素材看板/拆解/基因库）自 `feat/yootun-douyin-workbench-d6-d8-host-ui` 分支起为真实实现，逐页契约见 [p4-douyin-workbench-d6-d8-ui-parity.md](p4-douyin-workbench-d6-d8-ui-parity.md)；本册 §0 的「D6–D8 三 Tab 面板为 DataState」锚点随该分支由新 parity 文档接管。
 
 ## 0. 顶级导航（7 Tab 冻结）
 
