@@ -942,6 +942,61 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       const history = projected.items.map(item => ({ ...item, hasStoryboard: item.status === 'succeeded' }))
       return { status: 'ready', history, total: projected.total }
     },
+
+    // ---- D7：爆款素材看板（viral 域 8 action） ----
+
+    'material.seeds.list': async (_args, signal) => passthrough('workbench_viral_seeds_list', {}, signal),
+
+    // seed upsert 逐项 schema（route 层已校验 per-item 字段/枚举/范围）；
+    // 未提交字段保留服务端原值（显式提交语义）。
+    'material.keyword.upsert': async (args, signal) => passthrough('workbench_viral_keyword_seeds_upsert', {
+      keywords: args.keywords,
+      confirm: true,
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }, signal),
+
+    'material.account.upsert': async (args, signal) => passthrough('workbench_viral_account_seeds_upsert', {
+      accounts: args.accounts,
+      confirm: true,
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }, signal),
+
+    // 手动采集是远端异步任务（非本地 Chrome）：只受理，页面轮询 collect.status。
+    'material.collect.start': async (args, signal) => passthrough('workbench_viral_seed_search_submit', definedArgs(args, ['idempotencyKey', 'keywordLimit', 'accountLimit', 'priorities', 'candidateMinLevel']), signal),
+
+    'material.collect.status': async (args, signal) => passthrough('workbench_viral_async_submit_get', {
+      runId: asString(args, 'runId'),
+    }, signal),
+
+    'material.videos.list': async (args, signal) => {
+      // 固定素材域语义：scope 恒为 'material'（route schema 只放行该值；缺省同样固定）。
+      const toolArgs: Record<string, unknown> = {
+        scope: 'material',
+        sortBy: typeof args.sortBy === 'string' && args.sortBy !== '' ? args.sortBy : 'hot',
+        limit: typeof args.limit === 'number' ? args.limit : 200,
+        ...definedArgs(args, ['taskId', 'runId', 'minLevel', 'sourceType', 'candidateId', 'awemeId', 'storyboardStatus', 'q', 'sourceKeyword', 'accountSeedId', 'publishedFrom', 'publishedTo', 'tag', 'sourceKind']),
+      }
+      if (typeof args.offset === 'number') toolArgs.offset = args.offset
+      return passthrough('workbench_viral_candidates_list', toolArgs, signal)
+    },
+
+    'material.runs.list': async (args, signal) => {
+      const toolArgs: Record<string, unknown> = { limit: typeof args.limit === 'number' ? args.limit : 20 }
+      if (typeof args.offset === 'number') toolArgs.offset = args.offset
+      return passthrough('workbench_viral_runs_list', toolArgs, signal)
+    },
+
+    // 窄投影：dashboard_get 的 materialFacets.tags（天然限定素材域，不随 taskId 收窄）。
+    'material.facets': async (_args, signal) => {
+      const outcome = await deps.callTool('workbench_viral_dashboard_get', {}, signal)
+      const payload = outcome.structuredContent
+      const record = payload !== null && typeof payload === 'object' ? payload as Record<string, unknown> : {}
+      const facets = record.materialFacets !== null && typeof record.materialFacets === 'object' && !Array.isArray(record.materialFacets)
+        ? record.materialFacets as Record<string, unknown>
+        : {}
+      const tags = Array.isArray(facets.tags) ? facets.tags : []
+      return { status: 'ready', tags }
+    },
   }
 
   const guarded: Record<string, ActionHandler> = {}

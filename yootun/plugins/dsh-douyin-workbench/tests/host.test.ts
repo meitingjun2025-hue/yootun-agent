@@ -37,7 +37,7 @@ test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/
   for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
 })
 
-test('D2–D6 全量 43 个 action 精确实现（D7/D8 缺席）；browser.status 投影不回传设备路径', async () => {
+test('D2–D7 全量 51 个 action 精确实现（D8 缺席）；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -85,6 +85,14 @@ test('D2–D6 全量 43 个 action 精确实现（D7/D8 缺席）；browser.stat
       'breakdown.detail',
       'breakdown.export',
       'breakdown.history',
+      'material.seeds.list',
+      'material.keyword.upsert',
+      'material.account.upsert',
+      'material.collect.start',
+      'material.collect.status',
+      'material.videos.list',
+      'material.runs.list',
+      'material.facets',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')
@@ -116,17 +124,17 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
   }
 })
 
-test('D6 爆款拆解 10 个 action 全部实现；D7/D8 的 13 个 action 缺席即 unknown_action', async () => {
+test('D7 素材看板 8 个 action 全部实现；D8 的 5 个 action 缺席即 unknown_action', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const d78 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('material.') || action.startsWith('gene.'))
-    assert.equal(d78.length, 13, 'D7+D8 冻结 13 项（material 8 + gene 5）')
-    for (const action of d78) {
-      assert.equal(handlers[action], undefined, `${action} 属 D7/D8，本批次不得实现`)
+    const d8 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('gene.'))
+    assert.equal(d8.length, 5, 'D8 冻结 5 项')
+    for (const action of d8) {
+      assert.equal(handlers[action], undefined, `${action} 属 D8，本批次不得实现`)
     }
-    for (const action of ['breakdown.rewriteRules', 'breakdown.archiveStart', 'breakdown.archiveStatus', 'breakdown.downloadStart', 'breakdown.downloadStatus', 'breakdown.workflowStart', 'breakdown.workflowStatus', 'breakdown.detail', 'breakdown.export', 'breakdown.history']) {
-      assert.equal(typeof handlers[action], 'function', `${action} 属 D6，本批次必须实现`)
+    for (const action of ['material.seeds.list', 'material.keyword.upsert', 'material.account.upsert', 'material.collect.start', 'material.collect.status', 'material.videos.list', 'material.runs.list', 'material.facets']) {
+      assert.equal(typeof handlers[action], 'function', `${action} 属 D7，本批次必须实现`)
     }
   } finally {
     await cleanup()
