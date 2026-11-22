@@ -31,6 +31,10 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  /* 占满 body 剩余高度：壳层已 height:100% + overflow clip，内容页在固定
+     区域内滚动（旧客户端 .ydo-right 1fr 行同口径）；缺 flex 会让弹性子项
+     basis-0 塌缩（2026-11-22 D9B 排期页真机验证发现）。 */
+  flex: 1 1 0;
   gap: 20px;
   min-width: 0;
   min-height: 0;
