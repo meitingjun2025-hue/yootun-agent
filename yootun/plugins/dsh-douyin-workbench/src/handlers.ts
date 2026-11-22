@@ -206,7 +206,76 @@ export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunnin
   return { accountId: realId, promoted: true, saveError, remoteCleanup }
 }
 
-/** D2–D5 全量 action 处理器表（本批交付 D2 面；后续批在同一表内扩充）。 */
+/** 导出内容上限（原始 1MB / 序列化响应 1.8MB；旧 §6 冻结）。 */
+export const EXPORT_MAX_CONTENT_BYTES = 1_000_000
+export const EXPORT_MAX_RESPONSE_BYTES = 1_800_000
+
+const FILENAME_INVALID = /[/\\:*?"<>|\u0000-\u001f\u007f]/g
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** 文件名净化：非法字符替换、去首空白点、128 截断、前缀+扩展校验兜底。 */
+export function projectFileName(raw: unknown, prefix: string, fallback: string): string {
+  if (typeof raw !== 'string' || raw === '') return fallback
+  let name = raw.replaceAll(FILENAME_INVALID, '_').replace(/^[\s.]+/u, '').slice(0, 128).trim()
+  if (!name.startsWith(prefix) || !name.endsWith('.xlsx')) name = fallback
+  return name
+}
+
+/** 导出四 action 的公共载荷校验与投影（base64/字节数自洽 + 双上限）。 */
+async function callExport(deps: DouyinHandlerDeps, tool: string, args: Record<string, unknown>, options: {
+  prefix: string
+  fallback: string
+  errorMap?: Record<string, string>
+}): Promise<HandlerPayload> {
+  let payload: Record<string, unknown>
+  try {
+    const outcome = await deps.callTool(tool, args)
+    payload = outcome.structuredContent && typeof outcome.structuredContent === 'object'
+      ? outcome.structuredContent as Record<string, unknown>
+      : {}
+  } catch (error) {
+    const code = safeCode(error)
+    const mapped = options.errorMap?.[code]
+    if (mapped !== undefined) throw new DouyinError(mapped as never, code)
+    if (code === 'DOUYIN_EXPORT_TOO_LARGE') throw new DouyinError('export_too_large', code)
+    throw new DouyinError('export_failed', code)
+  }
+  const base64 = payload.content_base64 ?? payload.contentBase64
+  const contentBytes = payload.content_bytes ?? payload.sizeBytes
+  if (typeof base64 !== 'string' || base64 === '' || typeof contentBytes !== 'number' || !Number.isFinite(contentBytes) || contentBytes <= 0) {
+    throw new DouyinError('export_failed', 'invalid export payload')
+  }
+  if (contentBytes > EXPORT_MAX_CONTENT_BYTES) throw new DouyinError('export_too_large', 'content too large')
+  // base64 长度与声明字节数必须自洽（截断/篡改防御）。
+  if (base64.length !== Math.ceil(contentBytes / 3) * 4) throw new DouyinError('export_failed', 'base64 size mismatch')
+  const fileName = projectFileName(payload.file_name ?? payload.fileName, options.prefix, options.fallback)
+  const projected: HandlerPayload = {
+    status: 'ready',
+    file_name: fileName,
+    mime_type: typeof payload.mime_type === 'string' && payload.mime_type !== '' ? payload.mime_type : XLSX_MIME,
+    content_base64: base64,
+    content_bytes: contentBytes,
+    row_counts: payload.row_counts ?? null,
+  }
+  if (Buffer.byteLength(JSON.stringify(projected), 'utf8') > EXPORT_MAX_RESPONSE_BYTES) {
+    throw new DouyinError('export_too_large', 'response too large')
+  }
+  return projected
+}
+
+/** 只带已定义参数（route 层已剔空；此处组装远端 args，undefined 不出网）。 */
+function definedArgs(args: ActionArgs, keys: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const key of keys) {
+    const value = args[key]
+    if (value === undefined) continue
+    if (Array.isArray(value) && value.length === 0) continue
+    out[key] = value
+  }
+  return out
+}
+
+/** D2–D5 全量 action 处理器表（D2+D3 批；后续批在同一表内扩充）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
@@ -222,6 +291,12 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     chromeFactory: deps.chromeFactory,
     maxPages: deps.maxPages,
     logger: { warn: message => { deps.logger.warn(message) } },
+  }
+  /** 远端调用 → {status:'ready', data: payload} 直通投影。 */
+  const passthrough = async (tool: string, args: Record<string, unknown>): Promise<HandlerPayload> => {
+    const outcome = await deps.callTool(tool, args)
+    const payload = outcome.structuredContent
+    return { status: 'ready', data: payload && typeof payload === 'object' ? payload : {} }
   }
 
   const handlers: Record<string, ActionHandler> = {
@@ -426,6 +501,111 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     },
 
     'collectAll.status': async () => ({ status: 'ready', batch: controllers.batch.status }),
+
+    // ---- D3：作品 / 总览 / 导出 / 排期 ----
+
+    'works.list': async args => {
+      const accountId = await resolveAccountAlias(asString(args, 'accountId'), deps.root)
+      const outcome = await deps.callTool('workbench_douyin_work_list', {
+        accountId,
+        includeNotInList: args.includeNotInList === true,
+      })
+      const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
+      return {
+        status: 'ready',
+        accountId,
+        works: Array.isArray(payload.works) ? payload.works : [],
+        total: typeof payload.total === 'number' ? payload.total : 0,
+      }
+    },
+
+    'work.get': async args => passthrough('workbench_douyin_work_get', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }),
+    'work.trend': async args => passthrough('workbench_douyin_work_trend', { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), workId: asString(args, 'workId') }),
+    'run.get': async args => passthrough('workbench_douyin_collect_run_get', { runId: asString(args, 'runId') }),
+
+    'export': async args => callExport(deps, 'workbench_douyin_export', {
+      accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+      format: 'xlsx',
+    }, { prefix: 'douyin-export', fallback: 'douyin-export.xlsx' }),
+
+    'overview.get': async args => {
+      const toolArgs = definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'ownerName', 'sort', 'topN', 'hotType', 'cursor', 'limit', 'ruleVersion'])
+      const outcome = await deps.callTool('workbench_douyin_account_overview', toolArgs)
+      return { status: 'ready', overview: outcome.structuredContent }
+    },
+
+    'hotWorks.list': async args => {
+      // 与 overview.get 同参面但无 ownerName（旧 hot_work_list DTO 不收负责人）。
+      const toolArgs = definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'sort', 'topN', 'hotType', 'cursor', 'limit', 'ruleVersion'])
+      const outcome = await deps.callTool('workbench_douyin_hot_work_list', toolArgs)
+      return { status: 'ready', hotWorks: outcome.structuredContent }
+    },
+
+    'overview.export': async args => callExport(deps, 'workbench_douyin_overview_export', definedArgs(args, ['accountIds', 'publishFrom', 'publishTo', 'ruleVersion']), {
+      prefix: 'douyin-overview-',
+      fallback: 'douyin-overview-export.xlsx',
+      errorMap: { TOO_MANY_ACCOUNTS: 'overview_too_many_accounts' },
+    }),
+
+    'account.analysis': async args => {
+      const toolArgs = { accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root), ...definedArgs(args, ['publishFrom', 'publishTo', 'sort', 'ruleVersion']) }
+      const outcome = await deps.callTool('workbench_douyin_account_analysis', toolArgs)
+      return { status: 'ready', analysis: outcome.structuredContent }
+    },
+
+    'account.trend': async args => {
+      const toolArgs: Record<string, unknown> = {
+        accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+        metric: asString(args, 'metric') !== '' ? asString(args, 'metric') : 'play',
+        ...definedArgs(args, ['fromDay', 'toDay', 'contractVersion']),
+      }
+      if (args.cohortDelta === true) toolArgs.cohortDelta = true
+      const outcome = await deps.callTool('workbench_douyin_account_trend', toolArgs)
+      return { status: 'ready', trend: outcome.structuredContent }
+    },
+
+    'accountAnalysis.export': async args => callExport(deps, 'workbench_douyin_account_analysis_export', {
+      accountId: await resolveAccountAlias(asString(args, 'accountId'), deps.root),
+      ...definedArgs(args, ['publishFrom', 'publishTo', 'ruleVersion']),
+    }, { prefix: 'douyin-account-analysis-', fallback: 'douyin-account-analysis-report.xlsx' }),
+
+    'schedule.list': async args => passthrough('workbench_douyin_publish_schedule_list', { accountId: asString(args, 'accountId') }),
+
+    'schedule.rowCreate': async args => passthrough('workbench_douyin_publish_schedule_row_create', {
+      accountId: asString(args, 'accountId'),
+      confirm: true,
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }),
+
+    'schedule.rowUpdate': async args => {
+      // 缺失业务字段显式转 null、整行提交（route 层已剔空串与非法枚举）。
+      const row = {
+        accountId: asString(args, 'accountId'),
+        rowId: args.rowId as number,
+        expectedVersion: args.expectedVersion as number,
+        shootingDate: typeof args.shootingDate === 'string' ? args.shootingDate : null,
+        videoContent: typeof args.videoContent === 'string' ? args.videoContent : null,
+        shootingStatus: args.shootingStatus === true,
+        published: args.published === true,
+        assetLink: typeof args.assetLink === 'string' ? args.assetLink : null,
+        note: typeof args.note === 'string' ? args.note : null,
+        publishDate: typeof args.publishDate === 'string' ? args.publishDate : null,
+        publishPlatforms: Array.isArray(args.publishPlatforms) ? args.publishPlatforms : [],
+        shootingOwner: typeof args.shootingOwner === 'string' ? args.shootingOwner : null,
+        editingOwner: typeof args.editingOwner === 'string' ? args.editingOwner : null,
+        confirm: true,
+        idempotencyKey: asString(args, 'idempotencyKey'),
+      }
+      return passthrough('workbench_douyin_publish_schedule_row_update', row)
+    },
+
+    'schedule.rowDelete': async args => passthrough('workbench_douyin_publish_schedule_row_delete', {
+      accountId: asString(args, 'accountId'),
+      rowId: args.rowId as number,
+      expectedVersion: args.expectedVersion as number,
+      confirm: true,
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }),
   }
 
   const guarded: Record<string, ActionHandler> = {}

@@ -37,7 +37,7 @@ test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/
   for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
 })
 
-test('D2 批 11 个 action 精确实现（browser.status + 账号/登录/探测/删除/采集）；browser.status 投影不回传设备路径', async () => {
+test('D2+D3 批 25 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -53,6 +53,21 @@ test('D2 批 11 个 action 精确实现（browser.status + 账号/登录/探测/
       'collect.status',
       'collectAll.start',
       'collectAll.status',
+      'works.list',
+      'work.get',
+      'work.trend',
+      'run.get',
+      'export',
+      'overview.get',
+      'hotWorks.list',
+      'overview.export',
+      'account.analysis',
+      'account.trend',
+      'accountAnalysis.export',
+      'schedule.list',
+      'schedule.rowCreate',
+      'schedule.rowUpdate',
+      'schedule.rowDelete',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')
@@ -88,8 +103,8 @@ test('未实现 action 在 handler 表缺席（fail loud 由 route 层 unknown_a
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    for (const action of ['schedule.list', 'report.list', 'account.owner.set', 'breakdown.archiveStart', 'material.videos.list', 'gene.search']) {
-      assert.equal(handlers[action], undefined, `${action} 不得在 D2 假实现`)
+    for (const action of ['report.list', 'report.get', 'account.owner.set', 'work.promotion.save', 'aiAnalysis.start', 'aiAnalysis.get', 'breakdown.archiveStart', 'material.videos.list', 'gene.search']) {
+      assert.equal(handlers[action], undefined, `${action} 不得在 D3 假实现`)
     }
   } finally {
     await cleanup()

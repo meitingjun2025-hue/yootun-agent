@@ -59,6 +59,7 @@ export const SERVER_DOUYIN_ERROR_CODES = Object.freeze([
   'PROMOTION_NOT_FOUND',
   'PROMOTION_FIELD_REQUIRED',
   'PROMOTION_VALUE_INVALID',
+  'TOO_MANY_ACCOUNTS',
   'SCHEDULE_ROW_NOT_FOUND',
   'SCHEDULE_ROW_CONFLICT',
   'SCHEDULE_VALIDATION_ERROR',
@@ -172,6 +173,7 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'cleanup_failed',
   'export_too_large',
   'export_failed',
+  'overview_too_many_accounts',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */
