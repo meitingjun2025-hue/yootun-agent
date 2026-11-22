@@ -117,7 +117,16 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
     const seq = ++trendSeqRef.current
     setTrendError(null)
     try {
-      const res = await hostAction('account.trend', { accountId: props.accountId, metric: nextMetric })
+      // 显式携带 30 天窗口：服务端 fromDay/toDay 默认值 "" 与 DayStr pattern
+      // 自相矛盾（FastMCP 校验默认值即 VALIDATION_ERROR，2026-11-22 真机复现）；
+      // 分析页口径本就是近 30 天，显式窗口不改变语义。
+      const dayFmt = (offsetDays: number): string => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+      const res = await hostAction('account.trend', {
+        accountId: props.accountId,
+        metric: nextMetric,
+        fromDay: dayFmt(-30),
+        toDay: dayFmt(1),
+      })
       if (trendSeqRef.current !== seq) return
       setTrendPoints(readAccountTrend(res))
     } catch (error) {
