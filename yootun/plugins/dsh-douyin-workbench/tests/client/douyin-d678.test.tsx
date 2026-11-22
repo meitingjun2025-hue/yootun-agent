@@ -10,6 +10,7 @@
  */
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
+import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -972,5 +973,18 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     await waitFor(() => expect(screen.getByRole('dialog', { name: en['gene.detail.title'] })).not.toBeNull())
     await waitFor(() => expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').length).toBe(2))
     expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').every(([, args]) => (args as { offset?: number }).offset === 0 || (args as { offset?: number }).offset === undefined)).toBe(true)
+  })
+})
+
+describe('gene.get 投影真实形状（D9B 真机第五缺陷回归）', () => {
+  it('readGeneRecord 兼容 data 顶层平铺（Workbench MCP 实际形状）与 data.record 包装', async () => {
+    const { readGeneRecord } = await import('../../src/client/schema.ts')
+    const realRecord = { recordId: 'vvk_106bc17761441659', awemeId: '7710859062174670159', title: '#父子日常 #大润发', geneStatus: 'succeeded', geneTags: { hook: ['提问式开场'] }, metrics: { playCount: 17000, likeCount: 126, commentCount: 53, shareCount: 5, collectCount: 7 } }
+    // Workbench MCP 实际响应：record 平铺在 data 顶层（真机 2026-11-22 复现详情弹层空白）。
+    const flat = readGeneRecord({ status: 'ready', data: realRecord })
+    assert.equal(flat?.recordId, 'vvk_106bc17761441659', 'data 顶层平铺形态必须可解析')
+    // 旧 route 形态：data.record 包装仍兼容。
+    const wrapped = readGeneRecord({ status: 'ready', data: { record: realRecord } })
+    assert.equal(wrapped?.recordId, 'vvk_106bc17761441659')
   })
 })

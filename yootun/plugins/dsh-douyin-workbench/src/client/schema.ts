@@ -1863,7 +1863,10 @@ export function readGeneSearch(payload: Record<string, unknown>): GeneSearch {
 
 /** gene.get → 单条详情。 */
 export function readGeneRecord(payload: Record<string, unknown>): GeneRecord | null {
-  return geneRecordOf(recordOf(payload.data)?.record)
+  // Workbench MCP knowledge_get 把 record 平铺在 data 顶层（与 gene.search
+  // results 条目同构）；兼容旧 route 的 data.record 包装形态。
+  const data = recordOf(payload.data)
+  return geneRecordOf(data?.record ?? data)
 }
 
 /** 维度依据条目（label/basis）；非对象条目按既有解析规则剔除。 */
