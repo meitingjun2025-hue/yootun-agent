@@ -298,6 +298,8 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
     try {
       const res = await hostAction('breakdown.workflowStart', {
         candidateId,
+        // 冻结契约（分册 15）：拆解工作流为风险写操作，路由 requireTrue 确认位。
+        confirm: true,
         idempotencyKey: `douyin:vv_workflow:${attemptId()}`,
         ...(rewriteRuleId !== null ? { rewriteRuleId } : {}),
         ...(options?.force === true ? { force: true } : {}),
@@ -331,6 +333,8 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
       try {
         const res = await hostAction('breakdown.archiveStart', {
           shareUrl: value,
+          // 冻结契约（分册 15）：归档为风险写操作，路由 requireTrue 确认位。
+          confirm: true,
           idempotencyKey: `douyin:vv_archive:${attemptId()}`,
         })
         const archive = readArchiveRun(res)
