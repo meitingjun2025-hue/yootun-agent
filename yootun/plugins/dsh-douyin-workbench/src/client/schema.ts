@@ -1719,6 +1719,158 @@ export function readMaterialFacets(payload: Record<string, unknown>): MaterialFa
   }).filter((row): row is MaterialFacetTag => row !== null)
 }
 
+// ---- 爆款基因库（gene.*） ----
+
+/** 基因卡片行（knowledge_search results / knowledge_get record 共构）。 */
+export interface GeneRecord {
+  recordId: string
+  awemeId: string | null
+  title: string | null
+  coverUrl: string | null
+  authorName: string | null
+  publishedAt: string | null
+  durationSeconds: number | null
+  metrics: { playCount: number | null; likeCount: number | null; commentCount: number | null; shareCount: number | null; collectCount: number | null }
+  geneTags: Record<string, string[]>
+  adoptionStatus: string | null
+  geneStatus: string | null
+  updatedAt: string | null
+  // 详情独有（卡片缺省 null）。
+  shareUrl: string | null
+  manualNotes: string | null
+  reportJson: Record<string, unknown> | null
+  geneEvidenceJson: Record<string, unknown> | null
+  geneAttemptCount: number | null
+  geneErrorCode: string | null
+  geneErrorSummary: string | null
+  audienceInsightState: string | null
+  bgmStyleState: string | null
+}
+
+/** 单条基因记录投影（search results 与 detail record 同构）。 */
+function geneRecordOf(entry: unknown): GeneRecord | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  const recordId = textOf(record.recordId)
+  if (recordId === null) return null
+  const metrics = recordOf(record.metrics)
+  const tags: Record<string, string[]> = {}
+  const rawTags = recordOf(record.geneTags)
+  if (rawTags !== undefined) {
+    for (const [dim, labels] of Object.entries(rawTags)) {
+      if (!Array.isArray(labels)) continue
+      const clean = labels.map(label => typeof label === 'string' ? label : '').filter(label => label !== '')
+      if (clean.length > 0) tags[dim] = clean
+    }
+  }
+  return {
+    recordId,
+    awemeId: textOf(record.awemeId),
+    title: textOf(record.title),
+    coverUrl: safeHttpUrl(record.coverUrl),
+    authorName: textOf(record.authorName),
+    publishedAt: textOf(record.publishedAt),
+    durationSeconds: numberOf(record.durationSeconds),
+    metrics: {
+      playCount: numberOf(metrics?.playCount),
+      likeCount: numberOf(metrics?.likeCount),
+      commentCount: numberOf(metrics?.commentCount),
+      shareCount: numberOf(metrics?.shareCount),
+      collectCount: numberOf(metrics?.collectCount),
+    },
+    geneTags: tags,
+    adoptionStatus: textOf(record.adoptionStatus),
+    geneStatus: textOf(record.geneStatus),
+    updatedAt: textOf(record.updatedAt),
+    shareUrl: safeHttpUrl(record.shareUrl),
+    manualNotes: textOf(record.manualNotes),
+    reportJson: recordOf(record.reportJson) ?? null,
+    geneEvidenceJson: recordOf(record.geneEvidenceJson) ?? null,
+    geneAttemptCount: numberOf(record.geneAttemptCount),
+    geneErrorCode: textOf(record.geneErrorCode),
+    geneErrorSummary: textOf(record.geneErrorSummary),
+    audienceInsightState: textOf(record.audienceInsightState),
+    bgmStyleState: textOf(record.bgmStyleState),
+  }
+}
+
+/** 维度定义（id/name/maxLabels）。 */
+export interface GeneDimension {
+  id: string
+  name: string
+  maxLabels: number
+}
+
+/** facets 条目。 */
+export interface GeneFacetEntry {
+  label: string
+  count: number
+}
+
+/** gene.search 投影。 */
+export interface GeneSearch {
+  results: GeneRecord[]
+  total: number | null
+  hasMore: boolean
+  facets: Record<string, GeneFacetEntry[]>
+  facetsError: boolean
+  stats: { total: number | null; last7d: number | null; adoptedRatio: number | null; failedCount: number | null } | null
+  statsError: boolean
+  dimensions: GeneDimension[]
+}
+
+export function readGeneSearch(payload: Record<string, unknown>): GeneSearch {
+  const data = recordOf(payload.data) ?? {}
+  const facets: Record<string, GeneFacetEntry[]> = {}
+  const rawFacets = recordOf(data.facets)
+  if (rawFacets !== undefined) {
+    for (const [dim, entries] of Object.entries(rawFacets)) {
+      if (!Array.isArray(entries)) continue
+      facets[dim] = entries.map(entry => {
+        const item = recordOf(entry)
+        if (item === undefined) return null
+        const label = textOf(item.label)
+        if (label === null) return null
+        return { label, count: numberOf(item.count) ?? 0 }
+      }).filter((row): row is GeneFacetEntry => row !== null)
+    }
+  }
+  const stats = recordOf(data.stats)
+  return {
+    results: arrayOf(data.results).map(geneRecordOf).filter((row): row is GeneRecord => row !== null),
+    total: numberOf(data.total),
+    hasMore: booleanOf(data.hasMore),
+    facets,
+    facetsError: booleanOf(data.facetsError),
+    stats: stats === undefined ? null : {
+      total: numberOf(stats.total),
+      last7d: numberOf(stats.last7d),
+      adoptedRatio: numberOf(stats.adoptedRatio),
+      failedCount: numberOf(stats.failedCount),
+    },
+    statsError: booleanOf(data.statsError),
+    dimensions: arrayOf(data.dimensions).map(entry => {
+      const item = recordOf(entry)
+      if (item === undefined) return null
+      const id = textOf(item.id)
+      if (id === null) return null
+      return { id, name: textOf(item.name) ?? id, maxLabels: numberOf(item.maxLabels) ?? 3 }
+    }).filter((row): row is GeneDimension => row !== null),
+  }
+}
+
+/** gene.get → 单条详情。 */
+export function readGeneRecord(payload: Record<string, unknown>): GeneRecord | null {
+  return geneRecordOf(recordOf(payload.data)?.record)
+}
+
+/** gene.list（失败条目）→ 记录数组。 */
+export function readGeneList(payload: Record<string, unknown>): GeneRecord[] {
+  const data = recordOf(payload.data) ?? {}
+  return arrayOf(data.items ?? data.results).map(geneRecordOf)
+    .filter((row): row is GeneRecord => row !== null)
+}
+
 // ---- 导出 ----
 
 /** 导出载荷投影（base64 + 字节数 + 文件名）。 */

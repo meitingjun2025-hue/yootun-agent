@@ -1,8 +1,7 @@
 /**
  * 抖音工作台中央面板：7 Tab 固定顺序（账号总览/账号作品/发布排期看板/爆款
  * 素材看板/爆款拆解/爆款基因库/AI 报表；切任意 Tab 收起 AI 弹层；仅账号作品
- * Tab 有左账号栏两列布局，其余全宽；D6 爆款拆解与 D7 爆款素材看板为真实实现，
- * D8 占位随批次接入）。共享编排：browser.status 五态、accounts.list、登录扫码流
+ * Tab 有左账号栏两列布局，其余全宽；D6/D7/D8 三 Tab 面板均为真实实现）。共享编排：browser.status 五态、accounts.list、登录扫码流
  * （beginLogin → 2s 轮询 loginStatus → ok(saveError 透出)/timeout/failed 终态
  * 停轮询刷新列表）、单账号采集（collect.start → 1.5s 轮询 collect.status，乐观
  * 运行态，宿主重启丢 record 清乐观态）、批量采集（collectAll.start/status 轮询，
@@ -28,6 +27,7 @@ import {
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { AnalysisPage, attemptId } from './AnalysisPage.tsx'
 import { BreakdownPage } from './BreakdownPage.tsx'
+import { GenePage } from './GenePage.tsx'
 import { MaterialPage } from './MaterialPage.tsx'
 import { OwnerModal } from './OwnerModal.tsx'
 import { OverviewPage, DEFAULT_OVERVIEW_FILTERS, downloadBase64, type OverviewFilters } from './OverviewPage.tsx'
@@ -664,7 +664,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
               />
             )}
             {tab === 'gene' && (
-              <DataState state='empty' shape='block' emptyAction={<p>{t('tab.notReady')}</p>} />
+              <GenePage t={t} localeTag={localeTag} onNotice={notify} />
             )}
             {tab === 'breakdown' && (
               <BreakdownPage t={t} onNotice={notify} prefill={breakdownPrefill} onPrefillConsumed={() => { setBreakdownPrefill(null) }} />

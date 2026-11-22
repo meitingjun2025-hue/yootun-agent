@@ -120,6 +120,16 @@ beforeEach(() => {
     if (action === 'material.facets') return { status: 'ready', tags: [] }
     if (action === 'material.seeds.list') return { status: 'ready', data: { keywords: [], accounts: [], keywordByStatus: {}, accountByStatus: {} } }
     if (action === 'material.runs.list') return { status: 'ready', data: { runs: [], total: 0 } }
+    if (action === 'gene.search') {
+      return {
+        status: 'ready',
+        data: {
+          results: [], total: 0, hasMore: false, facets: {}, facetsError: false,
+          stats: { total: 0, last7d: 0, adoptedRatio: 0, failedCount: 0 }, statsError: false,
+          dimensions: [{ id: 'category', name: '品类', maxLabels: 3 }], offset: 0, limit: 20,
+        },
+      }
+    }
     throw new Error(`unexpected action ${action}`)
   })
 })
@@ -160,16 +170,15 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 })
 
-describe('D8 Tab 占位（本开发阶段未接入，绝不显示假数据）；D6/D7 为真实实现', () => {
-  it(`${en['tab.gene']} 面板为「${en['tab.notReady']}」占位且无表格/假数据`, async () => {
+describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
+  it('tab.notReady 文案不再出现于任何 Tab；爆款拆解面板加载 breakdown action', async () => {
     render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
-    expect(await screen.findByText(en['tab.notReady'])).not.toBeNull()
-    expect(document.querySelector('table')).toBeNull()
-    expect(apiMock.hostAction).not.toHaveBeenCalledWith(expect.stringMatching(/^gene\./u), expect.anything())
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
+    expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
+    expect(screen.queryByText(en['tab.notReady'])).toBeNull()
   })
 
-  it('爆款拆解面板为真实实现（新建区 + 历史列表加载 breakdown action）', async () => {
+  it('爆款拆解面板结构（新建区 + 历史列表）', async () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
@@ -190,6 +199,18 @@ describe('D8 Tab 占位（本开发阶段未接入，绝不显示假数据）；
     expect(sectionTabs.map(tab => tab.textContent?.replace(/ \d+$/u, ''))).toEqual([
       en['mat.section.board'], en['mat.section.keywords'], en['mat.section.accounts'], en['mat.section.runs'],
     ])
+  })
+
+  it('爆款基因库为真实实现（检索工具栏 + KPI + facets + 卡片墙加载 gene.search）', async () => {
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('gene.search', expect.objectContaining({ limit: 20 })))
+    expect(screen.getByRole('button', { name: en['gene.reset'] })).not.toBeNull()
+    for (const key of ['gene.kpi.total', 'gene.kpi.last7d', 'gene.kpi.adopted', 'gene.kpi.failed'] as const) {
+      expect(screen.getAllByText(en[key]).length).toBeGreaterThan(0)
+    }
+    expect(screen.getByText(en['gene.facetsTitle'])).not.toBeNull()
+    expect(screen.queryByText(en['tab.notReady'])).toBeNull()
   })
 })
 
