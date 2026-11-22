@@ -997,6 +997,26 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       const tags = Array.isArray(facets.tags) ? facets.tags : []
       return { status: 'ready', tags }
     },
+
+    // ---- D8：爆款基因库（viral 域 5 action） ----
+
+    'gene.search': async (args, signal) => passthrough('workbench_viral_knowledge_search', definedArgs(args, ['query', 'category', 'geneTags', 'adoptionStatus', 'offset', 'limit']), signal),
+
+    'gene.get': async (args, signal) => passthrough('workbench_viral_knowledge_get', {
+      recordId: asString(args, 'recordId'),
+    }, signal),
+
+    // update 是同步幂等写：geneTags 空对象 = 整体清空全部标签；幂等键绑定 recordId
+    // （route 层模板校验）。失败原样投影，Host 不自动重试、不换键。
+    'gene.update': async (args, signal) => passthrough('workbench_viral_knowledge_update', definedArgs(args, ['recordId', 'idempotencyKey', 'geneTags', 'manualNotes', 'adoptionStatus']), signal),
+
+    // regenerate 是模型/异步能力（可能产生费用）：幂等键绑定 recordId，同键重试。
+    'gene.regenerate': async (args, signal) => passthrough('workbench_viral_knowledge_regenerate', {
+      recordId: asString(args, 'recordId'),
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }, signal),
+
+    'gene.list': async (args, signal) => passthrough('workbench_viral_knowledge_list', definedArgs(args, ['geneStatus', 'offset', 'limit']), signal),
   }
 
   const guarded: Record<string, ActionHandler> = {}

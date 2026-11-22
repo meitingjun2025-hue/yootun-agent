@@ -93,6 +93,11 @@ test('D2–D7 全量 51 个 action 精确实现（D8 缺席）；browser.status 
       'material.videos.list',
       'material.runs.list',
       'material.facets',
+      'gene.search',
+      'gene.get',
+      'gene.update',
+      'gene.regenerate',
+      'gene.list',
     ])
     const payload = await handlers['browser.status']({})
     assert.equal(payload.status, 'ready')
@@ -124,18 +129,14 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
   }
 })
 
-test('D7 素材看板 8 个 action 全部实现；D8 的 5 个 action 缺席即 unknown_action', async () => {
+test('D8 基因库 5 个 action 全部实现，全量 56 项与 ACTION_SCHEMAS 键集对齐', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const d8 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('gene.'))
-    assert.equal(d8.length, 5, 'D8 冻结 5 项')
-    for (const action of d8) {
-      assert.equal(handlers[action], undefined, `${action} 属 D8，本批次不得实现`)
+    for (const action of ['gene.search', 'gene.get', 'gene.update', 'gene.regenerate', 'gene.list']) {
+      assert.equal(typeof handlers[action], 'function', `${action} 属 D8，本批次必须实现`)
     }
-    for (const action of ['material.seeds.list', 'material.keyword.upsert', 'material.account.upsert', 'material.collect.start', 'material.collect.status', 'material.videos.list', 'material.runs.list', 'material.facets']) {
-      assert.equal(typeof handlers[action], 'function', `${action} 属 D7，本批次必须实现`)
-    }
+    assert.deepEqual(Object.keys(handlers).sort(), Object.keys(ACTION_SCHEMAS).sort())
   } finally {
     await cleanup()
   }
