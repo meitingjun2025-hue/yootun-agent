@@ -201,6 +201,7 @@ test('collectOutcomeStatus：ready + 服务端 partial / 列表不完整 → par
   assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'completed', listComplete: false }), 'partial', '列表不完整不得显示完成')
   assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'completed', listComplete: true }), 'completed')
   assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: null, listComplete: true }), 'completed', '无服务端 run 的空采集按列表完整性判定')
+  assert.equal(collectOutcomeStatus({ status: 'ready', runStatus: 'failed', listComplete: true }), 'failed', '服务端结算 failed 不得显示完成')
   assert.equal(collectOutcomeStatus({ status: 'collect_failed', runStatus: null, listComplete: false }), 'failed')
   assert.equal(collectOutcomeStatus({ status: 'ingest_failed', runStatus: 'completed', listComplete: true }), 'failed')
 })

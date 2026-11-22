@@ -257,6 +257,7 @@ export interface CollectResult {
  */
 export function collectOutcomeStatus(result: Pick<CollectResult, 'status' | 'runStatus' | 'listComplete'>): 'completed' | 'partial' | 'failed' {
   if (result.status !== 'ready') return 'failed'
+  if (result.runStatus === 'failed') return 'failed'
   return result.runStatus === 'partial' || result.listComplete !== true ? 'partial' : 'completed'
 }
 

@@ -384,31 +384,32 @@ const SOURCE_LABELS: Record<string, string> = {
 }
 
 /** 流量来源行（share_pct 降序）。 */
+/** 流量来源条目（契约行 {source_key, source_label, share_pct}，按占比降序）。 */
 export interface PlaySourceRow {
-  sourceKey: string
-  sourceLabel: string | null
-  sharePct: number | null
+  source_key: string
+  source_label: string | null
+  share_pct: number
 }
 
 export function parsePlaySource(json: unknown): PlaySourceRow[] | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rows = objectsOrNullOf(payload.play_source)
-  if (rows === null) return null
+  if (!Array.isArray(payload.play_source)) return null
   const parsed: PlaySourceRow[] = []
-  for (const item of rows) {
+  for (const item of payload.play_source) {
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
-    const key = clampText(record.source_key, 64)
-    if (key === null) continue
-    const labelRaw = clampText(record.source_label, 128)
+    const key = clampText(firstPresent(record.key, record.source_key), 64)
+    const share = pct(record.value)
+    if (key === null || share === null) continue
+    const provided = clampText(record.source_label, 128)
     parsed.push({
-      sourceKey: key,
-      sourceLabel: labelRaw !== null && labelRaw !== key ? labelRaw : SOURCE_LABELS[key] ?? null,
-      sharePct: pct(record.share_pct),
+      source_key: key,
+      source_label: provided !== null && provided !== key ? provided : SOURCE_LABELS[key] ?? null,
+      share_pct: share,
     })
   }
-  return parsed.sort((a, b) => (b.sharePct ?? 0) - (a.sharePct ?? 0))
+  return parsed.sort((a, b) => b.share_pct - a.share_pct)
 }
 
 /** 画像分布行。 */
@@ -475,22 +476,29 @@ export function parseSearchKeywords(json: unknown): SearchKeywordRow[] | null {
 }
 
 /** 进度分析曲线（empty 标记入库前必须剥离）。 */
+/** 进度分析曲线点（契约行 {key, value}：key 为播放秒，value 0..100）。 */
+export interface ProgressCurveRow {
+  key: string
+  value: number
+}
+
 export interface ProgressAnalysis {
-  jumpBackward: { key: string; value: number | null }[] | null
-  jumpForward: { key: string; value: number | null }[] | null
-  videoData: unknown
+  dragBackward: ProgressCurveRow[]
+  dragForward: ProgressCurveRow[]
+  /** 端点可达且契约正确但确无数据（两曲线空且 video_data=null）；入库剥离。 */
   empty: boolean
 }
 
-function parseCurveRows(raw: unknown): { key: string; value: number | null }[] | null {
+function parseCurveRows(raw: unknown): ProgressCurveRow[] | null {
   if (!Array.isArray(raw)) return null
-  const rows: { key: string; value: number | null }[] = []
+  const rows: ProgressCurveRow[] = []
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
-    const key = clampText(record.key, 32)
-    if (key === null) continue
-    rows.push({ key, value: pct(record.value) })
+    const key = clampText(firstPresent(record.key, record.second), 32)
+    const value = pct(record.value)
+    if (key === null || value === null) continue
+    rows.push({ key, value })
   }
   return rows
 }
@@ -498,15 +506,14 @@ function parseCurveRows(raw: unknown): { key: string; value: number | null }[] |
 export function parseProgressAnalysis(json: unknown): ProgressAnalysis | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const jumpBackward = parseCurveRows(payload.jump_backward)
-  const jumpForward = parseCurveRows(payload.jump_forward)
-  if (jumpBackward === null && jumpForward === null) return null
+  const dragBackward = parseCurveRows(payload.jump_backward)
+  const dragForward = parseCurveRows(payload.jump_forward)
+  if (dragBackward === null && dragForward === null) return null
   const videoData = payload.video_data ?? null
   return {
-    jumpBackward,
-    jumpForward,
-    videoData,
-    empty: (jumpBackward === null || jumpBackward.length === 0) && (jumpForward === null || jumpForward.length === 0) && videoData === null,
+    dragBackward: dragBackward ?? [],
+    dragForward: dragForward ?? [],
+    empty: (dragBackward === null || dragBackward.length === 0) && (dragForward === null || dragForward.length === 0) && videoData === null,
   }
 }
 
@@ -810,14 +817,13 @@ export interface WorkPayloadInput {
   observedAt: string
 }
 
-/** 服务端作品载荷（ingest_batch works[] 条目的白名单投影 + dataGap）。 */
+/** 服务端作品载荷（ingest_batch works[] 条目的冻结契约投影 + dataGap）。 */
 export interface WorkPayload extends Record<string, unknown> {
   work_id: string
   title: string | null
   url: string | null
   publish_time: string | null
   is_private: boolean
-  latest_collected_at: string
   play_count: number | null
   like_count: number | null
   comment_count: number | null
@@ -825,7 +831,6 @@ export interface WorkPayload extends Record<string, unknown> {
   share_count: number | null
   danmaku_count: number | null
   fans_gain_count: number | null
-  duration_s: number | null
   completion_rate_pct: number | null
   completion_rate_5s_pct: number | null
   bounce_rate_2s_pct: number | null
@@ -833,18 +838,15 @@ export interface WorkPayload extends Record<string, unknown> {
   avg_view_proportion_pct: number | null
   cover_click_rate_pct: number | null
   follower_play_ratio_pct: number | null
-  like_rate_pct: number | null
-  comment_rate_pct: number | null
-  share_rate_pct: number | null
-  favorite_rate_pct: number | null
-  play_source: PlaySourceRow[] | null
+  engagement_rates: { like_rate: number | null; comment_rate: number | null; share_rate: number | null; favorite_rate: number | null } | null
+  traffic_source: PlaySourceRow[] | null
   audience: Record<string, unknown> | null
   search_keywords: SearchKeywordRow[] | null
-  progress_analysis: Record<string, unknown> | null
+  progress_analysis: { drag_back_curve: ProgressCurveRow[]; drag_forward_curve: ProgressCurveRow[] } | null
   retention_trend: Record<string, unknown> | null
   retention_bounce: Record<string, unknown> | null
   hotword: Record<string, unknown>
-  play_trend_daily: PlayTrendPoint[] | null
+  play_trend_daily: { day: string; play_count: number }[] | null
   cover_url: string | null
   data_gap: Record<string, { reason: string; at: string }> | null
 }
@@ -888,7 +890,6 @@ export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
     url: work.url,
     publish_time: work.publishTime,
     is_private: work.isPrivate,
-    latest_collected_at: input.observedAt,
     play_count: from(firstNonNull(compareMetrics?.playCount, mget?.playCount, performance?.playCount, work.playCount), 'play_count', lowPlayReason),
     like_count: from(work.likeCount, 'like_count'),
     comment_count: from(work.commentCount, 'comment_count'),
@@ -896,7 +897,6 @@ export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
     share_count: from(work.shareCount, 'share_count'),
     danmaku_count: from(firstNonNull(mget?.danmakuCount, work.danmakuCount), 'danmaku_count'),
     fans_gain_count: from(summarize?.fansGainCount ?? null, 'fans_gain_count'),
-    duration_s: from(work.durationSeconds, 'duration_s'),
     completion_rate_pct: from(firstNonNull(compareMetrics?.completionRate, summarize?.completionRate, mget?.completionRate), 'completion_rate_pct', lowPlayReason),
     completion_rate_5s_pct: from(firstNonNull(compareMetrics?.completionRate5s, mget?.completionRate5s, performance?.completion_rate_5s_pct), 'completion_rate_5s_pct', lowPlayReason),
     bounce_rate_2s_pct: from(firstNonNull(compareMetrics?.bounceRate2s, mget?.bounceRate2s, performance?.bounce_rate_2s_pct), 'bounce_rate_2s_pct', lowPlayReason),
@@ -904,11 +904,15 @@ export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
     avg_view_proportion_pct: from(firstNonNull(compareMetrics?.avgViewProportion, mget?.avgViewProportion), 'avg_view_proportion_pct', lowPlayReason),
     cover_click_rate_pct: from(firstNonNull(compareMetrics?.coverClickRate, mget?.coverClickRate), 'cover_click_rate_pct', lowPlayReason),
     follower_play_ratio_pct: from(firstNonNull(compareMetrics?.followerPlayRatio, mget?.followerPlayRatio), 'follower_play_ratio_pct', lowPlayReason),
-    like_rate_pct: from(compareMetrics?.likeRate ?? null, 'like_rate_pct'),
-    comment_rate_pct: from(compareMetrics?.commentRate ?? null, 'comment_rate_pct'),
-    share_rate_pct: from(compareMetrics?.shareRate ?? null, 'share_rate_pct'),
-    favorite_rate_pct: from(compareMetrics?.favoriteRate ?? null, 'favorite_rate_pct'),
-    play_source: input.source,
+    engagement_rates: compareMetrics === null
+      ? (mark('engagement_rates', 'not_exposed'), null)
+      : {
+          like_rate: compareMetrics.likeRate,
+          comment_rate: compareMetrics.commentRate,
+          share_rate: compareMetrics.shareRate,
+          favorite_rate: compareMetrics.favoriteRate,
+        },
+    traffic_source: input.source === null ? (mark('traffic_source', 'not_exposed'), null) : input.source,
     audience: input.portrait === null
       ? (mark('audience', 'not_exposed'), null)
       : { gender: input.portrait.gender, age: input.portrait.age, province: input.portrait.province, city_level: input.portrait.cityLevel },
@@ -917,7 +921,7 @@ export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
       ? (mark('progress_analysis', 'not_exposed'), null)
       : input.progress.empty
         ? (mark('progress_analysis', 'no_data'), null)
-        : { jump_backward: input.progress.jumpBackward, jump_forward: input.progress.jumpForward, video_data: input.progress.videoData },
+        : { drag_back_curve: input.progress.dragBackward, drag_forward_curve: input.progress.dragForward },
     retention_trend: buildTrendBlock(input.retention, input.retentionGap, 'retention_trend', mark),
     retention_bounce: buildTrendBlock(input.bounce, input.bounceGap, 'retention_bounce', mark),
     hotword: input.hotword === null
@@ -925,9 +929,9 @@ export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
       : input.hotword.status === 'ok'
         ? { source: 'tab', status: 'ok', words: input.hotword.words }
         : { source: 'tab', status: 'unavailable', words: [] },
-    play_trend_daily: input.metricsTrend === null
+    play_trend_daily: input.metricsTrend === null || input.metricsTrend.length === 0
       ? (mark('play_trend_daily', input.metricsTrendGap ?? 'not_exposed'), null)
-      : input.metricsTrend,
+      : input.metricsTrend.slice(-7).map(point => ({ day: point.day, play_count: point.playCount })),
     cover_url: work.cover,
     data_gap: null,
   }

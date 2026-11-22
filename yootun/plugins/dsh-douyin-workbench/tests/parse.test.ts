@@ -160,3 +160,73 @@ test('dedupeWorks：跨页去重保留首现顺序', () => {
   const kept = dedupeWorks([make('1'), make('2'), make('1'), make('3'), make('2')])
   assert.deepEqual(kept.map(work => work.workId), ['1', '2', '3'])
 })
+
+test('buildWorkPayload 契约键集（ingest_batch works[] 冻结 DTO，D9B 真机第二缺陷回归）', () => {
+  // 服务端 DouyinWorkIngestItem 为 extra=forbid：多一个键整批拒绝（2026-11-22
+  // 真机 run 774a2ae3：latest_collected_at/duration_s/flat 互动率/play_source/
+  // 原始 progress 键致 21 条作品零入库）。此处锁定 payload 顶层与子块键集。
+  const payload = buildWorkPayload(fullInputs())
+  assert.deepEqual([...Object.keys(payload)].sort(), [
+    'audience', 'avg_view_proportion_pct', 'avg_watch_duration_s', 'bounce_rate_2s_pct',
+    'collect_count', 'comment_count', 'completion_rate_5s_pct', 'completion_rate_pct',
+    'cover_click_rate_pct', 'cover_url', 'danmaku_count', 'data_gap', 'engagement_rates',
+    'fans_gain_count', 'follower_play_ratio_pct', 'hotword', 'is_private', 'like_count',
+    'play_count', 'play_trend_daily', 'progress_analysis', 'publish_time', 'retention_bounce',
+    'retention_trend', 'search_keywords', 'share_count', 'title', 'traffic_source', 'url', 'work_id',
+  ])
+  assert.deepEqual(Object.keys(payload.engagement_rates ?? {}), ['like_rate', 'comment_rate', 'share_rate', 'favorite_rate'])
+  assert.deepEqual(Object.keys(payload.progress_analysis ?? {}), ['drag_back_curve', 'drag_forward_curve'])
+  for (const row of payload.traffic_source ?? []) {
+    assert.deepEqual(Object.keys(row).sort(), ['share_pct', 'source_key', 'source_label'])
+    assert.ok(row.share_pct >= 0 && row.share_pct <= 100, 'share_pct 服务端 0..100 非空')
+  }
+  for (const point of payload.play_trend_daily ?? []) {
+    assert.deepEqual(Object.keys(point), ['day', 'play_count'])
+  }
+  for (const curve of [payload.progress_analysis?.drag_back_curve, payload.progress_analysis?.drag_forward_curve]) {
+    for (const point of curve ?? []) {
+      assert.deepEqual(Object.keys(point), ['key', 'value'])
+      assert.ok(point.value >= 0 && point.value <= 100, '曲线 value 服务端 0..100 非空')
+    }
+  }
+
+  /** 全量输入构造器（work + 各子块最小真实形状）。 */
+  function fullInputs(): Parameters<typeof buildWorkPayload>[0] {
+    const work: WorkItem = {
+      workId: '7412345678901234567', title: '标题', url: 'https://www.douyin.com/video/1', publishTime: '2026-11-01T00:00:00.000Z',
+      playCount: 10, likeCount: 1, commentCount: 2, collectCount: 3, shareCount: 4, danmakuCount: 5,
+      durationSeconds: 12.3, cover: 'https://p.douyinpic.com/x.webp', isPrivate: false,
+    }
+    const performance = new Map([[work.workId, { play_count: 11, avg_watch_duration_s: 1, completion_rate_5s_pct: 50, bounce_rate_2s_pct: 20 }]])
+    const mget = new Map([[work.workId, { play_count: 11, danmaku_count: 5, completion_rate_pct: 33 }]])
+    const summarize = new Map([[work.workId, { fansGainCount: 2, completionRate: 33 }]])
+    return {
+      work,
+      performance,
+      compare: {
+        statusCode: 0, gapReason: null,
+        metrics: {
+          playCount: 12, avgWatchDuration: 2, completionRate: 34, completionRate5s: 51, bounceRate2s: 21,
+          avgViewProportion: 44, coverClickRate: 5, followerPlayRatio: 6,
+          likeRate: 1, commentRate: 2, shareRate: 3, favoriteRate: 4,
+        },
+        statusMessage: null,
+      },
+      compareGap: null,
+      source: [{ source_key: 'feed', source_label: '推荐', share_pct: 60 }, { source_key: 'search', source_label: null, share_pct: 40 }],
+      portrait: { gender: [], age: [], province: [], cityLevel: [] },
+      search: [{ keyword: '词', percent: 50 }],
+      progress: { dragBackward: [{ key: '1', value: 10 }], dragForward: [{ key: '2', value: 20 }], empty: false },
+      retention: { current: [{ key: '1', value: 1 }], similar: [], valleys: [], empty: false },
+      retentionGap: null,
+      bounce: { current: [], similar: [], valleys: [], empty: true },
+      bounceGap: null,
+      mget,
+      summarize,
+      hotword: { status: 'ok', statusCode: 0, words: [{ word: '热词', rank: 1, rawScore: null }] },
+      metricsTrend: [{ day: '2026-11-20', playCount: 5 }, { day: '2026-11-21', playCount: 6 }],
+      metricsTrendGap: null,
+      observedAt: '2026-11-22T00:00:00.000Z',
+    }
+  }
+})
