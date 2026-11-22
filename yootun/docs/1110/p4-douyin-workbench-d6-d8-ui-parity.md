@@ -128,4 +128,4 @@
 
 ## 13. 验收锚点 → 测试对账
 
-每个锚点在 `tests/client/*.test.tsx`（结构/样式 class/键盘/词典断言）与 `tests/d6|d7|d8.test.ts`（Host 行为）对账；真实浏览器视觉矩阵、真机扫码/采集/模型链路留给 D9 集成验收，不以占位测试伪造。
+每个锚点在 `tests/client/douyin-d678.test.tsx` 与 `tests/client/douyin-client.test.tsx`（结构/键盘/词典断言）及 `tests/d6|d7|d8.test.ts`（Host 行为）对账：纯函数（tone 归一/历史筛选/脚本表格解析）、拆解新建区与下载空链接、历史 5 列与状态筛选、详情工具栏/8 步骤/6 KPI/五折叠卡/导出错误就近/辅助源降级/强制重试与重仿写确认、看板 12 列与长文 aria-label/服务端 total 分页/筛选 offset 收口/评分理由四态/seed 弹窗锁定与启停确认/采集确认与 ACTIVE_RUN_EXISTS 冲突/失败明细/去拆解预填/KPI 降级 —、基因 facets 与已选条件/卡片缺失 —/详情四态字段/编辑同键/重建费用确认/失败列表重试、zh/en 键集、Esc 回归焦点。真实浏览器视觉矩阵、真机扫码/采集/模型链路留给 D9 集成验收，不以占位测试伪造。

@@ -564,13 +564,13 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
               : downloadError !== null && downloadError.startsWith('bd.')
                 ? t(downloadError as 'bd.error.downloadFailed')
                 : downloadError !== null
-                  ? domainErrorText('breakdown', downloadError, t)
+                  ? domainErrorText('bd', downloadError, t)
                   : ''}
           </p>
         )}
         {startError !== null && (
           <p className={css.formError} role='alert'>
-            {startError.startsWith('bd.') ? t(startError as 'bd.error.archiveFailed') : domainErrorText('breakdown', startError, t)}
+            {startError.startsWith('bd.') ? t(startError as 'bd.error.archiveFailed') : domainErrorText('bd', startError, t)}
           </p>
         )}
         {archivePending && (
@@ -620,7 +620,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
         )}
       >
         {historyState === 'error' && historyError !== null && (
-          <p className={css.formError} role='alert'>{domainErrorText('breakdown', historyError, t)}</p>
+          <p className={css.formError} role='alert'>{domainErrorText('bd', historyError, t)}</p>
         )}
         <DataState state={historyState} shape='rows' onRetry={() => { void loadHistory() }}>
           {historyState === 'ready' && history.length === 0 && (
@@ -827,7 +827,7 @@ function BreakdownDetailView(props: {
       <div className={css.workToolbarRow}>
         <Button variant='ghost' size='sm' onClick={props.onBack}>{t('bd.backToList')}</Button>
         <p className={css.formError} role='alert'>
-          {props.detailError !== null ? domainErrorText('breakdown', props.detailError, t) : t('bd.error.default')}
+          {props.detailError !== null ? domainErrorText('bd', props.detailError, t) : t('bd.error.default')}
         </p>
       </div>
     )
@@ -858,7 +858,7 @@ function BreakdownDetailView(props: {
         </span>
       </div>
       {props.exportError !== null && (
-        <p className={css.formError} role='alert'>{domainErrorText('breakdown', props.exportError, t)}</p>
+        <p className={css.formError} role='alert'>{domainErrorText('bd', props.exportError, t)}</p>
       )}
       <DataCard title={workflow.candidateTitle ?? workflow.candidateId}>
         <div className={css.bdHeadRow}>
@@ -873,7 +873,7 @@ function BreakdownDetailView(props: {
         </div>
         <StepProgress workflow={workflow} t={t} />
         {props.detail?.candidateError !== null && props.detail !== null && (
-          <p className={css.inlineHint} role='status'>{t('bd.candidateDegraded')}{domainErrorText('breakdown', props.detail.candidateError, t)}</p>
+          <p className={css.inlineHint} role='status'>{t('bd.candidateDegraded')}{domainErrorText('bd', props.detail.candidateError, t)}</p>
         )}
         {failed && (
           <div className={css.bdErrorActions}>

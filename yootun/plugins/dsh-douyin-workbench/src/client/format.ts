@@ -26,14 +26,14 @@ export function reasonText(reason: string, t: Translate): string {
 }
 
 /**
- * 分域错误码 → 文案（schedule / report / ai / breakdown / material / gene
- * 全表在 locales；未登记码回退通用文案）。
+ * 分域错误码 → 文案（schedule / report / ai / bd / mat / gene 全表在 locales，
+ * 前缀即词典段名；未登记码回退通用文案）。
  * @param domain - 错误文案域（词典前缀）。
  * @param code - 稳定错误码。
  * @param t - 页面翻译函数。
  * @returns 展示文案。
  */
-export function domainErrorText(domain: 'schedule' | 'report' | 'ai' | 'breakdown' | 'material' | 'gene', code: string | null, t: Translate): string {
+export function domainErrorText(domain: 'schedule' | 'report' | 'ai' | 'bd' | 'mat' | 'gene', code: string | null, t: Translate): string {
   if (code === null || code === '') return t(`${domain}.error.default` as DouyinLocaleKey)
   const key = `${domain}.error.${code}` as DouyinLocaleKey
   return zh[key] !== undefined ? t(key) : t(`${domain}.error.default` as DouyinLocaleKey)

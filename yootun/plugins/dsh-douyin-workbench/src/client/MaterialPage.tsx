@@ -431,7 +431,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           <MaterialKpiRow board={board} seeds={seeds.data} runs={runs.rows} t={t} />
 
           {board.errorReason !== null && (
-            <p className={css.formError} role='alert'>{domainErrorText('material', board.errorReason, t)}</p>
+            <p className={css.formError} role='alert'>{domainErrorText('mat', board.errorReason, t)}</p>
           )}
           <DataState state={board.loading && !board.loaded ? 'loading' : board.errorReason !== null ? 'error' : 'ready'} shape='rows' onRetry={() => { void loadBoard() }}>
             {!board.loading && board.loaded && board.rows.length === 0 && (
@@ -488,7 +488,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           actions={<Button variant='primary' size='sm' onClick={() => { setSeedError(null); setSeedModal({ mode: 'keyword', row: null }) }}>{t('mat.keywords.add')}</Button>}
         >
           {seeds.errorReason !== null && (
-            <p className={css.formError} role='alert'>{domainErrorText('material', seeds.errorReason, t)}</p>
+            <p className={css.formError} role='alert'>{domainErrorText('mat', seeds.errorReason, t)}</p>
           )}
           <DataState state={seeds.loading && seeds.data === null ? 'loading' : seeds.errorReason !== null && seeds.data === null ? 'error' : 'ready'} shape='rows' onRetry={() => { void loadSeeds() }}>
             {(seeds.data?.keywords.length ?? 0) === 0 && !seeds.loading && (
@@ -514,7 +514,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           actions={<Button variant='primary' size='sm' onClick={() => { setSeedError(null); setSeedModal({ mode: 'account', row: null }) }}>{t('mat.accounts.add')}</Button>}
         >
           {seeds.errorReason !== null && (
-            <p className={css.formError} role='alert'>{domainErrorText('material', seeds.errorReason, t)}</p>
+            <p className={css.formError} role='alert'>{domainErrorText('mat', seeds.errorReason, t)}</p>
           )}
           <DataState state={seeds.loading && seeds.data === null ? 'loading' : seeds.errorReason !== null && seeds.data === null ? 'error' : 'ready'} shape='rows' onRetry={() => { void loadSeeds() }}>
             {(seeds.data?.accounts.length ?? 0) === 0 && !seeds.loading && (
@@ -557,7 +557,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
             </p>
           )}
           {runs.errorReason !== null && (
-            <p className={css.formError} role='alert'>{domainErrorText('material', runs.errorReason, t)}</p>
+            <p className={css.formError} role='alert'>{domainErrorText('mat', runs.errorReason, t)}</p>
           )}
           <DataState state={runs.loading && runs.rows.length === 0 ? 'loading' : runs.errorReason !== null && runs.rows.length === 0 ? 'error' : 'ready'} shape='rows' onRetry={refreshRuns}>
             {runs.rows.length === 0 && !runs.loading && (
@@ -1096,7 +1096,7 @@ function SeedModal(props: {
             ))}
           </span>
         </div>
-        {props.errorReason !== null && <p className={css.formError} role='alert'>{domainErrorText('material', props.errorReason, t)}</p>}
+        {props.errorReason !== null && <p className={css.formError} role='alert'>{domainErrorText('mat', props.errorReason, t)}</p>}
       </form>
     </Modal>
   )
@@ -1139,7 +1139,7 @@ function CollectModal(props: {
         <div className={css.metaRow}><dt>{t('mat.collect.expected')}</dt><dd>{expected ?? '—'}</dd></div>
       </dl>
       <p className={css.inlineHint}>{t('mat.collect.note')}</p>
-      {props.errorReason !== null && <p className={css.formError} role='alert'>{domainErrorText('material', props.errorReason, t)}</p>}
+      {props.errorReason !== null && <p className={css.formError} role='alert'>{domainErrorText('mat', props.errorReason, t)}</p>}
     </Modal>
   )
 }
