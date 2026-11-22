@@ -1,6 +1,6 @@
 # P4 抖音工作台 D9 混合验证方案（生产认证冒烟 + 本地真实链路）
 
-状态：**起草待执行**（2026-11-22 起草并修订为混合口径；完整执行前置条件：有效 yootun key 与操作者在场扫码）。
+状态：**本地混合链路已执行（2026-11-22）；UI 样式细节转入用户真机验证阶段**。执行记录见文末 §12。
 
 本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §6.5 的 D9 中可在 WSL 本地完成的部分。D9 采用混合验证口径：生产 ixicai 网关只做认证与只读冒烟；账号、采集、排期、AI 报表、拆解、素材、基因库等业务真实链路全部走本地 tools.dofe.ai MCP 与本地 WSL 数据库 / 队列。它不替代 Windows 真机验收；该项仍按 §6.6 在打包产物安装后另行执行。方案结构参照 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 与 [13-xhs-workbench-x7-local-e2e-plan.md](13-xhs-workbench-x7-local-e2e-plan.md)（P2/P3 同型方案），差异由抖音工作台的实际范围与混合口径决定。
 
@@ -359,3 +359,49 @@ D9 判定通过要求全部成立：
 1. 打包产物安装与启动检查（P5 §7.1 集成检查、§7.2 出包命令）；
 2. Windows 真机扫码、采集、重启保留状态和升级验收（§6.6，由操作者执行）；
 3. 分册 15 G-1 缺口（`workbench_douyin_collect_run_cancel` 无 action 绑定）按产品决策另行处理，不在本方案内补。
+
+## 12. 执行记录（2026-11-22，本地混合链路）
+
+### 12.1 已验证通过
+
+| 阶段 | 结果 | 关键证据 |
+|---|---|---|
+| D9B-1 生产认证冒烟 | 通过 | 94 / douyin 33 / viral 22 / Catalog 排除；`report_list` + `rewrite_rules_list` 只读读通；manifest 0600 |
+| D9B-2 本地 tools + 契约 | 通过 | health/ready 三依赖 ok；Workbench 94/33/22；Agent 39 与 managed-mcp 白名单一致无泄漏；Catalog 5（一个工具 outputSchema 不符 TS SDK 严格校验，服务端侧偏差，宽松读取记录） |
+| D9B-3 隔离运行态 | 通过 | Electron 被 linux-x64 平台门拒绝（`desktop-build-paths.mjs` 仅 mac/win），经确认改用隔离 Web profile `douyind9`（base + web-app + yootun bundle）；侧栏入口出现；进程 env 双本地 MCP 覆盖生效、无 MODELS_API_KEY |
+| C1 扫码登录 | 通过 | 账号「优惠豚汽车生活甄选馆」Signed in；accounts.json ok；storage-state 0600 / profiles 0700；UI 无路径/Cookie/storage_state 泄漏 |
+| C2 采集与恢复态 | 通过 | 修复三缺陷后 run `9b3a914a`：本地/UI/服务端三方一致（completed、expected 21、ingested 21、seen 21）；审计 ingest_batch OK；关机中断后 G-2 恢复置 interrupted 不伪装 |
+| C3 读+写链路 | 通过 | 12 列冻结、21 行、缺失 — 不补 0；下钻/返回保留筛选；负责人 `d9-test-owner`、投流 500/12/66.00/48.00 UI+DB 双对账 |
+| C4 发布排期 | 通过（冲突制造未覆盖） | 行新增/编辑/二次确认删除 UI+DB 双对账（表 0 残留）；脏改动阻断账号切换互斥 ✓；表格高度固定修复后区域恒定；乐观版本冲突需双端并发，记未覆盖 |
+| C5 AI 分析与报表 | 通过 | AI 分析诚实呈现 insufficient（未产生费用）；报表重建 v2 12 秒 succeeded（UI+DB 对账）；列表/详情真实数据 |
+| C6 拆解全链路 | 通过 | 归档→8 步骤工作流 succeeded（ASR 真模型调用）→6 KPI 真实值→分镜表→导出 xlsx 16,360 B→直链下载 mp4 8,404,593 B（TOS 直取） |
+| C7 素材看板 | 通过 | 新增测试关键词（唯一 Active）；手动采集 run `mcp-vv-seed-8ce0` succeeded（OneAPI search_video_v2 真实多页轮询）；候选 39 / S·A·B·C 1/3/10/25 真实渲染 |
+| C8 基因库 | 详情/列表通过；重建未执行 | 拆解产物自动入库（AI draft）；facets 真实分布；失败卡（Retry extraction）呈现；详情修复后 3,188 字符全内容；重建按钮确认存在（Re-extract genes），执行留待真机 |
+| C9 四类导出 | 拆解导出通过；其余转真机 | 拆解 xlsx 真实下载；作品/总览/分析导出与 trend 验证自动化中断，转用户真机 |
+
+### 12.2 本轮发现并修复的缺陷（6 commit，全部客户端/插件侧，未改 tools 源码）
+
+| # | 缺陷 | 修复 |
+|---|---|---|
+| 1 | `quoteLongNumbers` 不感知 JSON 字符串上下文，嵌套转义长数字被加引号破坏整页 JSON → 采集恒 0 作品误归因 invalid_json | 采集解析字符串感知 移植旧 parse.js 字符串感知状态机 |
+| 2 | ingest_batch 载荷五处契约漂移（extra 键 / flat 互动率 / 原始 progress 键 / play_source 键名）→ 整批拒绝零入库且 UI 误示「采集完成」 | ingest 载荷契约回归 + collectOutcomeStatus 三态 回归冻结契约 + collectOutcomeStatus 三态 |
+| 3 | 热词条目 `rawScore`→契约键 `raw_score` + 源字段误读 | 热词条目回归契约键 raw_score |
+| 4 | archiveStart / workflowStart 缺冻结契约 `confirm:true` → Host 400 | 归档/工作流补风险确认位（重新改写/强制重试同走 startWorkflow 一并覆盖） |
+| 5 | `readGeneRecord` 只读 `data.record` 包装，knowledge_get 实际平铺 data 顶层 → 详情弹层空白 | 基因详情投影兼容平铺 data 兼容两形态 |
+| 6 | 服务端 account_trend `fromDay: DayStr = ""` 默认值与 pattern 自相矛盾 → 分析趋势 VALIDATION_ERROR | 分析趋势显式 30 天窗口 客户端显式携带 30 天窗口（不修 tools） |
+
+另：UI 反馈修复 2 commit——排期页表格高度固定（排期页表格高度固定 三段 grid）+ kit page-shell content 补 flex（kit 壳层 content 补 flex，高度链断裂根因，三工作台 bundle 重建）。
+
+### 12.3 环境事项
+
+- 本地 WSL 补装 ffmpeg/ffprobe（viral 工作流音频/抽帧步系统依赖）；
+- 首次归档（装依赖前）遗留的 failed local_ffmpeg asset 被后续归档去重复用，抽帧步读旧 `lastErrorCode` 秒败——按授权清理该视频的候选/工作流/拆解/模型任务/失败 asset 后全新重跑通过；
+- `make` 不存在，tools 启动按 Makefile 底层命令 `uv run app` / `uv run worker-*` 等效执行；默认队列 worker 未启动（当前任务路由未要求）。
+
+### 12.4 剩余项（转用户真机验证）
+
+1. **UI 样式细节**：用户真机逐页截图反馈后修订（本轮仅修排期表格高度一处）；
+2. C8 基因重建执行 + C9 作品/总览/分析三导出 + 分析 trend 修复效果复核（自动化中断于收尾段）；
+3. 42 张视觉与可达性矩阵、reduced-motion、键盘路径全走查；
+4. 观察项待真机复核：素材 run 历史终态判定时机（UI 曾在 run 进行中匹配到旧行 Completed）、报表版本菜单不自动刷新、基因重建按钮在长弹层中的滚动可见性；
+5. C4 乐观版本冲突制造（需双端并发）、分册 15 G-1、Windows 真机与 P5 出包（§11）。
