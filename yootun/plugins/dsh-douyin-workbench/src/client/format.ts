@@ -26,14 +26,14 @@ export function reasonText(reason: string, t: Translate): string {
 }
 
 /**
- * 分域错误码 → 文案（schedule / report / ai 全表在 locales；未登记码回退
- * 通用文案）。
+ * 分域错误码 → 文案（schedule / report / ai / breakdown / material / gene
+ * 全表在 locales；未登记码回退通用文案）。
  * @param domain - 错误文案域（词典前缀）。
  * @param code - 稳定错误码。
  * @param t - 页面翻译函数。
  * @returns 展示文案。
  */
-export function domainErrorText(domain: 'schedule' | 'report' | 'ai', code: string | null, t: Translate): string {
+export function domainErrorText(domain: 'schedule' | 'report' | 'ai' | 'breakdown' | 'material' | 'gene', code: string | null, t: Translate): string {
   if (code === null || code === '') return t(`${domain}.error.default` as DouyinLocaleKey)
   const key = `${domain}.error.${code}` as DouyinLocaleKey
   return zh[key] !== undefined ? t(key) : t(`${domain}.error.default` as DouyinLocaleKey)
@@ -71,6 +71,17 @@ export function formatPercent(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return EMPTY
   const bounded = Math.max(0, Math.min(100, value))
   return `${Math.round(bounded * 100) / 100}%`
+}
+
+/**
+ * 0–1 比率 → 百分比两位小数（素材互动率/基因采纳率口径：服务端小数比率，
+ * 展示层统一 ×100）；缺失为「—」。
+ * @param value - 0..1 比率或 null。
+ * @returns 展示百分比。
+ */
+export function formatRateRatio(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return EMPTY
+  return `${(Math.max(0, value) * 100).toFixed(2)}%`
 }
 
 /**

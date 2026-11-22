@@ -1,14 +1,15 @@
 /**
  * 抖音工作台中央面板：7 Tab 固定顺序（账号总览/账号作品/发布排期看板/爆款
  * 素材看板/爆款拆解/爆款基因库/AI 报表；切任意 Tab 收起 AI 弹层；仅账号作品
- * Tab 有左账号栏两列布局，其余全宽；D6–D8 三 Tab 面板渲染 DataState 占位不显
- * 示假数据）。共享编排：browser.status 五态、accounts.list、登录扫码流
+ * Tab 有左账号栏两列布局，其余全宽；D6 爆款拆解为真实实现，D7/D8 占位随批次
+ * 接入）。共享编排：browser.status 五态、accounts.list、登录扫码流
  * （beginLogin → 2s 轮询 loginStatus → ok(saveError 透出)/timeout/failed 终态
  * 停轮询刷新列表）、单账号采集（collect.start → 1.5s 轮询 collect.status，乐观
  * 运行态，宿主重启丢 record 清乐观态）、批量采集（collectAll.start/status 轮询，
  * 终态刷新）、作品查询（切号缓存 + 序号守卫）、统一作品详情弹层（跨账号显式
  * accountId；detailRequestRef 守卫）、负责人/投流弹层与 Esc 链（官方 Modal 栈
- * 顶层先关、焦点回归）。Toast 收口短暂反馈。
+ * 顶层先关、焦点回归）。Toast 收口短暂反馈；素材看板「去拆解」经
+ * breakdownPrefill 跨 Tab 预填链接（不自动开始）。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -26,6 +27,7 @@ import {
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { AnalysisPage, attemptId } from './AnalysisPage.tsx'
+import { BreakdownPage } from './BreakdownPage.tsx'
 import { OwnerModal } from './OwnerModal.tsx'
 import { OverviewPage, DEFAULT_OVERVIEW_FILTERS, downloadBase64, type OverviewFilters } from './OverviewPage.tsx'
 import { PromotionModal } from './PromotionModal.tsx'
@@ -94,6 +96,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [promotionModal, setPromotionModal] = useState<(PromotionModalData & { accountName: string; staleRecovered: boolean }) | null>(null)
   const [promotionSaving, setPromotionSaving] = useState(false)
   const [toast, setToast] = useState<ToastState | null>(null)
+  // 素材看板「去拆解」跨 Tab 预填：切爆款拆解 Tab 并带入链接（不自动开始）。
+  const [breakdownPrefill, setBreakdownPrefill] = useState<string | null>(null)
 
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -650,8 +654,11 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
             {tab === 'schedule' && (
               <SchedulePage t={t} accounts={accounts} accountsState={accountsState} />
             )}
-            {(tab === 'material' || tab === 'breakdown' || tab === 'gene') && (
+            {(tab === 'material' || tab === 'gene') && (
               <DataState state='empty' shape='block' emptyAction={<p>{t('tab.notReady')}</p>} />
+            )}
+            {tab === 'breakdown' && (
+              <BreakdownPage t={t} onNotice={notify} prefill={breakdownPrefill} onPrefillConsumed={() => { setBreakdownPrefill(null) }} />
             )}
             {tab === 'report' && (
               <ReportPage t={t} localeTag={localeTag} onNotice={notify} />

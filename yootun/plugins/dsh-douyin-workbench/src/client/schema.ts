@@ -1165,6 +1165,286 @@ function insightItems<T>(value: unknown, map: (record: Record<string, unknown>) 
   }).filter((row): row is T => row !== null)
 }
 
+// ---- 爆款拆解（breakdown.*） ----
+
+/** 仿写规则行（rewriteRuleId/name/description；prompt 正文服务端不下发）。 */
+export interface RewriteRuleRow {
+  rewriteRuleId: string
+  name: string | null
+  description: string | null
+}
+
+/** breakdown.rewriteRules → 规则行（无 id 的行丢弃）。 */
+export function readRewriteRules(payload: Record<string, unknown>): RewriteRuleRow[] {
+  const rows: RewriteRuleRow[] = []
+  for (const entry of arrayOf(payload.rules)) {
+    const record = recordOf(entry)
+    if (record === undefined) continue
+    const id = textOf(record.rewriteRuleId)
+    if (id === null) continue
+    rows.push({ rewriteRuleId: id, name: textOf(record.name), description: textOf(record.description) })
+  }
+  return rows
+}
+
+/** workflow 投影行（蛇形 candidate_id 已由 Host 归一为 candidateId）。 */
+export interface WorkflowRow {
+  workflowId: string | null
+  candidateId: string
+  status: string
+  currentStep: string | null
+  currentStepLabel: string | null
+  candidateTitle: string | null
+  candidateAuthor: string | null
+  candidatePlayCount: number | null
+  rewriteRuleId: string | null
+  /** 键是否存在由 inWorkflow 携带（false = 同步失败 payload 缺键，回退会话规则）。 */
+  hasRewriteRuleKey: boolean
+  updatedAt: string | null
+  retryAfterSeconds: number | null
+  errorCode: string | null
+}
+
+/** workflow 载荷行 → 白名单视图（无 candidateId 的行丢弃）。 */
+function workflowRowOf(entry: unknown): WorkflowRow | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  const candidateId = textOf(record.candidateId ?? record.candidate_id)
+  if (candidateId === null) return null
+  const admin = recordOf(record.admin)
+  return {
+    workflowId: textOf(record.workflowId) ?? (admin !== undefined ? textOf(admin.workflowId) : null),
+    candidateId,
+    status: textOf(record.status) ?? '',
+    currentStep: textOf(record.currentStep),
+    currentStepLabel: textOf(record.currentStepLabel),
+    candidateTitle: textOf(record.candidateTitle),
+    candidateAuthor: textOf(record.candidateAuthor),
+    candidatePlayCount: numberOf(record.candidatePlayCount),
+    rewriteRuleId: textOf(record.rewriteRuleId),
+    hasRewriteRuleKey: 'rewriteRuleId' in record,
+    updatedAt: textOf(record.updatedAt),
+    retryAfterSeconds: numberOf(record.retryAfterSeconds),
+    errorCode: textOf(record.errorCode) ?? (admin !== undefined ? textOf(admin.errorCode) : null),
+  }
+}
+
+/** 历史行 = workflow 行 + hasStoryboard 保守标记。 */
+export interface BreakdownHistoryRow extends WorkflowRow {
+  hasStoryboard: boolean
+}
+
+/** breakdown.history → 历史行。 */
+export function readBreakdownHistory(payload: Record<string, unknown>): BreakdownHistoryRow[] {
+  const rows: BreakdownHistoryRow[] = []
+  for (const entry of arrayOf(payload.history)) {
+    const row = workflowRowOf(entry)
+    if (row === null) continue
+    rows.push({ ...row, hasStoryboard: booleanOf(recordOf(entry)?.hasStoryboard) })
+  }
+  return rows
+}
+
+/** breakdown.workflowStatus → workflow 行 + total。 */
+export function readBreakdownWorkflows(payload: Record<string, unknown>): { workflows: WorkflowRow[]; total: number } {
+  const workflows = arrayOf(payload.workflows).map(workflowRowOf)
+    .filter((row): row is WorkflowRow => row !== null)
+  const total = numberOf(payload.total)
+  return { workflows, total: total ?? workflows.length }
+}
+
+/** breakdown.archiveStart / archiveStatus → 异步 run 回执。 */
+export interface ArchiveRunView {
+  runId: string
+  runStatus: string
+  nextAction: string | null
+  candidateId: string | null
+  error: string | null
+}
+
+export function readArchiveRun(payload: Record<string, unknown>): ArchiveRunView | null {
+  const record = recordOf(payload.archive)
+  if (record === undefined) return null
+  const runId = textOf(record.runId)
+  if (runId === null) return null
+  const result = recordOf(record.result)
+  return {
+    runId,
+    runStatus: textOf(record.runStatus) ?? '',
+    nextAction: textOf(record.nextAction),
+    candidateId: result !== undefined ? textOf(result.candidateId) : null,
+    error: textOf(recordOf(record.error)?.code) ?? textOf(record.error),
+  }
+}
+
+/** breakdown.downloadStart / downloadStatus → 下载任务视图。 */
+export interface DownloadJobView {
+  jobId: string | null
+  status: string
+  downloadUrl: string | null
+  fallbackPlayUrl: string | null
+  title: string | null
+  errorCode: string | null
+}
+
+export function readDownloadJob(payload: Record<string, unknown>): DownloadJobView | null {
+  const record = recordOf(payload.download)
+  if (record === undefined) return null
+  return {
+    jobId: textOf(record.jobId),
+    status: textOf(record.status) ?? '',
+    downloadUrl: safeHttpUrl(record.downloadUrl),
+    fallbackPlayUrl: safeHttpUrl(record.fallbackPlayUrl) ?? safeHttpUrl(record.playUrl),
+    title: textOf(record.title),
+    errorCode: textOf(recordOf(record.error)?.code) ?? textOf(record.errorCode),
+  }
+}
+
+/** 拆解详情的原文/仿写分段。 */
+export interface BreakdownSegment {
+  timeRange: string | null
+  role: string | null
+  originalVisual: string | null
+  originalSpeech: string | null
+  rewrittenSpeech: string | null
+  rewrittenVisual: string | null
+  sourceSegmentIndexes: number[]
+}
+
+/** 分段投影（原表与仿写卡共用；无值字段 null）。 */
+function segmentOf(entry: unknown): BreakdownSegment | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  return {
+    timeRange: textOf(record.timeRange),
+    role: textOf(record.role),
+    originalVisual: textOf(record.originalVisual),
+    originalSpeech: textOf(record.originalSpeech),
+    rewrittenSpeech: textOf(record.rewrittenSpeech),
+    rewrittenVisual: textOf(record.rewrittenVisual),
+    sourceSegmentIndexes: arrayOf(record.sourceSegmentIndexes)
+      .map(index => numberOf(index))
+      .filter((index): index is number => index !== null),
+  }
+}
+
+/** 拍摄脚本块（status=succeeded 才有 markdown）。 */
+export interface ShotScriptView {
+  status: string | null
+  markdown: string | null
+  quotaDigest: string | null
+}
+
+/** storyboard 行投影（详情主体）。 */
+export interface StoryboardRow {
+  originalSummary: string | null
+  originalSegments: BreakdownSegment[]
+  rewrittenSummary: string | null
+  rewrittenSegments: BreakdownSegment[]
+  shotScript: ShotScriptView
+  ruleId: string | null
+  rulePrompt: string | null
+}
+
+function storyboardRowOf(entry: unknown): StoryboardRow | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  const original = recordOf(record.originalVideoAnalysis)
+  const rewritten = recordOf(record.rewrittenStoryboard)
+  const shotScript = recordOf(record.shotScript)
+  const input = recordOf(record.input)
+  const quotas = shotScript !== undefined ? recordOf(shotScript.shotSizeQuotas) : undefined
+  const quotaDigest = quotas === undefined ? null
+    : Object.entries(quotas).map(([size, count]) => `${size}×${String(count)}`).join(' · ')
+  return {
+    originalSummary: original !== undefined ? textOf(original.summary) : null,
+    originalSegments: original === undefined ? [] : arrayOf(original.segments).map(segmentOf)
+      .filter((row): row is BreakdownSegment => row !== null),
+    rewrittenSummary: rewritten !== undefined ? textOf(rewritten.summary) : null,
+    rewrittenSegments: rewritten === undefined ? [] : arrayOf(rewritten.segments).map(segmentOf)
+      .filter((row): row is BreakdownSegment => row !== null),
+    shotScript: {
+      status: shotScript !== undefined ? textOf(shotScript.status) : null,
+      markdown: shotScript !== undefined ? textOf(shotScript.markdown) : null,
+      quotaDigest: quotaDigest === '' ? null : quotaDigest,
+    },
+    ruleId: input !== undefined ? textOf(input.rewriteRuleId) : null,
+    rulePrompt: input !== undefined ? textOf(input.rewriteRulePrompt) : null,
+  }
+}
+
+/** 候选公开指标（辅助源；缺失独立降级）。 */
+export interface BreakdownCandidate {
+  playCount: number | null
+  likeCount: number | null
+  commentCount: number | null
+  collectCount: number | null
+  shareCount: number | null
+  interactionRate: number | null
+  publishedAt: string | null
+  shareUrl: string | null
+}
+
+function breakdownCandidateOf(entry: unknown): BreakdownCandidate | null {
+  const record = recordOf(entry)
+  if (record === undefined) return null
+  return {
+    playCount: numberOf(record.playCount),
+    likeCount: numberOf(record.likeCount),
+    commentCount: numberOf(record.commentCount),
+    collectCount: numberOf(record.collectCount),
+    shareCount: numberOf(record.shareCount),
+    interactionRate: numberOf(record.interactionRate),
+    publishedAt: textOf(record.publishedAt),
+    shareUrl: safeShareWorkUrl(record.shareUrl),
+  }
+}
+
+/** breakdown.detail → 三源组合投影（storyboards 主体 + 辅助源独立降级）。 */
+export interface BreakdownDetail {
+  storyboards: StoryboardRow[]
+  analysis: Record<string, unknown> | null
+  analysisError: string | null
+  candidate: BreakdownCandidate | null
+  candidateError: string | null
+}
+
+export function readBreakdownDetail(payload: Record<string, unknown>): BreakdownDetail {
+  return {
+    storyboards: arrayOf(payload.storyboards).map(storyboardRowOf)
+      .filter((row): row is StoryboardRow => row !== null),
+    analysis: recordOf(payload.analysis) ?? null,
+    analysisError: textOf(payload.analysisError),
+    candidate: breakdownCandidateOf(payload.candidate),
+    candidateError: textOf(payload.candidateError),
+  }
+}
+
+/** 详情页口播全文（analysis.candidates[0].products.asr.transcript）。 */
+export function asrTranscriptOf(analysis: Record<string, unknown> | null): string | null {
+  if (analysis === null) return null
+  const candidate = recordOf(arrayOf(analysis.candidates)[0])
+  const products = candidate === undefined ? undefined : recordOf(candidate.products)
+  const asr = products === undefined ? undefined : recordOf(products.asr)
+  return asr === undefined ? null : textOf(asr.transcript)
+}
+
+/** 分享链接白名单：v.douyin.com 短链域同样放行（拆解输入域，宽于作品链接域）。 */
+function safeShareWorkUrl(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (text === '' || text.length > 2048) return null
+  try {
+    const url = new URL(text)
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+    const host = url.hostname.toLowerCase()
+    const allowed = host === 'douyin.com' || host.endsWith('.douyin.com')
+      || host === 'iesdouyin.com' || host.endsWith('.iesdouyin.com')
+    return allowed ? text : null
+  } catch {
+    return null
+  }
+}
+
 // ---- 导出 ----
 
 /** 导出载荷投影（base64 + 字节数 + 文件名）。 */

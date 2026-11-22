@@ -114,6 +114,8 @@ beforeEach(() => {
     if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1 }
     if (action === 'collect.status') return { status: 'ready', collect: null }
     if (action === 'collectAll.status') return { status: 'ready', batch: null }
+    if (action === 'breakdown.rewriteRules') return { status: 'ready', rules: [], total: 0 }
+    if (action === 'breakdown.history') return { status: 'ready', history: [], total: 0 }
     throw new Error(`unexpected action ${action}`)
   })
 })
@@ -154,16 +156,25 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 })
 
-describe('D6–D8 Tab 占位（本开发阶段未接入，绝不显示假数据）', () => {
-  for (const tabKey of ['tab.material', 'tab.breakdown', 'tab.gene'] as const) {
+describe('D7/D8 Tab 占位（本开发阶段未接入，绝不显示假数据）；D6 拆解为真实实现', () => {
+  for (const tabKey of ['tab.material', 'tab.gene'] as const) {
     it(`${en[tabKey]} 面板为「${en['tab.notReady']}」占位且无表格/假数据`, async () => {
       render(<WorkbenchPage t={t} />)
       fireEvent.click(screen.getByRole('tab', { name: en[tabKey] }))
       expect(await screen.findByText(en['tab.notReady'])).not.toBeNull()
       expect(document.querySelector('table')).toBeNull()
-      expect(apiMock.hostAction).not.toHaveBeenCalledWith(expect.stringMatching(/material\.|breakdown\.|gene\./u), expect.anything())
+      expect(apiMock.hostAction).not.toHaveBeenCalledWith(expect.stringMatching(/material\.|gene\./u), expect.anything())
     })
   }
+
+  it('爆款拆解面板为真实实现（新建区 + 历史列表加载 breakdown action）', async () => {
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
+    expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: en['bd.downloadButton'] })).not.toBeNull()
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('breakdown.rewriteRules', expect.anything()))
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('breakdown.history', expect.anything()))
+  })
 })
 
 describe('账号总览页结构（parity 矩阵 §1）', () => {

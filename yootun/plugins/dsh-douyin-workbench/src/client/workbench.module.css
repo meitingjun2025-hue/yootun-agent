@@ -1998,6 +1998,303 @@
   }
 }
 
+/* ---- 爆款拆解（D6）：新建区 / 规则单选 / 历史行 / 详情步骤条与分段卡 ---- */
+
+.bdNewRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bdNewRow > :first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.bdRulesField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.bdFieldLabel {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.bdFieldLabelOpt {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bdRulesError {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.bdRules {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.bdRadio {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.bdRadio[aria-checked='true'] {
+  border-color: var(--dsw-alias-border-selected);
+  background: var(--dsw-alias-bg-multi-select);
+}
+
+.bdRadio:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 2px;
+}
+
+.bdRadio:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.bdRadioName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+}
+
+.bdRadioDesc {
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.bdRowTitle {
+  display: block;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.bdRowSub {
+  display: block;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 详情页 */
+
+.bdPage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bdHeadRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bdHeadMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.bdHeadMeta {
+  margin: 0;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.bdHeadMeta a {
+  color: var(--dsw-alias-label-link, var(--dsw-alias-label-primary));
+}
+
+.bdErrorActions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.bdSteps {
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  list-style: none;
+}
+
+.bdStep {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bdStepBar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dsw-alias-bg-inset);
+}
+
+.bdStep[data-state='done'] .bdStepBar {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.bdStep[data-state='active'] .bdStepBar {
+  background: var(--dsw-alias-label-link, var(--yt-chart-1));
+}
+
+.bdStepName {
+  font-size: 11px;
+  line-height: 15px;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bdStep[data-state='active'] .bdStepName {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.bdCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bdCardBodyGap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bdQuote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xs);
+  background: var(--dsw-alias-bg-inset);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.bdShotList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bdShot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md);
+  min-width: 0;
+}
+
+.bdShotHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.bdSegTime {
+  font-variant-numeric: tabular-nums;
+}
+
+.bdShotSrc,
+.bdShotCopy,
+.bdShotVisual {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.bdShotPrefix {
+  margin-right: 6px;
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.bdShotCopy {
+  color: var(--dsw-alias-label-primary);
+}
+
+.bdShotNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.bdRuleUsed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.bdDownloadTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 880px) {
+  .bdSteps {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    row-gap: 8px;
+  }
+}
+
 /* reduced-motion 守卫 */
 
 @media (prefers-reduced-motion: reduce) {
@@ -2006,7 +2303,9 @@
   .workTable tbody tr,
   .dataTable tbody tr,
   .accountCardMain,
-  .scheduleToggleRow {
+  .scheduleToggleRow,
+  .bdRadio,
+  .bdStepBar {
     transition: none;
   }
 }
