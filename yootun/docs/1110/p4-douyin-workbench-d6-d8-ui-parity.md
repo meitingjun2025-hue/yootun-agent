@@ -12,7 +12,7 @@
 
 三级 Tab 层级约束：D7 四子页用页内 `SegmentedControl`（plugin-ui-ux §4.3「第二层改为 SegmentedControl」），不与顶级 SegmentedTabs 构成双层等宽大 tab。
 
-顶级 Tab 生命周期（第一轮验收定案）：D6/D7/D8 三 Tab 首次访问后 keep-alive——非当前 Tab 用 `hidden`（`.tabPanel[hidden]` 从可访问树移除）保持 mounted，状态与轮询不随切换丢失；未访问过的 Tab 不 eager mount；inactive 期间官方 Modal/portal 不泄漏（弹层按 active 门控挂载，open 状态保留，切回恢复）。Breakdown 的 archive/workflow 轮询跨 Tab 继续，重进刷新 rules/history；Material 离开停 run 轮询并复位 board 子页，重进预取 board/facets/seeds/runs 并从最新 run 恢复轮询（filters/弹窗/失败明细状态保留）；Gene 重进 offset 归零重拉 search（filters/facets 展开态/弹层状态保留）。
+顶级 Tab 生命周期（第二轮验收定案）：D6/D7/D8 三 Tab 首次访问后 keep-alive——非当前 Tab 用 `hidden`（`.tabPanel[hidden]` 从可访问树移除）保持 mounted，页面状态保留；未访问过的 Tab 不 eager mount；inactive 期间官方 Modal/portal 不泄漏（弹层按 active 门控挂载，open 状态保留，切回恢复）。轮询语义分页：Breakdown 的 archive/workflow 轮询跨 Tab 继续，重进刷新 rules/history；Material 离开停 run 轮询并复位 board 子页，重进预取 board/facets/seeds/runs 并从最新 run 恢复轮询（晚到的 runs/受理响应在 inactive 期间不启动 interval，重进由 active effect 重新 load/resume；filters/弹窗/失败明细状态保留）；Gene 无轮询态，重进 offset 归零重拉 search（filters/facets 展开态/弹层状态保留）。
 
 ## 1. 爆款拆解：新建与下载区
 
@@ -26,7 +26,7 @@
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
-| 历史列表（513-590） | 标题「拆解记录（团队共享，按时间倒序）」+ 状态筛选（全部/进行中/已成功/未成功，纯前端 tone 归一过滤）+ 5 列表（视频/状态/仿写规则/当前步骤/时间）+ 加载更多（limit 递增 ≤200，默认 10；短页——返回行数已达当前 limit 才显示）+ 行点击/Enter 开详情 | 表格 + FilterSelect 下拉 | 历史记录 DataCard | 表格复用 dataTable 底盘；状态筛选官方 `Menu`；行键盘可达（Enter/Space） | 状态筛选四值；hasStoryboard 标记（status=succeeded 保守判定）；加载更多仅在满页且 limit<200 显示；行 aria-label 含标题 |
+| 历史列表（513-590） | 标题「拆解记录（团队共享，按时间倒序）」+ 状态筛选（全部/进行中/已成功/未成功，纯前端 tone 归一过滤）+ 5 列表（视频/状态/仿写规则/当前步骤/时间）+ 加载更多（limit 递增 ≤200，默认 10；满页——返回行数等于当前 limit 才显示）+ 行点击/Enter 开详情 | 表格 + FilterSelect 下拉 | 历史记录 DataCard | 表格复用 dataTable 底盘；状态筛选官方 `Menu`；行键盘可达（Enter/Space） | 状态筛选四值；hasStoryboard 标记（status=succeeded 保守判定）；加载更多仅在满页且 limit<200 显示；行 aria-label 含标题 |
 | 详情工具栏（637-657） | 返回列表（停全部轮询 + 刷新历史 + 补启动挂起工作流）/ 导出 Excel（仅 succeeded 且 storyboard 就绪可点）/ 重新改写（pending 中禁用） | secondary ×3 靠左 + rewrite 靠右 | 详情页顶工具栏 | 返回/导出/重新改写均 `Button ghost`（同级次操作；重仿写弹层内确认才 primary）；导出带下载图标 | 导出非 succeeded 禁用；返回后历史刷新；导出错误不替换页面（就近 alert） |
 | 详情头部（659-684） | 标题/@作者/发布时间/原视频链接（白名单域）+ 状态徽标 + 8 步进度条（当前步高亮、失败整体灰态）+ 失败文案（errorCode→文案字典）+ 强制重试入口（仅 status=failed） | ydo-bd-head 白卡 + 步骤条 | 详情头部 DataCard | 状态 `Tag tone=success/error/warning/neutral`；步骤条局部 CSS（data-state=active/done/todo + `aria-current=step`）；失败 `role=alert` | 8 步名称与顺序冻结；forceRetry 仅 failed 终态；needs_input 区分文案 |
 | 候选公开指标 KPI（237-250） | 6 卡：播放/点赞/评论/收藏/分享/互动率（(赞+评+转+藏)/播放 ×100 两位小数）；缺失 — | ydo-bd-kpi 6 卡 | 详情 KPI 行 | 6× `KpiCard`；缺失「—」不补 0 | 六卡齐全；缺失 — |

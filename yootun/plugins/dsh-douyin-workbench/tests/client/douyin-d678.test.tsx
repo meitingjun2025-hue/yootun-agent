@@ -700,7 +700,6 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       for (let tick = 0; tick < 5; tick += 1) {
         act(() => { vi.advanceTimersByTime(3100) })
         await act(async () => { await Promise.resolve() })
-        process.stdout.write(`TICK${tick}\n`)
       }
       const statusCalls = () => apiMock.hostAction.mock.calls.filter(([action]) => action === 'material.collect.status').length
       const stopped = statusCalls()
@@ -837,6 +836,87 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     expect(source).toContain("variant='ghost' size='sm' onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}")
     expect(source).toMatch(/<Button variant='primary' size='sm' onClick=\{\(\) => \{ props\.onToggle\(row\) \}\}>\{t\('mat\.seed\.enable'\)\}<\/Button>/u)
     expect(source).toMatch(/<Button variant='ghost' size='sm' onClick=\{\(\) => \{ props\.onToggle\(row\) \}\}>\{t\('mat\.seed\.disable'\)\}<\/Button>/u)
+  })
+
+  it('inactive 竞态守卫：晚到的 runs 响应不恢复轮询；切回后重新 load/resume', async () => {
+    vi.useFakeTimers()
+    try {
+      const collectStatus = vi.fn(async () => ({ status: 'ready', data: { runId: 'run-1', runStatus: 'running', startedAt: null, nextAction: 'poll_status' } }))
+      let resolveRuns: (value: unknown) => void = () => undefined
+      mockAll({
+        'material.runs.list': new Promise(resolve => { resolveRuns = resolve }),
+        'material.collect.status': collectStatus,
+      })
+      render(<WorkbenchPage t={t} />)
+      // 外层 DataState 等 accounts ready：flush 后进入 Material（runs 挂起未决）。
+      await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+      await act(async () => { await Promise.resolve() })
+      // 用户切走：inactive effect 停轮询；此后晚到 runs 才返回 running 行。
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await act(async () => { await Promise.resolve() })
+      resolveRuns({ status: 'ready', data: { runs: [materialRun('running')], total: 1 } })
+      await act(async () => { await Promise.resolve() })
+      act(() => { vi.advanceTimersByTime(3100) })
+      await act(async () => { await Promise.resolve() })
+      expect(collectStatus.mock.calls.length).toBe(0, 'hidden Material 不得恢复 run 轮询')
+      // 切回：active effect 重新 load/resume，轮询恢复。
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+      await act(async () => { await Promise.resolve() })
+      act(() => { vi.advanceTimersByTime(3100) })
+      await act(async () => { await Promise.resolve() })
+      expect(collectStatus.mock.calls.length).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('inactive 竞态守卫：collect.start 晚到 ACTIVE_RUN_EXISTS 冲突不恢复轮询；切回后 resume', async () => {
+    vi.useFakeTimers()
+    try {
+      const collectStatus = vi.fn(async () => ({ status: 'ready', data: { runId: 'run-1', runStatus: 'running', startedAt: null, nextAction: 'poll_status' } }))
+      let rejectStart: (reason: unknown) => void = () => undefined
+      let runsCalls = 0
+      mockAll({
+        // 首次（挂载预取）空列表使「立即采集」可用；冲突刷新起返回 running 行。
+        'material.runs.list': async () => {
+          runsCalls += 1
+          return runsCalls === 1
+            ? { status: 'ready', data: { runs: [], total: 0 } }
+            : { status: 'ready', data: { runs: [materialRun('running')], total: 1 } }
+        },
+        'material.collect.start': new Promise((_resolve, reject) => { rejectStart = reject }),
+        'material.collect.status': collectStatus,
+      })
+      render(<WorkbenchPage t={t} />)
+      await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+      await act(async () => { await Promise.resolve() })
+      // 采集记录子页：确认弹层 → 确认采集（collect.start 挂起未决）。
+      const runsTabs = screen.getAllByRole('tab').filter(node => node.textContent?.includes(en['mat.section.runs']))
+      fireEvent.click(runsTabs[0] as HTMLElement)
+      await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('button', { name: en['mat.runs.start'] }))
+      await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('button', { name: en['mat.collect.confirm'] }))
+      await act(async () => { await Promise.resolve() })
+      // 立即切走，再让受理以冲突拒绝：loadRuns 刷新返回 running 行也不得轮询。
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await act(async () => { await Promise.resolve() })
+      rejectStart(new Error('VIRAL_VIDEO_ACTIVE_RUN_EXISTS'))
+      await act(async () => { await Promise.resolve() })
+      act(() => { vi.advanceTimersByTime(3100) })
+      await act(async () => { await Promise.resolve() })
+      expect(collectStatus.mock.calls.length).toBe(0, 'hidden Material 不得经冲突刷新恢复轮询')
+      // 切回：重新 load/resume，轮询恢复。
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+      await act(async () => { await Promise.resolve() })
+      act(() => { vi.advanceTimersByTime(3100) })
+      await act(async () => { await Promise.resolve() })
+      expect(collectStatus.mock.calls.length).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('Gene 重进 Tab offset 归零重拉 search；弹窗 open 状态与 portal 隔离', async () => {

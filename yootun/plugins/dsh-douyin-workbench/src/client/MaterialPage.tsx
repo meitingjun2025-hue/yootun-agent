@@ -227,9 +227,14 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
     }, MATERIAL_POLL_MS)
   }, [loadBoard, loadFacets, loadRuns, loadSeeds, stopPolling])
 
-  /** 从最新 run 行恢复轮询（Tab 进入/手动刷新共用）；拉取失败保留现状。 */
+  /**
+   * 从最新 run 行恢复轮询（Tab 进入/手动刷新共用）；拉取失败保留现状。
+   * inactive 竞态守卫：晚到的 runs 响应在 Tab 已切走时不得设置 activeRun、
+   * 不得启动 interval（hidden 面板保持零轮询；重进 Tab 由 active effect 重新
+   * load/resume）。Breakdown 的跨 Tab 轮询语义不受本守卫影响。
+   */
   const resumePollingFromRows = useCallback((rows: MaterialRunRow[] | null): void => {
-    if (rows === null) return
+    if (rows === null || !activeRef.current) return
     const latest = rows[0]
     if (latest !== undefined && (latest.runStatus === 'queued' || latest.runStatus === 'running')) {
       setActiveRun({ runId: latest.runId, status: latest.runStatus, startedAt: latest.startedAt })
