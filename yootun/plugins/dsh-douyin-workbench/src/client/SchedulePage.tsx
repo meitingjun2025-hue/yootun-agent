@@ -453,7 +453,7 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
   const hasAccounts = props.accounts.length > 0
 
   return (
-    <div className={css.pageBody}>
+    <div className={css.schedulePage}>
       <div className={css.workToolbarRow}>
         <Button variant='primary' size='sm' disabled={creating || !hasAccounts} aria-busy={creating || undefined} onClick={createRow}>
           {creating ? t('schedule.adding') : t('schedule.add')}
@@ -477,10 +477,11 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
       )}
       {hasAccounts && (
         <DataState state={loading && rows.length === 0 ? 'loading' : errorReason !== null && rows.length === 0 ? 'error' : 'ready'} shape='rows' onRetry={() => { if (scheduleAccountId !== null) void loadRows(scheduleAccountId) }}>
-          {errorReason !== null && rows.length > 0 && (
-            <p className={css.formError} role='alert'>{domainErrorText('schedule', errorReason, t)}</p>
-          )}
-          <div className={css.tableWrap} role='region' aria-label={t('tab.schedule')} tabIndex={0}>
+          <div className={css.scheduleBoard}>
+            {errorReason !== null && rows.length > 0 && (
+              <p className={css.formError} role='alert'>{domainErrorText('schedule', errorReason, t)}</p>
+            )}
+            <div className={css.tableWrap} role='region' aria-label={t('tab.schedule')} tabIndex={0}>
             <table className={css.scheduleTable} aria-label={t('tab.schedule')}>
               <colgroup>
                 {COLUMN_WIDTHS.map((_, index) => <col key={index} span={1} className={css[`scheduleCol${index + 1}`]} />)}
@@ -566,6 +567,7 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
                 )}
               </tbody>
             </table>
+            </div>
           </div>
 
           <div className={css.scheduleAccountBar} aria-label={t('schedule.accounts')}>

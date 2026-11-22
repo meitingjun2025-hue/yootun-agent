@@ -24,6 +24,41 @@
   min-width: 0;
 }
 
+/* 面板主体弹性容器：排期页三段 grid 的表格段要占满剩余高度（旧插件
+   .ydo-schedule-page 同口径），其余页保持自然高度由外层 content 滚动。 */
+.panelBodyFlex {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 发布排期页：工具栏 / 表格段 / 账号条三行，表格在固定区域内双向滚动，
+   页面不随行数增长（旧 .ydo-schedule-page grid 同构）。 */
+.schedulePage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 0;
+  gap: 16px;
+}
+
+.scheduleBoard {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  gap: 8px;
+}
+
+.scheduleBoard .tableWrap {
+  flex: 1 1 0;
+  min-height: 0;
+  max-height: none;
+}
+
 /* 账号作品页：左侧 280px 账号管理栏 + 右侧作品面板（≥880 双列；以下单列） */
 
 .worksLayout {

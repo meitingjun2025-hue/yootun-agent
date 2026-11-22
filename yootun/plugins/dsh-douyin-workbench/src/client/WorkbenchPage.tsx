@@ -590,7 +590,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
           shape='rows'
           onRetry={() => { void refreshAccounts() }}
         >
-          <div id='dy-panel-body' role='tabpanel' aria-label={t('panel')}>
+          <div id='dy-panel-body' role='tabpanel' aria-label={t('panel')} className={css.panelBodyFlex}>
             {tab === 'overview' && analysisAccountId === null && (
               <OverviewPage
                 t={t}
