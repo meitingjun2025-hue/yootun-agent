@@ -428,6 +428,26 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
   })
 })
 
+describe('插件 CSS Modules 类存在性（源码层，防 css.Xxx 引用未定义类）', () => {
+  it('TSX 引用的每个 css.Xxx 都在 workbench.module.css 中定义', () => {
+    const clientDir = join(process.cwd(), 'src', 'client')
+    const cssText = readFileSync(join(clientDir, 'workbench.module.css'), 'utf8')
+    const referenced = new Set<string>()
+    for (const name of readdirSync(clientDir)) {
+      if (!name.endsWith('.tsx') && !name.endsWith('.ts')) continue
+      const source = readFileSync(join(clientDir, name), 'utf8')
+      for (const match of source.matchAll(/\bcss\.([A-Za-z0-9_]+)/gu)) {
+        referenced.add(match[1] as string)
+      }
+    }
+    expect(referenced.size).toBeGreaterThan(80)
+    const undefinedClasses = [...referenced]
+      .filter(cls => new RegExp(String.raw`\.` + cls + String.raw`(?![\w-])`, 'u').test(cssText) === false)
+      .sort()
+    expect(undefinedClasses, '未定义的 css.Xxx 引用').toEqual([])
+  })
+})
+
 describe('词典完整性', () => {
   it('en 与 zh 键集完全一致（zh 为键集事实源）', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())

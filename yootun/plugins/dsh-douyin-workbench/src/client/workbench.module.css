@@ -2368,6 +2368,16 @@
   font-weight: 500;
 }
 
+a.matVideoTitle {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.matVideoTitle:hover {
+  color: var(--dsw-alias-label-link, var(--dsw-alias-label-primary));
+  text-decoration: underline;
+}
+
 .matTags {
   display: flex;
   gap: 4px;
@@ -2433,6 +2443,10 @@
 
 .matActiveBanner {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   padding: 8px 12px;
   border: 1px dashed var(--dsw-alias-state-warn-primary);
   border-radius: var(--dsw-radius-lg);
@@ -2860,4 +2874,54 @@
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-alias-bg-inset);
   min-width: 0;
+}
+
+/* ---- D6–D8 keep-alive 面板（首次访问后保持 mounted；hidden 从可访问树移除） ---- */
+
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.tabPanel[hidden] {
+  display: none;
+}
+
+/* ---- D6–D8 第一轮验收补齐：状态行 / 表尾 / 来源标注 / 抽屉遮罩 ---- */
+
+/* 进行中状态行（归档受理横幅等；StateDot + 文字） */
+.inlineStatus {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px dashed var(--dsw-alias-border-selected);
+  border-radius: var(--dsw-radius-lg);
+  background: var(--dsw-alias-bg-multi-select);
+  font-size: 13px;
+}
+
+/* 表格尾行（加载更多等操作落位） */
+.tableMeta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 8px;
+}
+
+/* 仿写分段卡的来源段落标注 */
+.bdSegSource {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 评分理由抽屉遮罩（Esc/遮罩点击关闭；焦点回归触发按钮由调用方承担） */
+.matDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: var(--dsw-alias-mask-overlay, var(--dsw-alias-shadow-ambient));
 }

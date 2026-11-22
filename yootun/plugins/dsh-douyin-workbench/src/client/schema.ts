@@ -1864,6 +1864,27 @@ export function readGeneRecord(payload: Record<string, unknown>): GeneRecord | n
   return geneRecordOf(recordOf(payload.data)?.record)
 }
 
+/** 维度依据条目（label/basis）；非对象条目按既有解析规则剔除。 */
+export interface GeneEvidenceItem {
+  label: string
+  basis: string
+}
+
+/** geneEvidenceJson[dim] → 依据条目数组（守卫式投影，无类型断言）。 */
+export function readGeneEvidence(value: unknown): GeneEvidenceItem[] {
+  if (!Array.isArray(value)) return []
+  const items: GeneEvidenceItem[] = []
+  for (const entry of value) {
+    const record = recordOf(entry)
+    if (record === undefined) continue
+    items.push({
+      label: typeof record.label === 'string' ? record.label : '',
+      basis: typeof record.basis === 'string' ? record.basis : '',
+    })
+  }
+  return items
+}
+
 /** gene.list（失败条目）→ 记录数组。 */
 export function readGeneList(payload: Record<string, unknown>): GeneRecord[] {
   const data = recordOf(payload.data) ?? {}

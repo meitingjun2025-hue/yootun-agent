@@ -12,6 +12,8 @@
 
 三级 Tab 层级约束：D7 四子页用页内 `SegmentedControl`（plugin-ui-ux §4.3「第二层改为 SegmentedControl」），不与顶级 SegmentedTabs 构成双层等宽大 tab。
 
+顶级 Tab 生命周期（第一轮验收定案）：D6/D7/D8 三 Tab 首次访问后 keep-alive——非当前 Tab 用 `hidden`（`.tabPanel[hidden]` 从可访问树移除）保持 mounted，状态与轮询不随切换丢失；未访问过的 Tab 不 eager mount；inactive 期间官方 Modal/portal 不泄漏（弹层按 active 门控挂载，open 状态保留，切回恢复）。Breakdown 的 archive/workflow 轮询跨 Tab 继续，重进刷新 rules/history；Material 离开停 run 轮询并复位 board 子页，重进预取 board/facets/seeds/runs 并从最新 run 恢复轮询（filters/弹窗/失败明细状态保留）；Gene 重进 offset 归零重拉 search（filters/facets 展开态/弹层状态保留）。
+
 ## 1. 爆款拆解：新建与下载区
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
@@ -24,7 +26,7 @@
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
-| 历史列表（513-590） | 标题「拆解记录（团队共享，按时间倒序）」+ 状态筛选（全部/进行中/已成功/未成功，纯前端 tone 归一过滤）+ 5 列表（视频/状态/仿写规则/当前步骤/时间）+ 加载更多（limit 递增 ≤200，默认 10）+ 行点击/Enter 开详情 | 表格 + FilterSelect 下拉 | 历史记录 DataCard | 表格复用 dataTable 底盘；状态筛选官方 `Menu`；行键盘可达（Enter/Space） | 状态筛选四值；hasStoryboard 标记（status=succeeded 保守判定）；加载更多 limit 递增；行 aria-label 含标题 |
+| 历史列表（513-590） | 标题「拆解记录（团队共享，按时间倒序）」+ 状态筛选（全部/进行中/已成功/未成功，纯前端 tone 归一过滤）+ 5 列表（视频/状态/仿写规则/当前步骤/时间）+ 加载更多（limit 递增 ≤200，默认 10；短页——返回行数已达当前 limit 才显示）+ 行点击/Enter 开详情 | 表格 + FilterSelect 下拉 | 历史记录 DataCard | 表格复用 dataTable 底盘；状态筛选官方 `Menu`；行键盘可达（Enter/Space） | 状态筛选四值；hasStoryboard 标记（status=succeeded 保守判定）；加载更多仅在满页且 limit<200 显示；行 aria-label 含标题 |
 | 详情工具栏（637-657） | 返回列表（停全部轮询 + 刷新历史 + 补启动挂起工作流）/ 导出 Excel（仅 succeeded 且 storyboard 就绪可点）/ 重新改写（pending 中禁用） | secondary ×3 靠左 + rewrite 靠右 | 详情页顶工具栏 | 返回/导出/重新改写均 `Button ghost`（同级次操作；重仿写弹层内确认才 primary）；导出带下载图标 | 导出非 succeeded 禁用；返回后历史刷新；导出错误不替换页面（就近 alert） |
 | 详情头部（659-684） | 标题/@作者/发布时间/原视频链接（白名单域）+ 状态徽标 + 8 步进度条（当前步高亮、失败整体灰态）+ 失败文案（errorCode→文案字典）+ 强制重试入口（仅 status=failed） | ydo-bd-head 白卡 + 步骤条 | 详情头部 DataCard | 状态 `Tag tone=success/error/warning/neutral`；步骤条局部 CSS（data-state=active/done/todo + `aria-current=step`）；失败 `role=alert` | 8 步名称与顺序冻结；forceRetry 仅 failed 终态；needs_input 区分文案 |
 | 候选公开指标 KPI（237-250） | 6 卡：播放/点赞/评论/收藏/分享/互动率（(赞+评+转+藏)/播放 ×100 两位小数）；缺失 — | ydo-bd-kpi 6 卡 | 详情 KPI 行 | 6× `KpiCard`；缺失「—」不补 0 | 六卡齐全；缺失 — |
@@ -39,7 +41,7 @@
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
 | 重新仿写确认（765-784） | 「重新改写」→ 弹层（规则单选，null=默认链路）+ 取消/开始改写；每次点击新幂等键 `douyin:vv_workflow:{uuid}`；新规则版本=新记录 | ydo-bd-modal 560px | 官方 `Modal` + `BreakdownRulePicker` 复用 | 取消=`ghost`；开始改写=`primary`（弹层内主操作）+ 提交中 disabled+aria-busy | 必须确认；不自动换键重发；Esc 关闭回归焦点 |
-| 重新仿写动线（4018-4040） | workflowStart 受理：succeeded（幂等重放）直接拉明细；queued/running/waiting 启动 5s 轮询（优先 retryAfterSeconds，连续 5 次失败停）；failed/needs_input/invalid_input/idempotency_conflict 是同步失败 payload 进详情失败文案 | 受理态切换 | BreakdownPage 轮询 effect | 轮询 interval 常量本地锁定；终态 succeeded 重拉明细 | 终态停轮询；连续失败上限；未知码不误报成功 |
+| 重新仿写动线（4018-4040） | workflowStart 受理：succeeded（幂等重放）直接拉明细；queued/running/waiting 启动 5s 轮询（优先 retryAfterSeconds，连续 5 次失败停）；failed/needs_input/invalid_input/idempotency_conflict 是同步失败 payload 进详情失败文案；历史行进入详情不停止 archive 轮询（归档完成时在详情页则挂起 pending workflow，返回列表补启动；归档轮询单次失败静默重试，无失败上限） | 受理态切换 | BreakdownPage 轮询 effect | 轮询 interval 常量本地锁定；终态 succeeded 重拉明细 | 终态停轮询；工作流轮询连续失败上限（归档无上限）；openDetail 不停归档轮询；未知码不误报成功 |
 | 强制重试（4209-4218） | status=failed 终态一键重跑：force=true 让服务端重置可恢复失败；规则 natural key 保持一致（workflow_get 恒带 rewriteRuleId 键；同步失败 payload 缺键时回退会话上次所选） | secondary 按钮 | 详情失败区 | 强制重试=`Button ghost`；二次确认弹层（RiskConfirmation 风格） | 仅 failed 可见；force 透传；natural key 一致性 |
 | 归档→工作流自动链（4044-4102） | 归档 completed → 刷新历史 → 有 candidateId 且用户不在他详情页则自动 startBdWorkflow；用户在详情页则挂起，返回列表时补启动；failed/cancelled/partial_failed 给归档失败文案 | 状态横幅 + 自动链 | BreakdownPage | 挂起补启动语义保留 | completed 自动链；终态错误文案 |
 | 导出（4226-4243） | breakdown.export：CANDIDATE_NOT_FOUND/STORYBOARD_NOT_READY 原样透出文案，其余收敛 export_failed/export_too_large；成功 base64 下载 | 工具栏下载按钮 | 详情工具栏 | `Button ghost` + icon；下载经 `downloadBase64` | 导出错误独立轻提示不替换页面；base64 下载链路 |
@@ -48,7 +50,7 @@
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
-| KPI 五卡（283-325） | 候选素材（当前筛选 total）/ S-A-B-C 档候选（hotLevelSummary 优先，回退最新批次）/ 本轮新增入库（发现+入库 foot）/ 晋升候选（去重跳过 foot）/ 最近采集（时间+状态） | ydo-mat-kpi 5 卡 | 看板子页 KPI 行 | 5× `KpiCard`；KPI total 用服务端 total，失败时随看板置 —（不沿用旧筛选口径） | 缺失 — 不补 0；筛选失败 KPI 同步降级 |
+| KPI 五卡（283-325） | 候选素材（当前筛选 total）/ S-A-B-C 档候选（hotLevelSummary 优先，回退最新批次）/ 本轮新增入库（发现+入库 foot）/ 晋升候选（去重跳过 foot）/ 最近采集（时间+状态） | ydo-mat-kpi 5 卡 | 看板子页 KPI 行 | 5× `KpiCard`；KPI total 用服务端 total，失败时随看板降级但保留已有 rows；最新批次取 runs[0]（在途 run 也是最新批次，不过滤终态） | 缺失 — 不补 0；筛选失败 KPI 同步降级、rows 保留 |
 | 筛选条（331-377） | 搜索 q（300ms 防抖）/ 最低档位（S/A/B/C 及以上）/ 来源类型（keyword/account/both）/ 发布时间（7d/30d/90d/all）/ 标签（facets 计数）/ 排序（9 枚举默认 hot）；变化即查无按钮 | select 下拉行 | 看板子页顶部 FilterBar | 官方 `Menu` 替代原生 select；日期范围换算 publishedFrom/To；筛选变化 offset 归零 + 序号收口 | 6 筛选齐全；q 防抖仅搜索词；最新请求收口 |
 | 筛选竞态 | materialSeqRef 序号守卫：过期响应丢弃；失败 total/levelSummary 一并置空 | 无（逻辑层） | MaterialPage state | seq ref 守卫 | 过期响应不覆盖 |
 
@@ -56,8 +58,8 @@
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
-| 候选表 12 列（383-491） | 封面（80×80 onError 降级占位）/ 视频（标题链接开系统浏览器 + 标签行缺失显示「标签未返回」warn 色）/ 热度评分（分数+S/A/B/C 档 pill）/ 播放/点赞/评论/收藏/分享（万化）/ 互动率（×100 两位）/ 发布日期 / 命中来源（关键词/对标账号徽标）/ 操作（评分理由实底 mini + 去拆解灰底 mini；操作列 sticky 右） | 高密度表 + 档位实色 pill | 看板子页 DataCard 表格 | dataTable 底盘 + 局部 `mat*` CSS；档位 `Tag`（danger/warning/info/neutral 语义色 + 文字）；长标题/昵称 ellipsis + 完整 aria-label；操作列 sticky | 12 列齐全；缺失 — ；档位色附文字；sticky 操作列 |
-| 评分理由抽屉（497-567） | 基础信息（评分/档位/规则版本中文映射/发布日期/视频链接）+ 评分明细表（维度/观测值/加分阈值/得分 pill：+N分 success、未采集 muted、还差 X、0 分）+ 命中理由逐条列表；Esc/遮罩关闭 | 右侧 drawer 420px | `MaterialReasonDrawer`（aside role=dialog aria-modal） | 官方浮层形态 + 局部 CSS；明细表 dataTable；pill 语义色附文字 | 互动率=（赞+评+转+藏）/播放 明细口径注记；结构化对照四态 |
+| 候选表 12 列（383-491） | 封面（80×80 onError 降级占位）/ 视频（有 shareUrl 时标题为链接新窗口打开、无链接退化为纯文本 + 标签行缺失显示「标签未返回」warn 色）/ 热度评分（分数+S/A/B/C 档 pill）/ 播放/点赞/评论/收藏/分享（万化）/ 互动率（×100 两位）/ 发布日期 / 命中来源（关键词/对标账号徽标）/ 操作（评分理由 primary mini + 去拆解 ghost mini；操作列 sticky 右） | 高密度表 + 档位实色 pill | 看板子页 DataCard 表格 | dataTable 底盘 + 局部 `mat*` CSS；档位 `Tag`（danger/warning/info/neutral 语义色 + 文字）；长标题/昵称 ellipsis + 完整 aria-label；操作列 sticky | 12 列齐全；缺失 — ；档位色附文字；sticky 操作列；标题链接 target=_blank rel=noreferrer |
+| 评分理由抽屉（497-567） | 基础信息（评分/档位/规则版本中文映射/发布日期/视频链接）+ 评分明细表（维度/观测值/加分阈值/得分 pill：+N分 success、未采集 muted、还差 X、0 分）+ 命中理由逐条列表；Esc 与遮罩点击关闭，关闭后焦点回归触发按钮（保持 drawer 形态不改 Modal） | 右侧 drawer 420px | `MaterialReasonDrawer`（aside role=dialog aria-modal + 遮罩层） | 官方浮层形态 + 局部 CSS；明细表 dataTable；pill 语义色附文字 | 互动率=（赞+评+转+藏）/播放 明细口径注记；结构化对照四态；Esc/遮罩关闭 + 焦点回归 |
 | 去拆解预填（395-406） | 有 shareUrl → 切爆款拆解 Tab 并预填链接聚焦，不自动开始；缺链接置灰 + title 提示 | mini 按钮 | 行操作 | `Button ghost sm` + disabled 原因 title/aria；跨 Tab 预填经 WorkbenchPage 回调 | 只预填不自动归档；无链接禁用 |
 
 ## 6. 素材看板：seed 管理
@@ -73,10 +75,10 @@
 
 | 旧页面/区域 | 旧功能与任务动线 | 旧视觉语义 | 新布局归属 | 新组件 / CSS 策略 | 验收锚点 |
 |---|---|---|---|---|---|
-| 采集入口与横幅（737-755） | 刷新（次）+ 立即采集（主，activeRun 在途禁用）；activeRun 横幅：spinner + 「采集任务进行中」+ 状态 pill + 开始时间 + 完成后自动刷新提示 + 查看看板链接 | 主/次按钮 + warn 横幅 | 采集记录子页工具栏 | 立即采集=`Button primary`；刷新=`ghost`；横幅 `StateDot ongoing` + role=status | 在途禁用不自动重发；VIRAL_VIDEO_ACTIVE_RUN_EXISTS 冲突文案并恢复轮询 |
+| 采集入口与横幅（737-755） | 刷新（次）+ 立即采集（主，activeRun 在途禁用）；activeRun 横幅：StateDot 进行中指示 + 「采集任务进行中」+ 状态 pill + 开始时间 + 完成后自动刷新提示 + 查看看板入口（runId 存在才显示，点击切回 board 子页并刷新） | 主/次按钮 + warn 横幅 | 采集记录子页工具栏 | 立即采集=`Button primary`；刷新=`ghost`；横幅 `StateDot ongoing` + role=status + aria-busy | 在途禁用不自动重发；VIRAL_VIDEO_ACTIVE_RUN_EXISTS 冲突文案并恢复轮询；横幅入口可见性 |
 | 采集确认弹窗（816-837） | 纯确认式无输入字段：启用关键词/启用对标账号/预计任务数（未加载 —）只读统计 + 外部数据服务提示（单 seed 失败不中断；不自动触发下载/归档/拆解）；确认采集 primary | ydo-mat-modal | 官方 `Modal` | 取消=`ghost`；确认采集=`primary`+提交中 disabled+aria-busy | 确认后才受理；幂等键 `douyin:vv_seed_search:{uuid}` |
 | run 历史 9 列表（737-808） | 状态 pill（5 态）/ 开始时间 / 耗时（X分Y秒）/ 关键词数 / 账号数 / 任务成功/失败 / 新增/晋升 / 档位分布（S N · A N…）/ 操作（查看看板 link + 失败明细 danger link）；失败明细按钮按 run 状态/计数判定；failed 且无候选隐藏查看看板 | 表 + link 按钮 | 采集记录子页 DataCard | 状态 `Tag` 五态；查看看板=`ghost sm`；失败明细=error 语义按钮 | 9 列齐全；按钮可见性判定 |
-| run 轮询与终态刷新（2938-2969） | 受理即轮询 3s（隐藏页签暂停、连续 5 次失败停）；nextAction≠poll_status 终态 → 刷新 runs/board/seeds/facets；resume 从最新行恢复（失败返回 null 不误清横幅） | 无（逻辑层） | MaterialPage 轮询 effect | interval 常量本地锁定 | 终态四源刷新；resume 语义 |
+| run 轮询与终态刷新（2938-2969） | 受理即轮询 3s（隐藏页签暂停、连续 5 次失败停）；nextAction≠poll_status 终态 → 刷新 runs/board/seeds/facets；resume 从最新行恢复（失败返回 null 不误清横幅）；malformed/null 响应与请求异常共用同一失败路径（连续 5 次停轮询、清 activeRun、runs 区稳定失败）；采集记录列表显式 limit=50（旧客户端口径，Host 默认 20 不变） | 无（逻辑层） | MaterialPage 轮询 effect | interval 常量本地锁定 | 终态四源刷新；resume 语义；统一失败路径；runs.list limit=50 |
 | 失败明细弹窗（843-877） | 批次/状态/开始时间/耗时/失败数量 + run 级失败原因（code:message 脱敏）+ 失败关键词/账号两列表；无 seed 明细时给 run 级解释 | ydo-mat-modal | 官方 `Modal` | 关闭=`ghost`；错误文案 `role=alert` | 失败原因逐项可解释 |
 
 ## 8. 基因库：搜索与筛选
@@ -114,8 +116,9 @@
 | 开始拆解 / 开始改写（弹层确认）/ 确认保存（seed）/ 确认采集 / 保存修正 / 确认重新提取 / 确认（启停确认） | 主操作 | `Button variant=primary` |
 | 下载直链 / 刷新（run 历史）/ 查看看板 / 查看详情 / 重试提取入口 / 重新提取基因入口 / 返回列表 / 重置 / 加载更多 / 加载更多（拆解）/ 重试（规则）/ 关闭 / 取消 / 清空全部 | 次操作 | `Button variant=ghost`（+icon） |
 | 失败明细（run 行）/ 基因提取失败胶囊 / 重试提取（failed 卡片） | 危险/警示入口 | error token 文本 + `Tag tone=error`；操作按钮本体 ghost + error 语义类 |
-| 启用（灰底→实底）/ 禁用（实底→灰底）seed 行操作 | 行内开关注册 | `ghost sm`（禁用）/ `ghost sm` + primary 语义类（启用）；相邻编辑 ghost 区分 |
-| 评分理由 / 去拆解（候选行） | 行内信息/跳转 | `ghost sm` 两枚（信息 vs 跳转），与 danger 入口可辨 |
+| 启用 / 禁用 seed 行操作 | 行内开关注册 | 启用=`primary sm`（激活动作）/ 禁用=`ghost sm`（次操作）；相邻编辑 ghost 区分 |
+| 评分理由（候选行） | 行内主信息操作 | `primary sm`（与相邻去拆解 ghost 区分） |
+| 去拆解（候选行） | 行内跳转 | `ghost sm` |
 | 采集中 / 提交中 / 保存中 / 下载中 / 导出中 / 重试中 / 受理中 | 进行中 | disabled + `aria-busy` + spinner/busy 文案 |
 | 提取中 / AI 草稿 / 已采纳 / 已修正 / 提取失败 / 已完成 / 部分完成 / 失败 / 排队中 | 状态 | `Tag tone=success/warning/error/neutral` + `StateDot`（附文字） |
 | 拆解工作流状态（succeeded/failed/cancelled/needs_input/queued/running/waiting…） | 状态 | `Tag` tone 映射（ok/error/warn/running 归一；未登记按 running 不误报） |
@@ -128,4 +131,4 @@
 
 ## 13. 验收锚点 → 测试对账
 
-每个锚点在 `tests/client/douyin-d678.test.tsx` 与 `tests/client/douyin-client.test.tsx`（结构/键盘/词典断言）及 `tests/d6|d7|d8.test.ts`（Host 行为）对账：纯函数（tone 归一/历史筛选/脚本表格解析）、拆解新建区与下载空链接、历史 5 列与状态筛选、详情工具栏/8 步骤/6 KPI/五折叠卡/导出错误就近/辅助源降级/强制重试与重仿写确认、看板 12 列与长文 aria-label/服务端 total 分页/筛选 offset 收口/评分理由四态/seed 弹窗锁定与启停确认/采集确认与 ACTIVE_RUN_EXISTS 冲突/失败明细/去拆解预填/KPI 降级 —、基因 facets 与已选条件/卡片缺失 —/详情四态字段/编辑同键/重建费用确认/失败列表重试、zh/en 键集、Esc 回归焦点。真实浏览器视觉矩阵、真机扫码/采集/模型链路留给 D9 集成验收，不以占位测试伪造。
+每个锚点在 `tests/client/douyin-d678.test.tsx` 与 `tests/client/douyin-client.test.tsx`（结构/键盘/词典断言）及 `tests/d6|d7|d8.test.ts`（Host 行为）对账；第一轮验收新增：`tests/source-conventions.test.ts`（包级禁用 `as unknown`/`<unknown>`/`as never` 断言）、douyin-parity 的 CSS 类存在性静态测试（TSX 引用的每个 `css.Xxx` 必须在 workbench.module.css 定义）、douyin-d678 的 keep-alive 组（未访问 Tab 零请求、Breakdown 轮询跨 Tab 继续 + openDetail 不停归档轮询、Material 停止/恢复轮询与统一失败路径、Gene 重进重拉、弹窗 portal 隔离与状态保留）与修复组（短页加载更多、标题链接、KPI runs[0]、横幅入口、失败保留 rows、按钮 variant 源级锁定、抽屉 Esc/遮罩/焦点）。既有锚点：纯函数（tone 归一/历史筛选/脚本表格解析）、拆解新建区与下载空链接、历史 5 列与状态筛选、详情工具栏/8 步骤/6 KPI/五折叠卡/导出错误就近/辅助源降级/强制重试与重仿写确认、看板 12 列与长文 aria-label/服务端 total 分页/筛选 offset 收口/评分理由四态/seed 弹窗锁定与启停确认/采集确认与 ACTIVE_RUN_EXISTS 冲突/失败明细/去拆解预填/KPI 降级 —、基因 facets 与已选条件/卡片缺失 —/详情四态字段/编辑同键/重建费用确认/失败列表重试、zh/en 键集、Esc 回归焦点。真实浏览器视觉矩阵、真机扫码/采集/模型链路留给 D9 集成验收，不以占位测试伪造。

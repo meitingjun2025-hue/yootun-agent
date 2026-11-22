@@ -17,7 +17,7 @@ import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
-  readGeneList, readGeneRecord, readGeneSearch,
+  readGeneEvidence, readGeneList, readGeneRecord, readGeneSearch,
   type GeneDimension, type GeneFacetEntry, type GeneRecord, type GeneSearch,
 } from './schema.ts'
 import { FilterMenu } from './FilterMenu.tsx'
@@ -48,12 +48,15 @@ function dimensionTone(dim: string): string {
 export interface GenePageProps {
   t: Translate
   localeTag: string
+  /** 顶级 Tab 是否当前展示（keep-alive：重进 offset 归零重拉；filters/弹层状态保留）。 */
+  active: boolean
   onNotice: (text: string) => void
 }
 
 /** 爆款基因库页组件。 */
 export function GenePage(props: GenePageProps): ReactNode {
   const t = props.t
+  const active = props.active
   const [filters, setFilters] = useState<GeneFilters>(DEFAULT_GENE_FILTERS)
   const [search, setSearch] = useState<{ data: GeneSearch | null; loading: boolean; appending: boolean; errorReason: string | null }>({ data: null, loading: true, appending: false, errorReason: null })
   const [offset, setOffset] = useState(0)
@@ -106,9 +109,11 @@ export function GenePage(props: GenePageProps): ReactNode {
     }
   }, [])
 
+  // Tab 激活（含首次挂载）offset 归零重拉检索；inactive 期间状态全部保留
+  //（旧基因库无轮询态，无后台任务需要停止）。
   useEffect(() => {
-    void doSearch(0)
-  }, [doSearch])
+    if (props.active) void doSearch(0)
+  }, [props.active, doSearch])
 
   const applyFilters = useCallback((next: GeneFilters): void => {
     filtersRef.current = next
@@ -361,7 +366,7 @@ export function GenePage(props: GenePageProps): ReactNode {
         </div>
       </DataState>
 
-      {detail !== null && (
+      {active && detail !== null && (
         <GeneDetailModal
           detail={detail}
           dimensions={dimensions}
@@ -375,7 +380,7 @@ export function GenePage(props: GenePageProps): ReactNode {
           onRegenerate={() => { void regenerate(detail.recordId) }}
         />
       )}
-      {failed !== null && (
+      {active && failed !== null && (
         <GeneFailedModal
           failed={failed}
           retryingId={retryingId}
@@ -646,14 +651,7 @@ function GeneDimsView(props: { record: GeneRecord; dimensions: GeneDimension[]; 
   return (
     <div className={css.geneDims}>
       {dims.map(([dim, labels]) => {
-        const entries = Array.isArray(evidence[dim]) ? evidence[dim] as unknown[] : []
-        const evidenceItems = entries.map(entry => {
-          const item = typeof entry === 'object' && entry !== null ? entry as Record<string, unknown> : null
-          return item === null ? null : {
-            label: typeof item.label === 'string' ? item.label : '',
-            basis: typeof item.basis === 'string' ? item.basis : '',
-          }
-        }).filter((row): row is { label: string; basis: string } => row !== null)
+        const evidenceItems = readGeneEvidence(evidence[dim])
         return (
           <div key={dim} className={css.geneDim}>
             <div className={css.geneDimHead}>

@@ -26,7 +26,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/route.test.ts && node --test tests/dispose.test.ts && node --test tests/d2.test.ts && node --test tests/d3.test.ts && node --test tests/d4d5.test.ts && node --test tests/d6.test.ts && node --test tests/d7.test.ts && node --test tests/d8.test.ts && node --test tests/parse.test.ts && node --test tests/recovery.test.ts && node --test tests/abort.test.ts && node --test tests/lifecycle3.test.ts && vitest run"
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/route.test.ts && node --test tests/dispose.test.ts && node --test tests/d2.test.ts && node --test tests/d3.test.ts && node --test tests/d4d5.test.ts && node --test tests/d6.test.ts && node --test tests/d7.test.ts && node --test tests/d8.test.ts && node --test tests/source-conventions.test.ts && node --test tests/parse.test.ts && node --test tests/recovery.test.ts && node --test tests/abort.test.ts && node --test tests/lifecycle3.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {

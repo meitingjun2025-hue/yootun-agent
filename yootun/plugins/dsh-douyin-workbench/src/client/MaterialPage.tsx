@@ -13,7 +13,7 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, SegmentedControl, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal, SegmentedControl, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
@@ -27,7 +27,7 @@ import { FilterMenu } from './FilterMenu.tsx'
 import { attemptId } from './AnalysisPage.tsx'
 
 const BOARD_PAGE_SIZE = 20
-const RUNS_PAGE_LIMIT = 20
+const RUNS_PAGE_LIMIT = 50
 const MATERIAL_POLL_MS = 3000
 const MATERIAL_POLL_MAX_FAILURES = 5
 const SEARCH_DEBOUNCE_MS = 300
@@ -71,6 +71,8 @@ function runStatusTone(status: string): 'success' | 'warning' | 'danger' | 'neut
 export interface MaterialPageProps {
   t: Translate
   localeTag: string
+  /** 顶级 Tab 是否当前展示（keep-alive：inactive 停 run 轮询并复位子页，状态保留）。 */
+  active: boolean
   onNotice: (text: string) => void
   /** 「去拆解」：预填链接并切爆款拆解 Tab（不自动开始）。 */
   onStartBreakdown: (shareUrl: string) => void
@@ -79,6 +81,7 @@ export interface MaterialPageProps {
 /** 爆款素材看板页组件。 */
 export function MaterialPage(props: MaterialPageProps): ReactNode {
   const t = props.t
+  const active = props.active
   const [section, setSection] = useState<MaterialSection>('board')
   const [filters, setFilters] = useState<MaterialFilters>(DEFAULT_MATERIAL_FILTERS)
   const [board, setBoard] = useState<MaterialBoard & { loading: boolean; loaded: boolean; errorReason: string | null }>({
@@ -99,11 +102,16 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
   const [failureRun, setFailureRun] = useState<MaterialRunRow | null>(null)
 
   const filtersRef = useRef(filters)
+  const reasonReturnRef = useRef<HTMLElement | null>(null)
+  // Tab 激活镜像：采集确认的晚到响应在 inactive 期间不启动轮询（重进时经
+  // resumePollingFromRows 从最新 run 恢复），对齐旧客户端 overlay 关闭守卫。
+  const activeRef = useRef(props.active)
   const boardSeqRef = useRef(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const seedsRef = useRef(seeds)
   useEffect(() => { seedsRef.current = seeds }, [seeds])
+  useEffect(() => { activeRef.current = props.active }, [props.active])
 
   const stopPolling = useCallback((): void => {
     if (pollRef.current !== null) {
@@ -148,8 +156,9 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
       setBoard({ ...view, offset, loading: false, loaded: true, errorReason: null })
     } catch (error) {
       if (boardSeqRef.current !== seq) return
-      // 失败时 total/levelSummary 一并置空：KPI 与分页随看板降级，不沿用旧筛选口径。
-      setBoard(previous => ({ ...previous, rows: [], total: null, levelSummary: null, loading: false, errorReason: error instanceof Error ? error.message : 'douyin_operation_request_failed' }))
+      // 失败保留已有 rows（不清空可见数据），仅 total/levelSummary 随看板降级为空
+      //（KPI 与分页不再沿用旧筛选口径）。
+      setBoard(previous => ({ ...previous, total: null, levelSummary: null, loading: false, errorReason: error instanceof Error ? error.message : 'douyin_operation_request_failed' }))
     }
   }, [])
 
@@ -181,21 +190,26 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
     }
   }, [])
 
-  /** 轮询在途 run；终态（nextAction≠poll_status）刷新 board/seeds/runs/facets。 */
+  /** 轮询在途 run；终态（nextAction≠poll_status）刷新 board/seeds/runs/facets。
+   * malformed/null 响应与请求异常共用同一失败路径：连续 5 次停止轮询、清
+   * activeRun、在 runs 区域显示稳定失败。 */
   const startPolling = useCallback((runId: string): void => {
     stopPolling()
     let failures = 0
+    const fail = (): void => {
+      failures += 1
+      if (failures >= MATERIAL_POLL_MAX_FAILURES) {
+        stopPolling()
+        setActiveRun(null)
+        setRuns(previous => ({ ...previous, errorReason: 'douyin_operation_request_failed' }))
+      }
+    }
     pollRef.current = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return
       void hostAction('material.collect.status', { runId }).then(res => {
         const latest = readMaterialRunStatus(res)
         if (latest === null) {
-          failures += 1
-          if (failures >= MATERIAL_POLL_MAX_FAILURES) {
-            stopPolling()
-            setActiveRun(null)
-            setRuns(previous => ({ ...previous, errorReason: 'douyin_operation_request_failed' }))
-          }
+          fail()
           return
         }
         failures = 0
@@ -209,10 +223,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           void loadSeeds({ silent: true })
           void loadFacets()
         }
-      }).catch(() => {
-        failures += 1
-        if (failures >= MATERIAL_POLL_MAX_FAILURES) stopPolling()
-      })
+      }).catch(fail)
     }, MATERIAL_POLL_MS)
   }, [loadBoard, loadFacets, loadRuns, loadSeeds, stopPolling])
 
@@ -228,12 +239,20 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
     }
   }, [startPolling])
 
+  // Tab 生命周期（含首次挂载）：进入预取 board/facets/seeds/runs 并从最新 run
+  // 恢复轮询；离开停 run 轮询并复位子页到看板。filters、弹窗、失败明细等状态
+  // 由 keep-alive 保留。
   useEffect(() => {
+    if (!props.active) {
+      stopPolling()
+      setSection('board')
+      return
+    }
     void loadBoard()
     void loadFacets()
     void loadSeeds()
     void loadRuns().then(resumePollingFromRows).catch(() => undefined)
-  }, [loadBoard, loadFacets, loadRuns, loadSeeds, resumePollingFromRows])
+  }, [props.active, loadBoard, loadFacets, loadRuns, loadSeeds, resumePollingFromRows, stopPolling])
 
   /** 筛选变化：ref 先写再 setState（避免闭包旧值）；仅搜索词变化走防抖。 */
   const changeFilters = useCallback((patch: Partial<MaterialFilters>): void => {
@@ -339,7 +358,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
         setCollectOpen(false)
         const run = readMaterialRunStatus(res)
         setActiveRun({ runId: run?.runId ?? null, status: run?.runStatus ?? 'queued', startedAt: run?.startedAt ?? null })
-        if (run?.runId != null) startPolling(run.runId)
+        if (run?.runId != null && activeRef.current) startPolling(run.runId)
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'douyin_operation_request_failed'
         setCollectError(reason)
@@ -433,7 +452,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           {board.errorReason !== null && (
             <p className={css.formError} role='alert'>{domainErrorText('mat', board.errorReason, t)}</p>
           )}
-          <DataState state={board.loading && !board.loaded ? 'loading' : board.errorReason !== null ? 'error' : 'ready'} shape='rows' onRetry={() => { void loadBoard() }}>
+          <DataState state={board.loading && !board.loaded ? 'loading' : board.errorReason !== null && board.rows.length === 0 ? 'error' : 'ready'} shape='rows' onRetry={() => { void loadBoard() }}>
             {!board.loading && board.loaded && board.rows.length === 0 && (
               <div className={css.emptyState} role='status'><p>{t('mat.empty.board')}</p></div>
             )}
@@ -456,7 +475,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
                         row={row}
                         seedAccounts={seeds.data?.accounts ?? null}
                         t={t}
-                        onOpenReason={() => { setReasonRow(row) }}
+                        onOpenReason={() => { reasonReturnRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; setReasonRow(row) }}
                         onStartBreakdown={props.onStartBreakdown}
                       />
                     ))}
@@ -549,11 +568,19 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           )}
         >
           {activeRun !== null && (
-            <p className={css.matActiveBanner} role='status'>
-              {t('mat.runs.active', {
-                status: t(`mat.run.status.${activeRun.status}` as 'mat.run.status.running'),
-                startedAt: activeRun.startedAt !== null ? formatDateTime(activeRun.startedAt) : '',
-              })}
+            <p className={css.matActiveBanner} role='status' aria-busy={activeRun.status === 'queued' || activeRun.status === 'running' || undefined}>
+              <StateDot state='ongoing' />
+              <span>
+                {t('mat.runs.active', {
+                  status: t(`mat.run.status.${activeRun.status}` as 'mat.run.status.running'),
+                  startedAt: activeRun.startedAt !== null ? formatDateTime(activeRun.startedAt) : '',
+                })}
+              </span>
+              {activeRun.runId !== null && (
+                <Button variant='ghost' size='sm' onClick={() => { setSection('board'); void loadBoard({ offset: 0 }) }}>
+                  {t('mat.runs.viewBoard')}
+                </Button>
+              )}
             </p>
           )}
           {runs.errorReason !== null && (
@@ -587,9 +614,12 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
       )}
 
       {reasonRow !== null && (
-        <ReasonDrawer row={reasonRow} seedAccounts={seeds.data?.accounts ?? null} t={t} onClose={() => { setReasonRow(null) }} />
+        <ReasonDrawer row={reasonRow} seedAccounts={seeds.data?.accounts ?? null} t={t} onClose={() => {
+          setReasonRow(null)
+          reasonReturnRef.current?.focus()
+        }} />
       )}
-      {seedModal !== null && (
+      {active && seedModal !== null && (
         <SeedModal
           modal={seedModal}
           busy={savingSeed}
@@ -599,7 +629,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           onClose={() => { setSeedModal(null) }}
         />
       )}
-      {toggleConfirm !== null && (
+      {active && toggleConfirm !== null && (
         <Modal
           open
           title={t('mat.seedConfirm.title')}
@@ -617,7 +647,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
             : t(toggleConfirm.mode === 'keyword' ? 'mat.seedConfirm.enable.keyword' : 'mat.seedConfirm.enable.account')}</p>
         </Modal>
       )}
-      {collectOpen && (
+      {active && collectOpen && (
         <CollectModal
           activeKeywords={seeds.data !== null ? seeds.data.activeKeywords : null}
           activeAccounts={seeds.data !== null ? seeds.data.activeAccounts : null}
@@ -628,7 +658,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
           onClose={() => { setCollectOpen(false) }}
         />
       )}
-      {failureRun !== null && (
+      {active && failureRun !== null && (
         <FailureModal run={failureRun} t={t} onClose={() => { setFailureRun(null) }} />
       )}
     </div>
@@ -643,7 +673,8 @@ function MaterialKpiRow(props: {
   t: Translate
 }): ReactNode {
   const t = props.t
-  const latest = props.runs.find(row => row.runStatus === 'completed' || row.runStatus === 'partial_failed' || row.runStatus === 'failed') ?? null
+  // 最新批次 = runs[0]（服务端新→旧排序；不过滤终态——在途 run 的进度也是最新批次）。
+  const latest = props.runs[0] ?? null
   const levels = props.board.levelSummary
   const fallbackLevels = latest?.hotLevelSummary ?? null
   const saText = levels !== null
@@ -705,7 +736,20 @@ function BoardRow(props: {
         <CoverCell coverUrl={row.coverUrl} label={row.title ?? row.candidateId} />
       </td>
       <td className={css.cellMain}>
-        <span className={css.matVideoTitle} title={row.title ?? undefined} aria-label={row.title ?? row.candidateId}>{row.title ?? '—'}</span>
+        {row.shareUrl !== null
+          ? (
+            <a
+              className={css.matVideoTitle}
+              href={row.shareUrl}
+              target='_blank'
+              rel='noreferrer noopener'
+              title={row.title ?? row.shareUrl}
+              aria-label={row.title ?? row.candidateId}
+            >
+              {row.title ?? '—'}
+            </a>
+          )
+          : <span className={css.matVideoTitle} title={row.title ?? undefined} aria-label={row.title ?? row.candidateId}>{row.title ?? '—'}</span>}
         <span className={css.matTags}>
           {row.tags !== null && row.tags.length > 0
             ? row.tags.map((tag, index) => <span key={`${tag}:${index}`} className={css.matTag}>{tag}</span>)
@@ -729,7 +773,7 @@ function BoardRow(props: {
         </span>
       </td>
       <td className={css.matActionsCell}>
-        <Button variant='ghost' size='sm' onClick={props.onOpenReason}>{t('mat.action.reason')}</Button>
+        <Button variant='primary' size='sm' onClick={props.onOpenReason}>{t('mat.action.reason')}</Button>
         {row.shareUrl !== null
           ? <Button variant='ghost' size='sm' onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}>{t('mat.action.breakdown')}</Button>
           : <Button variant='ghost' size='sm' disabled title={t('mat.action.breakdownDisabled')}>{t('mat.action.breakdown')}</Button>}
@@ -786,9 +830,9 @@ function SeedTable(props: {
                 <td>
                   <span className={css.matActionsCell}>
                     <Button variant='ghost' size='sm' onClick={() => { props.onEdit(row) }}>{t('mat.seed.edit')}</Button>
-                    <Button variant='ghost' size='sm' onClick={() => { props.onToggle(row) }}>
-                      {t(row.status === 'active' ? 'mat.seed.disable' : 'mat.seed.enable')}
-                    </Button>
+                    {row.status === 'active'
+                      ? <Button variant='ghost' size='sm' onClick={() => { props.onToggle(row) }}>{t('mat.seed.disable')}</Button>
+                      : <Button variant='primary' size='sm' onClick={() => { props.onToggle(row) }}>{t('mat.seed.enable')}</Button>}
                   </span>
                 </td>
               </tr>
@@ -825,9 +869,9 @@ function SeedTable(props: {
                 <td>
                   <span className={css.matActionsCell}>
                     <Button variant='ghost' size='sm' onClick={() => { props.onEdit(account) }}>{t('mat.seed.edit')}</Button>
-                    <Button variant='ghost' size='sm' onClick={() => { props.onToggle(account) }}>
-                      {t(account.status === 'active' ? 'mat.seed.disable' : 'mat.seed.enable')}
-                    </Button>
+                    {account.status === 'active'
+                      ? <Button variant='ghost' size='sm' onClick={() => { props.onToggle(account) }}>{t('mat.seed.disable')}</Button>
+                      : <Button variant='primary' size='sm' onClick={() => { props.onToggle(account) }}>{t('mat.seed.enable')}</Button>}
                   </span>
                 </td>
               </tr>
@@ -875,7 +919,7 @@ function RunRow(props: { row: MaterialRunRow; t: Translate; onViewBoard: () => v
   )
 }
 
-/** 评分理由抽屉（基础信息 + 结构化对照 + 命中理由列表）。 */
+/** 评分理由抽屉（基础信息 + 结构化对照 + 命中理由列表；遮罩/Esc 关闭）。 */
 function ReasonDrawer(props: { row: MaterialCandidateRow; seedAccounts: AccountSeedRow[] | null; t: Translate; onClose: () => void }): ReactNode {
   const t = props.t
   const row = props.row
@@ -884,8 +928,17 @@ function ReasonDrawer(props: { row: MaterialCandidateRow; seedAccounts: AccountS
     : row.scoreRuleVersion === 'hot-v1' || row.scoreRuleVersion === 'hot-v1-potential'
       ? t(`mat.reason.ruleVersion.${row.scoreRuleVersion}` as 'mat.reason.ruleVersion.hot-v1')
       : row.scoreRuleVersion
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') props.onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey) }
+  }, [props])
   return (
-    <aside className={css.matDrawer} role='dialog' aria-modal='true' aria-label={t('mat.reason.title')}>
+    <>
+      <div className={css.matDrawerOverlay} onClick={props.onClose} aria-hidden='true' />
+      <aside className={css.matDrawer} role='dialog' aria-modal='true' aria-label={t('mat.reason.title')}>
       <div className={css.matDrawerHead}>
         <h3>{t('mat.reason.title')}</h3>
         <Button variant='ghost' size='sm' onClick={props.onClose}>{t('mat.close')}</Button>
@@ -956,7 +1009,8 @@ function ReasonDrawer(props: { row: MaterialCandidateRow; seedAccounts: AccountS
           </ul>
         )
         : <p className={css.inlineHint}>{t('mat.reason.hitListEmpty')}</p>}
-    </aside>
+      </aside>
+    </>
   )
 }
 

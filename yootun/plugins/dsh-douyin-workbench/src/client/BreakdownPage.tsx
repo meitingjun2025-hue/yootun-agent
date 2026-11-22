@@ -10,7 +10,7 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
@@ -116,6 +116,8 @@ export function shotScriptTable(markdown: string): { head: string[]; rows: strin
 
 export interface BreakdownPageProps {
   t: Translate
+  /** 顶级 Tab 是否当前展示（keep-alive：inactive 时隐藏并保留状态与轮询）。 */
+  active: boolean
   onNotice: (text: string) => void
   /** 素材看板「去拆解」预填链接（带入聚焦，不自动开始；消费后回调清空）。 */
   prefill: string | null
@@ -125,6 +127,7 @@ export interface BreakdownPageProps {
 /** 爆款拆解页组件（主视图 ↔ 详情页双态）。 */
 export function BreakdownPage(props: BreakdownPageProps): ReactNode {
   const t = props.t
+  const active = props.active
   const [rules, setRules] = useState<RewriteRuleRow[]>([])
   const [rulesState, setRulesState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [shareUrl, setShareUrl] = useState('')
@@ -214,10 +217,13 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
     }
   }, [])
 
+  // Tab 激活（含首次挂载）刷新规则清单与拆解历史（旧客户端 Tab 进入口径；
+  // limit 沿用当前已加载页大小）。archive/workflow 轮询不随 inactive 停止。
   useEffect(() => {
+    if (!props.active) return
     void loadRules()
-    void loadHistory(HISTORY_LIMIT_DEFAULT)
-  }, [loadRules, loadHistory])
+    void loadHistory()
+  }, [props.active, loadRules, loadHistory])
 
   // 素材看板「去拆解」外部预填：同步进受控输入并聚焦；只预填不自动开始。
   useEffect(() => {
@@ -428,18 +434,17 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
     })()
   }, [downloading, shareUrl, submitting])
 
-  /** 历史行进入详情：拉明细；运行态记录同时启动 workflow 轮询。 */
+  /** 历史行进入详情：拉明细；运行态记录同时启动 workflow 轮询。归档轮询不受
+   * 影响（旧语义：归档继续推进；完成时用户在详情页则挂起 pending workflow，
+   * 返回列表时补启动——由 startBreakdown 轮询回调写入 pendingWorkflowRef）。 */
   const openDetail = useCallback((row: BreakdownHistoryRow): void => {
     if (row.candidateId === '') return
-    stopArchivePolling()
-    archiveRunRef.current = null
-    setArchivePending(false)
     setDetailWorkflow(row)
     detailWorkflowRef.current = row
     setExportError(null)
     void loadDetail(row.candidateId)
     if (breakdownStatusTone(row.status) === 'running') startWorkflowPolling(row)
-  }, [loadDetail, startWorkflowPolling, stopArchivePolling])
+  }, [loadDetail, startWorkflowPolling])
 
   /** 返回列表：停全部轮询、失效在途请求、复位详情态并刷新历史。 */
   const backToList = useCallback((): void => {
@@ -506,6 +511,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
       <div className={css.pageBody}>
         <BreakdownDetailView
           t={t}
+          active={active}
           workflow={detailWorkflow}
           detail={detail}
           detailState={detailState}
@@ -522,7 +528,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
           onForceCancel={() => { setForceConfirmOpen(false) }}
           onForceConfirm={forceRetry}
         />
-        {rewriteOpen && (
+        {active && rewriteOpen && (
           <BreakdownRewriteModal
             t={t}
             rules={rules}
@@ -574,7 +580,10 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
           </p>
         )}
         {archivePending && (
-          <p className={css.inlineStatus} role='status' aria-busy>{t('bd.archivePending')}</p>
+          <p className={css.inlineStatus} role='status' aria-busy='true'>
+            <StateDot state='ongoing' />
+            {t('bd.archivePending')}
+          </p>
         )}
         <div className={css.bdRulesField}>
           <p className={css.bdFieldLabel}>
@@ -645,7 +654,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
               </table>
             </div>
           )}
-          {historyLimit < HISTORY_LIMIT_MAX && (
+          {history.length >= historyLimit && historyLimit < HISTORY_LIMIT_MAX && (
             <div className={css.tableMeta}>
               <Button variant='ghost' size='sm' disabled={loadingMore} aria-busy={loadingMore || undefined} onClick={() => {
                 setLoadingMore(true)
@@ -658,7 +667,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
         </DataState>
       </DataCard>
 
-      {downloadResult !== null && (
+      {active && downloadResult !== null && (
         <BreakdownDownloadModal result={downloadResult} t={t} onClose={() => { setDownloadResult(null) }} />
       )}
     </div>
@@ -787,6 +796,7 @@ function StepProgress(props: { workflow: WorkflowRow; t: Translate }): ReactNode
 /** 详情页组件（工具栏 + 头部 + KPI + 五折叠卡）。 */
 function BreakdownDetailView(props: {
   t: Translate
+  active: boolean
   workflow: WorkflowRow
   detail: BreakdownDetail | null
   detailState: 'loading' | 'ready' | 'error'
@@ -972,7 +982,7 @@ function BreakdownDetailView(props: {
             </div>
           )}
 
-      {props.forceConfirmOpen && (
+      {props.active && props.forceConfirmOpen && (
         <Modal
           open
           title={t('bd.forceRetryTitle')}

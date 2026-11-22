@@ -1,7 +1,10 @@
 /**
  * 抖音工作台中央面板：7 Tab 固定顺序（账号总览/账号作品/发布排期看板/爆款
  * 素材看板/爆款拆解/爆款基因库/AI 报表；切任意 Tab 收起 AI 弹层；仅账号作品
- * Tab 有左账号栏两列布局，其余全宽；D6/D7/D8 三 Tab 面板均为真实实现）。共享编排：browser.status 五态、accounts.list、登录扫码流
+ * Tab 有左账号栏两列布局，其余全宽；D6/D7/D8 三 Tab 均为真实实现且首次访问后
+ * keep-alive——非当前 Tab 用 hidden 从可访问树移除，状态与轮询不随切换丢失；
+ * 未访问过的 Tab 不 eager mount；inactive 期间官方 Modal portal 不泄漏，open
+ * 状态保留待切回恢复）。共享编排：browser.status 五态、accounts.list、登录扫码流
  * （beginLogin → 2s 轮询 loginStatus → ok(saveError 透出)/timeout/failed 终态
  * 停轮询刷新列表）、单账号采集（collect.start → 1.5s 轮询 collect.status，乐观
  * 运行态，宿主重启丢 record 清乐观态）、批量采集（collectAll.start/status 轮询，
@@ -99,6 +102,14 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [toast, setToast] = useState<ToastState | null>(null)
   // 素材看板「去拆解」跨 Tab 预填：切爆款拆解 Tab 并带入链接（不自动开始）。
   const [breakdownPrefill, setBreakdownPrefill] = useState<string | null>(null)
+  // D6–D8 keep-alive：首次访问后保持 mounted（状态/轮询不随顶级 Tab 切换丢失），
+  // 非当前 Tab 用 hidden 从可访问树移除；未访问过的 Tab 不 eager mount。
+  const [visitedTabs, setVisitedTabs] = useState<readonly TabValue[]>(['overview'])
+
+  const selectTab = useCallback((value: TabValue): void => {
+    setTab(value)
+    setVisitedTabs(previous => previous.includes(value) ? previous : [...previous, value])
+  }, [])
 
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -569,7 +580,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         )}
       >
         <div className={css.tabsRow}>
-          <SegmentedTabs items={tabs} value={tab} onChange={setTab} label={t('panel')} />
+          <SegmentedTabs items={tabs} value={tab} onChange={selectTab} label={t('panel')} />
         </div>
 
         <DataState
@@ -655,19 +666,32 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
             {tab === 'schedule' && (
               <SchedulePage t={t} accounts={accounts} accountsState={accountsState} />
             )}
-            {tab === 'material' && (
-              <MaterialPage
-                t={t}
-                localeTag={localeTag}
-                onNotice={notify}
-                onStartBreakdown={shareUrl => { setTab('breakdown'); setBreakdownPrefill(shareUrl) }}
-              />
+            {visitedTabs.includes('material') && (
+              <div className={css.tabPanel} hidden={tab !== 'material'}>
+                <MaterialPage
+                  t={t}
+                  localeTag={localeTag}
+                  active={tab === 'material'}
+                  onNotice={notify}
+                  onStartBreakdown={shareUrl => { selectTab('breakdown'); setBreakdownPrefill(shareUrl) }}
+                />
+              </div>
             )}
-            {tab === 'gene' && (
-              <GenePage t={t} localeTag={localeTag} onNotice={notify} />
+            {visitedTabs.includes('breakdown') && (
+              <div className={css.tabPanel} hidden={tab !== 'breakdown'}>
+                <BreakdownPage
+                  t={t}
+                  active={tab === 'breakdown'}
+                  onNotice={notify}
+                  prefill={breakdownPrefill}
+                  onPrefillConsumed={() => { setBreakdownPrefill(null) }}
+                />
+              </div>
             )}
-            {tab === 'breakdown' && (
-              <BreakdownPage t={t} onNotice={notify} prefill={breakdownPrefill} onPrefillConsumed={() => { setBreakdownPrefill(null) }} />
+            {visitedTabs.includes('gene') && (
+              <div className={css.tabPanel} hidden={tab !== 'gene'}>
+                <GenePage t={t} localeTag={localeTag} active={tab === 'gene'} onNotice={notify} />
+              </div>
             )}
             {tab === 'report' && (
               <ReportPage t={t} localeTag={localeTag} onNotice={notify} />
