@@ -271,7 +271,7 @@ test('uploadStart 对 content-length 与声明 size 不符仍拒绝（防截断�
 
 test('permitted：Desktop 转发双头缺失放行，标记语义与 wx/xhs connection fence 对齐', () => {
   const req = (headers: Record<string, unknown>, remote = '127.0.0.1'): IncomingMessage =>
-    ({ socket: { remoteAddress: remote }, headers }) as unknown as IncomingMessage
+    ({ socket: { remoteAddress: remote }, headers }) as IncomingMessage
   // 双头缺失放行（Desktop 转发形态）；loopback 各地址形态等价。
   assert.equal(permitted(req({}), ORIGIN), true)
   assert.equal(permitted(req({}, '::1'), ORIGIN), true)
