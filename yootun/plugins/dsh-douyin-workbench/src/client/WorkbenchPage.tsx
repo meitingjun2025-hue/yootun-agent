@@ -507,24 +507,24 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       const reason = error instanceof Error ? error.message : 'douyin_operation_request_failed'
       if (reason === 'PROMOTION_ALREADY_EXISTS') {
         // stale-add 自动恢复：重拉详情换入最新记录（挂载 key 变化重挂载预填）。
+        let staleDetail: WorkDetailView | undefined
         try {
-          const res = await hostAction('work.get', { accountId: input.accountId, workId: input.workId })
-          const view = readWorkDetail(res)
-          if (view.promotion !== null) {
-            setPromotionModal(previous => previous !== null ? {
-              ...previous,
-              recordId: view.promotion?.id ?? null,
-              playCount: view.promotion?.playCount ?? '',
-              costAmount: view.promotion?.costAmount ?? '',
-              fansCount: view.promotion?.fansCount ?? '',
-              durationHours: view.promotion?.durationHours ?? '',
-              staleRecovered: true,
-            } : previous)
-            setPromotionSaving(false)
-            return null
-          }
-        } catch {
-          // 重拉失败落常规错误提示。
+          staleDetail = readWorkDetail(await hostAction('work.get', { accountId: input.accountId, workId: input.workId }))
+        } catch (_staleRecoveryFailed) {
+          // stale-add 恢复是可选补偿；失败时保留原冲突错误与用户输入，不伪装恢复成功。
+        }
+        if (staleDetail !== undefined && staleDetail.promotion !== null) {
+          setPromotionModal(previous => previous !== null ? {
+            ...previous,
+            recordId: staleDetail.promotion?.id ?? null,
+            playCount: staleDetail.promotion?.playCount ?? '',
+            costAmount: staleDetail.promotion?.costAmount ?? '',
+            fansCount: staleDetail.promotion?.fansCount ?? '',
+            durationHours: staleDetail.promotion?.durationHours ?? '',
+            staleRecovered: true,
+          } : previous)
+          setPromotionSaving(false)
+          return null
         }
       }
       setPromotionSaving(false)

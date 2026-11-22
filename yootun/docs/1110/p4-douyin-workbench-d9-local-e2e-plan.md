@@ -38,11 +38,16 @@
 
 ## 3. 阶段 A：生产 endpoint 冒烟（脚本化，先于 UI）
 
-冒烟脚本放在证据目录（`.ui-review/douyin-d9-smoke/prod-smoke.mjs`，不入仓库）。执行：
+冒烟脚本放在证据目录（`.ui-review/douyin-d9-smoke/prod-smoke.mjs`，不入仓库）。key 经隐藏读入传递，不落在命令行上：
 
 ```bash
-MODELS_API_KEY=<有效 key> node .ui-review/douyin-d9-smoke/prod-smoke.mjs
+read -rs MODELS_API_KEY
+export MODELS_API_KEY
+node .ui-review/douyin-d9-smoke/prod-smoke.mjs
+unset MODELS_API_KEY
 ```
+
+key 安全口径：`read -rs` 隐藏输入，不进入 shell 历史；不写入脚本、manifest、截图、日志或仓库；执行结束后立即 `unset`；不得用 `echo` / `printf` / 命令行参数（含 `VAR=... cmd` 前缀形式）传递 key。
 
 | 检查 | 通过标准 |
 |---|---|
@@ -92,16 +97,16 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9335')` 连接 rend
 | 步骤 | UI 操作 | 远端工具 | 通过标准 |
 |---|---|---|---|
 | 浏览器状态 | 打开抖音工作台，查顶部状态 | —（`browser.status` 本地） | Chrome 可用；缺失时顶部阻断提示并停止 |
-| 扫码登录 | 点击「扫码登录」 | `workbench_douyin_account_save` | headed 系统 Chrome 打开 `creator.douyin.com` 真实页面；操作者扫插件打开的窗口，不扫截图或缓存图片；登录期间显示等待扫码 / 等待确认 |
-| 探活 | 登录完成后自动或手动探活 | `workbench_douyin_session_status_report` | 结果 ok；Cookie 命中不视为成功，必须读到稳定账号身份；本地 `douyin-state/profiles/<accountId>/` 与 0600 `storage-state/<accountId>.json` 存在 |
-| 账号列表 | 查账号管理栏 | `workbench_douyin_account_list` | 本地状态、远端资料与会话状态合并一致；UI 不显示本地路径、Cookie 或 storage_state |
-| 删除（收尾） | 全部读验证完成后执行 | `workbench_douyin_account_remove` | 确认弹层含账号名；本地清理成功后才远端删除；本地清理失败时停在失败态 |
+| 扫码登录 | 「账号作品」Tab 左侧账号栏点击「添加账号」 | `workbench_douyin_account_save` | headed 系统 Chrome 打开 `creator.douyin.com` 真实页面；操作者扫插件打开的窗口，不扫截图或缓存图片；登录期间账号栏按钮呈等待扫码（aria-busy）与扫码提示 |
+| 探活 | 账号卡「检测会话」 | `workbench_douyin_session_status_report` | 结果 ok；Cookie 命中不视为成功，必须读到稳定账号身份；本地 `douyin-state/profiles/<accountId>/` 与 0600 `storage-state/<accountId>.json` 存在 |
+| 账号列表 | 「账号作品」Tab 左侧账号管理栏 | `workbench_douyin_account_list` | 本地状态、远端资料与会话状态合并一致；UI 不显示本地路径、Cookie 或 storage_state |
+| 删除（收尾） | 账号卡删除（两步确认） | `workbench_douyin_account_remove` | 确认弹层含账号名；本地清理成功后才远端删除；本地清理失败时停在失败态 |
 
 ### C2 创作者中心真实采集与恢复态
 
 | 步骤 | UI 操作 | 远端工具 | 通过标准 |
 |---|---|---|---|
-| 单账号采集 | 选测试账号点击「开始采集」（不点采集全部） | `collect_run_start` / `collect_run_set_list_meta` / `collect_run_heartbeat` / `collect_ingest_batch` / `collect_ingest_daily` / `collect_run_finish`（经 `collect.start` 编排） | 各阶段（probing / list / details / ingest / finishing / 终态）各截一张；终态 completed 或真实 partial；UI runId 与 `workbench_douyin_collect_run_get` 的 `run.run_id` 一致；批次与日度数据不把缺失补成 0 |
+| 单账号采集 | 选测试账号点击「开始采集」（不点采集全部） | `workbench_douyin_collect_run_start` / `workbench_douyin_collect_run_set_list_meta` / `workbench_douyin_collect_run_heartbeat` / `workbench_douyin_collect_ingest_batch` / `workbench_douyin_collect_ingest_daily` / `workbench_douyin_collect_run_finish`（经 `collect.start` 编排） | 各阶段（probing / list / details / ingest / finishing / 终态）各截一张；终态 completed 或真实 partial；UI runId 与 `workbench_douyin_collect_run_get` 的 `run.run_id` 一致；批次与日度数据不把缺失补成 0 |
 | 采集状态 | 采集期间查状态区 | —（`collect.status` 本地） | 进度与阶段一致；不显示假进度 |
 | 恢复态 | 采集中途强退 Desktop 并重启 | `collect_run_get` | 重启后恢复提示出现，恢复态与远端 run 状态一致；不重跑已完成批次、不把中断 run 标成 completed |
 
@@ -126,13 +131,15 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9335')` 连接 rend
 | 整行保存 | 修改单元格后整行失焦保存 | `workbench_douyin_publish_schedule_row_update` | 乐观更新 + 失败回滚；保存中不可重复提交 |
 | 行删除 | 删除按钮 + 二次确认 | `workbench_douyin_publish_schedule_row_delete` | 确认弹层含行标识；删除后列表与远端一致 |
 | 账号切换互斥 | 采集或保存进行中切换账号 | —（本地互斥） | 切换被阻断或先收尾当前账号，不产生跨账号写 |
-| 乐观版本恢复 | 并行政动使版本冲突（另开窗口改同一行） | `workbench_publish_schedule_row_update` 返回冲突 | 冲突提示出现并可刷新到最新版本；不静默覆盖远端 |
+| 乐观版本恢复 | 并行政动使版本冲突（另开窗口改同一行） | `workbench_douyin_publish_schedule_row_update` 返回冲突 | 冲突提示出现并可刷新到最新版本；不静默覆盖远端 |
 
 ### C5 AI 分析与报表：受理、轮询、重建
 
+AI 分析从「账号总览」下钻进入的单账号分析页发起；报表的列表、详情、重建在「AI 报表」Tab。不新增顶级 Tab，不改变现有导航。
+
 | 步骤 | UI 操作 | 远端工具 | 通过标准 |
 |---|---|---|---|
-| AI 分析受理 | 「AI 报表」Tab 发起分析 | `workbench_douyin_account_ai_analysis_start` | 受理回执含任务标识与费用提示；不伪装即时完成 |
+| AI 分析受理 | 「账号总览」账号行 Enter 下钻单账号分析页，点 AI 分析入口 | `workbench_douyin_account_ai_analysis_start` | 受理回执含任务标识与费用提示；不伪装即时完成 |
 | 轮询 | 等待终态 | `workbench_douyin_account_ai_analysis_get` | 五态推进；失败显示稳定错误码，不吞错 |
 | 报表列表 | 报表列表区 | `workbench_douyin_report_list` | 列表与远端一致；长文本有摘要与锚点 |
 | 报表详情 | 打开一份报表 | `workbench_douyin_report_get` | 指标与正文和远端一致；可复制 |
@@ -161,13 +168,15 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9335')` 连接 rend
 
 ### C8 基因库：搜索、详情、人工修正、重建、失败列表
 
+本页无轮询态：重建受理后经 `gene.search` 刷新观察状态，重开详情经 `gene.get` 取最新记录。
+
 | 步骤 | UI 操作 | 远端工具 | 通过标准 |
 |---|---|---|---|
 | 搜索 | 「爆款基因库」Tab 搜索/筛选 | `workbench_viral_knowledge_search` | 结果与筛选条件一致 |
-| 详情 | 打开基因详情 | `workbench_viral_knowledge_get` | 四态字段与远端一致；缺失显示 — |
-| 人工修正 | 编辑标签/备注保存 | `workbench_viral_knowledge_update` | 幂等键绑定 recordId；保存后详情刷新 |
-| 重建 | 点重建（费用确认弹层） | `workbench_viral_knowledge_regenerate` | 确认含费用提示；受理与终态可见 |
-| 失败列表 | 查失败列表并重试 | `workbench_viral_knowledge_list` | 失败记录呈现；重试走新受理 |
+| 详情 | 打开基因详情弹层（Modal） | `workbench_viral_knowledge_get` | 四态字段与远端一致；缺失显示 — |
+| 人工修正 | 详情弹层编辑标签/备注保存 | `workbench_viral_knowledge_update` | 幂等键绑定 recordId；同 recordId 同参数复用同键；保存后详情刷新 |
+| 重建 | 详情弹层点重建（费用确认弹层） | `workbench_viral_knowledge_regenerate` | 确认含费用提示；受理后详情乐观置 pending 并经 `gene.search` 刷新观察（无轮询）；同一次受理失败或 `IDEMPOTENCY_OUTCOME_UNKNOWN` 的重试复用同 recordId 幂等键（不重复计费）；受理成功后键清空，后续新的用户点击生成新键 |
+| 失败列表 | 失败警示胶囊打开失败列表弹层，逐项重试 | `workbench_viral_knowledge_list` | 失败记录呈现；逐项重试同键复用；受理后状态推进经 `gene.search` 观察 |
 
 ### C9 四类导出真实下载
 
@@ -193,8 +202,8 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9335')` 连接 rend
 1. 单账号分析下钻页：light/dark 1120px；
 2. 作品详情与趋势弹层、负责人/投流弹层：light/dark 1120px，双击与 Enter 均可打开；
 3. 发布排期行内编辑与删除确认弹层：light/dark 880px；
-4. 素材候选 12 列表格：light/dark 640px，确认横向滚动区域可获得键盘焦点；
-5. 拆解详情五折叠卡与基因详情抽屉：light/dark 1120px；
+4. 素材候选 12 列表格与评分理由抽屉（Material 页 drawer）：light/dark 640px，表格确认横向滚动区域可获得键盘焦点，抽屉 Esc 关闭；
+5. 拆解详情五折叠卡与基因详情弹层（Modal）：light/dark 1120px；
 6. 长昵称与长标题截断：640px light，确认完整 aria-label；
 7. 键盘与鼠标路径：tab 导航、ArrowRight/End 切顶级 Tab、作品行 Enter 与双击打开详情、弹层焦点陷阱与焦点回归、所有弹层与抽屉 Esc 关闭、表格滚动 region focus；
 8. reduced-motion：Playwright `reducedMotion: 'reduce'` 下检查图表动画、轮询状态点、页面切换、弹层进出场计算样式中的 transition / animation 为 `0s` 或 `none`。

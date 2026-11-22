@@ -460,6 +460,44 @@ describe('爆款素材看板（parity §4–§7）', () => {
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
     expect(apiMock.hostAction).not.toHaveBeenCalledWith('breakdown.archiveStart', expect.anything())
   })
+
+  it('facets 刷新失败保留既有标签，看板主请求独立成功不被吞（可选辅助数据）', async () => {
+    const boardPayload = { status: 'ready', data: { candidates: [materialCandidate], total: 1, offset: 0, limit: 20 } }
+    // mockAll 会 mockReset 清调用记录，facets 次数用自带计数器跨轮累计。
+    let facetsCalls = 0
+    mockAll({
+      'material.facets': () => {
+        facetsCalls += 1
+        return { status: 'ready', tags: [{ tag: '对标', count: 3 }] }
+      },
+      'material.videos.list': boardPayload,
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+    // 第一轮：标签筛选菜单出现服务端标签。
+    fireEvent.click(await screen.findByRole('button', { name: en['mat.filter.tag'] }))
+    expect(await screen.findByRole('menuitem', { name: '对标（3）' })).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en['mat.filter.tag'] }))
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: '对标（3）' })).toBeNull())
+    // 重进 Tab：facets 拒绝、看板仍成功。
+    mockAll({
+      'material.facets': () => {
+        facetsCalls += 1
+        throw new Error('VIRAL_DASHBOARD_FAILED')
+      },
+      'material.videos.list': boardPayload,
+    })
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
+    // 看板主请求独立成功：表格与行仍渲染，无任何数据域错误 alert。
+    expect(await screen.findByRole('table', { name: en['mat.section.board'] })).not.toBeNull()
+    expect(screen.getByLabelText('超长标题的超长标题的超长标题的超长标题')).not.toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    // facets 刷新确实发起过且失败被丢弃：既有标签原样保留。
+    expect(facetsCalls).toBeGreaterThanOrEqual(2)
+    fireEvent.click(screen.getByRole('button', { name: en['mat.filter.tag'] }))
+    expect(await screen.findByRole('menuitem', { name: '对标（3）' })).not.toBeNull()
+  })
 })
 
 describe('爆款基因库（parity §8–§10）', () => {

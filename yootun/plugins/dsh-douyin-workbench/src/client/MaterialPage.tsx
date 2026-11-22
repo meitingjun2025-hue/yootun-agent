@@ -126,12 +126,13 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
   }, [stopPolling])
 
   const loadFacets = useCallback(async (): Promise<void> => {
+    let response: Awaited<ReturnType<typeof hostAction>> | undefined
     try {
-      const res = await hostAction('material.facets', {})
-      setFacets(readMaterialFacets(res))
-    } catch {
-      // 标签 facets 降级为空：筛选条只剩「全部标签」，不影响其余筛选。
+      response = await hostAction('material.facets', {})
+    } catch (_facetsUnavailable) {
+      // facets 是可选筛选辅助数据；失败时保留当前 facets，主看板仍独立呈现成功或失败。
     }
+    if (response !== undefined) setFacets(readMaterialFacets(response))
   }, [])
 
   const loadBoard = useCallback(async (options?: { offset?: number }): Promise<void> => {

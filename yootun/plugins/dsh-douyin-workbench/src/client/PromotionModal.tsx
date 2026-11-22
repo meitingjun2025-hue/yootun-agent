@@ -169,6 +169,7 @@ export function PromotionModal(props: PromotionModalProps): ReactNode {
 
 /** 投流错误码 → 词典键。 */
 const PROMOTION_ERROR_KEYS: Readonly<Record<string, 'promotion.error.notFound' | 'promotion.error.accountNotFound' | 'promotion.error.workNotFound' | 'promotion.error.saveFailed' | 'promotion.error.alreadyExists'>> = {
+  PROMOTION_ALREADY_EXISTS: 'promotion.error.alreadyExists',
   PROMOTION_NOT_FOUND: 'promotion.error.notFound',
   ACCOUNT_NOT_FOUND: 'promotion.error.accountNotFound',
   WORK_NOT_FOUND: 'promotion.error.workNotFound',

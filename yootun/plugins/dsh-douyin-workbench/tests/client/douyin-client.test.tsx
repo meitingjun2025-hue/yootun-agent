@@ -347,6 +347,53 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     await waitFor(() => expect(document.activeElement).toBe(row))
   })
 
+  it('投流 stale 恢复失败：原始冲突错误与用户输入保留，saving 复位且不自动重发', async () => {
+    let workGetCalls = 0
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'work.get') {
+        workGetCalls += 1
+        // 第一次打开详情成功；stale-add 恢复重拉直接拒绝。
+        if (workGetCalls === 1) return { status: 'ready', data: {} }
+        throw new Error('DOUYIN_OPERATION_REQUEST_FAILED')
+      }
+      if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
+      if (action === 'work.promotion.save') throw new Error('PROMOTION_ALREADY_EXISTS')
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await screen.findByRole('dialog', { name: '第一条作品' })
+    // 打开投流弹层（详情无 promotion → add 模式）。
+    fireEvent.click(await screen.findByRole('button', { name: en['detail.promotion.add'] }))
+    expect(await screen.findByRole('dialog', { name: en['promotion.modalTitle'] })).not.toBeNull()
+    // 填入用户值。
+    fireEvent.change(screen.getByLabelText(en['promotion.field.play']), { target: { value: '5000' } })
+    fireEvent.change(screen.getByLabelText(en['promotion.field.cost']), { target: { value: '123.45' } })
+    fireEvent.change(screen.getByLabelText(en['promotion.field.fans']), { target: { value: '67' } })
+    fireEvent.change(screen.getByLabelText(en['promotion.field.hours']), { target: { value: '8.5' } })
+    fireEvent.click(screen.getByRole('button', { name: en['owner.save'] }))
+    // 保存冲突 → 恢复重拉失败 → 原始 PROMOTION_ALREADY_EXISTS 文案就近呈现。
+    expect(await screen.findByText(en['promotion.error.alreadyExists'])).not.toBeNull()
+    // 弹层保持打开、用户输入未被清空。
+    expect(screen.getByRole('dialog', { name: en['promotion.modalTitle'] })).not.toBeNull()
+    expect((screen.getByLabelText(en['promotion.field.play']) as HTMLInputElement).value).toBe('5000')
+    expect((screen.getByLabelText(en['promotion.field.cost']) as HTMLInputElement).value).toBe('123.45')
+    expect((screen.getByLabelText(en['promotion.field.fans']) as HTMLInputElement).value).toBe('67')
+    expect((screen.getByLabelText(en['promotion.field.hours']) as HTMLInputElement).value).toBe('8.5')
+    // saving 复位：保存按钮可再点、无 aria-busy 挂死。
+    const save = screen.getByRole('button', { name: en['owner.save'] })
+    expect(save.getAttribute('disabled')).toBeNull()
+    expect(save.getAttribute('aria-busy')).toBeNull()
+    // 不自动重发：work.promotion.save 恰一次；恢复重拉恰一次后停。
+    expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'work.promotion.save')).toHaveLength(1)
+    expect(workGetCalls).toBe(2)
+  })
+
   it('导出 Excel 按钮存在且为次操作（ghost）；采集按钮为主操作（primary）', async () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
