@@ -1,7 +1,7 @@
 /**
  * Workbench 私有 MCP 连接器测试（node --test，真实 Cordis 组合 + 假 server）：
- * 90 项白名单子集契约（服务端多出工具前向兼容、缺项拒绝并点名）、调用方
- * 分组隔离、viral/tos 专属约束、Catalog 拒绝、超时/取消/网络/协议/业务错误
+ * 94 项白名单子集契约（服务端新增工具前向兼容、缺项拒绝）、调用方分组
+ * 隔离、viral/tos 专属约束、Catalog 拒绝、超时/取消/网络/协议/业务错误
  * 分开投影、credential 缓存失效、卸载无泄漏。
  * 运行：`pnpm --filter @yootun/dsh-workbench-mcp test`。
  */
@@ -10,7 +10,7 @@ import { after, test } from 'node:test'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { Context } from '@deepseek-ai/cordis'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
-import WorkbenchMcp, { WorkbenchMcpError, serverErrorCodeOf, WORKBENCH_GROUP_TOOLS, WORKBENCH_TOOL_WHITELIST, CATALOG_TOOL_NAMES, CALLER_DOMAINS, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
+import WorkbenchMcp, { WorkbenchMcpError, serverErrorCodeOf, allowedToolsFor, WORKBENCH_GROUP_TOOLS, WORKBENCH_TOOL_WHITELIST, CATALOG_TOOL_NAMES, CALLER_DOMAINS, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
 import { ACCESS_CREDENTIAL_REF } from '../src/constants.ts'
 import { startWorkbenchFixture, type WorkbenchFixture } from './fixture-workbench-server.ts'
 
@@ -72,10 +72,10 @@ async function assertRejects(run: () => Promise<unknown>, code: string, what: st
   }
 }
 
-test('白名单结构：90 项精确、分组 19/19/29/22/1、无 Catalog 交集', () => {
+test('白名单结构：94 项精确、分组 19/19/33/22/1、无 Catalog 交集', () => {
   const counts = Object.entries(WORKBENCH_GROUP_TOOLS).map(([domain, tools]) => `${domain}:${String(tools.size)}`)
-  assert.deepEqual(counts, ['wx:19', 'xhs:19', 'douyin:29', 'viral:22', 'tos:1'])
-  assert.equal(WORKBENCH_TOOL_WHITELIST.size, 90)
+  assert.deepEqual(counts, ['wx:19', 'xhs:19', 'douyin:33', 'viral:22', 'tos:1'])
+  assert.equal(WORKBENCH_TOOL_WHITELIST.size, 94)
   for (const catalogTool of CATALOG_TOOL_NAMES) {
     assert.equal(WORKBENCH_TOOL_WHITELIST.has(catalogTool), false, `${catalogTool} 不得进入 Workbench 白名单`)
   }
@@ -139,6 +139,54 @@ test('viral 分组只允许 douyin 调用方', async () => {
     'workbench_tool_denied',
     'xhs 不可调 viral',
   )
+})
+
+test('发布排期四工具归属 douyin 分组：douyin 可达，wx/xhs/media-upload 拒绝', async () => {
+  const booted = await boot()
+  const scheduleTools = [
+    'workbench_douyin_publish_schedule_list',
+    'workbench_douyin_publish_schedule_row_create',
+    'workbench_douyin_publish_schedule_row_update',
+    'workbench_douyin_publish_schedule_row_delete',
+  ]
+  for (const tool of scheduleTools) {
+    // 四项全部进入 douyin 分组与 94 项白名单（RQ-2026-013）。
+    assert.equal(WORKBENCH_GROUP_TOOLS.douyin.has(tool), true, `${tool} 属 douyin 分组`)
+    assert.equal(WORKBENCH_TOOL_WHITELIST.has(tool), true, `${tool} 在 94 项白名单内`)
+  }
+  // douyin 调用方逐项可达。
+  for (const tool of scheduleTools) {
+    const outcome = await booted.service.callTool('douyin-workbench', 'douyin', tool, {})
+    assert.deepEqual(outcome.structuredContent, { ok: true, tool })
+  }
+  // 其他三个调用方逐项拒绝。
+  const forbidden: Array<[WorkbenchCaller, WorkbenchDomain]> = [
+    ['wx-workbench', 'wx'], ['xhs-workbench', 'xhs'], ['media-upload', 'tos'],
+  ]
+  for (const [caller, domain] of forbidden) {
+    for (const tool of scheduleTools) {
+      await assertRejects(
+        () => booted.service.callTool(caller, domain, tool, {}),
+        'workbench_tool_denied',
+        `${caller} 不可调 ${tool}`,
+      )
+    }
+  }
+})
+
+test('调用方权限面：douyin-workbench 55 项（douyin 33 + viral 22），其余按域最小', () => {
+  assert.equal(allowedToolsFor('wx-workbench')?.size, 19)
+  assert.equal(allowedToolsFor('xhs-workbench')?.size, 19)
+  assert.equal(allowedToolsFor('douyin-workbench')?.size, 55)
+  assert.equal(allowedToolsFor('media-upload')?.size, 1)
+  // viral 仍仅 douyin-workbench 可达：其余调用方权限面不含任何 viral 工具。
+  for (const caller of ['wx-workbench', 'xhs-workbench', 'media-upload'] as const) {
+    const surface = allowedToolsFor(caller)
+    assert.ok(surface !== undefined, `${caller} 权限面缺失`)
+    for (const tool of surface) {
+      assert.equal(WORKBENCH_GROUP_TOOLS.viral.has(tool), false, `${caller} 不得触达 viral 工具 ${tool}`)
+    }
+  }
 })
 
 test('tos authorize 只允许 media-upload', async () => {
@@ -326,16 +374,15 @@ test('serverName 不匹配按协议错误投影', async () => {
   assert.equal(booted.fixture.toolCalls.length, 0, 'serverName 不匹配时不发起业务调用')
 })
 
-test('服务端广播 94（白名单外新增 4 项）前向兼容，连接与调用成功', async () => {
-  const production = await startWorkbenchFixture({ toolCountMode: 'production-94' })
+test('服务端白名单外新增工具前向兼容，连接与调用成功', async () => {
+  const production = await startWorkbenchFixture({ toolCountMode: 'extra' })
   const booted = await boot({ fixture: production })
   const outcome = await booted.service.callTool('xhs-workbench', 'xhs', 'workbench_xhs_hotboard_overview', {})
   assert.deepEqual(outcome.structuredContent, { ok: true, tool: 'workbench_xhs_hotboard_overview' })
-  // 服务端多出的工具不可达：即使 douyin 调用方，调用层白名单仍拒绝。
   await assertRejects(
-    () => booted.service.callTool('douyin-workbench', 'douyin', 'workbench_douyin_publish_schedule_list', {}),
+    () => booted.service.callTool('douyin-workbench', 'douyin', 'workbench_douyin_unknown_extra', {}),
     'workbench_tool_denied',
-    '白名单外新增工具不可达',
+    '服务端新增工具仍不可达',
   )
 })
 

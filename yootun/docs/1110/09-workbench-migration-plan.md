@@ -608,7 +608,7 @@ P3 至少交付：
 
 2026-11-21 基线刷新：RQ-2026-013「发布排期看板」已在旧客户端、旧 `douyin-operation` route 和 yootun MCP 同步。公网 `tools/list` 实测 Agent 39 项、Workbench 94 项、Catalog 5 项；发布排期在 Agent 面为 list / create / update 三项，在 Workbench 面为 list / create / update / delete 四项。该结果仍需进入 D0 冻结矩阵，不能替代旧插件 action、状态 schema、测试与 E2E 对账。
 
-当前 main 的共享连接器仍锁定旧 36 / 90 契约。P4 D0 除旧插件对账外，还必须同步 `@yootun/dsh-managed-mcp` 与 `@yootun/dsh-workbench-mcp` 的清单、guard 分类和测试到 39 / 94；未同步前生产 endpoint 会被精确契约校验拒绝。
+2026-11-21 P4 前置 Stage 0 已把共享连接器同步到 Agent 39 / Workbench 94（guard 分类与测试一并更新）。P4 D0 只做旧插件对账与冻结，不再改连接器清单。
 
 ### 6.2 迁移目标
 
@@ -713,6 +713,8 @@ D7 素材看板：seed 池、手动采集、run 历史、facets
 D8 知识库：搜索、详情、列表、更新、重建、回执
 D9 集成：真实线上 MCP、打包、真机（D-6：三工作台均不做助手，AssistantDock 留待后期产品化）
 ```
+
+2026-11-22 D9 进度：抖音工作台已随 D9 集成批次插入 yootun bundle（内置启用，Catalog 仍不挂载）。本地混合验证已执行：生产认证冒烟、本地契约（94/33/22 + Agent 39 + Catalog 5）、C1–C9 主链路真实数据闭环（详见方案文末 §12 执行记录），期间修复客户端契约漂移六处（采集解析/ingest 载荷/热词键/风险确认位/基因详情投影/趋势窗口）与 UI 两处（排期表格高度、kit 壳层高度链）。剩余 UI 样式细节由用户真机验证后修订，方案见 [p4-douyin-workbench-d9-local-e2e-plan.md](p4-douyin-workbench-d9-local-e2e-plan.md)；Windows 真机与出包仍按 §6.6 / §7 另行执行。
 
 ### 6.6 测试与验收
 

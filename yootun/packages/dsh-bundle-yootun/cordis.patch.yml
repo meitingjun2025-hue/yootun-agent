@@ -81,6 +81,10 @@
     # P3 小红书工作台（分册 09 §5.3/§2.3）：内置启用，同上口径。
     - id: yootun-xhs-workbench
       name: '@yootun/dsh-xhs-workbench'
+    # P4 抖音工作台（分册 09 §6，D9 集成批次 2026-11-22 插入）：内置启用，
+    # Catalog 面仍不挂载（不插入）。
+    - id: yootun-douyin-workbench
+      name: '@yootun/dsh-douyin-workbench'
 
 # Agent 面 MCP 的挂载自 P1 起由 `@yootun/dsh-managed-mcp` 承载（分册 08 §4）：
 # 插件按激活门禁动态挂载官方 dsh-mcp-client（yootun-agent），未激活零连接；
