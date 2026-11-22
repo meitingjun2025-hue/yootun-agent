@@ -1,8 +1,9 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "types": ["node", "client-build-environment", "client-assets"]
   },
   "include": [
     "src"
@@ -12,9 +13,31 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../packages/client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../../packages/client/ui-primitives"
+    },
+    {
+      "path": "../../../packages/client/ui-slots"
+    },
+    {
+      "path": "../../../packages/client/ui-layout"
+    },
+    {
+      "path": "../../../packages/client/ui-renderer"
+    },
+    {
+      "path": "../../../packages/client/ui-sidebar"
+    },
+    {
       "path": "../../../packages/host/webserver"
     }
   ]
-  // @yootun/dsh-workbench-mcp 不进 references：经 node_modules symlink 解析到
-  // 已构建的 lib/types（与 wx/xhs 工作台同口径，避免 rootDir/outDir 相对路径重写不安全）。
+  // @yootun/dsh-client-ui-kit 与 @yootun/dsh-workbench-mcp 不进 references：
+  // 经 node_modules symlink 解析到各自已构建的 lib/types（与 wx/xhs 同口径），
+  // 避免 rootDir/outDir 相对路径重写不安全（TS2878）。
 }
