@@ -7,11 +7,11 @@
  * @module
  */
 import { normalizeAvatarUrl } from './avatar.ts'
-import { isStableCode, safeCode, DouyinError } from './errors.ts'
+import { isStableCode, safeCode, DouyinError, type StableErrorCode } from './errors.ts'
 import { accountRemoveIdempotencyKey, accountSaveIdempotencyKey } from './idempotency.ts'
-import type { TaskRegistry } from './lifecycle.ts'
+import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { tryWithProfileLock, withProfileLock } from './locks.ts'
-import { readRuns, removeAccountRuns, type RunRecord } from './runs.ts'
+import { readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
 import {
   isPendingAccountId, launchChromeSession, loginWithQrCode, promotePendingAccount,
   refreshSessionState, removeLocalAccount, type ChromeFactory, type DouyinProfile,
@@ -42,7 +42,7 @@ function projectLogin(run: LoginRun): Record<string, unknown> {
 /** Host 依赖注入面（handlers；测试可整体替换）。 */
 export interface DouyinHandlerDeps {
   root: string
-  callTool: (tool: string, args: Record<string, unknown>) => Promise<{ structuredContent: unknown; content: unknown }>
+  callTool: (tool: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ structuredContent: unknown; content: unknown }>
   browserStatusFn: () => Promise<{ chromeAvailable: boolean; driverAvailable: boolean; platform: string; hint: string | null }>
   logger: { warn(message: string, error?: unknown): void }
   disposing: boolean
@@ -51,25 +51,36 @@ export interface DouyinHandlerDeps {
   chromeFactory: ChromeFactory | undefined
   loginRuns: Map<string, LoginRun>
   maxPages: number
+  /** 启动恢复（G-2）：running→interrupted 标记；业务 action 在它 settle 前等待。 */
+  startupReady: Promise<void>
+  /** 启动恢复失败（runs.json 语义损坏）的稳定码；非 null 时业务 action 拒绝。 */
+  startupError: StableErrorCode | null
 }
 
-/** 从 Workbench face 构建直接调用通道（handlers 用；caller 前缀校验已在 workbench.ts）。 */
+/** 从 Workbench face 构建直接调用通道（handlers 用；caller 前缀校验已在 workbench.ts；signal 原样透传）。 */
 function callerOf(face: { callTool(caller: 'douyin-workbench', domain: 'douyin' | 'viral', name: string, args: unknown, signal?: AbortSignal): Promise<{ structuredContent: unknown; content: unknown }> }) {
-  return async (tool: string, args: Record<string, unknown>): Promise<{ structuredContent: unknown; content: unknown }> => {
+  return async (tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ structuredContent: unknown; content: unknown }> => {
     const domain = tool.startsWith('workbench_douyin_') ? 'douyin' : tool.startsWith('workbench_viral_') ? 'viral' : undefined
     if (domain === undefined) throw new DouyinError('DOUYIN_TOOL_UNAVAILABLE', `tool "${tool}" is outside the douyin/viral groups`)
-    return face.callTool('douyin-workbench', domain, tool, args)
+    return face.callTool('douyin-workbench', domain, tool, args, signal)
   }
 }
 
+/** 启动恢复接缝（G-2）：缺省 recoverInterruptedRuns；测试可注入受控实现。 */
+export type StartupRecovery = (root: string) => Promise<number>
+
 /**
- * Assemble handler deps（controllers 之外的部分）。
+ * Assemble handler deps（controllers 之外的部分）。构造即启动 G-2 恢复
+ * （running→interrupted，不阻塞 route 注册）；业务 action 在恢复 settle 前
+ * 等待，恢复失败（runs.json 语义损坏）后业务 action 一律 run_state_corrupt。
  * @param options.root - state root.
  * @param options.face - the shared Workbench MCP connector.
  * @param options.browserStatusFn - browser capability probe.
  * @param options.logger - diagnostic logger.
  * @param options.chromeFactory - Chrome launcher seam (tests).
  * @param options.maxPages - default collect page budget.
+ * @param options.taskRegistry - task registry (defaults to a fresh one).
+ * @param options.recovery - startup recovery seam (defaults to recoverInterruptedRuns).
  * @returns the deps shared by handlers.
  */
 export function createHandlerDeps(options: {
@@ -80,24 +91,31 @@ export function createHandlerDeps(options: {
   chromeFactory?: ChromeFactory
   maxPages?: number
   taskRegistry?: TaskRegistry
+  recovery?: StartupRecovery
 }): DouyinHandlerDeps {
-  return {
+  const taskRegistry = options.taskRegistry ?? createTaskRegistry()
+  const deps: DouyinHandlerDeps = {
     root: options.root,
     callTool: callerOf(options.face),
     browserStatusFn: options.browserStatusFn,
     logger: options.logger ?? { warn: () => undefined },
     disposing: false,
     signals: new Map(),
-    taskRegistry: options.taskRegistry ?? createTaskRegistrySafe(),
+    taskRegistry,
     chromeFactory: options.chromeFactory ?? launchChromeSession,
     loginRuns: new Map(),
     maxPages: options.maxPages ?? 1000,
+    startupError: null,
+    startupReady: Promise.resolve(),
   }
+  // G-2 启动恢复：立即启动（不阻塞 route 注册），完成前业务 action 等待。
+  const run = (options.recovery ?? recoverInterruptedRuns)(options.root)
+  deps.startupReady = run.then(() => undefined, (error: unknown) => {
+    deps.startupError = safeCode(error)
+    deps.logger.warn('douyin startup run recovery failed', error)
+  })
+  return deps
 }
-
-/** 延迟导入避免环（lifecycle 无环，直接引亦可；这里保持显式依赖）。 */
-import { createTaskRegistry } from './lifecycle.ts'
-function createTaskRegistrySafe() { return createTaskRegistry() }
 
 /** 账号行投影（旧 projectAccounts 合并语义；墓碑过滤、本地优先）。 */
 export function projectAccounts(local: { accountId: string; nickname?: string | undefined; avatar?: string | undefined; fanCount?: number | undefined; sessionStatus?: string | undefined; sessionCheckedAt?: string | undefined }[], remote: Record<string, unknown>[]): { accounts: Record<string, unknown>[]; remoteError: string | null } {
@@ -225,7 +243,8 @@ export function projectFileName(raw: unknown, prefix: string, fallback: string):
 async function callExport(deps: DouyinHandlerDeps, tool: string, args: Record<string, unknown>, options: {
   prefix: string
   fallback: string
-  errorMap?: Record<string, string>
+  /** 服务端码 → 本地稳定码映射（值必须是稳定码白名单成员）。 */
+  errorMap?: Partial<Record<string, StableErrorCode>>
 }): Promise<HandlerPayload> {
   let payload: Record<string, unknown>
   try {
@@ -236,7 +255,7 @@ async function callExport(deps: DouyinHandlerDeps, tool: string, args: Record<st
   } catch (error) {
     const code = safeCode(error)
     const mapped = options.errorMap?.[code]
-    if (mapped !== undefined) throw new DouyinError(mapped as never, code)
+    if (mapped !== undefined) throw new DouyinError(mapped, code)
     if (code === 'DOUYIN_EXPORT_TOO_LARGE') throw new DouyinError('export_too_large', code)
     throw new DouyinError('export_failed', code)
   }
@@ -283,6 +302,13 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   const asString = (args: ActionArgs, key: string): string => typeof args[key] === 'string' ? args[key] as string : ''
   const guard = (handler: ActionHandler): ActionHandler => async (args: ActionArgs) => {
     if (deps.disposing) throw new DouyinError('plugin_disposing', 'plugin is disposing')
+    // G-2：业务 action 等待启动恢复 settle（route 注册不被阻塞；recovery 期间
+    // 任何 collect.start 都进不了控制器，无竞态）。
+    await deps.startupReady
+    if (deps.startupError !== null) {
+      // runs.json 语义损坏：不得继续读写采集状态（文件保持原样，绝不改写）。
+      throw new DouyinError(deps.startupError, 'startup run recovery failed')
+    }
     return deps.taskRegistry.runTracked(() => handler(args))
   }
   const runnerDeps: RunnerDeps = {
@@ -470,19 +496,50 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     'collect.status': async args => {
       const alias = await resolveAccountAlias(asString(args, 'accountId'), deps.root)
       const record = controllers.collect.status(alias)
-      // G-2：内存态丢失（重启）时给 runs.json 最近一条记录 + 恢复提示。
+      // G-2：内存态丢失（重启）时给 runs.json 最近一条记录 + 恢复判定。
       if (record === null) {
+        let runs: Record<string, RunRecord>
         try {
-          const runs = await readRuns(deps.root)
-          const last = Object.values(runs)
-            .filter(run => run.accountId === alias)
-            .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0]
-          if (last !== undefined && last.status === 'interrupted') {
-            return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: last }
-          }
-          return { status: 'ready', collect: null, ...(last !== undefined ? { lastRun: last } : {}) }
+          runs = await readRuns(deps.root)
         } catch (error) {
+          // 语义损坏（启动恢复后的新损坏/并发外写）：稳定拒绝，不改写文件。
           return { status: 'error', reason: safeCode(error) }
+        }
+        const last = Object.values(runs)
+          .filter(run => run.accountId === alias)
+          .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt))[0]
+        if (last === undefined) return { status: 'ready', collect: null }
+        if (last.status !== 'interrupted' && last.status !== 'running') {
+          return { status: 'ready', collect: null, lastRun: last }
+        }
+        // interrupted / running-without-memory：无 runId 无法安全对账。
+        if (last.runId === null || last.runId === '') {
+          return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: last }
+        }
+        // 远端终态查询：终态 → 同步本地 runs.json；仍 running / 查询失败 →
+        // recovery_required（不伪造本地 running）。
+        try {
+          const outcome = await deps.callTool('workbench_douyin_collect_run_get', { runId: last.runId })
+          const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
+          const run = payload.run && typeof payload.run === 'object' ? payload.run as Record<string, unknown> : {}
+          const remoteStatus = typeof run.status === 'string' ? run.status : null
+          const terminal = remoteStatus !== null && remoteStatus !== 'running' && remoteStatus !== 'pending'
+          if (!terminal) {
+            return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: last, remoteStatus }
+          }
+          const synced: RunRecord['status'] = remoteStatus === 'completed' || remoteStatus === 'partial' || remoteStatus === 'failed' || remoteStatus === 'cancelled' || remoteStatus === 'interrupted'
+            ? remoteStatus
+            : 'failed'
+          let updated: RunRecord = last
+          try {
+            updated = await updateRun(deps.root, last.accountId, last.attemptId, { status: synced, finishedAt: new Date().toISOString() })
+          } catch (error) {
+            deps.logger.warn(`douyin runs.json remote-terminal sync failed (${last.attemptId})`, error)
+          }
+          return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: updated, remoteStatus }
+        } catch (error) {
+          deps.logger.warn('douyin collect_run_get during recovery failed', error)
+          return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: last }
         }
       }
       return { status: 'ready', collect: record }

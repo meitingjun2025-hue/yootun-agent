@@ -204,6 +204,23 @@ function toNumberOrString(value: unknown): string | null {
   return num !== null ? String(num) : null
 }
 
+/** unknown[] → 对象行数组守卫（替代 as unknown[]：非对象/数组项行级剔除）。 */
+export function objectsOf(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return []
+  const rows: Record<string, unknown>[] = []
+  for (const item of value) {
+    if (item !== null && item !== undefined && typeof item === 'object' && !Array.isArray(item)) {
+      rows.push(item as Record<string, unknown>)
+    }
+  }
+  return rows
+}
+
+/** nullable 变体（字段缺失语义返回 null 而非 []）。 */
+export function objectsOrNullOf(value: unknown): Record<string, unknown>[] | null {
+  return Array.isArray(value) ? objectsOf(value) : null
+}
+
 /** 第一个非 undefined/null 值。 */
 export function firstPresent(...values: unknown[]): unknown {
   for (const value of values) {
@@ -231,7 +248,7 @@ export function parseWorkListPage(json: unknown): WorkListPage {
     throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   }
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rawList = Array.isArray(payload.aweme_list) ? payload.aweme_list as unknown[] : []
+  const rawList = objectsOf(payload.aweme_list)
   const works: WorkItem[] = []
   for (const item of rawList) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue
@@ -353,7 +370,7 @@ export interface PlaySourceRow {
 export function parsePlaySource(json: unknown): PlaySourceRow[] | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rows = Array.isArray(payload.play_source) ? payload.play_source as unknown[] : null
+  const rows = objectsOrNullOf(payload.play_source)
   if (rows === null) return null
   const parsed: PlaySourceRow[] = []
   for (const item of rows) {
@@ -419,7 +436,7 @@ export interface SearchKeywordRow {
 export function parseSearchKeywords(json: unknown): SearchKeywordRow[] | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rows = Array.isArray(payload.show_from) ? payload.show_from as unknown[] : null
+  const rows = objectsOrNullOf(payload.show_from)
   if (rows === null) return null
   const parsed: SearchKeywordRow[] = []
   for (const item of rows) {
@@ -528,7 +545,7 @@ export function parseItemMget(json: unknown): Map<string, Record<string, number 
   const result = new Map<string, Record<string, number | null>>()
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const items = Array.isArray(payload.items) ? payload.items as unknown[] : []
+  const items = objectsOf(payload.items)
   for (const item of items) {
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
@@ -559,7 +576,7 @@ export function parseItemSummarize(json: unknown): Map<string, SummarizeRow> {
   const result = new Map<string, SummarizeRow>()
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const items = Array.isArray(payload.item_list) ? payload.item_list as unknown[] : []
+  const items = objectsOf(payload.item_list)
   for (const item of items) {
     if (!item || typeof item !== 'object') continue
     const record = item as Record<string, unknown>
@@ -586,7 +603,7 @@ export function parseWordCloud(json: unknown): HotwordResult {
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
   const statusCode = toNumber(payload.status_code)
   if (statusCode !== 0) return { status: 'unavailable', statusCode, words: [] }
-  const rows = Array.isArray(payload.word_cloud_list) ? payload.word_cloud_list as unknown[] : Array.isArray(payload.data) ? payload.data as unknown[] : []
+  const rows = objectsOf(payload.word_cloud_list).length > 0 ? objectsOf(payload.word_cloud_list) : objectsOf(payload.data)
   const words: HotwordResult['words'] = []
   for (const item of rows) {
     if (!item || typeof item !== 'object') continue
@@ -612,7 +629,7 @@ export function parseItemMetricsTrend(json: unknown, todayIso: string): PlayTren
   if (statusCode !== null && statusCode !== 0) return null
   const trendMap = (payload.trend_map && typeof payload.trend_map === 'object' ? payload.trend_map : null) as Record<string, unknown> | null
   const viewGroup = (trendMap?.view_count && typeof trendMap.view_count === 'object' ? trendMap.view_count : null) as Record<string, unknown> | null
-  const rows = Array.isArray(viewGroup?.['0']) ? viewGroup['0'] as unknown[] : null
+  const rows = viewGroup === null ? null : objectsOrNullOf(viewGroup['0'])
   if (rows === null) return null
   const points: PlayTrendPoint[] = []
   for (const item of rows) {
@@ -680,7 +697,7 @@ function dashboardDay(raw: unknown): string | null {
 export function parseDashboardMetrics(json: unknown): Record<string, unknown>[] {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const metrics = Array.isArray(payload.metrics) ? payload.metrics as unknown[] : []
+  const metrics = objectsOf(payload.metrics)
   const byDay = new Map<string, Record<string, unknown>>()
   for (const metricRow of metrics) {
     if (!metricRow || typeof metricRow !== 'object') continue
@@ -688,7 +705,7 @@ export function parseDashboardMetrics(json: unknown): Record<string, unknown>[] 
     const english = typeof record.english_metric_name === 'string' ? record.english_metric_name : null
     const column = english !== null ? DASHBOARD_COLUMNS[english] : undefined
     if (column === undefined) continue
-    const trends = Array.isArray(record.trends) ? record.trends as unknown[] : []
+    const trends = objectsOf(record.trends)
     for (const trend of trends) {
       if (!trend || typeof trend !== 'object') continue
       const trendRecord = trend as Record<string, unknown>

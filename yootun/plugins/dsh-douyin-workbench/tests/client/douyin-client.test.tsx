@@ -7,12 +7,22 @@
  * @module
  */
 // @vitest-environment jsdom
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
+
+/** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
+const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
+/** 颜色类 style 属性键（几何键之外的着色面）。 */
+const COLOR_PROP_RE = /(?:^|[^A-Za-z])(?:color|background|fill|stroke|border|outline)[A-Za-z]*\s*:/u
+
+/** 去块注释与行注释（样式红线扫描不计注释）。 */
+function stripSourceComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/\/\/[^\n]*/gu, '')
+}
 
 const apiMock = vi.hoisted(() => ({ hostAction: vi.fn() }))
 
@@ -605,28 +615,56 @@ describe('词典与源码红线', () => {
     }
   })
 
-  it('CSS 无 ydo-*/#hex/rgb(/inline style，样式全部映射官方 token', () => {
-    const source = readFileSync(join(clientDir, 'workbench.module.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
-    expect(source).not.toMatch(/\bydo-/u)
-    expect(source).not.toMatch(/#[0-9a-fA-F]{3,8}\b/u)
-    expect(source).not.toMatch(/\b(rgba?|hsla?|oklch|oklab)\(/u)
-    expect(source).not.toContain('style=')
-    expect(source).toContain('var(--dsw-alias-')
-    expect(source).toContain('var(--yt-chart-')
+  it('无旧 HTML inline style / 字面色值，图表动态几何与 token 例外符合现行规范（扫描 src/client 全部 .tsx 与 .module.css）', () => {
+    const files = readdirSync(clientDir).filter(name => name.endsWith('.tsx') || name.endsWith('.css'))
+    expect(files.length).toBeGreaterThan(10)
+    for (const name of files) {
+      const source = stripSourceComments(readFileSync(join(clientDir, name), 'utf8'))
+      // 旧 HTML inline style（字符串 style="..."）与字面色值（#hex / rgb()/
+      // rgba()/hsl()/hsla()/oklch()/oklab()）一律禁止——wx/xhs 现行规范。
+      expect(source, `${name} 含旧 HTML inline style`).not.toContain('style="')
+      expect(source, `${name} 含字面色值`).not.toMatch(COLOR_LITERAL_RE)
+      expect(source, `${name} 含旧 ydo- 类名`).not.toMatch(/\bydo-/u)
+    }
+    const css = stripSourceComments(readFileSync(join(clientDir, 'workbench.module.css'), 'utf8'))
+    expect(css).toContain('var(--dsw-alias-')
+    expect(css).toContain('var(--yt-chart-')
   })
 
-  it('TSX 无 window.confirm/alert 与 dangerouslySetInnerHTML', () => {
-    for (const name of readdirSync(clientDir)) {
-      if (!name.endsWith('.tsx')) continue
-      const source = readFileSync(join(clientDir, name), 'utf8')
-      expect(source).not.toMatch(/window\.(confirm|alert)\(/u)
-      expect(source).not.toMatch(/dangerouslySetInnerHTML/u)
+  it('TSX 动态 style 仅限图表几何；颜色类 style 属性必须引用 --yt-chart-*/--dsw-* token（直接引用或经文件内 token 映射函数）', () => {
+    for (const name of readdirSync(clientDir).filter(item => item.endsWith('.tsx'))) {
+      const source = stripSourceComments(readFileSync(join(clientDir, name), 'utf8'))
+      expect(source, `${name} window.confirm/alert`).not.toMatch(/window\.(confirm|alert)\(/u)
+      expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
+      for (const match of source.matchAll(/style=\{\{([\s\S]*?)\}\}/gu)) {
+        const body = match[1] ?? ''
+        // 几何键（width/height/left/top/…）自由；颜色类键的值必须直接引用
+        // var(--yt-chart-*/--dsw-*)，或是文件内定义、返回 token 串的映射
+        // 函数调用（如性别环 colorOf——其实现逐一返回 var(--yt-chart-*)）。
+        if (COLOR_PROP_RE.test(body) && !/var\(--(yt-chart|dsw)-/u.test(body)) {
+          expect(body, `${name} 颜色类 style 属性必须是 token 引用或映射函数调用`).toMatch(/[A-Za-z_$][\w$]*\(/u)
+          expect(source, `${name} 必须定义返回 token 的颜色映射`).toMatch(/var\(--(yt-chart|dsw)-/u)
+        }
+      }
     }
   })
 
-  it('导出 HTML 自包含文件名与 token 内联走词典/解析（无字面色值源码）', () => {
+  it('关键页面逐文件通过红线扫描（OverviewPage / WorkDetailModal / charts / ReportPage）', () => {
+    for (const name of ['OverviewPage.tsx', 'WorkDetailModal.tsx', 'charts.tsx', 'ReportPage.tsx']) {
+      expect(existsSync(join(clientDir, name)), `${name} 应存在`).toBe(true)
+      const source = stripSourceComments(readFileSync(join(clientDir, name), 'utf8'))
+      expect(source, `${name} inline style`).not.toContain('style="')
+      expect(source, `${name} 字面色值`).not.toMatch(COLOR_LITERAL_RE)
+      expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
+    }
+  })
+
+  it('ReportPage 导出 HTML 的自包含 token 内联（专门例外）：运行时经 resolveToken/getComputedStyle 解析，源码零字面色值', () => {
     const source = readFileSync(join(clientDir, 'ReportPage.tsx'), 'utf8')
+    // 导出的自包含 HTML 颜色在运行时由 token 解析内联（getComputedStyle），
+    // 源码层不出现任何字面色值——这是与全局红线并存的受控例外，由本测试锁定。
     expect(source).toMatch(/resolveToken/u)
-    expect(source).not.toMatch(/#[0-9a-fA-F]{6}\b/u)
+    expect(source).toMatch(/getComputedStyle/u)
+    expect(stripSourceComments(source)).not.toMatch(COLOR_LITERAL_RE)
   })
 })

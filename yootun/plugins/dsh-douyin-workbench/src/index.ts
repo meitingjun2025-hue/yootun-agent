@@ -1,9 +1,10 @@
 /**
  * yootun 抖音工作台插件——`/api/desktop/yootun/douyin-workbench` 同源路由 +
  * action 契约（56 项冻结）+ 本地状态/登录/采集编排 + 经 Workbench MCP 的
- * douyin/viral 分组调用通道与 dispose 收口。D2 批交付登录与采集链路（11 个
- * action）；D3–D8 按分册 15 演进，allowlist 内未实现项按 unknown_action 拒绝。
- * 不插入 yootun bundle；client 半另批接入。Cookie/storage_state/本地路径不进
+ * douyin/viral 分组调用通道与 dispose 收口。D2–D5 已交付：Host 33 个 action
+ * 与 client 半（src/client，7 Tab 工作台）；D6–D8（breakdown/material/gene
+ * 共 23 项）未实现，allowlist 内缺席即 unknown_action。插件未插入 yootun
+ * bundle（client 入口接入属后续批次）。Cookie/storage_state/本地路径不进
  * 入响应、日志、tools 参数或审计。
  * @module @yootun/dsh-douyin-workbench
  */
@@ -102,6 +103,8 @@ export function createDouyinHostDeps(options: {
   logger?: { warn: (message: string, error?: unknown) => void }
   chromeFactory?: ChromeFactory
   maxPages?: number
+  /** G-2 启动恢复接缝（缺省 recoverInterruptedRuns；测试注入受控实现）。 */
+  recovery?: import('./handlers.ts').StartupRecovery
 }): DouyinHandlerDeps {
   return createHandlerDeps({
     root: options.root,
@@ -110,6 +113,7 @@ export function createDouyinHostDeps(options: {
     ...(options.logger !== undefined ? { logger: options.logger } : {}),
     ...(options.chromeFactory !== undefined ? { chromeFactory: options.chromeFactory } : {}),
     ...(options.maxPages !== undefined ? { maxPages: options.maxPages } : {}),
+    ...(options.recovery !== undefined ? { recovery: options.recovery } : {}),
   })
 }
 

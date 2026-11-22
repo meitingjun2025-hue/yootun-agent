@@ -1,6 +1,8 @@
 /**
- * 抖音工作台 client 测试（jsdom，独立于官方 vitest scope）：
- * `pnpm --filter @yootun/dsh-douyin-workbench test`（vitest 段）。
+ * 抖音工作台 client 测试（jsdom，独立于官方 vitest scope）。
+ * 完整 test 脚本（package.json）：8 个 host `node --test` 文件（host/state/
+ * route/dispose/d2/d3/d4d5/parse）之后接 `vitest run`（本配置，tests/client/**）。
+ * 单独运行：`npx vitest run`。
  */
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

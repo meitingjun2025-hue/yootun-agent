@@ -28,7 +28,7 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 
 /** Host 依赖注入（runner 侧；workbench caller + chrome factory 可注入测试）。 */
 export interface RunnerDeps {
-  callTool: (tool: string, args: Record<string, unknown>) => Promise<{ structuredContent: unknown; content: unknown }>
+  callTool: (tool: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ structuredContent: unknown; content: unknown }>
   root: string
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
@@ -50,6 +50,7 @@ export async function checkCollectionReadiness(options: { accountId: string; roo
 /** 远端账号自愈：登录期 account_save 可能失败；幂等 upsert，失败不阻断。 */
 export async function ensureRemoteAccount(deps: RunnerDeps, accountId: string, options: {
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
+  signal?: AbortSignal | undefined
 } = {}): Promise<{ ok: boolean; error: string | null }> {
   options.onProgress?.({ phase: 'account_sync' })
   try {
@@ -61,7 +62,7 @@ export async function ensureRemoteAccount(deps: RunnerDeps, accountId: string, o
     }
     if (typeof record?.nickname === 'string' && record.nickname !== '') payload.nickname = record.nickname
     if (typeof record?.fanCount === 'number' && Number.isFinite(record.fanCount)) payload.fanCount = record.fanCount
-    await deps.callTool('workbench_douyin_account_save', payload)
+    await deps.callTool('workbench_douyin_account_save', payload, options.signal)
     return { ok: true, error: null }
   } catch (error) {
     const reason = safeCode(error)
@@ -76,7 +77,7 @@ export async function reportSessionStatus(deps: RunnerDeps, accountId: string, s
   sessionSeq: number
   checkedAt: string
   vaultRef: string
-}): Promise<{ ok: boolean; error: string | null }> {
+}, signal?: AbortSignal): Promise<{ ok: boolean; error: string | null }> {
   try {
     const outcome = await deps.callTool('workbench_douyin_session_status_report', {
       accountId,
@@ -85,7 +86,7 @@ export async function reportSessionStatus(deps: RunnerDeps, accountId: string, s
       checkedAt: state.checkedAt,
       sessionRef: state.vaultRef,
       idempotencyKey: sessionIdempotencyKey(accountId, state.sessionSeq),
-    })
+    }, signal)
     const payload = payloadOf(outcome)
     if (payload.applied === false) {
       const reason = payload.reason === 'stale_report' ? 'stale_report' : 'session_report_rejected'
@@ -148,6 +149,7 @@ export interface SessionOkReport {
 export async function reportSessionOkAfterCollect(deps: RunnerDeps, accountId: string, options: {
   profile: DouyinProfile | null
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
+  signal?: AbortSignal | undefined
 }): Promise<SessionOkReport> {
   const emit = options.onProgress
   // 身份门槛：只有采集页身份验证一致才允许 ok 上报（绝不放行串号）。
@@ -158,7 +160,7 @@ export async function reportSessionOkAfterCollect(deps: RunnerDeps, accountId: s
   let remoteAccount: Record<string, unknown> | null = null
   let remoteSeq = 0
   try {
-    const outcome = await deps.callTool('workbench_douyin_account_list', { accountId })
+    const outcome = await deps.callTool('workbench_douyin_account_list', { accountId }, options.signal)
     const payload = payloadOf(outcome)
     const rows = Array.isArray(payload.accounts) ? payload.accounts as Record<string, unknown>[] : []
     remoteAccount = rows.find(row => row.account_id === accountId) ?? null
@@ -182,7 +184,7 @@ export async function reportSessionOkAfterCollect(deps: RunnerDeps, accountId: s
   }
   try {
     const state = await markSessionOk({ accountId, root: deps.root, floorSessionSeq: remoteSeq })
-    const report = await reportSessionStatus(deps, accountId, state)
+    const report = await reportSessionStatus(deps, accountId, state, options.signal)
     if (!report.ok) {
       emit?.({ phase: 'session_ok_report_rejected', reason: report.error })
       return { reported: false, skipped: null, reason: report.error }
@@ -199,6 +201,7 @@ export async function reportSessionOkAfterCollect(deps: RunnerDeps, accountId: s
 /** 头像补写（本地缺失时；accountId 必须一致，五 reason 与旧口径一致）。 */
 export async function saveDiscoveredAvatar(deps: RunnerDeps, accountId: string, profile: DouyinProfile | null, options: {
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
+  signal?: AbortSignal | undefined
 } = {}): Promise<{ updated: boolean; reason: string | null }> {
   const emit = options.onProgress
   if (profile === null) return { updated: false, reason: 'profile_missing' }
@@ -215,7 +218,7 @@ export async function saveDiscoveredAvatar(deps: RunnerDeps, accountId: string, 
       sessionRef: paths(deps.root).vaultRef(accountId),
       idempotencyKey: accountSaveIdempotencyKey(accountId),
       avatar: profile.avatar,
-    })
+    }, options.signal)
     emit?.({ phase: 'avatar_saved' })
     return { updated: true, reason: null }
   } catch (error) {
@@ -322,7 +325,7 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     }
     // 1) 会话探测（本地实测优先；远端 floor 由 ok 恢复上报阶段自读）。
     const session = await refreshSessionState({ accountId, root, chromeFactory: options.chromeFactory })
-    const report = await reportSessionStatus(deps, accountId, session)
+    const report = await reportSessionStatus(deps, accountId, session, signal)
     if (!report.ok) emit({ phase: 'session_report_failed', error: report.error })
     if (session.sessionStatus !== 'ok') {
       const reason = session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed'
@@ -331,7 +334,7 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     }
 
     // 2) 远端账号自愈（失败不阻断）。
-    await ensureRemoteAccount(deps, accountId, { onProgress: emit })
+    await ensureRemoteAccount(deps, accountId, { onProgress: emit, signal })
     if (aborted()) throw new DouyinError('collect_cancelled', 'collect_cancelled')
 
     // 3) 无头系统 Chrome + storage_state（采集专属 locale/timezone 与旧口径一致）。
@@ -388,9 +391,10 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     // 6) 入库编排（batch 失败记缺口不阻断；list_meta 失败返回 ingest_failed）。
     emit({ phase: 'ingesting' })
     const client = createIngestClient({
-      workbench: { callTool: async (tool, args) => deps.callTool(tool, args) },
+      workbench: { callTool: async (tool, args, signal) => deps.callTool(tool, args, signal) },
       accountId,
       persistence: { persistAttempt },
+      signal,
     })
     let ingestOutcome
     try {
@@ -423,8 +427,8 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     }
 
     // 7) ok 恢复上报 + 头像补写（任何失败不改变采集/入库结果）。
-    const okReport = await reportSessionOkAfterCollect(deps, accountId, { profile: collected.profile, onProgress: emit })
-    await saveDiscoveredAvatar(deps, accountId, collected.profile, { onProgress: emit })
+    const okReport = await reportSessionOkAfterCollect(deps, accountId, { profile: collected.profile, onProgress: emit, signal })
+    await saveDiscoveredAvatar(deps, accountId, collected.profile, { onProgress: emit, signal })
 
     const finishRun = (ingestOutcome.finish?.run ?? {}) as Record<string, unknown>
     const result: CollectResult = {
@@ -503,7 +507,7 @@ export async function finishExpiredSession(deps: RunnerDeps, accountId: string, 
     }
   }
   try {
-    const client = createIngestClient({ workbench: { callTool: async (tool, args) => deps.callTool(tool, args) }, accountId })
+    const client = createIngestClient({ workbench: { callTool: async (tool, args, signal) => deps.callTool(tool, args, signal) }, accountId, signal: options.signal })
     await client.startRun({ newAttempt: true })
     await client.publishListMeta({
       expectedWorkCount: partial.expectedWorkCount,

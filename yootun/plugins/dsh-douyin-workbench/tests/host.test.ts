@@ -111,7 +111,7 @@ test('D6–D8 的 23 个 action 在 handler 表缺席（fail loud 由 route 层 
   try {
     const handlers = buildRouteHandlers(deps)
     const d68 = Object.keys(ACTION_SCHEMAS).filter(action => action.startsWith('breakdown.') || action.startsWith('material.') || action.startsWith('gene.'))
-    assert.equal(d68.length, 23, 'D6–D8 冻结 23 项（breakdown 9 + material 8 + gene 6）')
+    assert.equal(d68.length, 23, 'D6–D8 冻结 23 项（breakdown 10 + material 8 + gene 5）')
     for (const action of d68) {
       assert.equal(handlers[action], undefined, `${action} 属 D6–D8，本阶段不得实现`)
     }

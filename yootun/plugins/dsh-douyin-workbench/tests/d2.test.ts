@@ -12,18 +12,8 @@ import { test } from 'node:test'
 import { buildRouteHandlers, createDouyinHostDeps } from '../src/index.ts'
 import { FakeWorkbenchError, createFakeWorkbench, tempRoot, type FakeWorkbenchCall } from './fakes.ts'
 import type { WorkbenchFace } from '../src/workbench.ts'
-import type { ChromeFactory } from '../src/session.ts'
 
-/** 假 Chrome factory：不启动浏览器，只满足 LaunchedSession 结构。 */
-function fakeChromeFactory(): ChromeFactory {
-  return async () => ({
-    context: { pages: () => [], newPage: async () => { throw new Error('not used in d2 tests') }, cookies: async () => [] } as never,
-    browser: null,
-    close: async () => undefined,
-  })
-}
-
-/** 组装 D2 deps（假 Chrome + 可脚本 workbench）。 */
+/** 组装 D2 deps（可脚本 workbench；Chrome factory 走缺省——本文件不触发登录）。 */
 async function d2Deps(script: { outcomes?: Array<{ structuredContent?: unknown; throwCode?: string }> } = {}): Promise<{
   deps: ReturnType<typeof createDouyinHostDeps>
   calls: FakeWorkbenchCall[]
@@ -34,7 +24,6 @@ async function d2Deps(script: { outcomes?: Array<{ structuredContent?: unknown; 
   const deps = createDouyinHostDeps({
     root,
     workbenchFace: fake.face,
-    chromeFactory: fakeChromeFactory(),
     logger: { warn: () => undefined },
   })
   return { deps, calls: fake.calls, cleanup }
@@ -80,7 +69,7 @@ test('accounts.list：远端失败不整体失败，remoteError 透出', async (
   }
   const { root, cleanup } = await tempRoot()
   try {
-    const deps = createDouyinHostDeps({ root, workbenchFace: face, chromeFactory: fakeChromeFactory() })
+    const deps = createDouyinHostDeps({ root, workbenchFace: face })
     const handlers = buildRouteHandlers(deps)
     const payload = await handlers['accounts.list']({})
     assert.equal(payload.status, 'ready')
@@ -184,7 +173,7 @@ test('G-2 run 恢复：running 记录重启后标 interrupted；collect.status �
     }
     // collect.status（内存态丢失）投影 recovery。
     const fake = createFakeWorkbench()
-    const deps = createDouyinHostDeps({ root, workbenchFace: fake.face, chromeFactory: fakeChromeFactory() })
+    const deps = createDouyinHostDeps({ root, workbenchFace: fake.face })
     const handlers = buildRouteHandlers(deps)
     const status = await handlers['collect.status']({ accountId: 'g2-acc' })
     assert.equal(status.status, 'ready')

@@ -11,7 +11,7 @@ import {
   parseDashboardMetrics, parseFansSummary, parseItemCompare, parseItemMetricsTrend, parseItemMget,
   parseItemSummarize, parsePlaySource, parsePortrait, parseProgressAnalysis, parseJsonPreservingIds,
   parseRealtimeTrend, parseSearchKeywords, parseWordCloud, parseWorkListPage, pct, resolveClientStatus,
-  round2, shanghaiTodayIso, SessionInvalidError, toInt, toNumber, buildWorkPayload, firstPresent,
+  objectsOf, round2, shanghaiTodayIso, SessionInvalidError, toInt, toNumber, buildWorkPayload, firstPresent,
   type AudiencePortrait, type CompareMetrics, type HotwordResult, type PartialCollected,
   type PlaySourceRow, type PlayTrendPoint, type ProgressAnalysis,
   type RealtimeTrend, type SearchKeywordRow, type SummarizeRow, type WorkItem, type WorkPayload,
@@ -294,7 +294,7 @@ export async function collectItemAnalysis(page: DouyinCollectPage, options: { da
     const vertical = await fetchJson(page, { url: `${ITEM_ANALYSIS_BASE}/involved_vertical?start_date=${window.startDate}&end_date=${window.endDate}` })
     if (vertical.ok) {
       const payload = (vertical.json && typeof vertical.json === 'object' ? vertical.json : {}) as Record<string, unknown>
-      verticals = Array.isArray(payload.primary_verticals) ? payload.primary_verticals as unknown[] : []
+      verticals = objectsOf(payload.primary_verticals)
     } else {
       bundle.overviewError = 'overview_failed'
     }
@@ -308,7 +308,7 @@ export async function collectItemAnalysis(page: DouyinCollectPage, options: { da
     })
     if (performance.ok) {
       const payload = (performance.json && typeof performance.json === 'object' ? performance.json : {}) as Record<string, unknown>
-      const rows = Array.isArray(payload.item_performance_list) ? payload.item_performance_list as unknown[] : []
+      const rows = objectsOf(payload.item_performance_list)
       for (const row of rows) {
         if (!row || typeof row !== 'object') continue
         const record = row as Record<string, unknown>

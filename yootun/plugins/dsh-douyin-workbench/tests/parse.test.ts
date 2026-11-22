@@ -44,7 +44,7 @@ test('parseWorkListPage：status_code=8 抛会话失效（防空列表假成功�
 })
 
 test('decidePagination：健康 has_more=false；四种不完整 reason', () => {
-  const page = (hasMore: boolean, works: number, nextCursor: string): ReturnType<typeof parseWorkListPage> => ({ hasMore, works: new Array(works).fill({ workId: 'x' }) as never, nextCursor, rawCount: works })
+  const page = (hasMore: boolean, works: number, nextCursor: string): ReturnType<typeof parseWorkListPage> => ({ hasMore, works: Array.from({ length: works }, () => ({ workId: 'x' })), nextCursor, rawCount: works })
   assert.equal(decidePagination(page(false, 3, '9'), 1, 10, '0').reason, null)
   assert.equal(decidePagination(page(true, 0, '9'), 1, 10, '0').reason, 'empty_page_with_more')
   assert.equal(decidePagination(page(true, 3, '5'), 2, 10, '5').reason, 'cursor_not_advancing')

@@ -2,10 +2,12 @@
  * Workbench 入库客户端（移植旧 ingest.js 全语义）：run_start→set_list_meta→
  * 分批 ingest_batch→ingest_daily→run_finish 的幂等键与参数形状冻结；确定性
  * 错误不重试；RUN_NOT_RUNNING/RUN_NOT_FOUND 重建 run 重发 listMeta（≤3 次）；
- * 其余指数退避 min(8000, 500·2^(n-1)) ≤3 次。list_meta 失败不得进入结算
- * （服务端 RUN_LIST_META_REQUIRED 会拒绝）；daily 失败只记事件不影响结算；
- * V1 编排不启用周期性心跳（租约续期依赖每批 ingest_batch 写入）。G-1：
- * run_cancel 在本编排内无调用点（采集取消只经 AbortController/dispose）。
+ * 其余指数退避 min(8000, 500·2^(n-1)) ≤3 次（退避等待可被 abort 中断，abort
+ * 后不再发起下一次重试）。list_meta 失败不得进入结算（服务端
+ * RUN_LIST_META_REQUIRED 会拒绝）；daily 失败只记事件不影响结算；V1 编排
+ * 不启用周期性心跳（租约续期依赖每批 ingest_batch 写入）。G-1：本编排内
+ * 不存在 workbench_douyin_collect_run_cancel 的任何调用（采集取消只经
+ * AbortController/dispose；ACTION_TOOL_MAP 无 cancel 绑定）。
  * @module
  */
 import {
@@ -30,11 +32,32 @@ export const DETERMINISTIC_ERRORS = new Set([
 /** 可恢复错误：重建 run（新 attempt + 重发 listMeta）后可重试。 */
 export const RECOVERABLE_ERRORS = new Set(['RUN_NOT_RUNNING', 'RUN_NOT_FOUND'])
 
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
-
-/** Workbench face 的结构化子集（测试注入面）。 */
+/** Workbench face 的结构化子集（测试注入面；signal 原样透传）。 */
 export interface IngestWorkbench {
-  callTool(tool: string, args: Record<string, unknown>): Promise<{ structuredContent: unknown; content: unknown }>
+  callTool(tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<{ structuredContent: unknown; content: unknown }>
+}
+
+/** 退避等待：abort 即刻中断（dispose/取消不得等满退避窗口）。 */
+async function sleepAbortable(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) {
+    await new Promise<void>(resolve => setTimeout(resolve, ms))
+    return
+  }
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      reject(new Error('ingest_retry_aborted'))
+    }
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 }
 
 /** ingest 进度事件（phase 白名单投影）。 */
@@ -64,7 +87,6 @@ export interface IngestClient {
   ingestAll(works: Record<string, unknown>[], options?: { observedCount?: number }): Promise<IngestBatchResult>
   ingestDaily(daily: Record<string, unknown>[], options?: { fansProfile?: unknown }): Promise<{ replayed: boolean; dailyAccepted: number; skipped?: string }>
   finish(options: { clientStatus: string; clientCounts?: { expectedWorkCount: number; succeededWorkCount: number; failedWorkCount: number } | null }): Promise<{ run: Record<string, unknown>; replayed: boolean }>
-  cancel(): Promise<void>
 }
 
 /** 分批入库结果。 */
@@ -93,6 +115,8 @@ export function createIngestClient(options: {
   persistence?: AttemptPersistence | undefined
   batchSize?: number
   retries?: number
+  /** 采集链路 abort 信号：贯穿全部 Workbench 调用与退避等待。 */
+  signal?: AbortSignal | undefined
 }): IngestClient {
   const batchSize = options.batchSize ?? BATCH_SIZE
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 50) {
@@ -100,6 +124,7 @@ export function createIngestClient(options: {
   }
   const retries = options.retries ?? DEFAULT_RETRIES
   const accountId = options.accountId
+  const signal = options.signal
   let runAttemptId = options.attemptId ?? attemptUuid()
   let runId: string | null = null
   let heartbeatSeq = 0
@@ -113,13 +138,17 @@ export function createIngestClient(options: {
   /** 一次工具调用的错误分类读出（stable code 由 errors.safeCode 收敛后进入）。 */
   const classify = (error: unknown): string => safeCode(error)
 
-  /** withRetry：确定性直接抛；可恢复走 onRecover；其余指数退避；全部 ≤retries。 */
+  /** withRetry：确定性直接抛；可恢复走 onRecover；其余指数退避（可被 abort
+   * 中断；abort 后不再发起下一次重试）；全部 ≤retries。 */
+  const aborted = (): boolean => signal?.aborted === true
   const withRetry = async <T>(operation: () => Promise<T>, hooks: { onRecover?: (() => Promise<void>) | undefined } = {}): Promise<T> => {
     let attempt = 0
     for (;;) {
+      if (aborted()) throw new Error('ingest_aborted')
       try {
         return await operation()
       } catch (error) {
+        if (aborted()) throw error
         const code = classify(error)
         if (DETERMINISTIC_ERRORS.has(code)) throw error
         if (RECOVERABLE_ERRORS.has(code) && hooks.onRecover !== undefined) {
@@ -130,7 +159,7 @@ export function createIngestClient(options: {
         }
         attempt += 1
         if (attempt > retries) throw error
-        await sleep(Math.min(8000, 500 * 2 ** (attempt - 1)))
+        await sleepAbortable(Math.min(8000, 500 * 2 ** (attempt - 1)), signal)
       }
     }
   }
@@ -143,7 +172,7 @@ export function createIngestClient(options: {
     async startRun({ newAttempt }) {
       if (newAttempt) runAttemptId = attemptUuid()
       const idempotencyKey = runStartIdempotencyKey(runAttemptId)
-      const outcome = await options.workbench.callTool('workbench_douyin_collect_run_start', { accountId, idempotencyKey })
+      const outcome = await options.workbench.callTool('workbench_douyin_collect_run_start', { accountId, idempotencyKey }, signal)
       const payload = payloadOf(outcome)
       const run = (payload.run && typeof payload.run === 'object' ? payload.run : {}) as Record<string, unknown>
       const newRunId = typeof run.run_id === 'string' ? run.run_id : null
@@ -170,7 +199,7 @@ export function createIngestClient(options: {
       }
       // publishSince 仅真值时携带（undefined 属性会被宿主整调用拒绝）。
       if (meta.publishSince !== undefined && meta.publishSince !== null && meta.publishSince !== '') args.publishSince = meta.publishSince
-      await withRetry(() => options.workbench.callTool('workbench_douyin_collect_run_set_list_meta', args))
+      await withRetry(() => options.workbench.callTool('workbench_douyin_collect_run_set_list_meta', args, signal))
       emit({ phase: 'list_meta', expectedWorkCount: meta.expectedWorkCount, listComplete: meta.listComplete, ...(meta.publishSince !== undefined ? { publishSince: meta.publishSince } : {}) })
     },
 
@@ -182,7 +211,7 @@ export function createIngestClient(options: {
         runId,
         heartbeatSeq,
         idempotencyKey: heartbeatIdempotencyKey(runId, heartbeatSeq),
-      })
+      }, signal)
     },
 
     async ingestAll(works, batchOptions = {}) {
@@ -196,6 +225,7 @@ export function createIngestClient(options: {
         if (batchNo > MAX_BATCH_NO) throw new Error('batch_no_out_of_range')
         const slice = works.slice(offset, offset + batchSize)
         if (slice.length === 0) break
+        if (aborted()) throw new Error('ingest_aborted')
         const attempt = async (): Promise<void> => {
           const outcome = await options.workbench.callTool('workbench_douyin_collect_ingest_batch', {
             runId,
@@ -203,7 +233,7 @@ export function createIngestClient(options: {
             batchNo,
             works: slice,
             idempotencyKey: ingestBatchIdempotencyKey(runId ?? '', batchNo),
-          })
+          }, signal)
           const payload = payloadOf(outcome)
           const batch = (payload.batch && typeof payload.batch === 'object' ? payload.batch : {}) as Record<string, unknown>
           const succeeded = Array.isArray(batch.succeeded_work_ids) ? batch.succeeded_work_ids.map(String) : []
@@ -249,7 +279,7 @@ export function createIngestClient(options: {
       if (dailyOptions.fansProfile !== undefined && dailyOptions.fansProfile !== null && typeof dailyOptions.fansProfile === 'object') {
         args.fansProfile = dailyOptions.fansProfile
       }
-      await withRetry(() => options.workbench.callTool('workbench_douyin_collect_ingest_daily', args))
+      await withRetry(() => options.workbench.callTool('workbench_douyin_collect_ingest_daily', args, signal))
       emit({ phase: 'daily_ingested', dailyAccepted: daily.length })
       return { replayed: false, dailyAccepted: daily.length }
     },
@@ -258,21 +288,11 @@ export function createIngestClient(options: {
       if (runId === null) throw new Error('run_not_started')
       const args: Record<string, unknown> = { runId, clientStatus, idempotencyKey: runFinishIdempotencyKey(runId) }
       if (clientCounts !== undefined && clientCounts !== null) args.clientCounts = clientCounts
-      const outcome = await withRetry(() => options.workbench.callTool('workbench_douyin_collect_run_finish', args))
+      const outcome = await withRetry(() => options.workbench.callTool('workbench_douyin_collect_run_finish', args, signal))
       const payload = payloadOf(outcome)
       const run = (payload.run && typeof payload.run === 'object' ? payload.run : {}) as Record<string, unknown>
       emit({ phase: 'finished', status: run.status ?? null, replayed: payload.replayed === true })
       return { run, replayed: payload.replayed === true }
-    },
-
-    async cancel() {
-      if (runId === null) throw new Error('run_not_started')
-      // G-1：编排内无调用点；保留幂等终止通道语义（键模板冻结）。
-      await options.workbench.callTool('workbench_douyin_collect_run_cancel', {
-        runId,
-        idempotencyKey: `douyin:run_cancel:${runId}`,
-      })
-      emit({ phase: 'cancelled', runId })
     },
   }
   return client
