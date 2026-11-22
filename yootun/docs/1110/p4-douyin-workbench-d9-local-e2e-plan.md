@@ -108,7 +108,7 @@ Playwright 通过 `chromium.connectOverCDP('http://127.0.0.1:9335')` 连接 rend
 |---|---|---|---|
 | 单账号采集 | 选测试账号点击「开始采集」（不点采集全部） | `workbench_douyin_collect_run_start` / `workbench_douyin_collect_run_set_list_meta` / `workbench_douyin_collect_run_heartbeat` / `workbench_douyin_collect_ingest_batch` / `workbench_douyin_collect_ingest_daily` / `workbench_douyin_collect_run_finish`（经 `collect.start` 编排） | 各阶段（probing / list / details / ingest / finishing / 终态）各截一张；终态 completed 或真实 partial；UI runId 与 `workbench_douyin_collect_run_get` 的 `run.run_id` 一致；批次与日度数据不把缺失补成 0 |
 | 采集状态 | 采集期间查状态区 | —（`collect.status` 本地） | 进度与阶段一致；不显示假进度 |
-| 恢复态 | 采集中途强退 Desktop 并重启 | `collect_run_get` | 重启后恢复提示出现，恢复态与远端 run 状态一致；不重跑已完成批次、不把中断 run 标成 completed |
+| 恢复态 | 采集中途强退 Desktop 并重启 | `workbench_douyin_collect_run_get` | 重启后恢复提示出现，恢复态与远端 run 状态一致；不重跑已完成批次、不把中断 run 标成 completed |
 
 ### C3 作品、总览与单账号分析
 
