@@ -441,7 +441,7 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
             <strong className={css.kpiValue}>{metric.available ? (metric.key === 'interactionRate' ? formatPercent(metric.value) : formatCount(metric.value, props.localeTag)) : '—'}</strong>
             {metric.changePct !== null
               ? (
-                <span className={metric.changePct > 0 ? css.deltaUp : metric.changePct < 0 ? css.deltaDown : undefined}>
+                <span className={`${css.kpiChange} ${metric.changePct > 0 ? css.deltaUp : metric.changePct < 0 ? css.deltaDown : ''}`}>
                   {`${weekly ? t('report.change.weekly') : t('report.change.daily')} ${metric.changePct > 0 ? '▲' : metric.changePct < 0 ? '▼' : ''}${Math.abs(metric.changePct).toFixed(1)}%`}
                   {metric.prevValue !== null ? ` · ${t('report.change.prev', { value: formatCount(metric.prevValue, props.localeTag) })}` : ''}
                 </span>
@@ -452,6 +452,7 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
         ))}
       </div>
 
+      <div className={css.reportSection}>
       <DataCard title={weekly ? t('report.trend.weekly') : t('report.trend.daily')} state='ready' footnote={t('report.trend.gapText')}>
         <ReportComboChart
           days={data.trendSeries.days}
@@ -463,7 +464,9 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
         />
         <p className={css.inlineHint}>{`${t('report.trend.barNote')}：${weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')} · ${t('report.trend.lineNote')}：${weekly ? t('report.trend.lineWeekly') : t('report.trend.lineDaily')}`}</p>
       </DataCard>
+      </div>
 
+      <div className={css.reportSection}>
       <DataCard title={weekly ? t('report.accounts.weekly', { from: start, to: endText }) : t('report.accounts.daily', { day: start })} state='ready'>
         <div className={css.tableWrap} role='region' aria-label={t('report.col.account')} tabIndex={0}>
           <table className={css.dataTable} aria-label={t('report.col.account')}>
@@ -476,10 +479,10 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
             <tbody>
               {data.accounts.map(row => (
                 <tr key={row.accountId}>
-                  <td className={css.cellMain}>
+                  <td className={`${css.cellMain} ${css.reportAccountName}`}>
                     {row.nickname ?? row.accountId}
                     {row.sessionStatus === 'expired' && <Tag tone='warning'>{t('report.mark.expired')}</Tag>}
-                    {row.marks.map(mark => <Tag key={mark}>{mark}</Tag>)}
+                    {row.marks.map(mark => <span key={mark} className={css.reportMark}>{mark}</span>)}
                   </td>
                   <td>{row.ownerName ?? '—'}</td>
                   <td className={css.cellNum}>{formatCount(row.fanCount, props.localeTag)}</td>
@@ -503,7 +506,9 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
           </table>
         </div>
       </DataCard>
+      </div>
 
+      <div className={css.reportSection}>
       <DataCard
         title={weekly
           ? t('report.works.weekly', { count: data.works.length })
@@ -550,6 +555,7 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
             </div>
           )}
       </DataCard>
+      </div>
 
       {data.anomalies.length > 0 && (
         <DataCard title={t('report.anomaly.gap')} state='ready'>

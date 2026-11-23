@@ -250,7 +250,7 @@ export function GenePage(props: GenePageProps): ReactNode {
         )}
       </div>
 
-      <div className={css.matFilters}>
+      <div className={css.geneToolbar}>
         <Input
           value={filters.query}
           placeholder={t('gene.searchPlaceholder')}
@@ -261,6 +261,7 @@ export function GenePage(props: GenePageProps): ReactNode {
           label={t('gene.filter.category')}
           currentLabel={filters.category === '' ? t('gene.filter.category.all') : filters.category}
           items={[{ id: '', label: t('gene.filter.category.all') }, ...(facets.category ?? []).map(entry => ({ id: entry.label, label: `${entry.label}（${entry.count}）` }))]}
+          triggerClassName={css.matFilterTrigger}
           selectedId={filters.category}
           onSelect={id => { applyFilters({ ...filtersRef.current, category: id }) }}
         />
@@ -273,6 +274,7 @@ export function GenePage(props: GenePageProps): ReactNode {
             { id: 'adopted', label: t('gene.filter.adoption.adopted') },
             { id: 'revised', label: t('gene.filter.adoption.revised') },
           ]}
+          triggerClassName={css.matFilterTrigger}
           selectedId={filters.adoption}
           onSelect={id => { applyFilters({ ...filtersRef.current, adoption: id as GeneFilters['adoption'] }) }}
         />
@@ -545,6 +547,8 @@ function GeneDetailModal(props: {
       open
       title={t('gene.detail.title')}
       closeLabel={t('dialog.close')}
+      className={css.geneDetailDialog as string}
+      contentClassName={css.geneDetailContent as string}
       onClose={props.onClose}
     >
       {props.detail.loading

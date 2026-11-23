@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, SegmentedControl, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
+import { DataCard, DataState } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
 import css from './workbench.module.css'
@@ -397,6 +397,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
 
       {section === 'board' && (
         <>
+          <div className={css.matPanel}>
           <div className={css.matFilters}>
             <Input
               value={filters.q}
@@ -414,6 +415,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
                 { id: 'B', label: t('mat.filter.minLevel.B') },
                 { id: 'C', label: t('mat.filter.minLevel.C') },
               ]}
+              triggerClassName={css.matFilterTrigger}
               selectedId={filters.minLevel}
               onSelect={id => { changeFilters({ minLevel: id as MaterialFilters['minLevel'] }) }}
             />
@@ -426,6 +428,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
                 { id: 'account', label: t('mat.filter.sourceKind.account') },
                 { id: 'both', label: t('mat.filter.sourceKind.both') },
               ]}
+              triggerClassName={css.matFilterTrigger}
               selectedId={filters.sourceKind}
               onSelect={id => { changeFilters({ sourceKind: id as MaterialFilters['sourceKind'] }) }}
             />
@@ -433,6 +436,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
               label={t('mat.filter.publishedRange')}
               currentLabel={t(`mat.publishedRange.${filters.publishedRange}` as 'mat.publishedRange.7d')}
               items={(['7d', '30d', '90d', 'all'] as const).map(value => ({ id: value, label: t(`mat.publishedRange.${value}` as 'mat.publishedRange.7d') }))}
+              triggerClassName={css.matFilterTrigger}
               selectedId={filters.publishedRange}
               onSelect={id => { changeFilters({ publishedRange: id as PublishedRange }) }}
             />
@@ -440,6 +444,7 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
               label={t('mat.filter.tag')}
               currentLabel={filters.tag === '' ? t('mat.filter.tag.all') : filters.tag}
               items={[{ id: '', label: t('mat.filter.tag.all') }, ...facets.map(facet => ({ id: facet.tag, label: `${facet.tag}（${facet.count}）` }))]}
+              triggerClassName={css.matFilterTrigger}
               selectedId={filters.tag}
               onSelect={id => { changeFilters({ tag: id }) }}
             />
@@ -448,12 +453,14 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
               currentLabel={t(`mat.sort.${filters.sortBy}` as 'mat.sort.hot')}
               items={['hot', 'latest', 'published_at', 'play_count', 'like_count', 'comment_count', 'share_count', 'collect_count', 'interaction_rate']
                 .map(value => ({ id: value, label: t(`mat.sort.${value}` as 'mat.sort.hot') }))}
+              triggerClassName={css.matFilterTrigger}
               selectedId={filters.sortBy}
               onSelect={id => { changeFilters({ sortBy: id }) }}
             />
           </div>
 
           <MaterialKpiRow board={board} seeds={seeds.data} runs={runs.rows} t={t} />
+          </div>
 
           {board.errorReason !== null && (
             <p className={css.formError} role='alert'>{domainErrorText('mat', board.errorReason, t)}</p>
@@ -690,24 +697,35 @@ function MaterialKpiRow(props: {
       : null
   const num = (value: number | null): string => formatCount(value)
   return (
-    <div className={css.kpiRow}>
-      <KpiCard label={t('mat.kpi.total')} value={props.board.errorReason !== null ? '—' : props.board.total !== null ? num(props.board.total) : '—'} footnote={t('mat.kpi.totalFoot')} />
-      <KpiCard label={t('mat.kpi.levels')} value={saText ?? '—'} footnote={levels !== null ? t('mat.kpi.levelsFiltered') : latest !== null ? t('mat.kpi.levelsBatch') : t('mat.kpi.levelsNone')} />
-      <KpiCard
+    <div className={css.matKpis}>
+      <MatKpi label={t('mat.kpi.total')} value={props.board.errorReason !== null ? '—' : props.board.total !== null ? num(props.board.total) : '—'} foot={t('mat.kpi.totalFoot')} />
+      <MatKpi label={t('mat.kpi.levels')} value={saText ?? '—'} foot={levels !== null ? t('mat.kpi.levelsFiltered') : latest !== null ? t('mat.kpi.levelsBatch') : t('mat.kpi.levelsNone')} />
+      <MatKpi
         label={t('mat.kpi.newVideos')}
         value={latest !== null ? num(latest.newVideos) : '—'}
-        footnote={latest !== null ? t('mat.kpi.newVideosFoot', { discovered: num(latest.discovered), inserted: num(latest.candidatesInserted) }) : t('mat.kpi.levelsNone')}
+        foot={latest !== null ? t('mat.kpi.newVideosFoot', { discovered: num(latest.discovered), inserted: num(latest.candidatesInserted) }) : t('mat.kpi.levelsNone')}
       />
-      <KpiCard
+      <MatKpi
         label={t('mat.kpi.promoted')}
         value={latest !== null ? num(latest.promotedCandidates) : '—'}
-        footnote={latest !== null ? t('mat.kpi.promotedFoot', { skipped: num(latest.duplicatesSkipped) }) : t('mat.kpi.levelsNone')}
+        foot={latest !== null ? t('mat.kpi.promotedFoot', { skipped: num(latest.duplicatesSkipped) }) : t('mat.kpi.levelsNone')}
       />
-      <KpiCard
+      <MatKpi
         label={t('mat.kpi.latest')}
         value={latest !== null && latest.startedAt !== null ? latest.startedAt.slice(0, 10) : '—'}
-        footnote={latest !== null ? t('mat.kpi.latestFoot', { status: t(`mat.run.status.${latest.runStatus}` as 'mat.run.status.completed') }) : t('mat.kpi.levelsNone')}
+        foot={latest !== null ? t('mat.kpi.latestFoot', { status: t(`mat.run.status.${latest.runStatus}` as 'mat.run.status.completed') }) : t('mat.kpi.levelsNone')}
       />
+    </div>
+  )
+}
+
+/** 连体 KPI 条单元（旧 ydo-mat-kpi 同构：标签 12px 次级 / 数值 22px 加粗 / 脚注 11px）。 */
+function MatKpi(props: { label: string; value: string; foot: string }): ReactNode {
+  return (
+    <div className={css.matKpi}>
+      <p className={css.matKpiLabel}>{props.label}</p>
+      <p className={css.matKpiValue}>{props.value}</p>
+      <p className={css.matKpiFoot}>{props.foot}</p>
     </div>
   )
 }
@@ -781,8 +799,8 @@ function BoardRow(props: {
       <td className={css.matActionsCell}>
         <Button variant='primary' size='sm' onClick={props.onOpenReason}>{t('mat.action.reason')}</Button>
         {row.shareUrl !== null
-          ? <Button variant='ghost' size='sm' onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}>{t('mat.action.breakdown')}</Button>
-          : <Button variant='ghost' size='sm' disabled title={t('mat.action.breakdownDisabled')}>{t('mat.action.breakdown')}</Button>}
+          ? <Button variant='toolbar' size='sm' className={css.softAction} onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}>{t('mat.action.breakdown')}</Button>
+          : <Button variant='toolbar' size='sm' className={css.softAction} disabled title={t('mat.action.breakdownDisabled')}>{t('mat.action.breakdown')}</Button>}
       </td>
     </tr>
   )
@@ -837,7 +855,7 @@ function SeedTable(props: {
                   <span className={css.matActionsCell}>
                     <Button variant='ghost' size='sm' onClick={() => { props.onEdit(row) }}>{t('mat.seed.edit')}</Button>
                     {row.status === 'active'
-                      ? <Button variant='ghost' size='sm' onClick={() => { props.onToggle(row) }}>{t('mat.seed.disable')}</Button>
+                      ? <Button variant='toolbar' size='sm' className={css.softAction} onClick={() => { props.onToggle(row) }}>{t('mat.seed.disable')}</Button>
                       : <Button variant='primary' size='sm' onClick={() => { props.onToggle(row) }}>{t('mat.seed.enable')}</Button>}
                   </span>
                 </td>
@@ -876,7 +894,7 @@ function SeedTable(props: {
                   <span className={css.matActionsCell}>
                     <Button variant='ghost' size='sm' onClick={() => { props.onEdit(account) }}>{t('mat.seed.edit')}</Button>
                     {account.status === 'active'
-                      ? <Button variant='ghost' size='sm' onClick={() => { props.onToggle(account) }}>{t('mat.seed.disable')}</Button>
+                      ? <Button variant='toolbar' size='sm' className={css.softAction} onClick={() => { props.onToggle(account) }}>{t('mat.seed.disable')}</Button>
                       : <Button variant='primary' size='sm' onClick={() => { props.onToggle(account) }}>{t('mat.seed.enable')}</Button>}
                   </span>
                 </td>

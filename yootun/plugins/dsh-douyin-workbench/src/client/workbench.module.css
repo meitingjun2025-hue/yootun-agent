@@ -1545,6 +1545,22 @@
   fill: var(--yt-chart-4);
 }
 
+/* 组合图每期命中列：整期列宽可悬浮/聚焦（弹数值浮层），透明无焦点框。 */
+.comboColumn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.comboColumn:focus,
+.comboColumn:focus-visible {
+  outline: none;
+}
+
 /* 表单弹层（负责人 / 投流） */
 
 .formBody {
@@ -1880,27 +1896,55 @@
   overflow-wrap: anywhere;
 }
 
-/* 行状态底色（状态色优先于斑马纹；saving 品牌 8% / error 8%） */
-
-.scheduleRowSaving {
-  background: color-mix(in srgb, var(--dsw-alias-border-selected) 8%, transparent);
+/* 行底色统一由 td 承载（旧插件同构）；级联顺序：默认 < 斑马纹（未发布组内偶数行）
+   < 已发布组色（成功色 12%）< 状态色（saving 品牌 8% / error 8%）。 */
+.scheduleTable tbody td {
+  background: var(--dsw-alias-bg-base);
 }
 
-.scheduleRowError {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+.scheduleTable tbody tr.scheduleRowStriped td {
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, var(--dsw-alias-bg-base));
 }
 
-.scheduleRowPublished {
-  background: var(--dsw-alias-bg-layer-1);
+.scheduleTable tbody tr.scheduleRowPublished td {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 12%, var(--dsw-alias-bg-base));
 }
 
-.scheduleRowStriped {
-  background: var(--dsw-alias-bg-layer-1);
+.scheduleTable tbody tr.scheduleRowSaving td {
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, var(--dsw-alias-bg-base));
 }
 
+.scheduleTable tbody tr.scheduleRowError td {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-base));
+}
+
+/* 表头：加粗 + 次级说明小字（旧插件同构）。 */
+.scheduleTable th {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.scheduleTable th .headerSub {
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 折叠控制行：位于已发布组与未发布组交界。 */
 .scheduleToggleRow {
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
+  font-weight: 600;
+  user-select: none;
+}
+
+.scheduleTable tbody tr.scheduleToggleRow td {
+  background: var(--dsw-alias-bg-layer-2);
+  padding: 6px 10px;
 }
 
 .scheduleToggleRow:focus-visible {
@@ -1909,8 +1953,8 @@
 }
 
 @media (hover: hover) {
-  .scheduleToggleRow:hover {
-    background: var(--dsw-alias-bg-multi-select);
+  .scheduleToggleRow:hover td {
+    color: var(--dsw-alias-label-primary);
   }
 }
 
@@ -1941,21 +1985,59 @@
   white-space: nowrap;
 }
 
-/* 底部账号栏（Pill chip 横排） */
-
+/* 底部账号栏（旧插件同构）：单行横向滚动条 + 带边框容器；chip 不换行、不压缩。 */
 .scheduleAccountBar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding-top: 8px;
+  gap: 10px;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .scheduleAccountLabel {
   flex: none;
+  margin-right: 2px;
   font-size: 13px;
-  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
+}
+
+.scheduleAccountChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-width: 132px;
+  padding: 7px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.scheduleAccountChip:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.scheduleAccountChip[aria-pressed='true'] {
+  border-color: var(--dsw-alias-border-selected);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
   color: var(--dsw-alias-label-primary);
+  font-weight: 650;
+}
+
+@media (hover: hover) {
+  .scheduleAccountChip:not(:disabled, [aria-pressed='true']):hover {
+    background: var(--dsw-alias-bg-layer-2);
+    color: var(--dsw-alias-label-primary);
+  }
 }
 
 .accountChipAvatar {
@@ -2013,6 +2095,41 @@
   min-width: 0;
 }
 
+/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠 + 加粗。
+   DataCard 标题为 kit 模块类，按结构选择器在报表区段内覆盖。 */
+.reportSection h2 {
+  padding-left: 10px;
+  border-left: 3px solid var(--dsw-static-blue-500);
+  font-size: 15px;
+  font-weight: 650;
+  white-space: normal;
+}
+
+/* KPI 卡「较昨日/较上周」对比行：12px 加粗（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
+.kpiTile .kpiChange {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 650;
+}
+
+/* 账号明细：账号名加粗（旧 ydo-report-cell-main 同构）。 */
+.reportAccountName {
+  font-weight: 650;
+}
+
+/* 「N 天未发布」等提示胶囊（旧 ydo-report-mark 同构）：橙色实底白字，浅深主题一致。 */
+.reportMark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dsw-static-amber-600);
+  color: var(--dsw-static-neutral-00);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .metaList {
   margin: 0;
   display: flex;
@@ -2033,10 +2150,11 @@
   flex: none;
   padding: 1px 8px;
   border-radius: var(--dsw-radius-xs);
-  background: var(--dsw-alias-bg-multi-select);
-  color: var(--dsw-alias-label-secondary);
+  /* 口径标签高亮（旧 ydo-report-meta-k 同构）：品牌蓝淡底 + 蓝字加粗。 */
+  background: color-mix(in srgb, var(--dsw-static-blue-500) 14%, transparent);
+  color: var(--dsw-static-blue-500);
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .metaRow dd {
@@ -2372,14 +2490,58 @@
   min-width: 0;
 }
 
+/* 规则卡选中/悬浮（旧 ydo-bd-radio 同构）：选中 = 品牌色边框 + 10% 底；悬浮 =
+   品牌色淡化边框 + 5% 底（浅深主题均可辨）。 */
 .bdRadio[aria-checked='true'] {
-  border-color: var(--dsw-alias-border-selected);
-  background: var(--dsw-alias-bg-multi-select);
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1));
+}
+
+.bdRadio[aria-checked='true'] .bdRadioName {
+  font-weight: 650;
 }
 
 .bdRadio:focus-visible {
   outline: 2px solid var(--dsw-alias-border-selected);
   outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .bdRadio:not(:disabled, [aria-checked='true']):hover {
+    border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, var(--dsw-alias-border-l1));
+    background: color-mix(in srgb, var(--dsw-alias-brand-primary) 5%, var(--dsw-alias-bg-layer-1));
+  }
+}
+
+/* 规则胶囊（旧 ydo-bd-rule-pill 同构）：淡色底 + 同色文字，不同规则按位次取 5 色
+   （集中语义色 --yt-*，由页面根 ytChartStyle 下发）。 */
+.bdRulePill {
+  --tone: var(--yt-dist-3);
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone);
+}
+
+.bdRulePill[data-tone='2'] {
+  --tone: var(--yt-dist-2);
+}
+
+.bdRulePill[data-tone='3'] {
+  --tone: var(--yt-dist-1);
+}
+
+.bdRulePill[data-tone='4'] {
+  --tone: var(--yt-chart-positive);
+}
+
+.bdRulePill[data-tone='5'] {
+  --tone: var(--yt-chart-1);
 }
 
 .bdRadio:disabled {
@@ -2484,7 +2646,7 @@
 }
 
 .bdStep[data-state='active'] .bdStepBar {
-  background: var(--dsw-alias-label-link, var(--yt-chart-1));
+  background: var(--dsw-alias-brand-primary);
 }
 
 .bdStepName {
@@ -2496,8 +2658,13 @@
   white-space: nowrap;
 }
 
+/* 步骤文字随状态着色（旧插件同构）：已完成 = 成功绿；进行中 = 品牌色加粗。 */
+.bdStep[data-state='done'] .bdStepName {
+  color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 80%, var(--dsw-alias-label-primary));
+}
+
 .bdStep[data-state='active'] .bdStepName {
-  color: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-brand-primary);
   font-weight: 600;
 }
 
@@ -2623,6 +2790,16 @@
 
 /* ---- 爆款素材看板（D7）：筛选条 / 候选表 / 抽屉 / 横幅 ---- */
 
+/* 素材看板查询面板（旧插件同构）：带边框工具条（搜索 + 五个筛选下拉）+ 连体 KPI 条。 */
+.matPanel {
+  display: grid;
+  gap: 12px;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
 .matFilters {
   display: flex;
   align-items: center;
@@ -2633,6 +2810,78 @@
 .matFilters > :first-child {
   flex: 1 1 220px;
   min-width: 0;
+}
+
+/* 筛选触发器按旧插件 select 形态：36px 高、带边框、右侧下拉箭头。 */
+.matFilters .matFilterTrigger {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.matFilters .matFilterTrigger::after {
+  content: '▾';
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.matKpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.matKpi {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 12px 14px;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+}
+
+.matKpi:first-child {
+  border-left: 0;
+}
+
+.matKpiLabel {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.matKpiValue {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--dsw-alias-label-primary);
+}
+
+.matKpiFoot {
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 浅灰次操作（参照小红书车衣爆款看板过滤按钮）：官方 toolbar 变体 + 工具栏填充色混合。 */
+button.softAction {
+  background: color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill) 45%, transparent);
+}
+
+@media (hover: hover) {
+  button.softAction:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--dsw-alias-button-tool-bar-fill) 70%, transparent);
+  }
 }
 
 .matBoardTable td,
@@ -2836,6 +3085,53 @@ a.matVideoTitle:hover {
 }
 
 /* ---- 爆款基因库（D8）：页头 / facets / 卡片墙 / 详情 ---- */
+
+/* 基因库检索工具栏（旧插件同构）：带边框单行条——搜索框占满 + 品类/采纳态下拉 + 重置。 */
+.geneToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.geneToolbar > :first-child {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.geneToolbar .matFilterTrigger {
+  flex: none;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+.geneToolbar .matFilterTrigger::after {
+  content: '▾';
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 基因详情弹层（旧插件 1080 宽弹框同构）：宽弹层避免内容挤压；内容区自滚动，
+   关闭按钮固定在标题栏不被内容顶出视口。 */
+.geneDetailDialog {
+  width: min(1080px, 100%);
+  max-height: calc(100vh - 48px);
+}
+
+.geneDetailContent {
+  overflow-y: auto;
+  min-height: 0;
+}
 
 .geneHead {
   display: flex;

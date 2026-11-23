@@ -16,6 +16,8 @@ export function FilterMenu(props: {
   items: readonly { id: string; label: string }[]
   selectedId: string
   disabled?: boolean
+  /** 触发按钮附加类（页面按旧插件筛选条样式定制：高度 / 边框 / 下拉箭头）。 */
+  triggerClassName?: string | undefined
   onSelect: (id: string) => void
 }): ReactNode {
   const [open, setOpen] = useState(false)
@@ -29,6 +31,7 @@ export function FilterMenu(props: {
           variant='outline'
           size='sm'
           disabled={props.disabled}
+          className={props.triggerClassName}
           aria-haspopup='menu'
           aria-expanded={open}
           aria-label={props.label}

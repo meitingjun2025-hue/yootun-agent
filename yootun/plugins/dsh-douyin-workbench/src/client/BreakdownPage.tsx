@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
+import { DataCard, DataState, KpiCard, ytChartStyle } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
 import css from './workbench.module.css'
@@ -512,7 +512,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
 
   if (detailWorkflow !== null) {
     return (
-      <div className={css.pageBody}>
+      <div className={css.pageBody} style={ytChartStyle}>
         <BreakdownDetailView
           t={t}
           active={active}
@@ -547,7 +547,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
 
   const filtered = filterBreakdownHistory(history, statusFilter)
   return (
-    <div className={css.pageBody}>
+    <div className={css.pageBody} style={ytChartStyle}>
       <DataCard title={t('bd.newTitle')}>
         <div className={css.bdNewRow}>
           <Input
@@ -620,6 +620,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
         actions={(
           <FilterMenu
             label={t('bd.filterLabel')}
+            visibleLabel={t('bd.col.status')}
             currentLabel={t(`bd.filter.${statusFilter}` as 'bd.filter.all')}
             items={([
               { id: 'all', label: t('bd.filter.all') },
@@ -687,6 +688,23 @@ function emptyWorkflow(candidateId: string): WorkflowRow {
   }
 }
 
+/** 规则胶囊配色数（按规则在服务端清单中的位次循环取色；同规则恒同色）。 */
+const RULE_TONE_COUNT = 5
+
+function ruleToneOf(rules: readonly RewriteRuleRow[], ruleId: string): number {
+  const index = rules.findIndex(item => item.rewriteRuleId === ruleId)
+  return index < 0 ? 1 : (index % RULE_TONE_COUNT) + 1
+}
+
+/** 规则胶囊（旧 ydo-bd-rule-pill 同构：淡色底 + 同色文字；不同规则取不同色）。 */
+function RulePill(props: { rules: readonly RewriteRuleRow[]; ruleId: string; name: string }): ReactNode {
+  return (
+    <span className={css.bdRulePill} data-tone={String(ruleToneOf(props.rules, props.ruleId))}>
+      {props.name}
+    </span>
+  )
+}
+
 /** 历史行（视频列两行：标题 + @作者 · 播放 N；行键盘可达）。 */
 function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: RewriteRuleRow[]; t: Translate; onOpen: () => void }): ReactNode {
   const rule = props.rules.find(item => item.rewriteRuleId === props.row.rewriteRuleId) ?? null
@@ -711,7 +729,7 @@ function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: Rewri
         </span>
       </td>
       <td><BreakdownStatusBadge status={props.row.status} t={props.t} /></td>
-      <td>{rule !== null ? <Tag>{rule.name ?? rule.rewriteRuleId}</Tag> : <span className={css.inlineHint}>{props.t('bd.ruleDefault')}</span>}</td>
+      <td>{rule !== null ? <RulePill rules={props.rules} ruleId={rule.rewriteRuleId} name={rule.name ?? rule.rewriteRuleId} /> : <span className={css.inlineHint}>{props.t('bd.ruleDefault')}</span>}</td>
       <td>
         {breakdownStatusTone(props.row.status) === 'error'
           ? props.t('bd.status.failed')
@@ -971,7 +989,7 @@ function BreakdownDetailView(props: {
                   ? (
                     <div className={css.bdRuleUsed}>
                       <div>
-                        <Tag>{ruleResolved.name ?? ruleResolved.rewriteRuleId}</Tag>
+                        <RulePill rules={props.rules} ruleId={ruleResolved.rewriteRuleId} name={ruleResolved.name ?? ruleResolved.rewriteRuleId} />
                         {ruleResolved.description !== null && ruleResolved.description !== ruleResolved.name
                           ? <span className={css.inlineHint}>{ruleResolved.description}</span>
                           : null}

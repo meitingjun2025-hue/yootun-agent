@@ -197,6 +197,39 @@ describe('爆款拆解页（parity §1–§3）', () => {
     expect(radio.getAttribute('aria-checked')).toBe('false')
   })
 
+  it('状态筛选带「状态」文字；规则胶囊按规则分色；详情步骤全部完成态', async () => {
+    mockAll({
+      'breakdown.rewriteRules': {
+        status: 'ready',
+        rules: [
+          { rewriteRuleId: 'r1', name: '规则甲', description: null },
+          { rewriteRuleId: 'r2', name: '规则乙', description: null },
+        ],
+        total: 2,
+      },
+      'breakdown.history': {
+        status: 'ready',
+        history: [historyRow('wf-1', 'succeeded', '视频甲'), { ...historyRow('wf-2', 'succeeded', '视频乙'), rewriteRuleId: 'r2' }],
+        total: 2,
+      },
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
+    await screen.findByRole('table', { name: en['bd.historyLabel'] })
+    const statusLabels = [...document.querySelectorAll('[class*="filterGroupLabel"]')]
+    expect(statusLabels.map(label => label.textContent)).toEqual([en['bd.col.status']])
+    // 两条记录分属不同规则 → 胶囊取不同色（同规则恒同色）。
+    const pills = [...document.querySelectorAll('[class*="bdRulePill"]')]
+    expect(pills.map(pill => pill.textContent)).toEqual(['规则甲', '规则乙'])
+    expect(pills[0]?.getAttribute('data-tone')).not.toBe(pills[1]?.getAttribute('data-tone'))
+    // 进入详情：成功工作流 8 步全部 done（文字随完成态着色）。
+    fireEvent.keyDown(screen.getByRole('row', { name: /视频甲/u }), { key: 'Enter' })
+    await screen.findByRole('button', { name: en['bd.backToList'] })
+    const steps = [...document.querySelectorAll('li[data-state]')]
+    expect(steps).toHaveLength(8)
+    expect(steps.every(step => step.getAttribute('data-state') === 'done')).toBe(true)
+  })
+
   it('下载直链空链接：非空提示不发起请求', async () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
@@ -869,12 +902,14 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     await waitFor(() => expect(screen.queryByRole('dialog', { name: en['mat.reason.title'] })).toBeNull())
   })
 
-  it('按钮语义源级锁定：评分理由 primary / 去拆解 ghost；seed 启用 primary / 禁用 ghost', () => {
+  it('按钮语义源级锁定：评分理由 primary / 去拆解浅灰；seed 启用 primary / 禁用浅灰（关键词与对标账号同款）', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'client', 'MaterialPage.tsx'), 'utf8')
     expect(source).toContain("variant='primary' size='sm' onClick={props.onOpenReason}")
-    expect(source).toContain("variant='ghost' size='sm' onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}")
+    // 浅灰次操作 = 官方 toolbar 变体 + softAction（参照小红书车衣爆款看板过滤按钮）。
+    expect(source).toContain("variant='toolbar' size='sm' className={css.softAction} onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}")
     expect(source).toMatch(/<Button variant='primary' size='sm' onClick=\{\(\) => \{ props\.onToggle\(row\) \}\}>\{t\('mat\.seed\.enable'\)\}<\/Button>/u)
-    expect(source).toMatch(/<Button variant='ghost' size='sm' onClick=\{\(\) => \{ props\.onToggle\(row\) \}\}>\{t\('mat\.seed\.disable'\)\}<\/Button>/u)
+    expect(source).toMatch(/<Button variant='toolbar' size='sm' className=\{css\.softAction\} onClick=\{\(\) => \{ props\.onToggle\(row\) \}\}>\{t\('mat\.seed\.disable'\)\}<\/Button>/u)
+    expect(source).toMatch(/<Button variant='toolbar' size='sm' className=\{css\.softAction\} onClick=\{\(\) => \{ props\.onToggle\(account\) \}\}>\{t\('mat\.seed\.disable'\)\}<\/Button>/u)
   })
 
   it('inactive 竞态守卫：晚到的 runs 响应不恢复轮询；切回后重新 load/resume', async () => {

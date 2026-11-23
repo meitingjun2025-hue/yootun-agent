@@ -8,12 +8,12 @@
  * dirty 成功后新键补提交；失败保留输入同键重试/放弃修改（先还原后重拉）；
  * conflict/unknown 只读）→ 已发布折叠（会话内保留）+ 未发布发布日期升序
  * （无日期最后，同日期 rowId 十进制字符串序）+ 组内奇偶斑马纹 → 底部账号栏
- * Pill chip（切换互斥矩阵）→ 删除 RiskConfirmation（带行内容）→ beforeunload
+ * 账号 chip（单行横向滚动；切换互斥矩阵）→ 删除 RiskConfirmation（带行内容）→ beforeunload
  * 新增在途拦截。迟到响应按序号丢弃；18 码错误文案字典。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Checkbox, Input, Modal, Pill } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataState } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { avatarFallbackChar, domainErrorText, formatCount, safeHttpUrl, type Translate } from './format.ts'
@@ -576,9 +576,11 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
               ? props.accounts.map(account => {
                   const avatar = safeHttpUrl(account.avatar)
                   return (
-                    <Pill
+                    <button
                       key={account.accountId}
-                      active={account.accountId === scheduleAccountId}
+                      type='button'
+                      className={css.scheduleAccountChip}
+                      aria-pressed={account.accountId === scheduleAccountId}
                       disabled={!canSwitch && account.accountId !== scheduleAccountId}
                       onClick={() => { switchAccount(account.accountId) }}
                     >
@@ -591,7 +593,7 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
                           {account.fanCount !== null ? t('schedule.account.fans', { count: formatCount(account.fanCount) }) : t('schedule.account.valid')}
                         </span>
                       </span>
-                    </Pill>
+                    </button>
                   )
                 })
               : (

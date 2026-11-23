@@ -557,6 +557,15 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
     expect(first.className).not.toMatch(/scheduleRowStriped/u)
   })
 
+  it('底部账号条：chip 按钮选中态 aria-pressed（单行横向滚动容器）', async () => {
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    const chip = await screen.findByRole('button', { name: /账号一/u })
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(chip.className).toMatch(/scheduleAccountChip/u)
+    expect(chip.closest('[class*="scheduleAccountBar"]')).not.toBeNull()
+  })
+
   it('保存失败 → 行 error 底色 + 同键重试/放弃修改/刷新；no-op 失焦不发请求', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
@@ -706,6 +715,55 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     expect(screen.getByRole('button', { name: en['report.regenerateConfirm'] }).className).toMatch(/primary/u)
   })
 
+  it('日报区段：口径标签/小标题区段/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'report.list') return { status: 'ready', data: { items: [reportItem('r-1', 'succeeded', 2)], nextCursor: null } }
+      if (action === 'report.get') {
+        return {
+          status: 'ready',
+          data: {
+            report: {
+              reportId: 'r-1', reportType: 'daily', periodStart: '2026-11-20', periodEnd: '2026-11-21',
+              status: 'succeeded', outputSchemaVersion: 'daily-v1', errorCode: null, finishedAt: '2026-11-21T11:30:00Z',
+              resultJson: {
+                data: {
+                  generatedAt: '2026-11-21T11:30:00Z',
+                  coverage: null,
+                  coreMetrics: [{ key: 'plays', label: '播放增量', value: 12000, available: true, changePct: 8.5, prevValue: 11000, note: null }],
+                  trendSeries: { days: ['11-19', '11-20'], bars: [100, null], line: [5, null] },
+                  accounts: [{ accountId: 'acc-1', nickname: '账号一', ownerName: null, sessionStatus: 'ok', fanCount: 12000, eachAvailable: true, marks: ['3 天未发布'], metrics: { plays: 12000, netFans: 30, publishes: 1, likes: 10, comments: 1, shares: 1 } }],
+                  works: [], anomalies: [],
+                },
+                ai: { summary: '整体稳定', facts: [], inferences: [], recommendations: [], limitations: [] },
+              },
+            },
+          },
+        }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
+    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
+    await screen.findByRole('button', { name: en['report.back'] })
+    // 口径标签为 dl 的 dt（高亮标签）；三张区段卡（趋势/账号/作品）包区段容器（小标题竖杠加粗）。
+    expect(screen.getByText(en['report.header.base']).tagName).toBe('DT')
+    expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(3)
+    // 账号名加粗类 + 「N 天未发布」提示胶囊。
+    expect(screen.getByText('账号一').className).toMatch(/reportAccountName/u)
+    expect(screen.getByText('3 天未发布').className).toMatch(/reportMark/u)
+    // 较昨日对比行挂 kpiChange（12px 加粗）。
+    expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
+    // 趋势图：悬浮第一期整列 → 浮层显示该期柱值与线值。
+    expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
+    fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
+    expect(await screen.findByText(en['report.trend.barDaily'])).not.toBeNull()
+    expect(screen.getByText(en['report.trend.lineNote'])).not.toBeNull()
+    expect(screen.getByText('11-19', { selector: 'span' })).not.toBeNull()
+  })
+
   it('PDF 桥不可用：稳定报 export_unsupported，不假成功', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
@@ -734,11 +792,16 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
     expect(cssText).toMatch(/\.runBanner\[data-tone='failed'\]/u)
     expect(cssText).toMatch(/\.runBanner\[data-tone='partial'\]/u)
     expect(cssText).toMatch(/\.runBanner\[data-tone='completed'\]/u)
-    // 行状态底色：saving 品牌 8% / error 8%（状态色优先于斑马纹）。
-    expect(cssText).toMatch(/\.scheduleRowSaving\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-border-selected\) 8%/u)
-    expect(cssText).toMatch(/\.scheduleRowError\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-error-primary\) 8%/u)
-    expect(cssText).toMatch(/\.scheduleRowStriped/u)
-    expect(cssText).toMatch(/\.scheduleRowPublished/u)
+    // 行底色由 td 承载（旧插件同构）：saving 品牌 8% / error 8%（状态色优先于斑马纹）、
+    // 已发布组成功色 12%、未发布组斑马纹 5%；表头加粗。
+    expect(cssText).toMatch(/tr\.scheduleRowSaving td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-brand-primary\) 8%/u)
+    expect(cssText).toMatch(/tr\.scheduleRowError td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-error-primary\) 8%/u)
+    expect(cssText).toMatch(/tr\.scheduleRowPublished td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-success-primary\) 12%/u)
+    expect(cssText).toMatch(/tr\.scheduleRowStriped td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-label-primary\) 5%/u)
+    expect(cssText).toMatch(/\.scheduleTable th\s*\{[^}]*font-weight: 700/u)
+    // 底部账号栏：单行横向滚动（不换行），chip 不压缩。
+    expect(cssText).toMatch(/\.scheduleAccountBar\s*\{[^}]*overflow-x: auto/u)
+    expect(cssText).toMatch(/\.scheduleAccountChip\s*\{[^}]*flex: none/u)
   })
 
   it('disabled/focus/hover/pressed/selected 可感知样式规则存在', () => {

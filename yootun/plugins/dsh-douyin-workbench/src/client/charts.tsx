@@ -196,7 +196,8 @@ export function LineTrendChart(props: {
 /**
  * 报表趋势组合图：播放增量柱（`--yt-chart-2`，末位最新一期深色
  * `--yt-chart-1`）+ 净增粉丝线（`--yt-chart-4`）；缺采柱不补零（留空刻度）、
- * 线 null 断开；柱与线均可聚焦并带完整数值 aria。
+ * 线 null 断开；每期整列可悬浮/聚焦，弹出该期柱值与线值浮层（旧插件 chart-tip
+ * 同构）并带完整数值 aria。
  * @param props.days - 周期标签（日/周）。
  * @param props.bars - 柱值（null = 缺采）。
  * @param props.line - 线值（null = 缺采）。
@@ -213,6 +214,10 @@ export function ReportComboChart(props: {
   lineLabel: string
   localeTag: string
 }): ReactNode {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [focusIndex, setFocusIndex] = useState<number | null>(null)
+  const [anchor, setAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const width = 1106
   const height = 240
   const pad = { top: 16, right: 16, bottom: 28, left: 56 }
@@ -245,7 +250,19 @@ export function ReportComboChart(props: {
   })
   if (current !== '') lineSegments.push({ d: current })
 
+  const activeIndex = hoverIndex ?? focusIndex
+  const activeDay = activeIndex !== null ? props.days[activeIndex] : undefined
+  // 激活期变化时按 viewBox → 容器等比缩放重算浮层锚点（期中心）。
+  useLayoutEffect(() => {
+    const plotRect = container?.getBoundingClientRect()
+    if (plotRect !== undefined && activeIndex !== null) {
+      setAnchor({ x: ((pad.left + slot * activeIndex + slot / 2) / width) * plotRect.width, y: 8 })
+    }
+  }, [activeIndex, container, count])
+  const cellText = (value: number | null | undefined): string => value === null || value === undefined ? '—' : formatCount(value, props.localeTag)
+
   return (
+    <div ref={setContainer} className={css.plotLayer}>
     <svg className={css.comboSvg} viewBox={`0 0 ${width} ${height}`} role='img'>
       {gridRatios.map(ratio => {
         const y = pad.top + plotHeight - plotHeight * ratio
@@ -267,9 +284,7 @@ export function ReportComboChart(props: {
             x={x.toFixed(1)} y={(pad.top + plotHeight - barHeight).toFixed(1)}
             width={barWidth.toFixed(1)} height={barHeight.toFixed(1)} rx={3}
             className={index === lastBarIndex ? css.comboBarLast : css.comboBar}
-          >
-            <title>{`${props.barLabel}: ${formatCount(value, props.localeTag)}`}</title>
-          </rect>
+          />
         )
       })}
       {lineBound !== null && lineSegments.map((segment, index) => (
@@ -280,9 +295,7 @@ export function ReportComboChart(props: {
           key={`dot-${index}`}
           cx={(pad.left + slot * index + slot / 2).toFixed(1)} cy={yLine(value).toFixed(1)} r={3.5}
           className={css.comboDot}
-        >
-          <title>{`${props.lineLabel}: ${formatCount(value, props.localeTag)}`}</title>
-        </circle>
+        />
       ))}
       {props.days.map((day, index) => (
         <text
@@ -294,6 +307,37 @@ export function ReportComboChart(props: {
         </text>
       ))}
     </svg>
+    {activeIndex !== null && (
+      <span
+        className={css.plotCrosshair}
+        aria-hidden='true'
+        style={{ left: `${((pad.left + slot * activeIndex + slot / 2) / width) * 100}%`, height: `${((height - pad.bottom) / height) * 100}%` }}
+      />
+    )}
+    {props.days.map((day, index) => (
+      <button
+        key={day}
+        type='button'
+        className={css.comboColumn}
+        style={{ left: `${((pad.left + slot * index) / width) * 100}%`, width: `${(slot / width) * 100}%` }}
+        aria-label={`${day} ${props.barLabel} ${cellText(props.bars[index])} ${props.lineLabel} ${cellText(props.line[index])}`}
+        onFocus={() => { setFocusIndex(index) }}
+        onBlur={() => { setFocusIndex(null) }}
+        onMouseEnter={() => { setHoverIndex(index) }}
+        onMouseLeave={() => { setHoverIndex(null) }}
+      />
+    ))}
+    <ChartTooltip
+      visible={activeDay !== undefined}
+      point={anchor}
+      title={activeDay ?? ''}
+      rows={activeIndex === null ? [] : [
+        { label: props.barLabel, value: cellText(props.bars[activeIndex]), color: '--yt-chart-1' },
+        { label: props.lineLabel, value: cellText(props.line[activeIndex]), color: '--yt-chart-4' },
+      ]}
+      container={container}
+    />
+    </div>
   )
 }
 
