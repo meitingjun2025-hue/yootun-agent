@@ -145,6 +145,10 @@ export function createElectronBuilderConfig(
       name: brandProductName,
       dshDesktopAppId: appId,
       dshDesktopUpdateChannel: update?.channel ?? 'nightly',
+      // yootun enterprise tier (registered inline change): unsigned macOS packages carry the
+      // manual-replace update marker, so the packaged app swaps the Squirrel install for a
+      // Finder handoff. Signed macOS and Windows artifacts never carry the field.
+      ...(packagesMacOS && unsigned ? { dshDesktopUpdateInstall: 'manual' } : {}),
       ...(policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy }),
       ...buildVersion === productVersion ? {} : { version: buildVersion },
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },

@@ -14,6 +14,7 @@
 | [05-ui-ux.md](05-ui-ux.md) | yootun UI/UX 设计规范：官方 token/圆角/材质体系内的现代化重设计（批次 3/4 的视觉依据） |
 | [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md) | 视频号、小红书、抖音三工作台 2026-11-23 真机验收通过记录与发布候选基线 |
 | [17-upstream-rc5-merge.md](17-upstream-rc5-merge.md) | 上游 0.2.2-rc.5 同步：合并落点、McpClientHost 适配、验证结果与出包复验清单（2026-11-23） |
+| [18-macos-manual-update.md](18-macos-manual-update.md) | 未签名 macOS 包的手动替换更新：下载链不动只换安装交接、不先试系统安装的原因、签名后自动回归与移除清单（2026-11-23） |
 
 ## 一、目标与范围
 
