@@ -155,6 +155,22 @@ test('留存/搜索词：越界点剔除、percent 原样夹 0..100 降序', () 
   assert.equal(keywords?.[0]?.keyword, 'b')
 })
 
+test('留存原始契约（current_item/similar_author + 分组 valley_list）双形态解析（旧插件同口径）', () => {
+  // 抖音实测原始响应：曲线键为 current_item / similar_author，值为 0..1；
+  // valley_list 是按 1/2/3 分组的对象，start/end 为字符串秒。
+  const trend = parseRealtimeTrend({
+    analysis_trend: {
+      current_item: [{ key: '00:00', value: 1 }, { key: '00:10', value: 0.46 }],
+      similar_author: [{ key: '00:00', value: 0.8 }],
+    },
+    valley_list: { 1: [{ start: '2', end: '4' }], 2: [{ start: '12', end: '15' }] },
+  })
+  assert.deepEqual(trend?.current, [{ key: '00:00', value: 100 }, { key: '00:10', value: 46 }])
+  assert.deepEqual(trend?.similar, [{ key: '00:00', value: 80 }])
+  assert.deepEqual(trend?.valleys, [{ start: 2, end: 4 }, { start: 12, end: 15 }])
+  assert.equal(trend?.empty, false)
+})
+
 test('dedupeWorks：跨页去重保留首现顺序', () => {
   const make = (id: string): WorkItem => ({ workId: id, title: null, url: null, publishTime: null, playCount: null, likeCount: null, commentCount: null, collectCount: null, shareCount: null, danmakuCount: null, durationSeconds: null, cover: null, isPrivate: false })
   const kept = dedupeWorks([make('1'), make('2'), make('1'), make('3'), make('2')])

@@ -1009,6 +1009,23 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     await waitFor(() => expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').length).toBe(2))
     expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').every(([, args]) => (args as { offset?: number }).offset === 0 || (args as { offset?: number }).offset === undefined)).toBe(true)
   })
+
+  it('基因详情采纳状态：当前状态高亮，切换后新状态高亮（旧选中态反馈）', async () => {
+    mockAll({ 'gene.search': geneSearchPayload })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
+    fireEvent.click(await screen.findByRole('button', { name: en['gene.card.detail'] }))
+    await screen.findByRole('dialog', { name: en['gene.detail.title'] })
+    // geneRecord.adoptionStatus = ai_draft：默认高亮「AI 草稿」。
+    const draft = screen.getByRole('button', { name: en['gene.filter.adoption.ai_draft'] })
+    expect(draft.getAttribute('aria-pressed')).toBe('true')
+    expect(draft.className).toMatch(/adoptionChipActive/u)
+    // 切到「已采纳」：高亮随之转移，原选中项取消高亮。
+    fireEvent.click(screen.getByRole('button', { name: en['gene.filter.adoption.adopted'] }))
+    await waitFor(() => expect(screen.getByRole('button', { name: en['gene.filter.adoption.adopted'] }).getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByRole('button', { name: en['gene.filter.adoption.adopted'] }).className).toMatch(/adoptionChipActive/u)
+    expect(screen.getByRole('button', { name: en['gene.filter.adoption.ai_draft'] }).className).not.toMatch(/adoptionChipActive/u)
+  })
 })
 
 describe('gene.get 投影真实形状（D9B 真机第五缺陷回归）', () => {

@@ -60,7 +60,19 @@ export function LineTrendChart(props: {
   const [focusIndex, setFocusIndex] = useState<number | null>(null)
   const [anchor, setAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
   const rows = props.rows
-  const width = 680
+  // 实测宽度：固定 viewBox 被 width:100% 拉伸会让轴文字与点线整体放大（旧 trend-chart 同构）。
+  const [measuredWidth, setMeasuredWidth] = useState(680)
+  useEffect(() => {
+    if (container === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      const next = entry === undefined ? 0 : Math.round(entry.contentRect.width)
+      if (next >= 200) setMeasuredWidth(next)
+    })
+    observer.observe(container)
+    return () => { observer.disconnect() }
+  }, [container])
+  const width = Math.max(320, measuredWidth)
   const height = 190
   const padLeft = 46
   const padRight = 12
@@ -70,6 +82,10 @@ export function LineTrendChart(props: {
   const plotHeight = height - padTop - padBottom
   const stepX = rows.length > 1 ? plotWidth / (rows.length - 1) : 0
   const xAt = (index: number): number => padLeft + index * stepX
+  /** 横轴 5 等分刻度位（旧 axisLabels 同构；逐日标注在窄容器下会互相重叠）。 */
+  const axisTickIndexes = rows.length <= 1
+    ? [0]
+    : [0, 1, 2, 3, 4].map(quarter => Math.floor((quarter * (rows.length - 1)) / 4))
   const activeIndex = hoverIndex ?? focusIndex
   const activeRow = activeIndex !== null ? rows[activeIndex] : undefined
   const rowCount = rows.length
@@ -152,13 +168,14 @@ export function LineTrendChart(props: {
         {rows.map((row, index) => row.value === null ? null : (
           <circle key={row.day} cx={xAt(index).toFixed(1)} cy={yAt(row.value as number).toFixed(1)} r={3} className={css.plotDot} style={{ fill: 'var(--yt-chart-1)' }} />
         ))}
-        {rows.map((row, index) => (
+        {axisTickIndexes.map((index, tickIndex) => (
           <text
-            key={row.day}
+            key={rows[index]?.day ?? tickIndex}
             x={xAt(index).toFixed(1)} y={height - 8}
-            textAnchor='middle' className={css.axisText}
+            textAnchor={tickIndex === 0 ? 'start' : tickIndex === axisTickIndexes.length - 1 ? 'end' : 'middle'}
+            className={css.axisText}
           >
-            {row.day.slice(5)}
+            {rows[index]?.day.slice(5) ?? ''}
           </text>
         ))}
       </svg>
@@ -320,7 +337,7 @@ export function ReportComboChart(props: {
         type='button'
         className={css.comboColumn}
         style={{ left: `${((pad.left + slot * index) / width) * 100}%`, width: `${(slot / width) * 100}%` }}
-        aria-label={`${day} ${props.barLabel} ${cellText(props.bars[index])} ${props.lineLabel} ${cellText(props.line[index])}`}
+        aria-label={`${day} ${props.lineLabel} ${cellText(props.line[index])}`}
         onFocus={() => { setFocusIndex(index) }}
         onBlur={() => { setFocusIndex(null) }}
         onMouseEnter={() => { setHoverIndex(index) }}
@@ -331,8 +348,8 @@ export function ReportComboChart(props: {
       visible={activeDay !== undefined}
       point={anchor}
       title={activeDay ?? ''}
+      // 浮层只显示净增粉丝（旧插件 chart-tip 单行口径：净粉：xx）。
       rows={activeIndex === null ? [] : [
-        { label: props.barLabel, value: cellText(props.bars[activeIndex]), color: '--yt-chart-1' },
         { label: props.lineLabel, value: cellText(props.line[activeIndex]), color: '--yt-chart-4' },
       ]}
       container={container}

@@ -424,13 +424,20 @@ function snapshotTrendPointsOf(value: unknown): TrendPoint[] {
   for (const entry of arrayOf(value)) {
     const record = recordOf(entry)
     if (record === undefined) continue
+    // 快照行值取 play_count（旧 snapshotTrendPoints 同构）；value 为兼容字段。
+    const play = numberOf(record.play_count) ?? numberOf(record.value)
+    if (play === null) continue
     const capturedAt = textOf(record.captured_at)
-    const play = numberOf(record.play_count)
-    if (capturedAt === null || play === null) continue
-    const capturedMs = Date.parse(capturedAt)
+    const rowDay = textOf(record.day)
+    // 语义日优先取 day；缺 day 时由 captured_at 换算上海自然日；两者皆缺的行丢弃。
+    const day = rowDay ?? (capturedAt === null
+      ? null
+      : new Date(Date.parse(capturedAt) + 8 * 3_600_000).toISOString().slice(0, 10))
+    if (day === null) continue
+    // 同日多次采集按 captured_at 取最大（日收盘语义）；captured_at 缺失时以该日
+    // 00:00Z 为序，仍可保留该点（旧插件严格丢弃缺 captured_at 行）。
+    const capturedMs = capturedAt === null ? Date.parse(`${day}T00:00:00Z`) : Date.parse(capturedAt)
     if (!Number.isFinite(capturedMs)) continue
-    const day = textOf(record.day)
-      ?? new Date(capturedMs + 8 * 3_600_000).toISOString().slice(0, 10)
     const existing = byDay.get(day)
     if (existing === undefined || capturedMs >= existing.capturedMs) {
       byDay.set(day, { value: play, capturedMs })

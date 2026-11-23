@@ -544,16 +544,24 @@ function parseTrendCurve(raw: unknown): { key: string; value: number }[] {
   return rows
 }
 
+/** 低谷区间：`valley_list` 可能是数组，也可能是 `{"1"|"2"|"3": [{start, end}]}`
+ * 分组对象（实测原始契约）；start/end 为字符串秒，转非负整数、end<start 交换。 */
 function parseValleys(raw: unknown): { start: number; end: number }[] {
-  if (!Array.isArray(raw)) return []
   const groups: { start: number; end: number }[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const start = toNumber(record.start)
-    const end = toNumber(record.end)
-    if (start === null || end === null || start < 0 || end < 0) continue
-    groups.push(start <= end ? { start, end } : { start: end, end: start })
+  const lists = Array.isArray(raw)
+    ? [raw]
+    : (raw !== null && typeof raw === 'object' ? Object.values(raw as Record<string, unknown>) : [])
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue
+      const record = item as Record<string, unknown>
+      const start = toInt(record.start)
+      const end = toInt(record.end)
+      if (start === null || end === null || start < 0 || end < 0) continue
+      groups.push(start <= end ? { start, end } : { start: end, end: start })
+      if (groups.length >= VALLEY_MAX_GROUPS) break
+    }
     if (groups.length >= VALLEY_MAX_GROUPS) break
   }
   return groups
@@ -564,9 +572,12 @@ export function parseRealtimeTrend(json: unknown): RealtimeTrend | null {
   const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
   const trend = (payload.analysis_trend && typeof payload.analysis_trend === 'object' ? payload.analysis_trend : null) as Record<string, unknown> | null
   if (trend === null) return null
-  const current = parseTrendCurve(trend.current)
-  const similar = parseTrendCurve(trend.similar)
-  const valleys = parseValleys(trend.valley_list)
+  // 实测原始契约为 current_item / similar_author（旧插件同口径）；current / similar
+  // 为入库后的规范形态，两个集合都接受（跨端数据混存）。
+  const current = parseTrendCurve(firstPresent(trend.current_item, trend.current))
+  const similar = parseTrendCurve(firstPresent(trend.similar_author, trend.similar))
+  // valley_list 在实测响应中位于顶层，历史 fixture 放在 analysis_trend 内，两处都接受。
+  const valleys = parseValleys(firstPresent(payload.valley_list, trend.valley_list))
   return { current, similar, valleys, empty: current.length === 0 && similar.length === 0 }
 }
 

@@ -476,6 +476,7 @@
   line-height: 18px;
 }
 
+/* 全站表头统一加粗（真机反馈：各 Tab 表格标题需更醒目）。 */
 .workTable th,
 .dataTable th,
 .scheduleTable th {
@@ -483,8 +484,8 @@
   top: 0;
   z-index: 1;
   background: var(--dsw-alias-bg-layer-1);
-  color: var(--dsw-alias-label-tertiary);
-  font-weight: 400;
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 650;
 }
 
 .workTable td,
@@ -1235,7 +1236,7 @@
 }
 
 .rtGrid {
-  stroke: var(--dsw-alias-border-l1);
+  stroke: color-mix(in srgb, var(--dsw-alias-border-l1) 55%, transparent);
   stroke-width: 1;
 }
 
@@ -1472,7 +1473,8 @@
 }
 
 .plotGrid {
-  stroke: var(--yt-chart-grid);
+  /* 网格线再淡一档（真机反馈：横向网格线过重抢戏）；仍走 token 混合，浅深主题自适应。 */
+  stroke: color-mix(in srgb, var(--yt-chart-grid) 45%, transparent);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -2093,6 +2095,21 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+}
+
+/* 基因详情采纳状态 chip（选中态高亮，浅深主题自适应）。 */
+.adoptionChip {
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.adoptionChipActive {
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-primary);
+  font-weight: 650;
 }
 
 /* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠 + 加粗。
@@ -2807,9 +2824,10 @@
   flex-wrap: wrap;
 }
 
+/* 素材看板搜索框：占工具条约一半宽度（真机反馈：不铺满一行）。 */
 .matFilters > :first-child {
-  flex: 1 1 220px;
-  min-width: 0;
+  flex: 0 1 50%;
+  min-width: 200px;
 }
 
 /* 筛选触发器按旧插件 select 形态：36px 高、带边框、右侧下拉箭头。 */
@@ -3098,9 +3116,10 @@ a.matVideoTitle:hover {
   background: var(--dsw-alias-bg-layer-1);
 }
 
+/* 基因库搜索框：缩到约 1/4 宽度（真机反馈：不铺满一行）。 */
 .geneToolbar > :first-child {
-  flex: 1 1 240px;
-  min-width: 0;
+  flex: 0 1 25%;
+  min-width: 160px;
 }
 
 .geneToolbar .matFilterTrigger {

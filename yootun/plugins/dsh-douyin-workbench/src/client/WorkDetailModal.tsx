@@ -284,7 +284,7 @@ interface RtValley {
 const RT_MMSS = /^\d{1,2}:\d{2}$/u
 
 const RT_HEIGHT = 168
-const RT_PAD_X = 6
+const RT_PAD_X = 36
 const RT_PAD_TOP = 16
 /** 底部留白：X 轴刻度与低谷徽标都嵌在留白内，图卡总高与其他卡一致。 */
 const RT_PAD_BOTTOM = 30
@@ -313,9 +313,11 @@ function rtValleysOf(value: unknown): RtValley[] {
   for (const entry of arrayOf(value)) {
     if (typeof entry !== 'object' || entry === null) continue
     const row = entry as Record<string, unknown>
-    if (typeof row.start !== 'number' || typeof row.end !== 'number') continue
-    if (!Number.isFinite(row.start) || !Number.isFinite(row.end)) continue
-    rows.push({ start: row.start, end: row.end })
+    // 旧插件 valley_list 的 start/end 是字符串秒，历史库可能混存两种形态。
+    const start = typeof row.start === 'number' ? row.start : Number(row.start)
+    const end = typeof row.end === 'number' ? row.end : Number(row.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+    rows.push(start <= end ? { start, end } : { start: end, end: start })
   }
   return rows
 }
@@ -509,11 +511,13 @@ function RetentionTrendView(props: {
           const bandLeft = xOfSeconds(valley.start)
           const bandRight = xOfSeconds(valley.end)
           const centerX = Math.round((bandLeft + bandRight) / 2)
+          // 徽标夹紧在绘图区内（贴边低谷的徽标不被裁掉半截）。
+          const badgeX = Math.min(width - RT_PAD_X - 24, Math.max(RT_PAD_X + 24, centerX))
           return (
             <g key={`valley-${index}`}>
               <rect className={css.rtValleyBand} x={bandLeft} y={plotTop} width={Math.max(2, bandRight - bandLeft)} height={plotBottom - plotTop} />
-              <rect className={css.rtValleyBadge} x={centerX - 24} y={RT_BADGE_Y} width={48} height={16} rx={3} />
-              <text className={css.rtValleyBadgeText} x={centerX} y={RT_BADGE_TEXT_Y} textAnchor='middle'>{t('detail.rt.valleyBadge')}{index + 1}</text>
+              <rect className={css.rtValleyBadge} x={badgeX - 24} y={RT_BADGE_Y} width={48} height={16} rx={3} />
+              <text className={css.rtValleyBadgeText} x={badgeX} y={RT_BADGE_TEXT_Y} textAnchor='middle'>{t('detail.rt.valleyBadge')}{index + 1}</text>
             </g>
           )
         })}
@@ -532,7 +536,7 @@ function RetentionTrendView(props: {
           </text>
         ))}
         {gridValues.map((value, index) => (
-          <text key={`y-${index}`} className={css.rtAxisText} x={RT_PAD_X + 2} y={(gridYs[index] ?? 0) - 3}>{`${value}%`}</text>
+          <text key={`y-${index}`} className={css.rtAxisText} x={RT_PAD_X - 6} y={(gridYs[index] ?? 0) - 3} textAnchor='end'>{`${Math.round(value * 10) / 10}%`}</text>
         ))}
         {hoverPoint !== undefined && (
           <g>

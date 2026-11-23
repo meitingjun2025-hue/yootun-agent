@@ -869,8 +869,9 @@ function GeneEditPanel(props: {
             <Button
               key={value}
               type='button'
-              variant='ghost'
+              variant='toolbar'
               size='sm'
+              className={adoption === value ? `${css.adoptionChip} ${css.adoptionChipActive}` : css.adoptionChip}
               aria-pressed={adoption === value}
               disabled={!editable || props.busy || inProgress}
               onClick={() => { setAdoption(value) }}

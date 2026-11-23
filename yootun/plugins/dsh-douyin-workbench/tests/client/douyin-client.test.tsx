@@ -200,6 +200,10 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
       .filter(path => /^M[\d.]+,[\d.]+L[\d.]+,[\d.]+$/u.test(path.getAttribute('d') ?? '')).length
     await waitFor(() => expect(lineSegments()).toBe(2))
     expect(screen.queryByText(en['trend.empty'])).toBeNull()
+    // 30 天窗口横轴只标 5 个日期刻度（旧 axisLabels 同构；逐日标注会互相重叠）。
+    const dateLabels = [...document.querySelectorAll('svg text')]
+      .filter(node => /^\d{2}-\d{2}$/u.test(node.textContent ?? ''))
+    expect(dateLabels.length).toBe(5)
   })
 
   it('切任意 Tab 收起 AI 弹层（AnalysisPage 随总览面板卸载）', async () => {
@@ -756,11 +760,12 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     expect(screen.getByText('3 天未发布').className).toMatch(/reportMark/u)
     // 较昨日对比行挂 kpiChange（12px 加粗）。
     expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
-    // 趋势图：悬浮第一期整列 → 浮层显示该期柱值与线值。
-    expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
+    // 趋势图：悬浮第一期整列 → 浮层只显示净增粉丝一行（旧 chart-tip 单行口径）。
+    expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
     fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
-    expect(await screen.findByText(en['report.trend.barDaily'])).not.toBeNull()
-    expect(screen.getByText(en['report.trend.lineNote'])).not.toBeNull()
+    expect(await screen.findByText(en['report.trend.lineNote'])).not.toBeNull()
+    // 浮层不展示柱系列口径（避免与图下方说明重复占宽）。
+    expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
     expect(screen.getByText('11-19', { selector: 'span' })).not.toBeNull()
   })
 
