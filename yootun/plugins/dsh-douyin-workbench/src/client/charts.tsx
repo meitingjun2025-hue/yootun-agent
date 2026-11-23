@@ -229,13 +229,26 @@ export function ReportComboChart(props: {
   line: readonly (number | null)[]
   barLabel: string
   lineLabel: string
+  /** 悬浮浮层的短标签（旧插件 chart-tip 单行「净粉丝: ±xx」口径）。 */
+  tooltipLabel: string
   localeTag: string
 }): ReactNode {
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [focusIndex, setFocusIndex] = useState<number | null>(null)
-  const [anchor, setAnchor] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  const width = 1106
+  // 实测宽度（旧 trend-chart 同构）：固定 viewBox 被拉伸会让轴文字与点线整体放大。
+  const [measuredWidth, setMeasuredWidth] = useState(1106)
+  useEffect(() => {
+    if (container === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      const next = entry === undefined ? 0 : Math.round(entry.contentRect.width)
+      if (next >= 200) setMeasuredWidth(next)
+    })
+    observer.observe(container)
+    return () => { observer.disconnect() }
+  }, [container])
+  const width = Math.max(320, measuredWidth)
   const height = 240
   const pad = { top: 16, right: 16, bottom: 28, left: 56 }
   const plotWidth = width - pad.left - pad.right
@@ -268,14 +281,6 @@ export function ReportComboChart(props: {
   if (current !== '') lineSegments.push({ d: current })
 
   const activeIndex = hoverIndex ?? focusIndex
-  const activeDay = activeIndex !== null ? props.days[activeIndex] : undefined
-  // 激活期变化时按 viewBox → 容器等比缩放重算浮层锚点（期中心）。
-  useLayoutEffect(() => {
-    const plotRect = container?.getBoundingClientRect()
-    if (plotRect !== undefined && activeIndex !== null) {
-      setAnchor({ x: ((pad.left + slot * activeIndex + slot / 2) / width) * plotRect.width, y: 8 })
-    }
-  }, [activeIndex, container, count])
   const cellText = (value: number | null | undefined): string => value === null || value === undefined ? '—' : formatCount(value, props.localeTag)
 
   return (
@@ -344,18 +349,26 @@ export function ReportComboChart(props: {
         onMouseLeave={() => { setHoverIndex(null) }}
       />
     ))}
-    <ChartTooltip
-      visible={activeDay !== undefined}
-      point={anchor}
-      title={activeDay ?? ''}
-      // 浮层只显示净增粉丝（旧插件 chart-tip 单行口径：净粉：xx）。
-      rows={activeIndex === null ? [] : [
-        { label: props.lineLabel, value: cellText(props.line[activeIndex]), color: '--yt-chart-4' },
-      ]}
-      container={container}
-    />
+    {activeIndex !== null && props.line[activeIndex] !== null && props.line[activeIndex] !== undefined && (
+      // 旧插件 chart-tip 同构：深色单行气泡（无标题/色块），跟随悬停列。
+      <span
+        className={css.comboTip}
+        role='status'
+        style={{
+          left: `${((pad.left + slot * activeIndex + slot / 2) / width) * 100}%`,
+          top: `${(yLine(props.line[activeIndex] as number) / height) * 100}%`,
+        }}
+      >
+        {`${props.tooltipLabel}: ${formatSignedCount(props.line[activeIndex] as number, props.localeTag)}`}
+      </span>
+    )}
     </div>
   )
+}
+
+/** 带符号计数（净增粉丝类指标：正数带 +，负数保留 -）。 */
+function formatSignedCount(value: number, localeTag: string): string {
+  return value > 0 ? `+${formatCount(value, localeTag)}` : formatCount(value, localeTag)
 }
 
 /** 优雅刻度：max 取 1/2/5×10^k 向上取整；全 0 → 固定 1（退化）。 */

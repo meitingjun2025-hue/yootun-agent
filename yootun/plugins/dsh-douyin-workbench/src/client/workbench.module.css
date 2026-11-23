@@ -573,9 +573,11 @@
   min-width: 0;
 }
 
+/* 作品名称列收窄（旧插件同构）：超出以省略号截断，完整标题留在 title/aria。 */
 .workTitleCell {
   min-width: 0;
   flex: 0 1 auto;
+  max-width: 132px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -586,16 +588,6 @@
 /* 已投流 Tag 紧跟标题同行（旧插件同构），不独立换行撑高行。 */
 .workTag {
   flex: none;
-}
-
-.workTitleCell {
-  min-width: 0;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
 }
 
 .workLink,
@@ -1545,6 +1537,21 @@
 
 .comboDot {
   fill: var(--yt-chart-4);
+}
+
+/* 组合图悬浮气泡（旧插件 chart-tip 同构）：深色单行，跟随悬停列，不遮挡指针。 */
+.comboTip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 组合图每期命中列：整期列宽可悬浮/聚焦（弹数值浮层），透明无焦点框。 */
@@ -2824,10 +2831,10 @@
   flex-wrap: wrap;
 }
 
-/* 素材看板搜索框：占工具条约一半宽度（真机反馈：不铺满一行）。 */
+/* 素材看板搜索框：再缩一半（约占工具条 1/4 宽；真机反馈仍偏长）。 */
 .matFilters > :first-child {
-  flex: 0 1 50%;
-  min-width: 200px;
+  flex: 0 1 25%;
+  min-width: 160px;
 }
 
 /* 筛选触发器按旧插件 select 形态：36px 高、带边框、右侧下拉箭头。 */

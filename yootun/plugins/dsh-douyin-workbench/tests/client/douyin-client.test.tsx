@@ -438,6 +438,72 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     expect(screen.getByRole('img', { name: new RegExp(`^${en['detail.rt.bounceAria'].split(' ')[0]}`) })).not.toBeNull()
   })
 
+  it('观看趋势真实载荷（99 点曲线 + 3 段低谷）：坐标全部为有限数，无 NaN 元素', async () => {
+    // 真机载荷形态：current/similar 各 99 点（00:00–01:38），valleys 三段秒区间。
+    // rtSeconds 依赖 RT_MMSS 的捕获组取分钟与秒——正则缺捕获组会让所有按秒
+    // 定位的坐标（虚线、低谷带、徽标）变成 NaN（真机 2026-11-23 缺陷）。
+    const points = (decay: number): { key: string; value: number }[] =>
+      Array.from({ length: 99 }, (_unused, second) => ({
+        key: `${String(Math.floor(second / 60)).padStart(2, '0')}:${String(second % 60).padStart(2, '0')}`,
+        value: Math.round(100 * Math.exp(-second / decay) * 100) / 100,
+      }))
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
+      if (action === 'work.get') {
+        return {
+          status: 'ready',
+          data: {
+            work: {
+              ...workRow,
+              retention_trend: {
+                current: points(12),
+                similar: points(6),
+                valleys: [{ start: 16, end: 17 }, { start: 26, end: 27 }, { start: 43, end: 44 }],
+              },
+              retention_bounce: { current: points(12).map(point => ({ ...point, value: point.value / 10 })), similar: [], valleys: [] },
+            },
+          },
+        }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await screen.findByText(`${en['detail.rt.valleyBadge']}1`)
+    const chart = screen.getByRole('img', { name: new RegExp(`^${en['detail.rt.aria'].split(' ')[0]}`) })
+    // 实线 + 虚线两条曲线齐备。
+    const polylines = [...chart.querySelectorAll('polyline')]
+    expect(polylines).toHaveLength(2)
+    // 全部坐标属性必须是有限数（NaN 会让 React 报 "Expected length, \"NaN\"" 并整条曲线消失）。
+    for (const polyline of polylines) {
+      for (const pair of (polyline.getAttribute('points') ?? '').split(' ')) {
+        const [x, y] = pair.split(',')
+        expect(Number.isFinite(Number(x))).toBe(true)
+        expect(Number.isFinite(Number(y))).toBe(true)
+      }
+    }
+    for (const rect of chart.querySelectorAll('rect')) {
+      expect(Number.isFinite(Number(rect.getAttribute('x')))).toBe(true)
+      expect(Number.isFinite(Number(rect.getAttribute('width')))).toBe(true)
+    }
+    // 三条低谷带按秒区间定位（x 递增且在绘图区内）。
+    const bands = [...chart.querySelectorAll('rect')].filter(rect => rect.getAttribute('height') === '114')
+    expect(bands).toHaveLength(3)
+    const bandXs = bands.map(rect => Number(rect.getAttribute('x')))
+    expect(bandXs[0]).toBeLessThan(bandXs[1] ?? 0)
+    expect(bandXs[1]).toBeLessThan(bandXs[2] ?? 0)
+    expect(bandXs.every(x => x >= 0)).toBe(true)
+    // React 不应报告 NaN 属性。
+    expect(consoleError.mock.calls.some(call => String(call[0]).includes('NaN'))).toBe(false)
+    consoleError.mockRestore()
+  })
+
   it('投流 stale 恢复失败：原始冲突错误与用户输入保留，saving 复位且不自动重发', async () => {
     let workGetCalls = 0
     apiMock.hostAction.mockImplementation(async (action: string) => {
@@ -760,13 +826,13 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     expect(screen.getByText('3 天未发布').className).toMatch(/reportMark/u)
     // 较昨日对比行挂 kpiChange（12px 加粗）。
     expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
-    // 趋势图：悬浮第一期整列 → 浮层只显示净增粉丝一行（旧 chart-tip 单行口径）。
-    expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
+    // 趋势图：悬浮列 → 深色单行气泡只显示「净粉丝: 值」（旧 chart-tip 同构）。
+    expect(screen.queryByText(`${en['report.trend.lineTip']}: +5`)).toBeNull()
     fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
-    expect(await screen.findByText(en['report.trend.lineNote'])).not.toBeNull()
-    // 浮层不展示柱系列口径（避免与图下方说明重复占宽）。
+    expect(await screen.findByText(`${en['report.trend.lineTip']}: +5`)).not.toBeNull()
+    // 气泡不含柱系列说明与日期标题（避免与图下说明重复）。
     expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
-    expect(screen.getByText('11-19', { selector: 'span' })).not.toBeNull()
+    expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
   })
 
   it('PDF 桥不可用：稳定报 export_unsupported，不假成功', async () => {

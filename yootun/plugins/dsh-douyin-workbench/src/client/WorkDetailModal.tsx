@@ -281,10 +281,11 @@ interface RtValley {
 }
 
 /** "MM:SS" 时间 key（同类曲线按 key 定位时只认此格式，其余点位剔除不错位投影）。 */
-const RT_MMSS = /^\d{1,2}:\d{2}$/u
+/** 曲线时间 key 格式（带捕获组：rtSeconds 依赖 match[1]/match[2] 取分钟与秒）。 */
+const RT_MMSS = /^(\d{1,2}):(\d{2})$/u
 
 const RT_HEIGHT = 168
-const RT_PAD_X = 36
+const RT_PAD_X = 6
 const RT_PAD_TOP = 16
 /** 底部留白：X 轴刻度与低谷徽标都嵌在留白内，图卡总高与其他卡一致。 */
 const RT_PAD_BOTTOM = 30
@@ -322,7 +323,7 @@ function rtValleysOf(value: unknown): RtValley[] {
   return rows
 }
 
-/** 曲线块某字段（current / similar / valleys）；非对象块返回 undefined。 */
+/** 曲线块某字段；非对象块返回 undefined。 */
 function rtFieldOf(block: unknown, field: string): unknown {
   return typeof block === 'object' && block !== null ? (block as Record<string, unknown>)[field] : undefined
 }
@@ -511,13 +512,11 @@ function RetentionTrendView(props: {
           const bandLeft = xOfSeconds(valley.start)
           const bandRight = xOfSeconds(valley.end)
           const centerX = Math.round((bandLeft + bandRight) / 2)
-          // 徽标夹紧在绘图区内（贴边低谷的徽标不被裁掉半截）。
-          const badgeX = Math.min(width - RT_PAD_X - 24, Math.max(RT_PAD_X + 24, centerX))
           return (
             <g key={`valley-${index}`}>
               <rect className={css.rtValleyBand} x={bandLeft} y={plotTop} width={Math.max(2, bandRight - bandLeft)} height={plotBottom - plotTop} />
-              <rect className={css.rtValleyBadge} x={badgeX - 24} y={RT_BADGE_Y} width={48} height={16} rx={3} />
-              <text className={css.rtValleyBadgeText} x={badgeX} y={RT_BADGE_TEXT_Y} textAnchor='middle'>{t('detail.rt.valleyBadge')}{index + 1}</text>
+              <rect className={css.rtValleyBadge} x={centerX - 24} y={RT_BADGE_Y} width={48} height={16} rx={3} />
+              <text className={css.rtValleyBadgeText} x={centerX} y={RT_BADGE_TEXT_Y} textAnchor='middle'>{t('detail.rt.valleyBadge')}{index + 1}</text>
             </g>
           )
         })}
@@ -532,11 +531,11 @@ function RetentionTrendView(props: {
             y={RT_TICK_Y}
             textAnchor={tickIndex === 0 ? 'start' : tickIndex === tickIndexes.length - 1 ? 'end' : 'middle'}
           >
-            {series[index]?.key ?? ''}
+            {current[index]?.key ?? ''}
           </text>
         ))}
         {gridValues.map((value, index) => (
-          <text key={`y-${index}`} className={css.rtAxisText} x={RT_PAD_X - 6} y={(gridYs[index] ?? 0) - 3} textAnchor='end'>{`${Math.round(value * 10) / 10}%`}</text>
+          <text key={`y-${index}`} className={css.rtAxisText} x={RT_PAD_X + 2} y={(gridYs[index] ?? 0) - 3}>{`${Math.round(value * 10) / 10}%`}</text>
         ))}
         {hoverPoint !== undefined && (
           <g>

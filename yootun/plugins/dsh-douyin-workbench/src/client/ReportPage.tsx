@@ -460,6 +460,7 @@ function ReportDetailBody(props: { detail: ReportDetail; t: Translate; localeTag
           line={data.trendSeries.line}
           barLabel={weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')}
           lineLabel={t('report.trend.lineNote')}
+          tooltipLabel={t('report.trend.lineTip')}
           localeTag={props.localeTag}
         />
         <p className={css.inlineHint}>{`${t('report.trend.barNote')}：${weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')} · ${t('report.trend.lineNote')}：${weekly ? t('report.trend.lineWeekly') : t('report.trend.lineDaily')}`}</p>
