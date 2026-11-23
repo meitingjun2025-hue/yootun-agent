@@ -124,12 +124,17 @@ async function pathsFixture(): Promise<{ downloads: string; userData: string }> 
 function downloadOptions(cancelled: boolean): DownloadUpdateOptions {
   return {
     updateInfoAndProvider: {
-      info: { version: fixture.superDownload.version, files: [], releaseDate: '' } as DownloadUpdateOptions['updateInfoAndProvider']['info'],
+      info: updateInfoFixture(fixture.superDownload.version),
       provider: {} as DownloadUpdateOptions['updateInfoAndProvider']['provider'],
     },
     requestHeaders: {},
     cancellationToken: { cancelled } as DownloadUpdateOptions['cancellationToken'],
   }
+}
+
+/** Feed-info stand-in; the legacy required members are filled without being read. */
+function updateInfoFixture(version: string): DownloadUpdateOptions['updateInfoAndProvider']['info'] {
+  return Object.assign({ version, files: [] as Array<never>, releaseDate: '' }, { path: '', sha512: '' })
 }
 
 /** Drive the protected download override with the fixture's cancellation state. */
