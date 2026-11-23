@@ -17,6 +17,9 @@ export const YT_CHART_VARS = {
   '--yt-chart-6': 'var(--dsw-static-neutral-400)',
   '--yt-chart-positive': 'var(--dsw-static-green-500)',
   '--yt-chart-negative': 'var(--dsw-static-amber-600)',
+  '--yt-dist-1': 'var(--dsw-static-amber-500)',
+  '--yt-dist-2': 'var(--dsw-static-blue-400)',
+  '--yt-dist-3': 'var(--dsw-static-violet-400)',
   '--yt-chart-grid': 'var(--dsw-alias-border-l2)',
   '--yt-chart-mark-text': 'var(--dsw-alias-label-secondary)',
 } as const

@@ -661,8 +661,10 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
     expect(cssText).toMatch(/\.accountCard\[aria-current='true'\]/u)
     // pressed/expanded（AI 折叠卡展开箭头旋转）。
     expect(cssText).toMatch(/\.aiCardToggle\[aria-expanded='true'\] \.aiArrow/u)
-    // sticky 列（作品表前两列）。
-    expect(cssText).toMatch(/\.workTable th:nth-child\(2\)/u)
+    // sticky 仅首列（url 列 sticky 已取消——偏移硬编码错位曾致断带与表头消失）。
+    expect(cssText).toMatch(/\.cellSticky \{[^}]*position: sticky/u)
+    expect(cssText).toMatch(/\.workTable th,[^}]*position: sticky/u)
+    expect(cssText).not.toMatch(/\.workTable th:nth-child\(2\)/u)
     // 容器查询三档 + reduced-motion 守卫。
     expect(cssText).toContain('@container yootun-kit-page (max-width: 639px)')
     expect(cssText).toContain('@container yootun-kit-page (max-width: 879px)')

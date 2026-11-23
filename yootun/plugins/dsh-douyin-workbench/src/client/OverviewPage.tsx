@@ -189,6 +189,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
       >
         <FilterMenu
           label={t('overview.filter.account')}
+          visibleLabel={t('overview.filter.account')}
           disabled={filterDisabled}
           currentLabel={filters.accountIds.length > 0
             ? scopedCatalog.find(item => item.accountId === filters.accountIds[0])?.nickname ?? filters.accountIds[0] ?? t('overview.filter.allAccounts')
@@ -201,6 +202,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
         />
         <FilterMenu
           label={t('overview.filter.window')}
+          visibleLabel={t('overview.filter.window')}
           currentLabel={rangeLabel}
           items={[
             { id: '7d', label: t('overview.window.7d') },
@@ -235,6 +237,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
         )}
         <FilterMenu
           label={t('overview.filter.sort')}
+          visibleLabel={t('overview.filter.sort')}
           currentLabel={t(`overview.sort.${filters.sort}` as 'overview.sort.hot_count')}
           items={[
             { id: 'hot_count', label: t('overview.sort.hot_count') },
@@ -249,6 +252,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
         />
         <FilterMenu
           label={t('overview.filter.owner')}
+          visibleLabel={t('overview.filter.owner')}
           disabled={filterDisabled}
           currentLabel={filters.ownerName === '' ? t('overview.owner.all') : filters.ownerName}
           items={[{ id: '', label: t('overview.owner.all') }, ...ownerOptions.map(name => ({ id: name, label: name }))]}
@@ -401,6 +405,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
               </DataState>
             </DataCard>
 
+            <div className={css.ovTwoCol}>
             {data.distribution !== null && data.distribution.length > 0 && (() => {
               const rows = data.distribution.filter(row => row.hotWorkCount > 0).slice(0, 5)
               const max = Math.max(1, ...rows.map(row => row.hotWorkCount))
@@ -408,11 +413,11 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                 <ChartFrame title={t('overview.dist.title')} ariaLabel={t('overview.dist.title')} state='ready' height='fit'>
                   <ul className={css.barList} aria-label={t('overview.dist.title')}>
                     {rows.map((row, index) => (
-                      <li key={row.accountId} className={css.barRow}>
+                      <li key={row.accountId} className={`${css.barRow} ${index < 3 ? css[`barTop${index + 1}` as 'barTop1'] : ''}`}>
                         <span className={css.barRank} aria-hidden='true'>{index + 1}</span>
                         <span className={css.barLabel} title={row.nickname ?? row.accountId}>{row.nickname ?? row.accountId}</span>
                         <span className={css.barTrack}>
-                          <span className={css.barFill} style={{ width: `${(row.hotWorkCount / max) * 100}%`, background: index < 3 ? 'var(--yt-chart-1)' : 'var(--yt-chart-6)' }} />
+                          <span className={`${css.barFill} ${index < 3 ? css[`barFillTop${index + 1}` as 'barFillTop1'] : ''}`} style={{ width: `${(row.hotWorkCount / max) * 100}%` }} />
                         </span>
                         <span className={css.barCount}>{formatCount(row.hotWorkCount, props.localeTag)}</span>
                       </li>
@@ -436,6 +441,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                 )
                 : <p className={css.inlineHint}>{t('overview.alerts.none')}</p>}
             </DataCard>
+            </div>
           </>
         )}
       </DataState>
@@ -478,9 +484,11 @@ function BasisCell(props: { lines: string[]; fallback: string }): ReactNode {
   return <span className={css.basisCell}><span className={css.basisLine}>{props.fallback}</span></span>
 }
 
-/** 筛选下拉（官方 Menu 单选；当前项 check）。 */
+/** 筛选下拉（官方 Menu 单选；当前项 check；visibleLabel 为可见文字标签）。 */
 function FilterMenu(props: {
   label: string
+  /** 可见文字标签（对齐旧插件「账号: / 发布时间:」前置描述）。 */
+  visibleLabel?: string
   currentLabel: string
   items: readonly { id: string; label: string }[]
   selectedId: string
@@ -490,29 +498,32 @@ function FilterMenu(props: {
 }): ReactNode {
   const [open, setOpen] = useState(false)
   return (
-    <Menu
-      open={open}
-      anchor={(
-        <Button
-          variant='outline'
-          size='sm'
-          disabled={props.disabled}
-          aria-haspopup='menu'
-          aria-expanded={open}
-          aria-label={props.label}
-          onClick={() => { setOpen(value => !value) }}
-        >
-          {props.currentLabel}
-        </Button>
-      )}
-      items={props.items.map(item => ({ id: item.id, label: item.label }))}
-      selectedId={props.selectedId}
-      onSelect={id => {
-        setOpen(false)
-        props.onSelect(id)
-      }}
-      onClose={() => { setOpen(false) }}
-    />
+    <span className={css.filterGroup}>
+      {props.visibleLabel !== undefined && <span className={css.filterGroupLabel}>{props.visibleLabel}</span>}
+      <Menu
+        open={open}
+        anchor={(
+          <Button
+            variant='outline'
+            size='sm'
+            disabled={props.disabled}
+            aria-haspopup='menu'
+            aria-expanded={open}
+            aria-label={props.label}
+            onClick={() => { setOpen(value => !value) }}
+          >
+            {props.currentLabel}
+          </Button>
+        )}
+        items={props.items.map(item => ({ id: item.id, label: item.label }))}
+        selectedId={props.selectedId}
+        onSelect={id => {
+          setOpen(false)
+          props.onSelect(id)
+        }}
+        onClose={() => { setOpen(false) }}
+      />
+    </span>
   )
 }
 

@@ -66,10 +66,17 @@
   flex-direction: column;
   gap: 16px;
   min-width: 0;
+  /* 撑满面板剩余高度：左账号栏与右表格各自内滚（旧插件同构），列表高度
+     固定，不再随行数增长留出下方空白。 */
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .worksPanel {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .panelBody {
@@ -86,6 +93,10 @@
   flex-direction: column;
   gap: 10px;
   min-width: 0;
+  /* 左账号栏独立滚动：左滑右不动（旧插件同构）。 */
+  overflow-y: auto;
+  min-height: 0;
+  padding-right: 2px;
 }
 
 .sidebarHead {
@@ -424,6 +435,19 @@
   border-radius: var(--dsw-radius-md);
 }
 
+/* 作品页 body 弹性列（工具栏 auto / 表格 wrap 1fr）。 */
+.worksPanelBody {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* 作品页表格 wrap 在固定高度面板内弹性填充（worksPanel flex 列）。 */
+.worksPanel .tableWrap {
+  flex: 1 1 0;
+  max-height: none;
+  min-height: 0;
+}
+
 .tableWrap:focus-visible {
   outline: 2px solid var(--dsw-alias-border-selected);
   outline-offset: 1px;
@@ -478,13 +502,6 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-.workTable th:nth-child(2),
-.workTable td:nth-child(2) {
-  position: sticky;
-  left: 220px;
-  z-index: 1;
-  background: var(--dsw-alias-bg-layer-1);
-}
 
 .workTable tbody tr {
   cursor: pointer;
@@ -507,6 +524,8 @@
 
 .rowPromoted {
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
+  /* 旧插件同款左红竖条：已投流行整行连续标识 */
+  box-shadow: inset 3px 0 0 0 var(--dsw-alias-state-error-primary);
 }
 
 .sortButton {
@@ -593,8 +612,8 @@
 
 .cover {
   position: relative;
-  width: 54px;
-  height: 72px;
+  width: 60px;
+  height: 80px;
   display: grid;
   place-items: center;
   border-radius: var(--dsw-radius-sm);
@@ -1053,13 +1072,54 @@
 
 .barRow {
   display: grid;
-  grid-template-columns: minmax(84px, 26%) minmax(0, 1fr) auto;
+  /* 四列：排名 / 名称 / 轨道 / 数量（旧插件同构；3 列会把轨道挤没、数量换行） */
+  grid-template-columns: 16px minmax(96px, 160px) minmax(0, 1fr) 44px;
   align-items: center;
   gap: 8px;
   min-height: 28px;
   padding: 2px 8px;
   border-radius: var(--dsw-radius-md);
   min-width: 0;
+}
+
+/* 爆款分布前三名固定语义色（旧插件同口径 1 橙 / 2 蓝 / 3 紫，取值映射官方
+   static 色板；名次数字同色加粗，色彩不承载唯一信息——数字与数量并列表达）。 */
+.barFillTop1 { background: var(--yt-dist-1); }
+.barFillTop2 { background: var(--yt-dist-2); }
+.barFillTop3 { background: var(--yt-dist-3); }
+.barTop1 .barRank, .barTop2 .barRank, .barTop3 .barRank { font-weight: 650; }
+.barTop1 .barRank { color: var(--yt-dist-1); }
+.barTop2 .barRank { color: var(--yt-dist-2); }
+.barTop3 .barRank { color: var(--yt-dist-3); }
+
+/* 总览分布 + 运营提醒两栏（旧插件布局；窄屏单列堆叠）。 */
+.ovTwoCol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@container yootun-kit-page (max-width: 1119px) {
+  .ovTwoCol {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 筛选组：可见文字标签 + 控件水平排（旧插件「账号: [▾]」形态）。 */
+.filterGroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filterGroupLabel {
+  flex: none;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  white-space: nowrap;
 }
 
 
@@ -1982,7 +2042,7 @@
     display: grid;
     grid-template-columns: 280px minmax(0, 1fr);
     gap: 16px;
-    align-items: start;
+    min-height: 0;
   }
 }
 

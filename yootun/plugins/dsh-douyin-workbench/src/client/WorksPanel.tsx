@@ -106,7 +106,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const visibleWorks = sortWorkRows(props.works, sort, (row, key) => row[key])
 
   return (
-    <div className={css.panelBody}>
+    <div className={`${css.panelBody} ${css.worksPanelBody}`}>
       <div className={css.workToolbar}>
         <div className={css.workToolbarRow}>
           <Button
@@ -312,7 +312,7 @@ function buildColumns(): WorkColumn[] {
     {
       labelKey: 'col.url',
       key: null,
-      sticky: true,
+      sticky: false,
       cell: row => {
         const href = safeWorkUrl(row.url)
         return href !== null

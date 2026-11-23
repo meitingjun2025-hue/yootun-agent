@@ -5,10 +5,13 @@
  */
 import { useState, type ReactNode } from 'react'
 import { Button, Menu } from '@deepseek-ai/dsh-client-ui-primitives'
+import css from './workbench.module.css'
 
 /** 单选筛选下拉（锚点 Button outline sm；选项带 check）。 */
 export function FilterMenu(props: {
   label: string
+  /** 可见文字标签（对齐旧插件「账号: / 发布时间:」前置描述；缺省不渲染）。 */
+  visibleLabel?: string
   currentLabel: string
   items: readonly { id: string; label: string }[]
   selectedId: string
@@ -17,9 +20,11 @@ export function FilterMenu(props: {
 }): ReactNode {
   const [open, setOpen] = useState(false)
   return (
-    <Menu
-      open={open}
-      anchor={(
+    <span className={css.filterGroup}>
+      {props.visibleLabel !== undefined && <span className={css.filterGroupLabel}>{props.visibleLabel}</span>}
+      <Menu
+        open={open}
+        anchor={(
         <Button
           variant='outline'
           size='sm'
@@ -38,7 +43,8 @@ export function FilterMenu(props: {
         setOpen(false)
         props.onSelect(id)
       }}
-      onClose={() => { setOpen(false) }}
-    />
+        onClose={() => { setOpen(false) }}
+      />
+    </span>
   )
 }

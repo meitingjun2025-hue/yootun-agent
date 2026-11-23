@@ -328,7 +328,7 @@ export const zh = {
   'metric.share': '分享量',
   'metric.fans': '粉丝量',
   'metric.net_fans': '净增粉丝',
-  'analysis.trend.caption': '近 30 天日度趋势；缺口日断线显示，不补零',
+  'analysis.trend.caption': '固定显示最近 7 天数据；缺口日断线显示，不补零',
   'analysis.trend.errorTitle': '趋势加载失败',
   'analysis.metrics.title': '内容指标',
   'cm.engagement': '综合互动率',

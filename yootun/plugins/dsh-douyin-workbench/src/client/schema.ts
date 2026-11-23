@@ -672,10 +672,12 @@ export function readAnalysis(payload: Record<string, unknown>): AnalysisData {
     },
     content,
     audience: {
-      gender: distRows(dimensions?.gender),
-      age: distRows(dimensions?.age),
-      province: distRows(dimensions?.province),
-      city_level: distRows(dimensions?.city_level),
+      // weighted dimension 形状是 {distributions: [{key, pct}...]}：读其中的
+      // distributions 数组（2026-11-22 真机「数据不足」根因——误读维度 dict 本身）。
+      gender: distRows(recordOf(dimensions?.gender)?.distributions),
+      age: distRows(recordOf(dimensions?.age)?.distributions),
+      province: distRows(recordOf(dimensions?.province)?.distributions),
+      city_level: distRows(recordOf(dimensions?.city_level)?.distributions),
     },
     traffic: arrayOf(traffic?.distributions).map(entry => {
       const record = recordOf(entry)
