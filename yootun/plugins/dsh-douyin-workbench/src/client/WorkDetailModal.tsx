@@ -14,7 +14,7 @@ import { DataState, ytChartStyle } from '@yootun/dsh-client-ui-kit'
 import {
   EMPTY, formatCount, formatDateTime, formatDuration, formatPercent, formatSeconds,
   gapFieldLabel, gapReasonText, genderLabel, formatAgeBucket, retentionStatus,
-  retentionStatusKey, type Translate,
+  retentionStatusKey, trafficSourceLabel, type Translate,
 } from './format.ts'
 import css from './workbench.module.css'
 import { DistributionBars, GenderRing, LineTrendChart, type LineRow } from './charts.tsx'
@@ -172,8 +172,8 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
                   ? (
                     <ul className={css.barList}>
                       {detail.trafficRows.map(sourceRow => (
-                        <li key={sourceRow.name} className={css.barRow}>
-                          <span className={css.barLabel} title={sourceRow.name}>{sourceRow.name}</span>
+                        <li key={sourceRow.sourceKey} className={css.barRow}>
+                          <span className={css.barLabel} title={trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)}>{trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)}</span>
                           <span className={css.barTrack}>
                             {sourceRow.value !== null && (
                               <span className={css.barFill} style={{ width: `${Math.min(100, (sourceRow.value / Math.max(1, ...detail.trafficRows.map(item => item.value ?? 0))) * 100)}%`, background: 'var(--yt-chart-2)' }} />

@@ -287,8 +287,8 @@ export interface PromotionView {
 /** work.get 详情投影。 */
 export interface WorkDetailView {
   work: WorkRow | null
-  /** 流量来源分布（name/value 行；「全部」行由服务端剔除）。 */
-  trafficRows: { name: string; value: number | null }[]
+  /** 流量来源分布（原始 key/label + share_pct；share_pct 降序前 5）。 */
+  trafficRows: { sourceKey: string; label: string | null; value: number | null }[]
   /** 观看趋势 current 曲线（retention_trend.current）。 */
   retentionCurrent: unknown
   /** 跳出曲线（retention_bounce，结构与留存同族）。 */
@@ -318,16 +318,18 @@ export function readWorkDetail(payload: Record<string, unknown>): WorkDetailView
   // traffic_source 顶层即条目数组（[{source_key, source_label, play_count, source_type}…]），
   // 不是 {rows: […]} 包装——误读包装曾致流量来源恒空（2026-11-23 真机）。
   const trafficSource = arrayOf(workRecord?.traffic_source)
-  const trafficRows: { name: string; value: number | null }[] = []
+  const trafficRows: { sourceKey: string; label: string | null; value: number | null }[] = []
   for (const entry of trafficSource) {
     const row = recordOf(entry)
     if (row === undefined) continue
     if ((row.source_type ?? row.sourceType) === 999) continue
-    const name = textOf(row.source_label) ?? textOf(row.source_key)
-    if (name === null) continue
+    const sourceKey = textOf(row.source_key)
+    if (sourceKey === null) continue
     // 旧 convertSource 同口径：占比字段是 share_pct（0..100 百分比）
-    trafficRows.push({ name, value: numberOf(row.share_pct) })
+    trafficRows.push({ sourceKey, label: textOf(row.source_label), value: numberOf(row.share_pct) })
   }
+  trafficRows.sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
+  trafficRows.splice(5)
   return {
     work: workRecord === undefined ? null : workRowOf(workRecord),
     trafficRows,
