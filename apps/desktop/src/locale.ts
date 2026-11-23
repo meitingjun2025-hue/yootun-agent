@@ -171,7 +171,7 @@ export const en = {
   // The three manual keys belong to the yootun manual-replace macOS update flow (registered inline change).
   updateDetailManual: 'Once the download is complete, you install it by dragging the new version into the Applications folder.',
   updateDownloadedDetailManual: 'The folder with the new version opens in Finder and the app closes. Drag the new version onto the existing copy (usually in the Applications folder) to replace it, then open the app again.',
-  updateOpenAndReplace: 'Open and Replace Manually',
+  updateOpenAndReplace: 'Open and replace manually',
   later: 'Later',
   updateFailedTitle: 'Update Failed',
   mandatoryTitle: 'Update to continue',

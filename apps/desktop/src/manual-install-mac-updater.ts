@@ -78,6 +78,9 @@ const EXTRACTION_FALLBACK_DIRECTORY_NAME = 'updates'
 /** Finder folder opened when the installed app's own folder cannot be derived. */
 const MACOS_APPLICATIONS_FOLDER = '/Applications'
 
+/** Bound on waiting for the folder handoff before quitting; expiry and failure still quit. */
+const FOLDER_OPEN_LIMIT_MS = 3_000
+
 /** Extraction subprocess bounds: total runtime and captured output. */
 const COMMAND_TIMEOUT_MS = 5 * 60_000
 const COMMAND_OUTPUT_LIMIT_BYTES = 4 * 1024 * 1024
@@ -259,6 +262,11 @@ async function openInstalledApplicationFolder(): Promise<void> {
   if (openFailure !== '') console.warn(`desktop update: could not open the installed application folder ${folder}: ${openFailure}`)
 }
 
+/** Resolve when the folder handoff wait reaches its bound. */
+function quitDelay(): Promise<void> {
+  return new Promise((resolve) => { setTimeout(resolve, FOLDER_OPEN_LIMIT_MS) })
+}
+
 /**
  * Updater for unsigned macOS packages: the stock download stays untouched, and installation
  * becomes a Finder handoff because Squirrel.Mac cannot validate an unsigned bundle.
@@ -289,14 +297,15 @@ export class ManualInstallMacUpdater extends MacUpdater {
     if (downloaded === undefined) throw new Error('desktop update: the macOS updater finished without reporting the downloaded package')
     const { downloadedFile, version } = downloaded
     this.extractedAppPath = await this.extract(downloadedFile, version, () => downloadUpdateOptions.cancellationToken.cancelled)
+    this.closeSquirrelProxyIfExists()
     return downloadedPaths
   }
 
   /**
-   * Reveal the extracted app in Finder, open the installed app's folder, and quit so the user
-   * can drag the replacement into place. Never calls the native updater, whose signature
-   * validation an unsigned bundle cannot pass. Failures report through the updater's error
-   * event and leave the application running.
+   * Reveal the extracted app in Finder, open the installed app's folder, and quit once that
+   * handoff has settled so the user can drag the replacement into place. Never calls the
+   * native updater, whose signature validation an unsigned bundle cannot pass. Failures
+   * report through the updater's error event and leave the application running.
    */
   override quitAndInstall(): void {
     if (this.quitRequested) return
@@ -313,7 +322,15 @@ export class ManualInstallMacUpdater extends MacUpdater {
       return
     }
     this.quitRequested = true
-    void openInstalledApplicationFolder()
-    app.quit()
+    void Promise.race([openInstalledApplicationFolder(), quitDelay()])
+      .then(() => { app.quit() }, () => { app.quit() })
+  }
+
+  /** Close the base class's Squirrel proxy server; manual replacement never hands the zip to Squirrel. */
+  private closeSquirrelProxyIfExists(): void {
+    // electron-updater omits this runtime prototype method from its usable public surface by
+    // declaring it private; the prototype face keeps the call typed for bases without it.
+    const closer = (this.constructor.prototype as { closeServerIfExists?: (() => void) | undefined }).closeServerIfExists
+    closer?.call(this)
   }
 }

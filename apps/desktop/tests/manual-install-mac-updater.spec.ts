@@ -38,6 +38,9 @@ const fixture = await vi.hoisted(async () => {
     result: ['/library-cache/verified.zip'] as Array<string>,
   }
   const superQuitAndInstall = vi.fn()
+  // The real base creates its Squirrel proxy server during download and closes it through
+  // this runtime prototype method; manual replacement closes it after extraction.
+  const superCloseServer = vi.fn()
   class FakeMacUpdater extends EventEmitter {
     async doDownloadUpdate(_downloadUpdateOptions: unknown): Promise<Array<string>> {
       if (superDownload.failure !== undefined) throw superDownload.failure
@@ -46,6 +49,7 @@ const fixture = await vi.hoisted(async () => {
       }
       return superDownload.result
     }
+    closeServerIfExists(): void { superCloseServer() }
     quitAndInstall(): void { superQuitAndInstall() }
   }
   const childProcess = {
@@ -78,7 +82,8 @@ const fixture = await vi.hoisted(async () => {
     }
     callback(new Error(`unexpected command ${file}`), '')
   })
-  return { app, shell, nativeUpdater, FakeMacUpdater, superDownload, superQuitAndInstall, childProcess, execFile, paths, existsSync }
+  return { app, shell, nativeUpdater, FakeMacUpdater, superDownload, superQuitAndInstall, superCloseServer,
+    childProcess, execFile, paths, existsSync }
 })
 
 vi.mock('electron', () => ({ app: fixture.app, shell: fixture.shell, autoUpdater: fixture.nativeUpdater }))
@@ -90,6 +95,7 @@ const roots: Array<string> = []
 afterEach(async () => {
   // clearAllMocks keeps the fixture implementations and only drops recorded calls; the shell
   // fns get explicit resets so a per-test implementation cannot leak into the next test.
+  vi.useRealTimers()
   vi.clearAllMocks()
   fixture.shell.showItemInFolder.mockReset()
   fixture.shell.openPath.mockReset().mockImplementation(async () => '')
@@ -135,6 +141,11 @@ function downloadOptions(cancelled: boolean): DownloadUpdateOptions {
 /** Feed-info stand-in; the legacy required members are filled without being read. */
 function updateInfoFixture(version: string): DownloadUpdateOptions['updateInfoAndProvider']['info'] {
   return Object.assign({ version, files: [] as Array<never>, releaseDate: '' }, { path: '', sha512: '' })
+}
+
+/** Flush the pending microtasks so a settled folder handoff reaches its quit call. */
+function settle(): Promise<void> {
+  return new Promise((resolve) => { setImmediate(resolve) })
 }
 
 /** Drive the protected download override with the fixture's cancellation state. */
@@ -217,6 +228,15 @@ describe('manual download preparation', () => {
     expect(fixture.nativeUpdater.quitAndInstall).not.toHaveBeenCalled()
     expect(fixture.superQuitAndInstall).not.toHaveBeenCalled()
   })
+
+  it('closes the base Squirrel proxy once extraction succeeds and not before', async () => {
+    fixture.superDownload.silent = true
+    await expect(new TestDownload(async () => '/Downloads/Yootun-Agent.app').run()).rejects.toThrow(/reporting the downloaded package/u)
+    expect(fixture.superCloseServer).not.toHaveBeenCalled()
+    fixture.superDownload.silent = false
+    await new TestDownload(async () => '/Downloads/Yootun-Agent.app').run()
+    expect(fixture.superCloseServer).toHaveBeenCalledOnce()
+  })
 })
 
 describe('manual quit and install handoff', () => {
@@ -232,6 +252,7 @@ describe('manual quit and install handoff', () => {
     updater.quitAndInstall()
     updater.quitAndInstall()
     expect(fixture.shell.showItemInFolder).toHaveBeenCalledExactlyOnceWith('/Downloads/Yootun-Agent-1.2.3/Yootun-Agent.app')
+    await settle()
     expect(fixture.app.quit).toHaveBeenCalledOnce()
     expect(fixture.shell.openPath).toHaveBeenCalledExactlyOnceWith(join(downloads, 'Applications'))
     // The manual handoff never drives the native updater or its base-class install path.
@@ -286,8 +307,33 @@ describe('manual quit and install handoff', () => {
     fixture.paths.delete('exe')
     const updater = await preparedUpdater()
     updater.quitAndInstall()
+    await settle()
     expect(fixture.shell.openPath).toHaveBeenCalledWith('/Applications')
     expect(fixture.app.quit).toHaveBeenCalledOnce()
+  })
+
+  it('quits only after the folder handoff resolves', async () => {
+    await pathsFixture()
+    let resolveOpen: (failure: string) => void = () => {}
+    fixture.shell.openPath.mockImplementation(() => new Promise((resolve) => { resolveOpen = resolve }))
+    const updater = await preparedUpdater()
+    updater.quitAndInstall()
+    expect(fixture.app.quit).not.toHaveBeenCalled()
+    resolveOpen('')
+    await settle()
+    expect(fixture.app.quit).toHaveBeenCalledOnce()
+  })
+
+  it('quits at the folder handoff limit when opening never settles', async () => {
+    vi.useFakeTimers()
+    await pathsFixture()
+    fixture.shell.openPath.mockImplementation(() => new Promise<string>(() => {}))
+    const updater = await preparedUpdater()
+    updater.quitAndInstall()
+    expect(fixture.app.quit).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(3_000)
+    expect(fixture.app.quit).toHaveBeenCalledOnce()
+    expect(fixture.shell.showItemInFolder).toHaveBeenCalledOnce()
   })
 })
 
