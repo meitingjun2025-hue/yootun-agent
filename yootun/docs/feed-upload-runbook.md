@@ -68,6 +68,18 @@ curl -fSI "$base/win-x64/Yootun-Agent-<版本>-win-x64.exe" | head -4   # 200 + 
 4. **篡改防护说明**：清单内 `files[].sha512` 由 builder 生成，electron-updater 下载后逐字节校验——篡改安装包任意一位（或上传时截断）都会导致 hash 不匹配而**拒绝安装**（更新失败并保留已装版本），这是 feed 被篡改时的最后防线；上传后不要手工编辑清单（改一处 sha512 即全链失效）；
 5. 验证完成后恢复基线：把 rc.2 的 `stable.yml` + 安装包重新上传覆盖（回第 4 步 curl 复核），使 stable 通道回到正式版本。
 
+### 5A. macOS 手动替换更新链验证（2026-11-23 起未签名包走手动交接）
+
+前置：mac 真机已装上一个未签名基线包（与 Windows 侧同理，包内 `app-update.yml` 指向 `…/feeds/mac-arm64/`、channel `stable`）；feed 上有版本号更高的 mac zip + `stable-mac.yml`（抬号机制同 1.2）。未签名 App 首启需右键打开或 `xattr -cr <app>`（Gatekeeper 既有限制，与首装一致）。
+
+1. 旧版本应用内「检查更新」→ 应检测到 feed 上的更高版本（比对 `stable-mac.yml`）；
+2. 点下载 → 进度正常走完（zip 下载 + SHA512 校验不变），完成后提示进入安装确认；
+3. 确认按钮为「打开并手动替换」（八语言文案已配），确认后：访达中显示解压出的新 `Yootun-Agent.app`（位于「下载」文件夹下的 `Yootun-Agent-<版本>` 目录），同时打开当前应用所在文件夹（通常「应用程序」），应用自动退出；
+4. 把新 App 拖到旧 App 原位置（通常是「应用程序」文件夹）替换（ Finder 提示替换时确认）；
+5. 重新打开应用（首次右键打开绕过 Gatekeeper）→ 关于页版本号显示新版本（版本号前进 ✓）；
+6. 再检查更新 → 提示已是最新版本（清单版本一致 ✓）；
+7. 结果回填第七节记录表；异常（解压失败、无 .app、版本不一致）在应用内表现为「下载失败」且应用不退出，把日志发给工程师跟进。
+
 ## 六、macOS 包归档（不进真机验证）
 
 `yootun-desktop-macos-unsigned` artifact（dmg/zip/清单）下载归档即可。已知限制（决策点 6）：unsigned 包 Gatekeeper 拦截，安装右键打开或 `xattr -cr <app>`；更新链 mac 侧真机验证挂起（维护者无 mac 设备），清单已按同结构就位（`stable-mac.yml`），有 mac 条件时按第五节同流程补验。

@@ -70,6 +70,7 @@ dofe-public/yootun-agent/releases/feeds/
 - **首装切换**：旧桌面（自研更新器）不会看到新 feed，天然不会误升级——两代并行，无跨代自动更新（总纲既定决策）。
 - **Windows**：unsigned（SmartScreen 提示与现状一致），决策点 6 同步预留。
 - **macOS（决策点 6 已定案 2026-11-10）**：unsigned。Gatekeeper 会拦截——安装时右键打开（或 `xattr -cr`），发布说明写清引导。旧桌面 mac 是签名+公证的，此为已接受的分发体验退化项；将来购入 Apple 开发者证书后走官方 signed 链切换（`macos-packaging/production.env.example` 列明所需 env：证书、notarize 凭证），workflow 加签名步骤即可，feed 结构不变。
+- **macOS 更新安装方式（2026-11-23 扩展，分册 18）**：unsigned 期 Squirrel.Mac 校验新包签名必然失败，未签名包的更新安装改为「下载完成后解压到下载文件夹、访达显示、退出应用，由用户拖拽替换」。下载与校验链不变（仍是 zip、SHA512、进度/取消/差分），只有安装交接变化；启用条件 = darwin + 包清单 `dshDesktopUpdateInstall: 'manual'` 标记（内联 #4 扩展，仅 `packagesMacOS && unsigned` 写入），Windows 与签名 macOS 包不受影响；签名后自动回归原生安装（回归与移除清单见分册 18 第 4/5 节）。
 - 打包形态选择（批次 5 定案收口）：品牌包启用 feed 时**保持 unsigned 目标**——配合项（第 4 节候选 2，内联 #4/#5/#8）让品牌 unsigned 打包解析 update 配置并生成 app-update.yml 与通道清单；mac 侧品牌态额外加 zip 更新目标并放开 dmg update info（`stable-mac.yml` 与 zip/blockmap 由 builder 生成）。官方构建无品牌环境时所有行为原样。
 
 ## 6. 验收
@@ -89,7 +90,7 @@ dofe-public/yootun-agent/releases/feeds/
 | 风险 | 对策 |
 |---|---|
 | GH-hosted 构建超时/成本 | 批次 2 已实测 24m54s 双平台并行（附录 A），暂不需要缓存；时长劣化时再启用 pnpm store + electron builder 缓存 |
-| mac unsigned 更新包被 Gatekeeper 干扰更新流程 | 优先切 signed（决策点 6）；unsigned 期更新安装引导文案写进发布说明 |
+| mac unsigned 更新包被 Gatekeeper 干扰更新流程 | 更新安装已改为手动替换交接（2026-11-23，分册 18）：未签名包不再触发 Squirrel 签名校验，Squirrel 安装失败路径消除；拖拽替换后的首启引导（右键打开/`xattr -cr`）写进发布说明；中期优先切 signed，签名后自动回归原生安装 |
 | feed 侧缓存导致客户端读到旧 latest.yml | TOS 直读默认无 CDN 缓存层（批次 5 核实 bucket 是否挂 CDN）；若后续挂 CDN，需对 `latest*.yml` 设短缓存、安装包长缓存 |
 | channel 目录与官方 keyPrefix 结构不一致导致 404 | 以打包产物 `app-update.yml` 内实际 URL 为准做一次端到端联调（验收项覆盖） |
 | 官方打包脚本对 GH-hosted 环境的隐性假设（官方只在 self-hosted 跑过） | 批次 2 就是探路批次；失败逐条修 workflow env，不改官方脚本逻辑 |
