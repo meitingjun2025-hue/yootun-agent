@@ -40,6 +40,7 @@ import { BRAND_PRODUCT_NAME, desktopUpdateReadyConfirmation, formatDesktopMessag
 import type { DesktopMessages } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { desktopUpdateChannel } from './update-channel.ts'
+import { manualDesktopUpdater } from './manual-install-mac-updater.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { prepareDesktopUpdateWindow } from './update-window.ts'
 import { DesktopCommandManager } from './command-management.ts'
@@ -702,6 +703,11 @@ async function main(): Promise<void> {
     packagedChannel, changing: false,
     ...(initialChannel.kind === 'error' ? { error: configurationFailure(initialChannel.error) } : {}) }
   const updateChannel = initialChannel.kind === 'ready' ? initialChannel.channel : packagedChannel
+  // yootun enterprise tier (registered inline change): unsigned macOS packages replace the
+  // Squirrel install with a Finder handoff; every other platform and signed packages keep the
+  // stock updater. See yootun/docs/inline-changes.md and yootun/docs/1110/18-macos-manual-update.md.
+  const manualInstallUpdater = manualDesktopUpdater(manifest, process.platform)
+  const manualInstall = manualInstallUpdater !== undefined
   const updates = new DesktopUpdateCoordinator(
     publishUpdate,
     async () => {
@@ -713,12 +719,13 @@ async function main(): Promise<void> {
       const active = await host.updateTasks('inspect')
       const parent = currentDialogWindow()
       if (parent === undefined || !await prepareDesktopUpdateWindow(parent, locale.messages.updateFullscreenTimeout)) return false
-      const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform)
+      const ready = desktopUpdateReadyConfirmation(locale.messages, updates.state.version ?? '', process.platform, manualInstall)
       const confirmation: Electron.MessageBoxOptions = {
         type: active ? 'warning' : 'info', title: locale.messages.updateTitle,
         message: active ? locale.messages.updateActiveTasks : ready.message,
         detail: active ? locale.messages.updateActiveTasksDetail : ready.detail,
-        buttons: active ? [locale.messages.updateStopTasks, locale.messages.updateLater] : [locale.messages.installAndRestart],
+        buttons: active ? [locale.messages.updateStopTasks, locale.messages.updateLater]
+          : [manualInstall ? locale.messages.updateOpenAndReplace : locale.messages.installAndRestart],
         defaultId: 1, cancelId: 1,
       }
       if (isMandatory()) {
@@ -757,7 +764,7 @@ async function main(): Promise<void> {
       }
       return true
     },
-    undefined, undefined, undefined,
+    manualInstallUpdater, undefined, undefined,
     (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
     updateChannel,
   )
@@ -1073,7 +1080,7 @@ async function main(): Promise<void> {
         if (manual) {
           const result = await ordinaryMessageBox({ title: locale.messages.updateCheckTitle,
             message: formatDesktopMessage(locale.messages.updateAvailable, { version: state.version ?? '' }),
-            detail: locale.messages.updateDetail,
+            detail: manualInstall ? locale.messages.updateDetailManual : locale.messages.updateDetail,
             buttons: [locale.messages.updateDownload], cancelId: 1 })
           if (result.response !== 0) return
         }

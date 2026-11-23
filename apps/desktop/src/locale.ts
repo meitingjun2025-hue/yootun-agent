@@ -168,6 +168,10 @@ export const en = {
   updateAvailable: 'New version available: {version}',
   updateDetail: 'Once the download is complete, you can install the update and restart the app.',
   installAndRestart: 'Install and Restart',
+  // The three manual keys belong to the yootun manual-replace macOS update flow (registered inline change).
+  updateDetailManual: 'Once the download is complete, you install it by dragging the new version into the Applications folder.',
+  updateDownloadedDetailManual: 'The folder with the new version opens in Finder and the app closes. Drag the new version onto the existing copy (usually in the Applications folder) to replace it, then open the app again.',
+  updateOpenAndReplace: 'Open and Replace Manually',
   later: 'Later',
   updateFailedTitle: 'Update Failed',
   mandatoryTitle: 'Update to continue',
@@ -363,6 +367,10 @@ export const zh = {
   updateAvailable: '发现新版本 {version}',
   updateDetail: '下载完成后，可安装并重启应用。',
   installAndRestart: '安装并重启',
+  // 三个 manual 键属于 yootun 的 macOS 手动替换更新流程（已登记内联改动）。
+  updateDetailManual: '下载完成后，需要把新版本拖入「应用程序」文件夹完成替换。',
+  updateDownloadedDetailManual: '将在访达中打开新版本所在文件夹，并退出应用。请把新版本拖入应用原来的位置（通常是「应用程序」文件夹）替换当前版本，然后重新打开。',
+  updateOpenAndReplace: '打开并手动替换',
   later: '稍后',
   updateFailedTitle: '更新失败',
   mandatoryTitle: '请更新后继续使用',
@@ -556,6 +564,9 @@ export const ja = {
   updateAvailable: '新しいバージョンがあります: {version}',
   updateDetail: 'ダウンロードが完了したら、アップデートをインストールしてアプリを再起動できます。',
   installAndRestart: 'インストールして再起動',
+  updateDetailManual: 'ダウンロードの完了後、新しいバージョンを「アプリケーション」フォルダにドラッグしてインストールします。',
+  updateDownloadedDetailManual: '新しいバージョンのフォルダが Finder で開き、アプリが終了します。新しいバージョンを既存のコピー（通常は「アプリケーション」フォルダ）にドラッグして置き換え、アプリを再度開いてください。',
+  updateOpenAndReplace: '開いて手動で置き換え',
   later: '後で',
   updateFailedTitle: 'アップデートに失敗しました',
   mandatoryTitle: '続行するにはアップデートしてください',
@@ -749,6 +760,9 @@ export const es = {
   updateAvailable: 'Nueva versión disponible: {version}',
   updateDetail: 'Una vez que se completa la descarga, puede instalar la actualización y reiniciar la aplicación.',
   installAndRestart: 'Instalar y reiniciar',
+  updateDetailManual: 'Una vez completada la descarga, instalará la actualización arrastrando la nueva versión a la carpeta Aplicaciones.',
+  updateDownloadedDetailManual: 'La carpeta con la nueva versión se abrirá en Finder y la aplicación se cerrará. Arrastre la nueva versión sobre la copia existente (normalmente en la carpeta Aplicaciones) para reemplazarla y vuelva a abrir la aplicación.',
+  updateOpenAndReplace: 'Abrir y reemplazar manualmente',
   later: 'Más tarde',
   updateFailedTitle: 'Actualización fallida',
   mandatoryTitle: 'Actualizar para continuar',
@@ -942,6 +956,9 @@ export const fr = {
   updateAvailable: 'Nouvelle version disponible : {version}',
   updateDetail: "Une fois le téléchargement terminé, vous pouvez installer la mise à jour et redémarrer l'application.",
   installAndRestart: 'Installer et redémarrer',
+  updateDetailManual: 'Une fois le téléchargement terminé, vous installerez la mise à jour en glissant la nouvelle version dans le dossier Applications.',
+  updateDownloadedDetailManual: "Le dossier contenant la nouvelle version s'ouvrira dans le Finder et l'application se fermera. Glissez la nouvelle version sur la copie existante (généralement dans le dossier Applications) pour la remplacer, puis rouvrez l'application.",
+  updateOpenAndReplace: 'Ouvrir et remplacer manuellement',
   later: 'Plus tard',
   updateFailedTitle: 'Échec de la mise à jour',
   mandatoryTitle: 'Mettre à jour pour continuer',
@@ -1135,6 +1152,9 @@ export const de = {
   updateAvailable: 'Neue Version verfügbar: {version}',
   updateDetail: 'Sobald der Download abgeschlossen ist, können Sie das Update installieren und die App neu starten.',
   installAndRestart: 'Installieren und neu starten',
+  updateDetailManual: 'Nach Abschluss des Downloads installieren Sie das Update, indem Sie die neue Version in den Anwendungsordner ziehen.',
+  updateDownloadedDetailManual: 'Der Ordner mit der neuen Version wird im Finder geöffnet und die App wird beendet. Ziehen Sie die neue Version auf die vorhandene Kopie (normalerweise im Anwendungsordner), um sie zu ersetzen, und öffnen Sie die App danach erneut.',
+  updateOpenAndReplace: 'Öffnen und manuell ersetzen',
   later: 'Später',
   updateFailedTitle: 'Aktualisierung fehlgeschlagen',
   mandatoryTitle: 'Aktualisieren, um fortzufahren',
@@ -1328,6 +1348,9 @@ export const ru = {
   updateAvailable: 'Доступна новая версия: {version}.',
   updateDetail: 'После завершения загрузки вы можете установить обновление и перезапустить приложение.',
   installAndRestart: 'Установить и перезапустить',
+  updateDetailManual: 'После завершения загрузки вы установите обновление, перетащив новую версию в папку «Приложения».',
+  updateDownloadedDetailManual: 'Папка с новой версией откроется в Finder, а приложение закроется. Перетащите новую версию на существующую копию (обычно в папке «Приложения»), чтобы заменить её, затем снова откройте приложение.',
+  updateOpenAndReplace: 'Открыть и заменить вручную',
   later: 'Позже',
   updateFailedTitle: 'Обновление не выполнено',
   mandatoryTitle: 'Обновите, чтобы продолжить',
@@ -1521,6 +1544,9 @@ export const pt = {
   updateAvailable: 'Nova versão disponível: {version}',
   updateDetail: 'Assim que o download for concluído, você pode instalar a atualização e reiniciar o aplicativo.',
   installAndRestart: 'Instalar e reiniciar',
+  updateDetailManual: 'Depois que o download for concluído, você instalará a atualização arrastando a nova versão para a pasta Aplicativos.',
+  updateDownloadedDetailManual: 'A pasta com a nova versão será aberta no Finder e o aplicativo será fechado. Arraste a nova versão sobre a cópia existente (geralmente na pasta Aplicativos) para substituí-la e abra o aplicativo novamente.',
+  updateOpenAndReplace: 'Abrir e substituir manualmente',
   later: 'Mais tarde',
   updateFailedTitle: 'Falha na atualização',
   mandatoryTitle: 'Atualizar para continuar',
@@ -1604,15 +1630,18 @@ export function formatDesktopMessage(
  * @param messages - Selected Desktop dictionary.
  * @param version - Prepared update version, including any prerelease suffix.
  * @param platform - Operating system presenting the confirmation.
+ * @param manual - Whether installation is the yootun manual Finder replacement (registered inline change).
  * @returns The versioned title and installation guidance.
  */
 export function desktopUpdateReadyConfirmation(
   messages: DesktopMessages,
   version: string,
   platform: string,
+  manual: boolean,
 ): { message: string; detail: string } {
   return {
     message: formatDesktopMessage(messages.updateDownloadedTitle, { version }),
-    detail: platform === 'win32' ? messages.updateDownloadedDetailWindows : messages.updateDownloadedDetail,
+    detail: platform === 'win32' ? messages.updateDownloadedDetailWindows
+      : manual ? messages.updateDownloadedDetailManual : messages.updateDownloadedDetail,
   }
 }
