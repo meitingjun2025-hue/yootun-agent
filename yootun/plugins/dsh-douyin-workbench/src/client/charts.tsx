@@ -453,3 +453,26 @@ export function workTrendRows(points: readonly TrendPoint[]): LineRow[] {
     new Date(anchor - (6 - index) * 86_400_000).toISOString().slice(0, 10))
   return days.map(day => ({ day, value: byDay.get(day) ?? null }))
 }
+
+/**
+ * 实测容器宽度（旧插件 useMeasuredWidth 同构）：ResizeObserver 跟随容器宽度，
+ * 忽略塌缩态（隐藏/折叠时的 0 宽）；无 ResizeObserver 的环境保持回退宽度。
+ * SVG 按实测像素绘制，刻度与徽标字号不随容器缩放。
+ * @param fallbackWidth - 首帧与不可测环境的宽度。
+ * @returns 挂到容器上的 ref 回调与当前实测宽度。
+ */
+export function useMeasuredWidth(fallbackWidth: number): [(node: HTMLDivElement | null) => void, number] {
+  const [node, setNode] = useState<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(fallbackWidth)
+  useEffect(() => {
+    if (node === null || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0]
+      const nextWidth = entry === undefined ? 0 : Math.round(entry.contentRect.width)
+      if (nextWidth >= 200) setWidth(nextWidth)
+    })
+    observer.observe(node)
+    return () => { observer.disconnect() }
+  }, [node])
+  return [setNode, width]
+}

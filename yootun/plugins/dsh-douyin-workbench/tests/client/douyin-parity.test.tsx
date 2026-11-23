@@ -345,6 +345,33 @@ describe('Host 载荷读取器（缺失 null 不补 0）', () => {
 })
 
 describe('趋势窗口（30 天分析 / 7 天详情；缺口断线不补零）', () => {
+  it('readAccountTrend 读 trend.points 的 {day, value}；readWorkTrend 读快照 play_count（两形态不可共用投影）', async () => {
+    const { readAccountTrend, readWorkTrend } = await import('../../src/client/schema.ts')
+    // account.trend 真实响应（2026-11-23 真机抓包形态）：点为 {day, value}。
+    const accountPoints = readAccountTrend({
+      status: 'ready',
+      trend: {
+        metric: 'play', gapDays: 0, contractVersion: 'trend-v2',
+        points: [
+          { day: '2026-11-20', value: 416, elapsedSeconds: 0, counterRevised: false },
+          { day: '2026-11-21', value: 429, elapsedSeconds: 0, counterRevised: false },
+          { day: '2026-11-22', value: 433, elapsedSeconds: 0, counterRevised: false },
+        ],
+      },
+    })
+    expect(accountPoints).toEqual([
+      { day: '2026-11-20', value: 416 },
+      { day: '2026-11-21', value: 429 },
+      { day: '2026-11-22', value: 433 },
+    ])
+    // work.trend 快照行：值为 play_count，按 day 收盘。
+    const workPoints = readWorkTrend({
+      status: 'ready',
+      data: { snapshots: [{ day: '2026-11-22', captured_at: '2026-11-22T10:37:40+08:00', play_count: 1279 }] },
+    })
+    expect(workPoints).toEqual([{ day: '2026-11-22', value: 1279 }])
+  })
+
   it('accountTrendRows：30 行窗口锚定最后有效点；缺失日 value=null', () => {
     const points = [
       { day: '2026-11-01', value: 1 },

@@ -382,6 +382,7 @@ export interface TrendPoint {
 }
 
 /** account.trend → 趋势点（窗口 30 天由调用方裁剪）。 */
+/** account.trend → 趋势点（trend.points 形态：`{day, value}`）。 */
 export function readAccountTrend(payload: Record<string, unknown>): TrendPoint[] {
   const trend = recordOf(payload.trend)
   return trendPointsOf(trend?.points)
@@ -390,15 +391,35 @@ export function readAccountTrend(payload: Record<string, unknown>): TrendPoint[]
 /** work.trend → 趋势点（snapshots 形态）。 */
 export function readWorkTrend(payload: Record<string, unknown>): TrendPoint[] {
   const data = recordOf(payload.data)
-  return trendPointsOf(data?.snapshots)
+  return snapshotTrendPointsOf(data?.snapshots)
+}
+
+/**
+ * account.trend 的 points → 日点：行形态为 ``{day, value}``（与 work.trend 快照行
+ * 不同族，二者不可共用投影——共用曾致单账号趋势恒空）；无 day 或非数值的行丢弃。
+ * @param value - trend.points 原始数组。
+ * @returns 按服务端顺序的日点（value 缺失为 null）。
+ */
+function trendPointsOf(value: unknown): TrendPoint[] {
+  const rows: TrendPoint[] = []
+  for (const entry of arrayOf(value)) {
+    const record = recordOf(entry)
+    if (record === undefined) continue
+    const day = textOf(record.day)
+    if (day === null) continue
+    rows.push({ day, value: numberOf(record.value) })
+  }
+  return rows
 }
 
 /**
  * 快照行 → 日点（旧 snapshotTrendPoints 同构）：值为 ``play_count``（快照行无
  * value 字段）；同日多次采集按 captured_at 取最大（日收盘语义）；day 缺失回退
  * captured_at + 8h 的上海自然日。窗口锚点随最后一次采集走，不锚真今天。
+ * @param value - work.trend 的 snapshots 原始数组。
+ * @returns 按自然日升序的日点。
  */
-function trendPointsOf(value: unknown): TrendPoint[] {
+function snapshotTrendPointsOf(value: unknown): TrendPoint[] {
   const byDay = new Map<string, { value: number; capturedMs: number }>()
   for (const entry of arrayOf(value)) {
     const record = recordOf(entry)

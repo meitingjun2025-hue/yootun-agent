@@ -1174,24 +1174,27 @@
   }
 }
 
-/* 观看趋势（旧 RetentionTrend 同构）：双 Tab / 图例 / 曲线颜色全 token。 */
+/* 观看趋势（旧 RetentionTrend 同构）：分段式视图切换、带框图卡、曲线/低谷/
+   浮层全部 token 化，浅深主题自适应。图卡固定高 168，SVG 按实测容器宽度绘制。 */
 .rtTabs {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  display: inline-flex;
+  gap: 0;
+  margin: 0 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--dsw-alias-bg-layer-1);
 }
 
 .rtTab {
-  /* 旧插件 ydo-rt-tab 同构：无边框文本型，active 底色 + 加粗，间隔分隔线 */
   min-height: 26px;
   padding: 0 12px;
   border: 0;
   border-left: 1px solid var(--dsw-alias-border-l1);
   background: transparent;
   color: var(--dsw-alias-label-secondary);
+  font: inherit;
   font-size: 12px;
-  line-height: 18px;
   cursor: pointer;
 }
 
@@ -1208,17 +1211,104 @@
 .rtSvg {
   display: block;
   width: 100%;
-  height: auto;
+  height: 168px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.rtSeg {
+  fill: none;
+  stroke: var(--dsw-alias-label-primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.rtSegDashed {
+  stroke-dasharray: 6 5;
+  opacity: 0.75;
+}
+
+.rtArea {
+  fill: var(--dsw-alias-label-primary);
+  opacity: 0.06;
+}
+
+.rtGrid {
+  stroke: var(--dsw-alias-border-l1);
+  stroke-width: 1;
+}
+
+.rtAxisText {
+  fill: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+/* 低谷区间：淡红带（12%，比旧绘图带 20% 更浅）+ 轴下方红底白字徽标。红底白字
+   对比度不随主题翻转，取固定纯白 static 色。 */
+.rtValleyBand {
+  fill: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+}
+
+.rtValleyBadge {
+  fill: var(--dsw-alias-state-error-primary);
+}
+
+.rtValleyBadgeText {
+  fill: var(--dsw-static-neutral-00);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.rtHoverLine {
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+}
+
+.rtHoverDot {
+  fill: var(--dsw-alias-label-primary);
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 2;
+}
+
+.rtHoverDotSimilar {
+  fill: var(--dsw-alias-label-tertiary);
+  stroke: var(--dsw-alias-bg-layer-1);
+  stroke-width: 2;
+}
+
+.rtTooltipBox {
+  fill: var(--dsw-alias-bg-layer-1);
+  stroke: var(--dsw-alias-border-l1);
+  stroke-width: 1;
+}
+
+.rtTooltipTime {
+  fill: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rtTooltipLabel {
+  fill: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+
+.rtTooltipValue {
+  fill: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .rtLegend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
   margin: 8px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -1229,24 +1319,24 @@
 }
 
 .rtSwatchCurrent {
-  width: 14px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--dsw-alias-label-primary);
+  width: 16px;
+  height: 0;
+  border-top: 2px solid var(--dsw-alias-label-primary);
 }
 
 .rtSwatchSimilar {
-  width: 14px;
-  height: 3px;
-  border-radius: 2px;
-  background: repeating-linear-gradient(90deg, var(--dsw-alias-label-secondary) 0 4px, transparent 4px 7px);
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed var(--dsw-alias-label-primary);
+  opacity: 0.75;
 }
 
 .rtSwatchValley {
-  width: 14px;
+  width: 12px;
   height: 10px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 20%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
 }
 
 /* 筛选组：可见文字标签 + 控件水平排（旧插件「账号: [▾]」形态）。 */

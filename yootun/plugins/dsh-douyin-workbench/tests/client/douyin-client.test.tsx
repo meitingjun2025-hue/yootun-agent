@@ -13,6 +13,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
+import { shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -151,12 +152,54 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
+    // 趋势请求窗口固定最近 30 个自然日（今天-29 → 今天，旧插件同口径；展示窗口
+    // 由 accountTrendRows 锚定最后一个有效数据日回推 30 天）。
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('account.trend', expect.objectContaining({
+      accountId: 'acc-1', metric: 'play', fromDay: shiftDay(shanghaiToday(), -29), toDay: shanghaiToday(),
+    })))
     // 下钻不新增顶级 tab。
     const navTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en.panel)
     expect(navTabs.length).toBe(7)
     // 返回总览：筛选区仍可达（筛选保留由页面级 filters 状态承担）。
     fireEvent.click(screen.getByRole('button', { name: en['analysis.back'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['overview.filter.account'] })).not.toBeNull())
+  })
+
+  it('单账号分析趋势：account.trend 的 {day, value} 点渲染为折线，不落空态', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      // 分析页主体以 account 非空为渲染前提（缺 account 整块不渲染，趋势断言会空转）。
+      if (action === 'account.analysis') {
+        return {
+          status: 'ready',
+          analysis: { account: { accountId: 'acc-1', nickname: '账号一', ownerName: null, fanCount: 12000, lastCollectedAt: null, sessionStatus: 'ok', suspiciousEmptyCollect: false } },
+        }
+      }
+      if (action === 'account.trend') {
+        // 真实响应形态：trend.points 为 {day, value}（窗口固定今天-29 → 今天）。
+        const from = String(args.fromDay)
+        return {
+          status: 'ready',
+          trend: {
+            metric: args.metric, gapDays: 0,
+            points: [0, 1, 2].map(offset => ({ day: shiftDay(from, offset), value: 416 + offset * 8, elapsedSeconds: 0, counterRevised: false })),
+          },
+        }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('account.trend', expect.objectContaining({ metric: 'play' })))
+    // 3 个有效点 → 2 段折线（分段 path 的 d 形如 M x,yL x,y；页面图标 path 不计）；空态文案不出现。
+    const lineSegments = (): number => [...document.querySelectorAll('svg path')]
+      .filter(path => /^M[\d.]+,[\d.]+L[\d.]+,[\d.]+$/u.test(path.getAttribute('d') ?? '')).length
+    await waitFor(() => expect(lineSegments()).toBe(2))
+    expect(screen.queryByText(en['trend.empty'])).toBeNull()
   })
 
   it('切任意 Tab 收起 AI 弹层（AnalysisPage 随总览面板卸载）', async () => {
@@ -345,6 +388,50 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     // 焦点回归触发行（官方 Modal 承担回归）。
     await waitFor(() => expect(document.activeElement).toBe(row))
+  })
+
+  it('作品详情观看趋势：留存/跳出双视图渲染曲线、低谷徽标与图例（旧 RetentionTrend 同构）', async () => {
+    const point = (key: string, value: number) => ({ key, value })
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
+      if (action === 'work.get') {
+        return {
+          status: 'ready',
+          data: {
+            work: {
+              ...workRow,
+              retention_trend: {
+                current: [point('00:00', 100), point('00:10', 46.59), point('00:20', 30.1)],
+                similar: [point('00:00', 100), point('00:10', 30.23), point('00:20', 20)],
+                valleys: [{ start: 2, end: 4 }, { start: 12, end: 15 }],
+              },
+              retention_bounce: { current: [point('00:00', 27.5), point('00:10', 5)], similar: [] },
+            },
+          },
+        }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    // 留存视图：两条低谷徽标（轴下方红底白字）+ 低谷区间图例 + 双曲线。
+    expect(await screen.findByText(`${en['detail.rt.valleyBadge']}1`)).not.toBeNull()
+    expect(screen.getByText(`${en['detail.rt.valleyBadge']}2`)).not.toBeNull()
+    expect(screen.getByText(en['detail.rt.legendValley'])).not.toBeNull()
+    expect(screen.getByText(en['detail.rt.legendCurrent'])).not.toBeNull()
+    expect(screen.getByText(en['detail.rt.legendSimilar'])).not.toBeNull()
+    const retentionChart = screen.getByRole('img', { name: new RegExp(`^${en['detail.rt.aria'].split(' ')[0]}`) })
+    expect(retentionChart.querySelectorAll('polyline')).toHaveLength(2)
+    // 切到跳出视图：读 retention_bounce，图例换成跳出文案，同类曲线缺省不渲染图例。
+    fireEvent.click(screen.getByRole('button', { name: en['detail.rt.tabBounce'] }))
+    expect(await screen.findByText(en['detail.rt.legendBounce'])).not.toBeNull()
+    expect(screen.queryByText(en['detail.rt.legendSimilar'])).toBeNull()
+    expect(screen.getByRole('img', { name: new RegExp(`^${en['detail.rt.bounceAria'].split(' ')[0]}`) })).not.toBeNull()
   })
 
   it('投流 stale 恢复失败：原始冲突错误与用户输入保留，saving 复位且不自动重发', async () => {
