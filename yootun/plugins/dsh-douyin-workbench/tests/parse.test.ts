@@ -533,6 +533,18 @@ test('metrics_trend：升序取最近 7 个完成日（上海今天及以后丢�
   assert.equal(fixture?.[0]?.playCount, 3000, '6 位小数字符串值取整')
 })
 
+test('metrics_trend：形状合规非法日期（2026-13-45）行级剔除，不抛 RangeError', () => {
+  // 2026-13-45 经 Date.parse 得 NaN：Invalid Date 的 toISOString 会抛 RangeError，
+  // 被 collector 捕获后整条趋势会记 request_failed；旧 parse.js 同点位为行级跳过。
+  const json = { status_code: 0, trend_map: { view_count: { '0': [
+    { date_time: '2026-13-45 00:00:00', value: '100.000000' },
+    { date_time: '2026-11-12 00:00:00', value: '3900.000000' },
+  ] } } }
+  let trend: ReturnType<typeof parseItemMetricsTrend> = null
+  assert.doesNotThrow(() => { trend = parseItemMetricsTrend(json, '2026-11-23') }, '非法日期不得抛 RangeError')
+  assert.deepEqual(trend?.map(point => point.day), ['2026-11-12'], '只保留合法点')
+})
+
 test('resolveClientStatus：仅完整且成功=预期才 completed', () => {
   assert.equal(resolveClientStatus({ listComplete: true, expected: 10, succeeded: 10, failed: 0 }), 'completed')
   assert.equal(resolveClientStatus({ listComplete: false, expected: 10, succeeded: 10, failed: 0 }), 'partial')

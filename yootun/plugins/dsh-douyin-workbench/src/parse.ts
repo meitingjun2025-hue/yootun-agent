@@ -834,8 +834,12 @@ export function parseItemMetricsTrend(json: unknown, todayIso: string): PlayTren
   for (const record of rows) {
     const dayRaw = typeof record.date_time === 'string' ? record.date_time.slice(0, 10) : null
     if (dayRaw === null || !/^\d{4}-\d{2}-\d{2}$/u.test(dayRaw)) continue
-    // 形状合规非法日期（2026-13-45）round-trip 双校验。
-    const roundTrip = new Date(`${dayRaw}T00:00:00Z`).toISOString().slice(0, 10)
+    // 形状合规非法日期（2026-13-45）行级剔除：先 NaN 判定，Invalid Date 的
+    // toISOString 会抛 RangeError；NaN 通过后再 round-trip 挡 2 月 30 日这类
+    // roll-over，二者都必须跳过该点而不是让整条趋势记 request_failed。
+    const timestamp = Date.parse(`${dayRaw}T00:00:00Z`)
+    if (Number.isNaN(timestamp)) continue
+    const roundTrip = new Date(timestamp).toISOString().slice(0, 10)
     if (roundTrip !== dayRaw) continue
     if (dayRaw >= todayIso) continue
     const value = Number(record.value)
