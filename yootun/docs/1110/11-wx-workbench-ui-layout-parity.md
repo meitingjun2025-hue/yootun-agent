@@ -1,6 +1,6 @@
 # P2 视频号工作台 UI 布局回正方案
 
-状态：**已实施，待真机验收**（2026-11-19 布局回正落地于 `feat/plugin-wx-workbench`；2026-11-20 首轮真机验收反馈落地于 `fix/wx-workbench-desktop-verification`：移除运行查询入口、排序改全本地无刷新、账号选中态与详情 Modal / 总览图表样式修正；真实扫码采集与明暗 / 三档宽度 / 键盘 / reduced-motion 目检按 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 第 11 节重拍）。
+状态：**已实施并通过 2026-11-23 用户真机验收**（布局与功能契约不变；验收记录见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)）。
 
 本方案是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) P2 视频号工作台的 UI 布局与交互补充契约。W5 本地真实链路已证明 Host、MCP、采集和数据契约可用，但现有四 tab 信息架构偏离旧工作台的产品形态；后续实现必须按本册回正。设计规范仍以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 和 [05-ui-ux.md](05-ui-ux.md) 为准。
 

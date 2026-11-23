@@ -12,6 +12,7 @@
 | [03-enterprise.md](03-enterprise.md) | 企业层：key 激活 UI、凭证链、门禁收敛、managed MCP 骨架、MCP 权限双通道边界 |
 | [04-release.md](04-release.md) | 自建 GitHub Actions 打包 workflow、feed 目录约定、自动更新切换、版本策略 |
 | [05-ui-ux.md](05-ui-ux.md) | yootun UI/UX 设计规范：官方 token/圆角/材质体系内的现代化重设计（批次 3/4 的视觉依据） |
+| [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md) | 视频号、小红书、抖音三工作台 2026-11-23 真机验收通过记录与发布候选基线 |
 
 ## 一、目标与范围
 

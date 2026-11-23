@@ -1,6 +1,6 @@
 # P2 视频号 W5 本地真实链路验证方案
 
-状态：**待执行**（2026-11-19 起草）。
+状态：**对应工作台已通过 2026-11-23 用户真机全功能验收**（方案保留为复验清单；验收记录见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)）。
 
 本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §4.5 的 W5 中可在 WSL 本地完成的两部分：真实 Tools 服务 + 全部 yootun MCP 面调用，以及真实 Desktop UI + 系统 Chrome 扫码采集。它不替代生产 endpoint 冒烟和 Windows 真机验收；这两项仍按 §4.6 另行执行。
 

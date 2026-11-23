@@ -1,6 +1,6 @@
 # P4 抖音工作台 D9 混合验证方案（生产认证冒烟 + 本地真实链路）
 
-状态：**本地混合链路已执行（2026-11-22）；UI 样式细节转入用户真机验证阶段**。执行记录见文末 §12。
+状态：**本地混合链路已执行（2026-11-22），用户真机全功能验收已通过（2026-11-23）**。执行记录见文末 §12，真机验收总结见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)。
 
 本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §6.5 的 D9 中可在 WSL 本地完成的部分。D9 采用混合验证口径：生产 ixicai 网关只做认证与只读冒烟；账号、采集、排期、AI 报表、拆解、素材、基因库等业务真实链路全部走本地 tools.dofe.ai MCP 与本地 WSL 数据库 / 队列。它不替代 Windows 真机验收；该项仍按 §6.6 在打包产物安装后另行执行。方案结构参照 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md) 与 [13-xhs-workbench-x7-local-e2e-plan.md](13-xhs-workbench-x7-local-e2e-plan.md)（P2/P3 同型方案），差异由抖音工作台的实际范围与混合口径决定。
 
@@ -405,3 +405,7 @@ D9 判定通过要求全部成立：
 3. 42 张视觉与可达性矩阵、reduced-motion、键盘路径全走查；
 4. 观察项待真机复核：素材 run 历史终态判定时机（UI 曾在 run 进行中匹配到旧行 Completed）、报表版本菜单不自动刷新、基因重建按钮在长弹层中的滚动可见性；
 5. C4 乐观版本冲突制造（需双端并发）、分册 15 G-1、Windows 真机与 P5 出包（§11）。
+
+### 12.5 真机验收结论（2026-11-23）
+
+用户完成抖音工作台全功能真机回归，上述转真机复核项不再构成发布阻塞；验收结论与剩余发布基础设施项见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)。分册 15 G-1 仍按产品缺口单独追踪。

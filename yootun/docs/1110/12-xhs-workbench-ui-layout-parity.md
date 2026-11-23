@@ -1,6 +1,6 @@
 # P3 小红书工作台 UI 布局对齐方案
 
-状态：**X0 基线复核修订版，待复审确认后冻结**（2026-11-20 依据旧插件源码起草并逐页复核；修订 R1–R6 见 [p3-xhs-workbench-baseline.md](p3-xhs-workbench-baseline.md) §1）。
+状态：**已实施并通过 2026-11-23 用户真机验收**（X0 复核修订 R1–R6 见 [p3-xhs-workbench-baseline.md](p3-xhs-workbench-baseline.md) §1；验收记录见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)）。
 
 本册是 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) P3 小红书工作台的 UI 布局与交互契约。吸取 P2 视频号教训：只列组件栈会让实现重新发明导航与页面结构，导致布局返工（同类修订见 [11-wx-workbench-ui-layout-parity.md](11-wx-workbench-ui-layout-parity.md)）。本册把布局、信息架构和任务动线锚定到旧插件产品基准；设计规范仍以 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md) 和 [05-ui-ux.md](05-ui-ux.md) 为准。
 

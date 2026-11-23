@@ -1,6 +1,6 @@
 # P3 小红书 X7 本地真实链路验证方案
 
-状态：**起草待执行**（2026-11-20 起草；完整执行前置条件：有效 yootun key 与操作者在场扫码）。
+状态：**对应工作台已通过 2026-11-23 用户真机全功能验收**（方案保留为复验清单；验收记录见 [16-three-workbench-real-device-acceptance.md](16-three-workbench-real-device-acceptance.md)）。
 
 本方案细化 [09-workbench-migration-plan.md](09-workbench-migration-plan.md) §5.5 的 X7 中可在 WSL 本地完成的部分：生产 Workbench endpoint 冒烟、真实 Desktop UI + 系统 Chrome 扫码与发布链路、三页全走查的视觉与可达性矩阵。它不替代 Windows 真机验收；该项仍按 §5.6 在打包产物安装后另行执行。方案结构参照 [10-wx-workbench-w5-local-e2e-plan.md](10-wx-workbench-w5-local-e2e-plan.md)（P2 同型方案），差异由小红书工作台的实际范围决定。
 
