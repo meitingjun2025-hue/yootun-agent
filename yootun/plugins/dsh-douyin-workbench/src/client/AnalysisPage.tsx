@@ -303,7 +303,6 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                 )}
             </ChartFrame>
 
-            <div className={css.analysisTwoCol}>
             <DataCard title={t('analysis.metrics.title')} state='ready'>
               <div className={css.metricGrid}>
                 {(analysis?.content ?? []).map(row => {
@@ -363,7 +362,6 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                 </AudienceCard>
               </div>
             </DataCard>
-            </div>
 
             <DataCard title={t('analysis.hot.title')} state='ready'>
               <DataState state={(analysis?.hotWorks.length ?? 0) > 0 ? 'ready' : 'empty'} shape='rows'>

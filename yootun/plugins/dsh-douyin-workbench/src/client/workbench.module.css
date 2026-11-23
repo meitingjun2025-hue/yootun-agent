@@ -709,8 +709,9 @@
 
 .metricGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  /* 横向铺满一行（内容指标全列横排；窄幅由容器断点降列） */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
   min-width: 0;
 }
 
