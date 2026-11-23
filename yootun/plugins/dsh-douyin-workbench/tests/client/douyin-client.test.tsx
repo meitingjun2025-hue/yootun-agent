@@ -9,11 +9,11 @@
 // @vitest-environment jsdom
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
-import { shanghaiToday, shiftDay } from '../../src/client/format.ts'
+import { reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -911,6 +911,121 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: en['account.addBusy'] })).not.toBeNull())
     expect(screen.getByRole('button', { name: en['account.addBusy'] }).getAttribute('aria-busy')).toBe('true')
     expect(screen.getByText(en['account.scanHint'])).not.toBeNull()
+  })
+})
+
+describe('批量采集启动反馈（collectAll.start）', () => {
+  const callsOf = (action: string): number =>
+    apiMock.hostAction.mock.calls.filter(([name]) => name === action).length
+
+  /** 刷新微任务队列：hostAction 异步 mock 与页面 promise 链在 act 内全部落定。 */
+  const flush = async (): Promise<void> => { await act(async () => { await Promise.resolve() }) }
+
+  it('成功启动：resolve 即已启动（不误报「批量采集未启动」），start 后立即 tick 并轮询，终态停轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      let statusCalls = 0
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.status') return { status: 'ready', collect: null }
+        if (action === 'collectAll.start') {
+          return { status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } }
+        }
+        if (action === 'collectAll.status') {
+          statusCalls += 1
+          return statusCalls === 1
+            ? { status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'collecting', total: 1, runnableTotal: 1, runnableDone: 0, currentAccountId: 'acc-1', items: [] } }
+            : { status: 'ready', batch: { batchId: 'batch-1', status: 'completed', phase: null, total: 1, runnableTotal: 1, runnableDone: 1, completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] } }
+        }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: en['account.collectAll'] }))
+      await flush()
+      // Host batch 投影替换乐观态；误导性失败 toast 不出现。
+      expect(screen.queryByText(new RegExp(en['batch.startFailed'], 'u'))).toBeNull()
+      expect(screen.queryByRole('alert')).toBeNull()
+      // 依次 collectAll.start → collectAll.status（受理后立即 tick 一次）。
+      const startCallIndex = apiMock.hostAction.mock.calls.findIndex(([name]) => name === 'collectAll.start')
+      expect(startCallIndex).toBeGreaterThanOrEqual(0)
+      expect(callsOf('collectAll.status')).toBe(1)
+      expect(apiMock.hostAction.mock.calls.findIndex(([name]) => name === 'collectAll.status')).toBeGreaterThan(startCallIndex)
+      // 批量横幅进入 running（role=status 容器 aria-busy + 进度文案）；按钮运行态禁用。
+      expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
+      expect(screen.getByText(t('batch.progress.collecting', { index: 1, total: 1 }))).not.toBeNull()
+      expect(screen.getByRole('button', { name: en['account.collectAllRunning'] }).getAttribute('disabled')).not.toBeNull()
+      // 第二次 tick 返回终态 → 汇总横幅、停止轮询。
+      act(() => { vi.advanceTimersByTime(1600) })
+      await flush()
+      expect(screen.getByText(t('batch.summary.completed', { completed: 1, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull()
+      expect(callsOf('collectAll.status')).toBe(2)
+      act(() => { vi.advanceTimersByTime(3100) })
+      await flush()
+      expect(callsOf('collectAll.status')).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('collect_busy 失败：toast 报稳定原因、batch 清空、collectAll.status 一次都不调用', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      if (action === 'collectAll.start') return Promise.reject(new Error('collect_busy'))
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    const button = await screen.findByRole('button', { name: en['account.collectAll'] })
+    fireEvent.click(button)
+    // 失败 toast：startFailed 前缀 + reasonText 收敛的稳定码。
+    expect(await screen.findByRole('alert')).not.toBeNull()
+    expect(screen.getByRole('alert').textContent).toBe(`${en['batch.startFailed']}：${reasonText('collect_busy', t)}`)
+    // batch 清空：无运行横幅，按钮回到可用态。
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('button', { name: en['account.collectAll'] }).getAttribute('disabled')).toBeNull()
+    expect(callsOf('collectAll.status')).toBe(0)
+  })
+
+  it('双击守卫：collectAll.start 在途时重复点击不发起第二次调用，且不吞成功路径', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveStart: ((value: Record<string, unknown>) => void) | null = null
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.status') return { status: 'ready', collect: null }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        if (action === 'collectAll.start') {
+          return new Promise<Record<string, unknown>>(resolve => { resolveStart = resolve })
+        }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await flush()
+      const button = screen.getByRole('button', { name: en['account.collectAll'] })
+      fireEvent.click(button)
+      fireEvent.click(button)
+      await flush()
+      expect(callsOf('collectAll.start')).toBe(1)
+      // 释放首个请求：resolve 后照常投影 Host batch 并立即 tick。
+      resolveStart?.({ status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } })
+      await flush()
+      expect(callsOf('collectAll.start')).toBe(1)
+      expect(callsOf('collectAll.status')).toBe(1)
+      expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

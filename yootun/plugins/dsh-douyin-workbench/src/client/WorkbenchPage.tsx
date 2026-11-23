@@ -116,6 +116,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  /** collectAll.start 在途标记：请求未返回前的重复点击直接忽略。 */
+  const batchStartInFlightRef = useRef(false)
   const worksSeqRef = useRef(0)
   const worksCacheRef = useRef(new Map<string, WorkRow[]>())
   const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
@@ -308,13 +310,13 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   }, [])
 
   const startBatch = useCallback((): void => {
+    if (batchStartInFlightRef.current) return
+    batchStartInFlightRef.current = true
     setBatch(readBatchStatus({ batch: { status: 'running', phase: 'probing' } }))
     void hostAction('collectAll.start', {}).then(res => {
-      if (res.started !== true) {
-        setBatch(null)
-        notify(`${t('batch.startFailed')}：${reasonText(typeof res.reason === 'string' ? res.reason : 'collect_busy', t)}`)
-        return
-      }
+      // resolve 即已启动：Host 失败走 error envelope（hostAction 抛出，入 catch）。
+      batchStartInFlightRef.current = false
+      setBatch(readBatchStatus(res))
       stopBatchPolling()
       const tick = (): void => {
         void hostAction('collectAll.status', {}).then(batchRes => {
@@ -330,6 +332,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       void tick()
       batchPollRef.current = setInterval(tick, COLLECT_POLL_MS)
     }).catch(error => {
+      batchStartInFlightRef.current = false
       stopBatchPolling()
       setBatch(null)
       notify(`${t('batch.startFailed')}：${reasonText(error instanceof Error ? error.message : 'collect_busy', t)}`)
