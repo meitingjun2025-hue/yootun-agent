@@ -291,6 +291,8 @@ export interface WorkDetailView {
   trafficRows: { name: string; value: number | null }[]
   /** 观看趋势 current 曲线（retention_trend.current）。 */
   retentionCurrent: unknown
+  /** 跳出曲线（retention_bounce，结构与留存同族）。 */
+  retentionBounce: unknown
   audience: {
     gender: DistRow[] | null
     age: DistRow[] | null
@@ -323,12 +325,14 @@ export function readWorkDetail(payload: Record<string, unknown>): WorkDetailView
     if ((row.source_type ?? row.sourceType) === 999) continue
     const name = textOf(row.source_label) ?? textOf(row.source_key)
     if (name === null) continue
-    trafficRows.push({ name, value: numberOf(row.play_count) })
+    // 旧 convertSource 同口径：占比字段是 share_pct（0..100 百分比）
+    trafficRows.push({ name, value: numberOf(row.share_pct) })
   }
   return {
     work: workRecord === undefined ? null : workRowOf(workRecord),
     trafficRows,
     retentionCurrent: workRecord === undefined ? undefined : workRecord.retention_trend,
+    retentionBounce: workRecord === undefined ? undefined : workRecord.retention_bounce,
     audience: {
       gender: distRows(audience?.gender),
       age: distRows(audience?.age),

@@ -8,7 +8,7 @@
  * Escape/焦点回归由官方 Modal 承担。
  * @module
  */
-import { type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataState, ytChartStyle } from '@yootun/dsh-client-ui-kit'
 import {
@@ -58,11 +58,6 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
   if (target === null || work === null) return null
   const promotion = detail?.promotion ?? null
   const trendRows = props.trend.length > 0 ? props.trend : []
-  const retentionGapReason = work.data_gap !== null && typeof work.data_gap.retention_trend === 'object' && work.data_gap.retention_trend !== null
-    ? String((work.data_gap.retention_trend as Record<string, unknown>).reason ?? '')
-    : ''
-  const retention = retentionStatus(detail?.retentionCurrent ?? null, retentionGapReason === '' ? null : retentionGapReason, work.publish_time)
-  const retentionKey = retentionStatusKey(retention)
   const gaps = work.data_gap !== null ? Object.entries(work.data_gap) : []
   const duration = work.duration_s === null ? null : formatDuration(work.duration_s * 1000)
 
@@ -116,7 +111,6 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
             {duration !== null && <span className={css.coverDuration}>{duration}</span>}
           </span>
           <div className={css.detailMeta}>
-            <p className={css.detailTitle}>{work.title ?? work.work_id}</p>
             <p className={css.detailMetaLine}>
               {t('detail.publishTime', { time: formatDateTime(work.publish_time) })}
               {work.visibility === 'not_in_list' && <Tag tone='warning'>{t('detail.private')}</Tag>}
@@ -195,11 +189,12 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
             </div>
             <div className={css.detailSubBlock} aria-label={t('detail.retention')}>
               <h5 className={css.detailSubTitle}>{t('detail.retention')}</h5>
-              {retention === 'ok'
-                ? <RetentionCurves points={detail?.retentionCurrent} />
-                : retentionKey !== null
-                  ? <p className={css.chartEmpty} role='status'>{t(retentionKey)}</p>
-                  : null}
+              <RetentionTrendView
+                retentionTrend={detail?.retentionCurrent ?? null}
+                retentionBounce={detail?.retentionBounce ?? null}
+                publishTime={work.publish_time}
+                t={t}
+              />
             </div>
           </div>
         </section>
@@ -270,45 +265,206 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
 }
 
 /** 观看趋势双曲线（current 主线；similar 辅线；文本即等价明细）。 */
-function RetentionCurves(props: { points: unknown }): ReactNode {
-  const record = props.points
-  if (record === null || typeof record !== 'object') return null
-  const current = Array.isArray((record as { current?: unknown }).current) ? (record as { current: unknown[] }).current : []
-  const similar = Array.isArray((record as { similar?: unknown }).similar) ? (record as { similar: unknown[] }).similar : []
-  if (current.length === 0) return null
-  const pointOf = (entry: unknown): { time: string; pct: number | null } | null => {
-    if (typeof entry !== 'object' || entry === null) return null
+/** 观看趋势曲线点。 */
+interface RtPoint { key: string; value: number }
+
+/** 归一曲线（剔除非法点）。 */
+function rtPointsOf(value: unknown): RtPoint[] {
+  if (!Array.isArray(value)) return []
+  const rows: RtPoint[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue
     const row = entry as Record<string, unknown>
-    // 曲线点形状 = {key: 时间(秒/MM:SS), value: 0..100}（parseRealtimeTrend /
-    // buildTrendBlock 同族；真机 2026-11-23：读 time_s/pct 系字段恒空）。
-    const time = typeof row.key === 'string' ? row.key : null
-    if (time === null) return null
-    const value = typeof row.value === 'number' ? row.value : null
-    return { time, pct: value === null ? null : Math.max(0, Math.min(100, value)) }
+    const key = typeof row.key === 'string' && row.key !== '' ? row.key : null
+    const val = typeof row.value === 'number' && Number.isFinite(row.value) ? row.value : null
+    if (key === null || val === null) continue
+    rows.push({ key, value: Math.max(0, Math.min(100, val)) })
   }
-  const rows = current.map(pointOf).filter((point): point is { time: string; pct: number | null } => point !== null)
-  const similarRows = similar.map(pointOf).filter((point): point is { time: string; pct: number | null } => point !== null)
-  const similarByTime = new Map(similarRows.map(point => [point.time, point.pct]))
-  const max = Math.max(1, ...rows.map(point => point.pct ?? 0))
+  return rows
+}
+
+const RT_WIDTH = 680
+const RT_HEIGHT = 168
+const RT_PAD_X = 36
+const RT_PAD_TOP = 12
+const RT_PAD_BOTTOM = 26
+
+/** 时间 key → 秒（"MM:SS" 或纯秒）。 */
+function rtSeconds(key: string): number {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(key)
+  return match ? Number(match[1]) * 60 + Number(match[2]) : Number(key) || 0
+}
+
+/**
+ * 观看趋势（旧 RetentionTrend 移植）：留存/跳出双 Tab + 双曲线（当前作品实线、
+ * 同类作品虚线）+ 低谷区间粉带与徽标 + 悬停吸附浮层；Y 轴留存固定 100/75/50/25、
+ * 跳出 0..max 自适应。数据取自主表 retention_trend 与 retention_bounce 列。
+ */
+function RetentionTrendView(props: {
+  retentionTrend: unknown
+  retentionBounce: unknown
+  publishTime: string | null
+  t: Translate
+}): ReactNode {
+  const t = props.t
+  const [tab, setTab] = useState<'retention' | 'bounce'>('retention')
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const trend = props.retentionTrend !== null && typeof props.retentionTrend === 'object'
+    ? (props.retentionTrend as { current?: unknown; similar?: unknown; valleys?: unknown })
+    : null
+  const bounce = props.retentionBounce !== null && typeof props.retentionBounce === 'object'
+    ? (props.retentionBounce as { current?: unknown; similar?: unknown; valleys?: unknown })
+    : null
+  const status = retentionStatus(trend, null, props.publishTime)
+  if (status !== 'ok') {
+    return <p className={css.chartEmpty} role='status'>{t(retentionStatusKey(status) ?? 'retention.noData')}</p>
+  }
+  const current = rtPointsOf(trend?.current)
+  const similar = rtPointsOf(trend?.similar)
+  const valleys = Array.isArray(trend?.valleys)
+    ? (trend?.valleys as unknown[]).map(v => {
+        if (typeof v !== 'object' || v === null) return null
+        const row = v as Record<string, unknown>
+        const start = typeof row.start === 'number' ? row.start : null
+        const end = typeof row.end === 'number' ? row.end : null
+        return start !== null && end !== null ? { start, end } : null
+      }).filter((v): v is { start: number; end: number } => v !== null)
+    : []
+  const bounceCurrent = rtPointsOf(bounce?.current)
+  const bounceSimilar = rtPointsOf(bounce?.similar)
+  const bounceOk = bounceCurrent.length > 0
+  const isBounce = tab === 'bounce'
+
+  const hoverSource = isBounce ? bounceCurrent : current
+  const hoverSimilarSource = isBounce ? bounceSimilar : similar
+  const xOf = (index: number): number =>
+    Math.round((RT_PAD_X + (index / Math.max(1, hoverSource.length - 1)) * (RT_WIDTH - RT_PAD_X * 2)) * 100) / 100
+  const totalSeconds = Math.max(1, rtSeconds(hoverSource[hoverSource.length - 1]?.key ?? '0'))
+  const xOfSeconds = (seconds: number): number =>
+    Math.round((RT_PAD_X + (Math.min(totalSeconds, Math.max(0, seconds)) / totalSeconds) * (RT_WIDTH - RT_PAD_X * 2)) * 100) / 100
+  const bounceMax = Math.max(1, ...bounceCurrent.map(point => point.value))
+  const yOf = (value: number): number => {
+    const clamped = Math.min(100, Math.max(0, value))
+    return isBounce
+      ? RT_PAD_TOP + (1 - clamped / bounceMax) * (RT_HEIGHT - RT_PAD_TOP - RT_PAD_BOTTOM)
+      : RT_PAD_TOP + (1 - clamped / 100) * (RT_HEIGHT - RT_PAD_TOP - RT_PAD_BOTTOM)
+  }
+  const polylineOf = (rows: RtPoint[]): string => rows.map((point, index) => `${xOf(isBounce ? index : index)},${yOf(point.value)}`).join(' ')
+  const tickIndexes = hoverSource.length === 1
+    ? [0]
+    : [0, 1, 2, 3, 4].map(quarter => Math.round((quarter * (hoverSource.length - 1)) / 4))
+  const hoverPoint: RtPoint | null = hoverIndex !== null && hoverIndex < hoverSource.length
+    ? hoverSource[hoverIndex] ?? null
+    : null
+  let hoverSimilarPoint: RtPoint | null = null
+  if (hoverPoint !== null && hoverSimilarSource.length > 0) {
+    const targetSeconds = rtSeconds(hoverPoint.key)
+    hoverSimilarPoint = [...hoverSimilarSource].sort((a, b) =>
+      Math.abs(rtSeconds(a.key) - targetSeconds) - Math.abs(rtSeconds(b.key) - targetSeconds))[0] ?? null
+  }
+  const hoverX = hoverPoint !== null ? xOf(hoverIndex ?? 0) : 0
+  const tipWidth = 132
+  const tipX = hoverPoint !== null
+    ? (hoverX + tipWidth + 12 > RT_WIDTH - RT_PAD_X ? Math.max(RT_PAD_X, hoverX - tipWidth - 12) : hoverX + 12)
+    : 0
+  const tipY = RT_PAD_TOP + 8
+
+  const ariaCurrent = hoverSource.length > 0 ? `${Math.round((hoverSource[0]?.value ?? 0) * 10) / 10}%→${Math.round((hoverSource[hoverSource.length - 1]?.value ?? 0) * 10) / 10}%` : '—'
+
   return (
-    <ul className={css.barList}>
-      {rows.map(point => (
-        <li key={point.time} className={css.barRow}>
-          <span className={css.barLabel}>{point.time}</span>
-          <span className={css.barTrack}>
-            {point.pct !== null && (
-              <span className={css.barFill} style={{ width: `${Math.max((point.pct / max) * 100, 2)}%`, background: 'var(--yt-chart-1)' }} />
-            )}
-          </span>
-          <span className={css.barCount}>
-            {point.pct === null ? EMPTY : `${Math.round(point.pct * 10) / 10}%`}
-            {similarByTime.has(point.time) && (
-              <span className={css.barSub}> / {similarByTime.get(point.time) === null ? EMPTY : `${Math.round((similarByTime.get(point.time) as number) * 10) / 10}%`}</span>
-            )}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <div className={css.rtTabs} role='tablist' aria-label={t('detail.rt.tabs')}>
+        <button type='button' className={`${css.rtTab} ${tab === 'retention' ? css.rtTabActive : ''}`} aria-pressed={tab === 'retention'} onClick={() => { setTab('retention'); setHoverIndex(null) }}>
+          {t('detail.rt.tabRetention')}
+        </button>
+        <button type='button' className={`${css.rtTab} ${isBounce ? css.rtTabActive : ''}`} aria-pressed={isBounce} onClick={() => { setTab('bounce'); setHoverIndex(null) }}>
+          {t('detail.rt.tabBounce')}
+        </button>
+      </div>
+      {isBounce && !bounceOk
+        ? <p className={css.chartEmpty} role='status'>{t('analysis.dataInsufficient')}</p>
+        : (
+          <>
+            <svg
+              className={css.rtSvg}
+              viewBox={`0 0 ${RT_WIDTH} ${RT_HEIGHT}`}
+              role='img'
+              aria-label={t('detail.rt.aria', { current: ariaCurrent, valleys: String(valleys.length) })}
+              onMouseMove={event => {
+                if (!hoverSource.length) return
+                const rect = event.currentTarget.getBoundingClientRect()
+                const relX = ((event.clientX - rect.left) / rect.width) * RT_WIDTH
+                const scale = (RT_WIDTH - RT_PAD_X * 2) / Math.max(1, hoverSource.length - 1)
+                setHoverIndex(Math.max(0, Math.min(hoverSource.length - 1, Math.round((relX - RT_PAD_X) / scale))))
+              }}
+              onMouseLeave={() => { setHoverIndex(null) }}
+            >
+              {[0, 1, 2, 3].map((_, index) => {
+                const gy = RT_PAD_TOP + ((RT_HEIGHT - RT_PAD_TOP - RT_PAD_BOTTOM) * index) / 3
+                return <line key={`grid-${index}`} x1={RT_PAD_X} y1={gy} x2={RT_WIDTH - RT_PAD_X} y2={gy} stroke='var(--yt-chart-grid)' />
+              })}
+              {valleys.map((valley, index) => {
+                const bandLeft = xOfSeconds(valley.start)
+                const centerX = (xOfSeconds(valley.start) + xOfSeconds(valley.end)) / 2
+                return (
+                  <g key={`valley-${index}`}>
+                    <rect x={bandLeft} y={RT_PAD_TOP} width={Math.max(2, xOfSeconds(valley.end) - bandLeft)} height={RT_HEIGHT - RT_PAD_TOP - RT_PAD_BOTTOM} fill='color-mix(in srgb, var(--dsw-alias-state-error-primary) 20%, transparent)' />
+                    <rect x={centerX - 24} y={RT_HEIGHT - RT_PAD_BOTTOM - 4} width={48} height={16} rx={3} fill='var(--dsw-alias-state-error-primary)' />
+                    <text x={centerX} y={RT_HEIGHT - RT_PAD_BOTTOM + 8} textAnchor='middle' fontSize='11' fill='var(--dsw-alias-label-primary)'>{t('detail.rt.valleyBadge')}{index + 1}</text>
+                  </g>
+                )
+              })}
+              {current.length > 1 && !isBounce && (
+                <polygon points={`${current.map((point, index) => `${xOf(index)},${yOf(point.value)}`).join(' ')} ${xOf(current.length - 1)},${RT_HEIGHT - RT_PAD_BOTTOM} ${xOf(0)},${RT_HEIGHT - RT_PAD_BOTTOM}`} fill='var(--yt-chart-grid)' opacity={0.5} />
+              )}
+              {!isBounce && similar.length > 1 && (
+                <polyline points={similar.map((point, index) => `${xOf(index)},${yOf(point.value)}`).join(' ')} fill='none' stroke='var(--dsw-alias-label-secondary)' strokeWidth={1.5} strokeDasharray='5 4' />
+              )}
+              {isBounce && bounceSimilar.length > 1 && (
+                <polyline points={bounceSimilar.map((point, index) => `${xOf(index)},${yOf(point.value)}`).join(' ')} fill='none' stroke='var(--dsw-alias-label-secondary)' strokeWidth={1.5} strokeDasharray='5 4' />
+              )}
+              <polyline points={polylineOf(hoverSource)} fill='none' stroke='var(--dsw-alias-label-primary)' strokeWidth={1.8} />
+              {tickIndexes.map((index, tickIndex) => (
+                <text key={`x-${tickIndex}`} x={xOf(index)} y={RT_HEIGHT - 10} textAnchor={tickIndex === 0 ? 'start' : tickIndex === tickIndexes.length - 1 ? 'end' : 'middle'} fontSize='11' fill='var(--dsw-alias-label-secondary)'>
+                  {(hoverSource[index] ?? { key: '' }).key}
+                </text>
+              ))}
+              {(isBounce ? [bounceMax, Math.round((bounceMax / 2) * 100) / 100, 0] : [100, 75, 50, 25]).map((value, index) => {
+                const gy = RT_PAD_TOP + ((RT_HEIGHT - RT_PAD_TOP - RT_PAD_BOTTOM) * index) / 3
+                return <text key={`y-${index}`} x={RT_PAD_X - 6} y={gy - 3} textAnchor='end' fontSize='11' fill='var(--dsw-alias-label-secondary)'>{`${Math.round(value * 10) / 10}%`}</text>
+              })}
+              {hoverPoint !== null && (
+                <g>
+                  <line x1={hoverX} y1={RT_PAD_TOP} x2={hoverX} y2={RT_HEIGHT - RT_PAD_BOTTOM} stroke='var(--dsw-alias-label-tertiary)' strokeDasharray='3 3' />
+                  <circle cx={hoverX} cy={yOf(hoverPoint.value)} r={4} fill='var(--yt-chart-1)' />
+                  {hoverSimilarPoint !== null && (
+                    <circle cx={xOfSeconds(rtSeconds(hoverSimilarPoint.key))} cy={yOf(hoverSimilarPoint.value)} r={3.5} fill='var(--dsw-alias-label-secondary)' />
+                  )}
+                  <g>
+                    <rect x={tipX} y={tipY} width={132} height={74} rx={8} fill='var(--dsw-alias-bg-layer-1)' stroke='var(--dsw-alias-border-l1)' />
+                    <text x={tipX + 12} y={tipY + 22} fontSize='12' fill='var(--dsw-alias-label-secondary)'>{hoverPoint.key}</text>
+                    <circle cx={tipX + 16} cy={tipY + 40} r={4} fill='var(--yt-chart-1)' />
+                    <text x={tipX + 26} y={tipY + 44} fontSize='12' fill='var(--dsw-alias-label-secondary)'>{t('detail.rt.legendCurrent')}</text>
+                    <text x={tipX + 120} y={tipY + 44} textAnchor='end' fontSize='12' fill='var(--dsw-alias-label-primary)'>{`${Math.round(hoverPoint.value * 10) / 10}%`}</text>
+                    {hoverSimilarPoint !== null && (
+                      <>
+                        <circle cx={tipX + 16} cy={tipY + 60} r={3.5} fill='var(--dsw-alias-label-secondary)' />
+                        <text x={tipX + 26} y={tipY + 64} fontSize='12' fill='var(--dsw-alias-label-secondary)'>{t('detail.rt.legendSimilar')}</text>
+                        <text x={tipX + 120} y={tipY + 64} textAnchor='end' fontSize='12' fill='var(--dsw-alias-label-primary)'>{`${Math.round(hoverSimilarPoint.value * 10) / 10}%`}</text>
+                      </>
+                    )}
+                  </g>
+                </g>
+              )}
+            </svg>
+            <ul className={css.rtLegend}>
+              <li><span className={css.rtSwatchCurrent} />{isBounce ? t('detail.rt.legendBounce') : t('detail.rt.legendCurrent')}</li>
+              {hoverSimilarSource.length > 0 && <li><span className={css.rtSwatchSimilar} />{t('detail.rt.legendSimilar')}</li>}
+              {valleys.length > 0 && <li><span className={css.rtSwatchValley} />{t('detail.rt.legendValley')}</li>}
+            </ul>
+          </>
+        )}
+    </div>
   )
 }
 
