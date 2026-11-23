@@ -612,8 +612,8 @@
 
 .cover {
   position: relative;
-  width: 60px;
-  height: 80px;
+  width: 40px;
+  height: 52px;
   display: grid;
   place-items: center;
   border-radius: var(--dsw-radius-sm);
@@ -667,7 +667,8 @@
 
 .kpiRow {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  /* auto-fit：行内瓦片数不限 6，均分撑满整行（旧插件 KPI 行铺满口径） */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   min-width: 0;
 }
@@ -1072,7 +1073,34 @@
 
 .barRow {
   display: grid;
-  /* 四列：排名 / 名称 / 轨道 / 数量（旧插件同构；3 列会把轨道挤没、数量换行） */
+  /* 三列：标签自适应完整显示 / 轨道弹性 / 数值右对齐（DistributionBars 通用） */
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: var(--dsw-radius-md);
+  min-width: 0;
+}
+
+.barLabel {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  white-space: nowrap;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--yt-chart-2);
+}
+
+/* 总览爆款分布专用行：四列（排名 / 名称 / 轨道 / 数量；旧插件同构）。 */
+.hotDistRow {
+  display: grid;
   grid-template-columns: 16px minmax(96px, 160px) minmax(0, 1fr) 44px;
   align-items: center;
   gap: 8px;
@@ -1102,6 +1130,29 @@
 
 @container yootun-kit-page (max-width: 1119px) {
   .ovTwoCol {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 分析区段标题（数据趋势等，与右侧指标控件同行）。 */
+.sectionTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 分析页：内容指标（左）与观众与流量（右）两栏（旧插件同构；窄屏单列）。 */
+.analysisTwoCol {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@container yootun-kit-page (max-width: 1119px) {
+  .analysisTwoCol {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -1136,29 +1187,12 @@
   }
 }
 
-.barLabel {
-  min-width: 0;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: start;
-}
-
 .barTrack {
   min-width: 0;
   height: 12px;
   border-radius: var(--dsw-radius-sm);
   background: var(--yt-chart-grid);
   overflow: clip;
-}
-
-.barFill {
-  display: block;
-  height: 100%;
-  border-radius: var(--dsw-radius-sm);
 }
 
 .barCount {

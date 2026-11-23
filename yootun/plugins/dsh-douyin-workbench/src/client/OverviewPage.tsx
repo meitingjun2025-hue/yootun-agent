@@ -364,6 +364,44 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
               </div>
             </DataCard>
 
+            <div className={css.ovTwoCol}>
+            {data.distribution !== null && data.distribution.length > 0 && (() => {
+              const rows = data.distribution.filter(row => row.hotWorkCount > 0).slice(0, 5)
+              const max = Math.max(1, ...rows.map(row => row.hotWorkCount))
+              return (
+                <ChartFrame title={t('overview.dist.title')} ariaLabel={t('overview.dist.title')} state='ready' height='fit'>
+                  <ul className={css.barList} aria-label={t('overview.dist.title')}>
+                    {rows.map((row, index) => (
+                      <li key={row.accountId} className={`${css.hotDistRow} ${index < 3 ? css[`barTop${index + 1}` as 'barTop1'] : ''}`}>
+                        <span className={css.barRank} aria-hidden='true'>{index + 1}</span>
+                        <span className={css.barLabel} title={row.nickname ?? row.accountId}>{row.nickname ?? row.accountId}</span>
+                        <span className={css.barTrack}>
+                          <span className={`${css.barFill} ${index < 3 ? css[`barFillTop${index + 1}` as 'barFillTop1'] : ''}`} style={{ width: `${(row.hotWorkCount / max) * 100}%` }} />
+                        </span>
+                        <span className={css.barCount}>{formatCount(row.hotWorkCount, props.localeTag)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </ChartFrame>
+              )
+            })()}
+
+            <DataCard title={t('overview.alerts.title')} state='ready'>
+              {alerts.length > 0
+                ? (
+                  <ul className={css.alertList}>
+                    {alerts.map(alert => (
+                      <li key={`${alert.accountId}:${alert.kind}`} className={css.alertItem}>
+                        <StateDot state={alert.kind === 'session_expired' ? 'error' : 'warning'} />
+                        <span>{`${alert.name}：${alert.text}`}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )
+                : <p className={css.inlineHint}>{t('overview.alerts.none')}</p>}
+            </DataCard>
+            </div>
+
             <DataCard title={t('overview.hot.title')} state='ready'>
               <DataState state={data.hotWorks.length > 0 ? 'ready' : 'empty'} shape='rows'>
                 <div className={css.tableWrap} role='region' aria-label={t('overview.hot.title')} tabIndex={0}>
@@ -405,44 +443,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
               </DataState>
             </DataCard>
 
-            <div className={css.ovTwoCol}>
-            {data.distribution !== null && data.distribution.length > 0 && (() => {
-              const rows = data.distribution.filter(row => row.hotWorkCount > 0).slice(0, 5)
-              const max = Math.max(1, ...rows.map(row => row.hotWorkCount))
-              return (
-                <ChartFrame title={t('overview.dist.title')} ariaLabel={t('overview.dist.title')} state='ready' height='fit'>
-                  <ul className={css.barList} aria-label={t('overview.dist.title')}>
-                    {rows.map((row, index) => (
-                      <li key={row.accountId} className={`${css.barRow} ${index < 3 ? css[`barTop${index + 1}` as 'barTop1'] : ''}`}>
-                        <span className={css.barRank} aria-hidden='true'>{index + 1}</span>
-                        <span className={css.barLabel} title={row.nickname ?? row.accountId}>{row.nickname ?? row.accountId}</span>
-                        <span className={css.barTrack}>
-                          <span className={`${css.barFill} ${index < 3 ? css[`barFillTop${index + 1}` as 'barFillTop1'] : ''}`} style={{ width: `${(row.hotWorkCount / max) * 100}%` }} />
-                        </span>
-                        <span className={css.barCount}>{formatCount(row.hotWorkCount, props.localeTag)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </ChartFrame>
-              )
-            })()}
-
-            <DataCard title={t('overview.alerts.title')} state='ready'>
-              {alerts.length > 0
-                ? (
-                  <ul className={css.alertList}>
-                    {alerts.map(alert => (
-                      <li key={`${alert.accountId}:${alert.kind}`} className={css.alertItem}>
-                        <StateDot state={alert.kind === 'session_expired' ? 'error' : 'warning'} />
-                        <span>{`${alert.name}：${alert.text}`}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )
-                : <p className={css.inlineHint}>{t('overview.alerts.none')}</p>}
-            </DataCard>
-            </div>
-          </>
+            </>
         )}
       </DataState>
     </div>

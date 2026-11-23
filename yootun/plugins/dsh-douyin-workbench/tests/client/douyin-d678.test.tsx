@@ -988,3 +988,25 @@ describe('gene.get 投影真实形状（D9B 真机第五缺陷回归）', () => 
     assert.equal(wrapped?.recordId, 'vvk_106bc17761441659')
   })
 })
+
+describe('work.trend 快照投影（D9B 真机第七缺陷回归）', () => {
+  it('readWorkTrend 读 play_count 并同日取 captured_at 最大（旧 snapshotTrendPoints 同构）', async () => {
+    const { readWorkTrend } = await import('../../src/client/schema.ts')
+    // work.trend 快照行真实形状：无 value 字段，值为 play_count；同日两条取后者。
+    const payload = {
+      status: 'ready',
+      data: {
+        snapshots: [
+          { day: '2026-11-21', captured_at: '2026-11-21T20:15:00+08:00', play_count: 100 },
+          { day: '2026-11-22', captured_at: '2026-11-22T10:00:00+08:00', play_count: 150 },
+          { day: '2026-11-22', captured_at: '2026-11-22T22:00:00+08:00', play_count: 300 },
+          { day: '2026-11-23', captured_at: '2026-11-23T10:22:00+08:00', play_count: null },
+        ],
+      },
+    }
+    const points = readWorkTrend(payload)
+    assert.deepEqual(points.map(p => p.day), ['2026-11-21', '2026-11-22'])
+    assert.deepEqual(points.map(p => p.value), [100, 300], '同日多条取 captured_at 最大')
+    // play_count null 的行丢弃（不造 0）。
+  })
+})

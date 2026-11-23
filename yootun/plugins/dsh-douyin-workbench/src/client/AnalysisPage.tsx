@@ -121,9 +121,9 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
       const res = await hostAction('account.trend', {
         accountId: props.accountId,
         metric: nextMetric,
-        // 固定 7 天窗口（当天往前推 7 天，旧插件口径）：fromDay=今天-6、toDay 覆盖今天。
+        // 固定 7 天窗口（当天往前推 7 天；toDay=今天，服务端对晚于今天 clamp）。
         fromDay: dayFmt(-6),
-        toDay: dayFmt(1),
+        toDay: dayFmt(0),
       })
       if (trendSeqRef.current !== seq) return
       setTrendPoints(readAccountTrend(res))
@@ -273,10 +273,11 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
             )}
 
             <div className={css.workToolbarRow}>
+              <h3 className={css.sectionTitle}>{t('analysis.trend.title')}</h3>
               <MetricMenu t={t} metric={metric} onChange={setMetric} />
             </div>
             <ChartFrame
-              title={t('analysis.trend.title')}
+              title=' '
               ariaLabel={t('analysis.trend.title')}
               state='ready'
               height='fit'
@@ -300,6 +301,7 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                 )}
             </ChartFrame>
 
+            <div className={css.analysisTwoCol}>
             <DataCard title={t('analysis.metrics.title')} state='ready'>
               <div className={css.metricGrid}>
                 {(analysis?.content ?? []).map(row => {
@@ -359,6 +361,7 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                 </AudienceCard>
               </div>
             </DataCard>
+            </div>
 
             <DataCard title={t('analysis.hot.title')} state='ready'>
               <DataState state={(analysis?.hotWorks.length ?? 0) > 0 ? 'ready' : 'empty'} shape='rows'>
@@ -661,28 +664,31 @@ function MetricMenu(props: { t: Translate; metric: string; onChange: (metric: st
   const current = TREND_METRICS.find(item => item.id === props.metric) ?? TREND_METRICS[0]
   if (current === undefined) return null
   return (
-    <Menu
-      open={open}
-      anchor={(
-        <Button
-          variant='outline'
-          size='sm'
-          aria-haspopup='menu'
-          aria-expanded={open}
-          aria-label={props.t('analysis.trend.metric')}
-          onClick={() => { setOpen(value => !value) }}
-        >
-          {props.t(current.labelKey)}
-        </Button>
-      )}
-      items={TREND_METRICS.map(item => ({ id: item.id, label: props.t(item.labelKey) }))}
-      selectedId={props.metric}
-      onSelect={id => {
-        setOpen(false)
-        props.onChange(id)
-      }}
-      onClose={() => { setOpen(false) }}
-    />
+    <span className={css.filterGroup}>
+      <span className={css.filterGroupLabel}>{props.t('analysis.trend.metric')}</span>
+      <Menu
+        open={open}
+        anchor={(
+          <Button
+            variant='outline'
+            size='sm'
+            aria-haspopup='menu'
+            aria-expanded={open}
+            aria-label={props.t('analysis.trend.metric')}
+            onClick={() => { setOpen(value => !value) }}
+          >
+            {props.t(current.labelKey)}
+          </Button>
+        )}
+        items={TREND_METRICS.map(item => ({ id: item.id, label: props.t(item.labelKey) }))}
+        selectedId={props.metric}
+        onSelect={id => {
+          setOpen(false)
+          props.onChange(id)
+        }}
+        onClose={() => { setOpen(false) }}
+      />
+    </span>
   )
 }
 

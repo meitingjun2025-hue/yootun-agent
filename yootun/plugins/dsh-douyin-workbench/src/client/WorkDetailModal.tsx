@@ -104,7 +104,6 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
       onClose={props.onClose}
       title={work.title ?? work.work_id}
       closeLabel={t('work.close')}
-      description={t('detail.title')}
       className={css.detailDialog as string}
       contentClassName={css.detailContent as string}
     >

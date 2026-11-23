@@ -302,6 +302,11 @@ export interface WorkDetailView {
   searchKeywords: string[]
 }
 
+/** 字符串优先、数值回退的展示文本（投流数值字段双形态下发兼容）。 */
+function numTextOf(value: unknown): string | null {
+  return textOf(value) ?? (numberOf(value) !== null ? String(numberOf(value)) : null)
+}
+
 /** work.get → 详情投影（`data` envelope 直通）。 */
 export function readWorkDetail(payload: Record<string, unknown>): WorkDetailView {
   const data = recordOf(payload.data) ?? {}
@@ -332,10 +337,12 @@ export function readWorkDetail(payload: Record<string, unknown>): WorkDetailView
     },
     promotion: promotion === undefined ? null : {
       id: textOf(promotion.id) ?? '',
-      playCount: textOf(promotion.playCount),
-      costAmount: textOf(promotion.costAmount),
-      fansCount: textOf(promotion.fansCount),
-      durationHours: textOf(promotion.durationHours),
+      // 服务端数值字段可能以 number 下发（真机 2026-11-23：播放量/粉丝量显示 —）：
+      // textOf 之外回退 numberOf 转字符串，金额/时长同口径加固。
+      playCount: numTextOf(promotion.playCount),
+      costAmount: numTextOf(promotion.costAmount),
+      fansCount: numTextOf(promotion.fansCount),
+      durationHours: numTextOf(promotion.durationHours),
     },
     hotwords: arrayOf(data.hotwords).map(item => {
       const row = recordOf(item)
@@ -380,17 +387,31 @@ export function readWorkTrend(payload: Record<string, unknown>): TrendPoint[] {
   return trendPointsOf(data?.snapshots)
 }
 
-/** 日点投影：day + value/elapse_value 兼容读；无 day 的行丢弃。 */
+/**
+ * 快照行 → 日点（旧 snapshotTrendPoints 同构）：值为 ``play_count``（快照行无
+ * value 字段）；同日多次采集按 captured_at 取最大（日收盘语义）；day 缺失回退
+ * captured_at + 8h 的上海自然日。窗口锚点随最后一次采集走，不锚真今天。
+ */
 function trendPointsOf(value: unknown): TrendPoint[] {
-  const rows: TrendPoint[] = []
+  const byDay = new Map<string, { value: number; capturedMs: number }>()
   for (const entry of arrayOf(value)) {
     const record = recordOf(entry)
     if (record === undefined) continue
+    const capturedAt = textOf(record.captured_at)
+    const play = numberOf(record.play_count)
+    if (capturedAt === null || play === null) continue
+    const capturedMs = Date.parse(capturedAt)
+    if (!Number.isFinite(capturedMs)) continue
     const day = textOf(record.day)
-    if (day === null) continue
-    rows.push({ day, value: numberOf(record.value) })
+      ?? new Date(capturedMs + 8 * 3_600_000).toISOString().slice(0, 10)
+    const existing = byDay.get(day)
+    if (existing === undefined || capturedMs >= existing.capturedMs) {
+      byDay.set(day, { value: play, capturedMs })
+    }
   }
-  return rows
+  return [...byDay.entries()]
+    .map(([day, entry]) => ({ day, value: entry.value }))
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0))
 }
 
 // ---- 账号总览（overview.get） ----
