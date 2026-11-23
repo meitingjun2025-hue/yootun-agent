@@ -1,0 +1,11 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/item_compare.low.sample.json（status_code=10001 低播放门槛，item 为空，键名实测真实）。",
+  "status_code": 10001,
+  "status_msg": "view count less than min view count",
+  "selected_metrics": [],
+  "compare_item_ids": [],
+  "item": {},
+  "metrics": [],
+  "view_count_metric": {},
+  "punish_info": {}
+}

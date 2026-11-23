@@ -1,0 +1,67 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/docs/1015/douyin/fixtures/dashboard_fans.sample.json（粉丝侧六指标同构响应，含 home_view_fans_cnt，键名实测真实，值为占位）。",
+  "status_code": 0,
+  "status_msg": "",
+  "metrics": [
+    {
+      "english_metric_name": "net_fans_cnt",
+      "metric_name": "净增粉丝",
+      "metric_value": 8,
+      "trends": [
+        { "date_time": "20261001", "value": 7, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 6, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 5, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "cancel_fans_cnt",
+      "metric_name": "取消关注",
+      "metric_value": 1,
+      "trends": [
+        { "date_time": "20261001", "value": 1, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 0, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 0, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "new_fans_cnt",
+      "metric_name": "新增粉丝",
+      "metric_value": 9,
+      "trends": [
+        { "date_time": "20261001", "value": 9, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 8, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 7, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "home_view_fans_cnt",
+      "metric_name": "主页访问粉丝数",
+      "metric_value": 4,
+      "trends": [
+        { "date_time": "20261001", "value": 4, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 3, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 2, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "homepage_view_cnt",
+      "metric_name": "主页访问量",
+      "metric_value": 77,
+      "trends": [
+        { "date_time": "20261001", "value": 77, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 76, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 75, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "total_fans_cnt",
+      "metric_name": "粉丝总量",
+      "metric_value": 499,
+      "trends": [
+        { "date_time": "20261001", "value": 499, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 498, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 497, "change_rate": 0.1 }
+      ]
+    }
+  ]
+}

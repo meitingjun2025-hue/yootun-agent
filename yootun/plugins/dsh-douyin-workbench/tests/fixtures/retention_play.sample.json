@@ -1,0 +1,17 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/retention_play.sample.json（realtime/analysis/data_center analysis_type=1；current_item/similar_author + 分组 valley_list，键名实测真实，值为占位）。",
+  "status_code": 0,
+  "status_msg": "",
+  "analysis_trend": {
+    "current_item": [
+      { "key": "00:00", "value": 1 },
+      { "key": "00:01", "value": 0.8475 },
+      { "key": "00:02", "value": 0.7353 }
+    ],
+    "similar_author": [
+      { "key": "00:00", "value": 0.9 },
+      { "key": "00:01", "value": 0.7 }
+    ]
+  },
+  "valley_list": { "1": [{ "start": "3", "end": "8" }], "2": [{ "start": "20", "end": "25" }] }
+}

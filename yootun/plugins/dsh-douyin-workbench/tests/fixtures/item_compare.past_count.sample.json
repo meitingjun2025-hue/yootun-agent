@@ -1,0 +1,12 @@
+{
+  "_note": "结构对照 docs/1015 真机抓包形态：status_code=10005（历史作品数门槛）且 item.metrics 仍带部分指标，键名实测真实，值为占位。",
+  "status_code": 10005,
+  "status_msg": "past item count less than min count",
+  "selected_metrics": [],
+  "compare_item_ids": [],
+  "item": {
+    "metrics": { "view_count": 100, "completion_rate": 0.2 }
+  },
+  "view_count_metric": {},
+  "punish_info": {}
+}

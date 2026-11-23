@@ -1,0 +1,11 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/wordCloud.sample.json（word_cloud_list 的 rank/score/word，键名实测真实，词为占位）。",
+  "status_code": 0,
+  "status_msg": "",
+  "extra": { "logid": "EXAMPLE" },
+  "word_cloud_list": [
+    { "rank": 1, "score": "2", "word": "占位词甲" },
+    { "rank": 2, "score": "2", "word": "占位词乙" },
+    { "rank": -3, "score": "1", "word": "占位词丙" }
+  ]
+}

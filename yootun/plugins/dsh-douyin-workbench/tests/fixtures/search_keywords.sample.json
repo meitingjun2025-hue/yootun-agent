@@ -1,0 +1,13 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/search_keywords.sample.json（show_from 数组；keyword/word 双别名与缺 percent 行为真机实测形态，值为占位）。",
+  "status_code": 0,
+  "status_msg": "",
+  "id": "7412345678901234001",
+  "show_from": [
+    { "keyword": "占位词甲", "percent": 30 },
+    { "word": "占位词乙", "percent": 90 },
+    { "keyword": "占位词丙" },
+    { "keyword": "占位词丁", "percent": null }
+  ],
+  "inspire_search": []
+}
