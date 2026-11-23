@@ -1,0 +1,25 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/work_list.page1.sample.json（键名/结构实测真实，值为占位）。",
+  "status_code": 0,
+  "aweme_list": [
+    {
+      "aweme_id": "7412345678901234001",
+      "desc": "占位标题甲 #占位话题",
+      "create_time": 1792000000,
+      "statistics": { "play_count": 12000, "digg_count": 120, "comment_count": 11, "collect_count": 6, "share_count": 4 },
+      "video": { "duration": 61000, "cover": { "url_list": ["https://example.invalid/cover-a.jpeg"] } },
+      "status": { "is_private": false, "aweme_id": "7412345678901234001" }
+    },
+    {
+      "aweme_id": "7412345678901234002",
+      "desc": "占位标题乙",
+      "create_time": 1792000100,
+      "statistics": { "play_count": 300, "digg_count": 2, "comment_count": 0, "collect_count": 1, "share_count": 0 },
+      "video": { "duration": 45000, "cover": { "url_list": ["https://example.invalid/cover-b.jpeg"] } },
+      "status": { "is_private": false }
+    }
+  ],
+  "has_more": true,
+  "max_cursor": 1792000000000,
+  "cursor": 1792000000000
+}

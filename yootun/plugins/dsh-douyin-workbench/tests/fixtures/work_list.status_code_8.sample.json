@@ -1,0 +1,5 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/work_list.status_code_8.sample.json（HTTP 200 + status_code=8 业务层会话失效，无 aweme_list/has_more）。",
+  "status_code": 8,
+  "status_msg": "占位：用户未登录"
+}

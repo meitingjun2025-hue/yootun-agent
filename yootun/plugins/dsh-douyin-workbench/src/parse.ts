@@ -1,14 +1,22 @@
 /**
- * 采集解析层（移植旧 parse.js 全语义）：19 位 aweme_id 先取文本→对 ≥16 位数字
- * 加引号再 JSON.parse（float64 舍入防线）；HTTP 200 + `status_code: 8` 是业务层
- * 会话失效，解析层必须抛 SessionInvalidError（防旧实现按空列表假成功）；数值
- * 换算无 -0；百分比 0..1 → 0..100 定义域守卫（越界记缺口不造值）；四种缺口
- * 语义 not_exposed / below_min_view / request_failed / no_data 不可互换。
+ * 采集解析层（与旧 dsh-yootun-douyin-operation/parse.js 逐字段对齐）：19 位
+ * aweme_id 先取文本→对 ≥16 位数字加引号再 JSON.parse（float64 舍入防线）；
+ * HTTP 200 + `status_code: 8` 是业务层会话失效，列表/大盘/粉丝画像/趋势解析器
+ * 必须抛 SessionInvalidError（防按空列表假成功），单稿详情端点解析为空/缺口由
+ * collector 对 item_compare 的判定统一抛出；数值换算无 -0；百分比 0..1 →
+ * 0..100 定义域守卫（越界记缺口不造值）；四种缺口语义 not_exposed /
+ * below_min_view / request_failed / no_data 不可互换。
  * @module
  */
 
 /** 会话失效业务码（HTTP 200 + status_code 8）。 */
 export const SESSION_EXPIRED_STATUS_CODE = 8
+
+/** 抖音单稿对比的最低观看门槛（`view count less than min view count`）。 */
+export const LOW_PLAY_STATUS_CODE = 10001
+
+/** 抖音单稿对比的历史作品数门槛（`past item count less than min count`）。 */
+export const PAST_ITEM_COUNT_STATUS_CODE = 10005
 
 /** 业务层会话失效（确定性证据；采集立即中止并上报 expired）。 */
 export class SessionInvalidError extends Error {
@@ -23,7 +31,7 @@ export class SessionInvalidError extends Error {
   /** 列表阶段失效时带出的已采集作品（scope 内已过滤）。 */
   partialListWorks?: WorkItem[]
 
-  constructor(statusCode: number, reason = 'session_invalid') {
+  constructor(statusCode: number = SESSION_EXPIRED_STATUS_CODE, reason = 'session_invalid') {
     super(`session_invalid (status_code ${String(statusCode)})`)
     this.name = 'SessionInvalidError'
     this.statusCode = statusCode
@@ -37,15 +45,23 @@ export interface PartialCollected {
   listComplete: boolean
   expectedWorkCount: number
   publishSince: string | null
+  /** 范围外跳过数（列表阶段失效时未知，缺省由收尾按 null 上报）。 */
+  skippedBeforePublishSince?: number
 }
 
-/** Whether one response payload carries the deterministic session-expired marker. */
+/** HTTP 200 响应体是否为业务层会话失效（status_code 经 toInt 后判 8）。 */
 export function isSessionExpiredPayload(json: unknown): boolean {
   if (!json || typeof json !== 'object' || Array.isArray(json)) return false
-  return (json as { status_code?: unknown }).status_code === SESSION_EXPIRED_STATUS_CODE
+  return toInt((json as { status_code?: unknown }).status_code) === SESSION_EXPIRED_STATUS_CODE
 }
 
-/** null/undefined/''/boolean → null；非有限 → null；`-0` 收敛为 0。 */
+/**
+ * 严格数值转换：缺失（null/undefined/''/布尔）返回 null，不伪造成 0。
+ *
+ * dataGap 语义的基础：接口没给的字段必须落成 null（缺口），而不是 0（会被
+ * UI 当成真实数据展示）。`-0` 收敛为 0：宿主 snapshotJsonValue 的无损 JSON
+ * 校验拒绝 -0，而 `Number('-0')`、`Math.trunc(-0.2)` 都会产生 -0。
+ */
 export function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === '' || typeof value === 'boolean') return null
   const num = Number(value)
@@ -53,64 +69,78 @@ export function toNumber(value: unknown): number | null {
   return num === 0 ? 0 : num
 }
 
-/** 0..1 → 0..100 两位小数；越界返回 null（缺口，服务端 ge=0,le=100 会整批拒绝）。 */
+/**
+ * 0..1 比例 → 百分比（2 位小数）。经 toNumber 判缺；越出 0..1 定义域返回 null。
+ *
+ * 服务端所有 `*_pct` 字段都有 ge=0, le=100 硬约束，异常比率若透传会让整批
+ * 入库被拒；越界视为本次未暴露（缺口），其余字段的入库不受影响。
+ */
 export function pct(value: unknown): number | null {
-  const num = Number(value)
-  if (!Number.isFinite(num) || num < 0 || num > 1) return null
+  const num = toNumber(value)
+  if (num === null || num < 0 || num > 1) return null
   return Math.round(num * 100 * 100) / 100
 }
 
-/** 时长类秒值：负数 → null；两位小数；`-0` 收敛。 */
+/**
+ * 数值取 2 位小数；经 toNumber 判缺；负数返回 null。
+ *
+ * 仅用于时长类字段（duration_s / avg_watch_duration_s），语义上非负；负值是
+ * 抖音侧数据异常，落 null 记缺口，避免服务端 ge=0 拒批。
+ */
 export function round2(value: unknown): number | null {
-  const num = Number(value)
-  if (!Number.isFinite(num) || num < 0) return null
-  const rounded = Math.round(num * 100) / 100
-  return rounded === 0 ? 0 : rounded
+  const num = toNumber(value)
+  if (num === null || num < 0) return null
+  return Math.round(num * 100) / 100
 }
 
-/** Math.trunc；`-0` 收敛为 0。 */
+/** 截断整数；经 toNumber 判缺；`-0` 收敛为 0（Math.trunc(-0.2) === -0）。 */
 export function toInt(value: unknown): number | null {
-  const num = Number(value)
-  if (!Number.isFinite(num)) return null
+  const num = toNumber(value)
+  if (num === null) return null
   const truncated = Math.trunc(num)
   return truncated === 0 ? 0 : truncated
 }
 
-/** 文本夹取（上限截断；空串归 null）。 */
+/**
+ * 按 schema 边界收敛文本：超长字段截断（而不是让整批入库被校验拒绝）；
+ * null/undefined 与空串返回 null；不 trim（原始值原样入库）。
+ */
 export function clampText(value: unknown, max: number): string | null {
-  if (typeof value !== 'string') return null
-  const text = value.trim()
+  if (value === null || value === undefined) return null
+  const text = String(value)
   if (text === '') return null
-  return text.slice(0, max)
+  return text.length > max ? text.slice(0, max) : text
 }
 
-/** url_list / urlList / url 递归取首个字符串。 */
-export function firstUrl(value: unknown): string | null {
-  if (typeof value === 'string') return value.trim() !== '' ? value.trim() : null
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = firstUrl(item)
-      if (found !== null) return found
-    }
-    return null
-  }
-  if (value && typeof value === 'object') {
-    const record = value as Record<string, unknown>
-    for (const key of ['url_list', 'urlList', 'url']) {
-      if (key in record) {
-        const found = firstUrl(record[key])
-        if (found !== null) return found
-      }
-    }
+/** 从 `{url_list: [...]}` 或字符串取第一个 URL。 */
+export function firstUrl(node: unknown): string | null {
+  if (!node) return null
+  if (typeof node === 'string') return node.trim() !== '' ? node.trim() : null
+  if (Array.isArray(node)) return firstUrl(node[0])
+  if (typeof node !== 'object') return null
+  const record = node as Record<string, unknown>
+  return firstUrl(record.url_list || record.urlList || record.url)
+}
+
+/** 第一个非 null/undefined/'' 的值（缺失链语义与旧 parse.js 一致）。 */
+export function firstPresent(...values: unknown[]): unknown {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') return value
   }
   return null
+}
+
+/** 对象守卫（非对象返回 null，调用方走兜底链）。 */
+function recordOf(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
 }
 
 /**
  * Quote integer literals with ≥16 digits **outside JSON strings** so
  * JSON.parse keeps them as strings（19 位 aweme_id 裸数字会被 float64 舍入）。
  * String-aware：字符串值内部（含转义嵌套 JSON）的长数字原样保留——对正文
- * 里的长数字加引号会写出嵌套引号，直接破坏 JSON（旧插件 parse.js 同款语义）。
+ * 里的长数字加引号会写出嵌套引号，直接破坏 JSON。
  * @param text - raw response text.
  * @returns quoted text safe for JSON.parse.
  */
@@ -178,7 +208,7 @@ export function shanghaiTodayIso(now: () => number = Date.now): string {
   return shanghaiDayFromTs(Math.floor(now() / 1000))
 }
 
-/** 作品列表项（设备端采集层的白名单形状）。 */
+/** 作品列表项（设备端采集层的白名单形状；入库前经 buildWorkPayload 投影）。 */
 export interface WorkItem {
   workId: string
   title: string | null
@@ -195,46 +225,49 @@ export interface WorkItem {
   isPrivate: boolean
 }
 
-/** 列表单项归一（旧 normalizeWork：字段兜底链 + 无 -0 + 秒换算）。 */
-function normalizeWork(raw: Record<string, unknown>): WorkItem | null {
-  const workId = toNumberOrString(firstPresent(raw.aweme_id, raw.awemeId, raw.item_id, raw.id))
-  if (workId === null) return null
-  const statistics = (raw.statistics && typeof raw.statistics === 'object' ? raw.statistics : {}) as Record<string, unknown>
-  const video = (raw.video && typeof raw.video === 'object' ? raw.video : {}) as Record<string, unknown>
-  const status = (raw.status && typeof raw.status === 'object' ? raw.status : {}) as Record<string, unknown>
-  const createSeconds = toNumber(raw.create_time)
+/**
+ * 作品列表元素 → canonical 作品字段。
+ *
+ * 映射：`aweme_id→workId`、`desc→title`、`create_time→publishTime`、
+ * `statistics.*→counts`、`video.duration(ms)→durationSeconds`、
+ * `video.cover.url_list[0]→cover`、`status.is_private→isPrivate`。
+ * 页面 Web 模式响应键是大写 `Cover`/`Statistics`/`Status`（2026-10-15 实测），
+ * 与小写键同 uri/同值，候选顺序小写在前。
+ */
+function normalizeWork(raw: unknown): WorkItem | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const stats = recordOf(record.statistics) || recordOf(record.Statistics) || {}
+  const video = recordOf(record.video) || recordOf(record.Video) || {}
+  const status = recordOf(record.status) || recordOf(record.Status) || {}
+  const workId = firstPresent(record.aweme_id, record.awemeId, record.item_id, record.id)
+  if (!workId) return null
+  const createTime = toInt(firstPresent(record.create_time, record.createTime))
+  const durationMs = toInt(firstPresent(video.duration, record.duration))
   return {
-    workId,
-    title: clampText(firstPresent(raw.desc, raw.Description, raw.title), 1024),
-    url: clampText(`https://www.douyin.com/video/${workId}`, 2048),
-    publishTime: createSeconds !== null ? new Date(createSeconds * 1000).toISOString() : null,
-    playCount: toNumber(statistics.play_count),
-    likeCount: toNumber(statistics.digg_count),
-    commentCount: toNumber(statistics.comment_count),
-    collectCount: toNumber(statistics.collect_count),
-    shareCount: toNumber(statistics.share_count),
-    danmakuCount: toNumber(statistics.danmaku_count),
-    durationSeconds: toNumber(video.duration) === null ? null : round2((toNumber(video.duration) ?? 0) / 1000),
-    cover: firstUrl(firstPresent(video.cover, raw.Cover, raw.cover)),
-    isPrivate: status.is_private === true,
+    workId: String(workId),
+    title: clampText(firstPresent(record.desc, record.Description, record.title), 1024),
+    url: clampText(`https://www.douyin.com/video/${String(workId)}`, 2048),
+    publishTime: createTime === null ? null : new Date(createTime * 1000).toISOString(),
+    playCount: toInt(firstPresent(stats.play_count, stats.playCount)),
+    likeCount: toInt(firstPresent(stats.digg_count, stats.diggCount)),
+    commentCount: toInt(firstPresent(stats.comment_count, stats.commentCount)),
+    collectCount: toInt(firstPresent(stats.collect_count, stats.collectCount)),
+    shareCount: toInt(firstPresent(stats.share_count, stats.shareCount)),
+    danmakuCount: toInt(firstPresent(stats.danmaku_count, stats.danmakuCount)),
+    durationSeconds: durationMs === null ? null : round2(durationMs / 1000),
+    cover: firstUrl(firstPresent(video.cover, record.Cover, record.cover)),
+    isPrivate: status.is_private === true || status.isPrivate === true,
   }
 }
 
-/** 数字或字符串 ID 归一（aweme_id 可能以字符串下发）。 */
-function toNumberOrString(value: unknown): string | null {
-  if (typeof value === 'string' && value.trim() !== '') return value.trim()
-  const num = toNumber(value)
-  return num !== null ? String(num) : null
-}
-
-/** unknown[] → 对象行数组守卫（替代 as unknown[]：非对象/数组项行级剔除）。 */
+/** unknown[] → 对象行数组守卫（非对象/数组项行级剔除）。 */
 export function objectsOf(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return []
   const rows: Record<string, unknown>[] = []
   for (const item of value) {
-    if (item !== null && item !== undefined && typeof item === 'object' && !Array.isArray(item)) {
-      rows.push(item as Record<string, unknown>)
-    }
+    const record = recordOf(item)
+    if (record !== null) rows.push(record)
   }
   return rows
 }
@@ -242,14 +275,6 @@ export function objectsOf(value: unknown): Record<string, unknown>[] {
 /** nullable 变体（字段缺失语义返回 null 而非 []）。 */
 export function objectsOrNullOf(value: unknown): Record<string, unknown>[] | null {
   return Array.isArray(value) ? objectsOf(value) : null
-}
-
-/** 第一个非 undefined/null 值。 */
-export function firstPresent(...values: unknown[]): unknown {
-  for (const value of values) {
-    if (value !== undefined && value !== null) return value
-  }
-  return undefined
 }
 
 /** 单页解析结果。 */
@@ -261,227 +286,301 @@ export interface WorkListPage {
 }
 
 /**
- * 列表单页解析：status_code=8 抛会话失效；aweme_list 归一（无效行丢弃）。
+ * 列表单页解析：status_code=8 抛会话失效（绝不解析成空列表假成功）；
+ * aweme_list 归一（无效行丢弃，rawCount 按原始列表长度）。
  * @param json - parsed response.
  * @returns the page projection.
  * @throws {SessionInvalidError} the deterministic session-expired marker.
  */
 export function parseWorkListPage(json: unknown): WorkListPage {
-  if (isSessionExpiredPayload(json)) {
-    throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  }
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rawList = objectsOf(payload.aweme_list)
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  if (isSessionExpiredPayload(payload)) throw new SessionInvalidError(toInt(payload.status_code) ?? SESSION_EXPIRED_STATUS_CODE)
+  const list = Array.isArray(payload.aweme_list) ? payload.aweme_list : []
   const works: WorkItem[] = []
-  for (const item of rawList) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const normalized = normalizeWork(item as Record<string, unknown>)
+  for (const raw of list) {
+    const normalized = normalizeWork(raw)
     if (normalized !== null) works.push(normalized)
   }
-  const cursor = firstPresent(payload.max_cursor, payload.cursor)
+  const nextCursor = firstPresent(payload.max_cursor, payload.cursor)
   return {
     works,
     hasMore: payload.has_more === true,
-    nextCursor: cursor === undefined ? null : String(cursor),
-    rawCount: rawList.length,
+    nextCursor: nextCursor === null ? null : String(nextCursor),
+    rawCount: list.length,
   }
 }
 
-/** 翻页终止判定（五种不完整之一；cursor 停滞即不健康终止）。 */
-export function decidePagination(page: WorkListPage, pageNumber: number, maxPages: number, currentCursor: string): { continue: boolean; nextCursor: string | null; reason: string | null } {
-  if (!page.hasMore) return { continue: false, nextCursor: null, reason: null }
-  if (page.works.length === 0) return { continue: false, nextCursor: null, reason: 'empty_page_with_more' }
-  if (page.nextCursor === null || page.nextCursor === '' || page.nextCursor === currentCursor) {
-    return { continue: false, nextCursor: null, reason: 'cursor_not_advancing' }
-  }
-  if (pageNumber >= maxPages) return { continue: false, nextCursor: null, reason: 'max_pages_reached' }
-  return { continue: true, nextCursor: page.nextCursor, reason: null }
+/** 翻页终止判定结果：stop 时 listComplete/reason 说明完整性（旧 decidePagination 全语义）。 */
+export interface PaginationDecision {
+  stop: boolean
+  listComplete: boolean
+  reason: string
 }
 
-/** 跨页去重（按 workId，保留首现顺序）。 */
+/**
+ * 判断是否需要停止翻页，并给出是否"完整结束"。
+ *
+ * 终止/不完整规则：`has_more=false` 且当前页已处理 → 完整；`has_more=true` +
+ * 空页 → 不完整；下一页游标为空或与当前相同 → 不完整；达到 maxPages → 不完整。
+ */
+export function decidePagination(page: WorkListPage, cursor: string | number, pageNumber: number, maxPages: number): PaginationDecision {
+  if (!page.hasMore) return { stop: true, listComplete: true, reason: 'has_more_false' }
+  if (page.rawCount === 0) return { stop: true, listComplete: false, reason: 'empty_page_with_more' }
+  if (page.nextCursor === null || page.nextCursor === '' || String(page.nextCursor) === String(cursor)) {
+    return { stop: true, listComplete: false, reason: 'cursor_not_advancing' }
+  }
+  if (pageNumber >= maxPages) return { stop: true, listComplete: false, reason: 'max_pages_reached' }
+  return { stop: false, listComplete: false, reason: 'continue' }
+}
+
+/** 跨页按 workId 去重（保留首次出现顺序）。 */
 export function dedupeWorks(works: WorkItem[]): WorkItem[] {
   const seen = new Set<string>()
-  const kept: WorkItem[] = []
+  const out: WorkItem[] = []
   for (const work of works) {
     if (seen.has(work.workId)) continue
     seen.add(work.workId)
-    kept.push(work)
+    out.push(work)
   }
-  return kept
+  return out
 }
 
-/** item_compare 解析（低播放三态 gapReason）。 */
+/** 批量作品分析 item_performance 单行（早期留存指标 + 封面）。 */
+export interface PerformanceRow {
+  play_count: number | null
+  avg_watch_duration_s: number | null
+  completion_rate_5s_pct: number | null
+  bounce_rate_2s_pct: number | null
+  cover_url: string | null
+}
+
+/** 批量作品分析 `item_performance` → Map(workId → 早期留存指标)。 */
+export function parseItemPerformance(json: unknown): Map<string, PerformanceRow> {
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const items = Array.isArray(payload.items) ? payload.items : []
+  const map = new Map<string, PerformanceRow>()
+  for (const item of items) {
+    const record = recordOf(item)
+    if (record === null) continue
+    const workId = firstPresent(record.item_id, record.itemId)
+    if (!workId) continue
+    map.set(String(workId), {
+      play_count: toInt(record.play_count),
+      avg_watch_duration_s: round2(record.average_play_duration),
+      completion_rate_5s_pct: pct(record.completion_rate_5s),
+      bounce_rate_2s_pct: pct(record.bounce_rate_2s),
+      cover_url: firstUrl(record.cover),
+    })
+  }
+  return map
+}
+
+/** 单稿分析 `item_compare` 解析结果（低播放三态 gapReason）。 */
 export interface CompareMetrics {
   statusCode: number | null
+  lowPlay: boolean
+  hasMetrics: boolean
+  /** 缺口原因：below_min_view / past_item_below_min_count / not_exposed / null（有指标）。 */
   gapReason: string | null
-  metrics: {
-    playCount: number | null
-    avgWatchDuration: number | null
-    completionRate: number | null
-    completionRate5s: number | null
-    bounceRate2s: number | null
-    avgViewProportion: number | null
-    coverClickRate: number | null
-    followerPlayRatio: number | null
-    likeRate: number | null
-    commentRate: number | null
-    shareRate: number | null
-    favoriteRate: number | null
-  } | null
   statusMessage: string | null
+  metrics: {
+    play_count: number | null
+    avg_watch_duration_s: number | null
+    completion_rate_pct: number | null
+    completion_rate_5s_pct: number | null
+    bounce_rate_2s_pct: number | null
+    avg_view_proportion_pct: number | null
+    cover_click_rate_pct: number | null
+    follower_play_ratio_pct: number | null
+  }
+  engagement_rates: {
+    like_rate: number | null
+    comment_rate: number | null
+    share_rate: number | null
+    favorite_rate: number | null
+  }
 }
 
-const LOW_PLAY_STATUS_CODE = 10001
-const PAST_ITEM_THRESHOLD_STATUS_CODE = 10005
-
+/**
+ * 单稿分析 `item_compare`：读 `item.metrics`（2026-10-15 实测契约）。
+ *
+ * 缺口区分抖音的三种拒绝/未暴露形态：10001 是当前观看门槛，10005 是历史作品数
+ * 门槛（仍解析 item.metrics，有则用）；成功但无指标才是 not_exposed。请求未发出
+ * 时采集层改标 request_failed。会话失效（status_code=8）由 collector 判定抛出，
+ * 本函数按缺口语义解析。
+ */
 export function parseItemCompare(json: unknown): CompareMetrics {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const statusCode = toNumber(payload.status_code)
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const statusCode = toInt(payload.status_code)
+  const metrics = payload.item !== null && typeof payload.item === 'object'
+    ? (payload.item as Record<string, unknown>).metrics
+    : null
+  const metricsRecord = metrics !== null && typeof metrics === 'object' ? metrics as Record<string, unknown> : {}
+  const hasMetrics = Object.keys(metricsRecord).length > 0
   const lowPlay = statusCode === LOW_PLAY_STATUS_CODE
-  if (lowPlay) return { statusCode, gapReason: 'below_min_view', metrics: null, statusMessage: clampText(payload.status_msg, 256) }
-  if (statusCode === PAST_ITEM_THRESHOLD_STATUS_CODE) {
-    return { statusCode, gapReason: 'past_item_below_min_count', metrics: null, statusMessage: clampText(payload.status_msg, 256) }
-  }
-  const data = (payload.item_data ?? payload.data) as Record<string, unknown> | undefined
-  const metricsRaw = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-  const hasMetrics = Object.keys(metricsRaw).length > 0
-  if (!hasMetrics) {
-    return { statusCode, gapReason: statusCode !== null && statusCode !== 0 ? 'not_exposed' : 'not_exposed', metrics: null, statusMessage: clampText(payload.status_msg, 256) }
-  }
+  const gapReason = lowPlay
+    ? 'below_min_view'
+    : statusCode === PAST_ITEM_COUNT_STATUS_CODE
+      ? 'past_item_below_min_count'
+      : hasMetrics ? null : 'not_exposed'
   return {
     statusCode,
-    gapReason: null,
-    statusMessage: clampText(payload.status_msg, 256),
+    lowPlay,
+    hasMetrics,
+    gapReason,
+    statusMessage: typeof payload.status_msg === 'string' ? payload.status_msg : null,
     metrics: {
-      playCount: toNumber(metricsRaw.view_count),
-      avgWatchDuration: round2(toNumber(metricsRaw.avg_view_second)),
-      completionRate: pct(metricsRaw.completion_rate),
-      completionRate5s: pct(metricsRaw.completion_rate_5s),
-      bounceRate2s: pct(metricsRaw.bounce_rate_2s),
-      avgViewProportion: pct(metricsRaw.avg_view_proportion),
-      coverClickRate: pct(metricsRaw.cover_click_rate),
-      followerPlayRatio: pct(metricsRaw.fan_view_proportion),
-      likeRate: pct(metricsRaw.like_rate),
-      commentRate: pct(metricsRaw.comment_rate),
-      shareRate: pct(metricsRaw.share_rate),
-      favoriteRate: pct(metricsRaw.favorite_rate),
+      play_count: toInt(metricsRecord.view_count),
+      avg_watch_duration_s: round2(metricsRecord.avg_view_second),
+      completion_rate_pct: pct(metricsRecord.completion_rate),
+      completion_rate_5s_pct: pct(metricsRecord.completion_rate_5s),
+      bounce_rate_2s_pct: pct(metricsRecord.bounce_rate_2s),
+      avg_view_proportion_pct: pct(metricsRecord.avg_view_proportion),
+      cover_click_rate_pct: pct(metricsRecord.cover_click_rate),
+      follower_play_ratio_pct: pct(metricsRecord.fan_view_proportion),
+    },
+    engagement_rates: {
+      like_rate: pct(metricsRecord.like_rate),
+      comment_rate: pct(metricsRecord.comment_rate),
+      share_rate: pct(metricsRecord.share_rate),
+      favorite_rate: pct(metricsRecord.favorite_rate),
     },
   }
 }
 
-const SOURCE_LABELS: Record<string, string> = {
-  recommended_homepage: '推荐(首页推荐)',
-  personal_profile: '个人主页',
-  friend_page: '朋友',
-  acquaintance_feed: '熟人',
-  follow_feed: '关注',
+/** 流量来源 key → 中文标签（未知 key 原样透出为 null，不编造）。 */
+export const SOURCE_LABELS: Record<string, string> = {
+  homepage_hot: '推荐(首页推荐)',
+  follow: '关注',
+  homepage: '个人主页',
   search: '搜索',
-  im: '私信',
-  share: '分享',
+  message: '私信/分享',
+  familiar: '朋友/熟人',
   nearby: '同城',
   other: '其他',
 }
 
-/** 流量来源行（share_pct 降序）。 */
 /** 流量来源条目（契约行 {source_key, source_label, share_pct}，按占比降序）。 */
 export interface PlaySourceRow {
-  source_key: string
+  source_key: string | null
   source_label: string | null
   share_pct: number
 }
 
+/**
+ * 流量来源 `play/source`：[{source_key, source_label, share_pct}]，按占比降序。
+ *
+ * 来源自带非空且不等于原始 key 的 label 时优先保留；已知 key 用 SOURCE_LABELS
+ * 映射；未知 key 的 label 置 null。响应里没有 `play_source` 数组 → 返回 null
+ * （本次未暴露），空数组会被当作"已采集但无数据"，把缺口伪造成真实值。
+ */
 export function parsePlaySource(json: unknown): PlaySourceRow[] | null {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
   if (!Array.isArray(payload.play_source)) return null
-  const parsed: PlaySourceRow[] = []
+  const rows: PlaySourceRow[] = []
   for (const item of payload.play_source) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const key = clampText(firstPresent(record.key, record.source_key), 64)
+    const record = recordOf(item)
+    if (record === null) continue
+    const key = firstPresent(record.key, record.source_key)
     const share = pct(record.value)
-    if (key === null || share === null) continue
-    const provided = clampText(record.source_label, 128)
-    parsed.push({
-      source_key: key,
-      source_label: provided !== null && provided !== key ? provided : SOURCE_LABELS[key] ?? null,
+    if (!key || share === null) continue
+    const provided = typeof record.source_label === 'string' ? record.source_label.trim() : ''
+    const label = provided !== '' && provided !== String(key)
+      ? clampText(provided, 128)
+      : SOURCE_LABELS[String(key)] ?? null
+    rows.push({
+      source_key: clampText(key, 64),
+      source_label: label,
       share_pct: share,
     })
   }
-  return parsed.sort((a, b) => b.share_pct - a.share_pct)
+  return rows.sort((a, b) => b.share_pct - a.share_pct)
 }
 
-/** 画像分布行。 */
+/** 画像分布行（key 为抖音侧展示分桶原样透传，pct 为百分数）。 */
 export interface PortraitRow {
-  key: string
-  pct: number | null
+  key: string | null
+  pct: number
 }
 
+/** 观众画像四类分布（province 截前 8，其余全量）。 */
 export interface AudiencePortrait {
-  gender: PortraitRow[] | null
-  age: PortraitRow[] | null
-  province: PortraitRow[] | null
-  cityLevel: PortraitRow[] | null
+  gender: PortraitRow[]
+  age: PortraitRow[]
+  province: PortraitRow[]
+  city_level: PortraitRow[]
 }
 
-function parseRatioRows(raw: unknown, max = Infinity): PortraitRow[] | null {
-  if (!Array.isArray(raw)) return null
-  const rows: PortraitRow[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const key = clampText(record.key, 64)
-    if (key === null) continue
-    rows.push({ key, pct: pct(record.ratio) })
-    if (rows.length >= max) break
-  }
-  return rows.sort((a, b) => (b.pct ?? 0) - (a.pct ?? 0))
-}
-
+/** 观众画像 `fans/item/portrait`：四类 `ratio_list`，各按占比降序；地域取前 8。 */
 export function parsePortrait(json: unknown): AudiencePortrait | null {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const gender = parseRatioRows(payload.gender)
-  const age = parseRatioRows(payload.age)
-  const province = parseRatioRows(payload.province, 8)
-  const cityLevel = parseRatioRows(payload.city_level)
-  const portrait: AudiencePortrait = { gender, age, province, cityLevel }
-  if (portrait.gender === null && portrait.age === null && portrait.province === null && portrait.cityLevel === null) return null
-  return portrait
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const hasAnyBlock = ['gender', 'age', 'province', 'city_level'].some(name => {
+    const node = recordOf(payload[name])
+    return node !== null && Array.isArray(node.ratio_list)
+  })
+  if (!hasAnyBlock) return null
+  const block = (name: string): PortraitRow[] => {
+    const node = recordOf(payload[name])
+    const list = node !== null && Array.isArray(node.ratio_list) ? node.ratio_list : []
+    const rows: PortraitRow[] = []
+    for (const item of list) {
+      const record = recordOf(item)
+      if (record === null) continue
+      const key = firstPresent(record.key, record.name)
+      const share = pct(record.value)
+      if (!key || share === null) continue
+      rows.push({ key: clampText(key, 64), pct: share })
+    }
+    return rows.sort((a, b) => b.pct - a.pct)
+  }
+  const provinces = block('province')
+  return {
+    gender: block('gender'),
+    age: block('age'),
+    province: provinces.slice(0, 8),
+    city_level: block('city_level'),
+  }
 }
 
 /** 搜索词行（percent 本身是百分数，原样透出夹 0..100，降序）。 */
 export interface SearchKeywordRow {
-  keyword: string
-  percent: number | null
+  keyword: string | null
+  percent: number
 }
 
+/**
+ * 搜索词 `item_analysis/search/keyword`：`show_from[]` → [{keyword, percent}]。
+ *
+ * `show_from` 存在但为空是有效数据（该作品确无搜索词）；字段缺失则返回 null
+ * （缺口）。percent 缺失/非数值的行剔除。
+ */
 export function parseSearchKeywords(json: unknown): SearchKeywordRow[] | null {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const rows = objectsOrNullOf(payload.show_from)
-  if (rows === null) return null
-  const parsed: SearchKeywordRow[] = []
-  for (const item of rows) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const keyword = clampText(record.keyword, 128)
-    if (keyword === null) continue
-    const num = Number(record.percent)
-    const percent = Number.isFinite(num) ? Math.min(100, Math.max(0, num)) : null
-    parsed.push({ keyword, percent: percent === null ? null : Math.round(percent * 100) / 100 })
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  if (!Array.isArray(payload.show_from)) return null
+  const rows: SearchKeywordRow[] = []
+  for (const item of payload.show_from) {
+    const record = recordOf(item)
+    if (record === null) continue
+    const keyword = firstPresent(record.keyword, record.word)
+    const percent = toNumber(record.percent)
+    if (!keyword) continue
+    if (percent === null) continue
+    // 抖音该字段本身以百分数返回，原样透出（不二次放大），并夹在契约允许范围内。
+    rows.push({
+      keyword: clampText(keyword, 128),
+      percent: Math.min(100, Math.max(0, Math.round(percent * 100) / 100)),
+    })
   }
-  return parsed.sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))
+  return rows.sort((a, b) => b.percent - a.percent)
 }
 
-/** 进度分析曲线（empty 标记入库前必须剥离）。 */
 /** 进度分析曲线点（契约行 {key, value}：key 为播放秒，value 0..100）。 */
 export interface ProgressCurveRow {
-  key: string
+  key: string | null
   value: number
 }
 
+/** 进度分析曲线（empty 标记入库前必须剥离）。 */
 export interface ProgressAnalysis {
   dragBackward: ProgressCurveRow[]
   dragForward: ProgressCurveRow[]
@@ -489,31 +588,36 @@ export interface ProgressAnalysis {
   empty: boolean
 }
 
-function parseCurveRows(raw: unknown): ProgressCurveRow[] | null {
-  if (!Array.isArray(raw)) return null
-  const rows: ProgressCurveRow[] = []
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const key = clampText(firstPresent(record.key, record.second), 32)
-    const value = pct(record.value)
-    if (key === null || value === null) continue
-    rows.push({ key, value })
-  }
-  return rows
-}
-
+/**
+ * 进度分析 `progress/analysis/v2`：jump_backward/jump_forward → 拖回/拖前曲线。
+ *
+ * 端点可达但该作品确实没有任何进度数据时 `empty=true`（两条空曲线 +
+ * video_data=null）——与"根本没取到"必须区分，调用方据此记 `no_data` 缺口。
+ * `empty` 只在解析层内部传递，入库前必须剥离。
+ */
 export function parseProgressAnalysis(json: unknown): ProgressAnalysis | null {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const dragBackward = parseCurveRows(payload.jump_backward)
-  const dragForward = parseCurveRows(payload.jump_forward)
-  if (dragBackward === null && dragForward === null) return null
-  const videoData = payload.video_data ?? null
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  if (!Array.isArray(payload.jump_backward) && !Array.isArray(payload.jump_forward)) return null
+  const curve = (points: unknown): ProgressCurveRow[] => {
+    const list = Array.isArray(points) ? points : []
+    const rows: ProgressCurveRow[] = []
+    for (const item of list) {
+      const record = recordOf(item)
+      if (record === null) continue
+      const key = firstPresent(record.key, record.second)
+      const value = pct(record.value)
+      if (key === null || value === null) continue
+      rows.push({ key: clampText(key, 32), value })
+    }
+    return rows
+  }
+  const dragBack = curve(payload.jump_backward)
+  const dragForward = curve(payload.jump_forward)
+  const videoData = payload.video_data !== null && typeof payload.video_data === 'object' ? payload.video_data : null
   return {
-    dragBackward: dragBackward ?? [],
-    dragForward: dragForward ?? [],
-    empty: (dragBackward === null || dragBackward.length === 0) && (dragForward === null || dragForward.length === 0) && videoData === null,
+    dragBackward: dragBack,
+    dragForward: dragForward,
+    empty: dragBack.length === 0 && dragForward.length === 0 && videoData === null,
   }
 }
 
@@ -532,8 +636,8 @@ function parseTrendCurve(raw: unknown): { key: string; value: number }[] {
   if (!Array.isArray(raw)) return []
   const rows: { key: string; value: number }[] = []
   for (const item of raw) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
+    const record = recordOf(item)
+    if (record === null) continue
     const key = clampText(record.key, 32)
     const num = Number(record.value)
     if (key === null || !Number.isFinite(num) || num < 0 || num > 1) continue
@@ -554,8 +658,8 @@ function parseValleys(raw: unknown): { start: number; end: number }[] {
   for (const list of lists) {
     if (!Array.isArray(list)) continue
     for (const item of list) {
-      if (!item || typeof item !== 'object') continue
-      const record = item as Record<string, unknown>
+      const record = recordOf(item)
+      if (record === null) continue
       const start = toInt(record.start)
       const end = toInt(record.end)
       if (start === null || end === null || start < 0 || end < 0) continue
@@ -567,13 +671,21 @@ function parseValleys(raw: unknown): { start: number; end: number }[] {
   return groups
 }
 
+/**
+ * 观看趋势 `realtime/analysis/data_center` 解析（analysis_type=1 留存 / 7 跳出）。
+ *
+ * `key` 为 "MM:SS" 字符串按原样透传；value 0..1 → ×100 存百分数，越界行级剔除；
+ * 会话失效抛 SessionInvalidError；顶层无 analysis_trend 结构 → null。
+ */
 export function parseRealtimeTrend(json: unknown): RealtimeTrend | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const trend = (payload.analysis_trend && typeof payload.analysis_trend === 'object' ? payload.analysis_trend : null) as Record<string, unknown> | null
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const trend = payload.analysis_trend !== null && typeof payload.analysis_trend === 'object'
+    ? payload.analysis_trend as Record<string, unknown>
+    : null
   if (trend === null) return null
-  // 实测原始契约为 current_item / similar_author（旧插件同口径）；current / similar
-  // 为入库后的规范形态，两个集合都接受（跨端数据混存）。
+  // 实测原始契约为 current_item / similar_author；current / similar 为历史 fixture
+  // 形态，两个集合都接受。
   const current = parseTrendCurve(firstPresent(trend.current_item, trend.current))
   const similar = parseTrendCurve(firstPresent(trend.similar_author, trend.similar))
   // valley_list 在实测响应中位于顶层，历史 fixture 放在 analysis_trend 内，两处都接受。
@@ -581,78 +693,116 @@ export function parseRealtimeTrend(json: unknown): RealtimeTrend | null {
   return { current, similar, valleys, empty: current.length === 0 && similar.length === 0 }
 }
 
-/** item mget 行（Map 按 id 取，拦截可能命中多作品批量请求）。 */
-export function parseItemMget(json: unknown): Map<string, Record<string, number | null>> {
-  const result = new Map<string, Record<string, number | null>>()
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const items = objectsOf(payload.items)
-  for (const item of items) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const id = toNumberOrString(firstPresent(record.item_id, record.aweme_id, record.id))
+/** item mget 单行（item.metrics 投影；Map 按 id 取，拦截可能命中多作品批量请求）。 */
+export interface MgetRow {
+  danmaku_count: number | null
+  play_count: number | null
+  avg_watch_duration_s: number | null
+  completion_rate_pct: number | null
+  completion_rate_5s_pct: number | null
+  bounce_rate_2s_pct: number | null
+  avg_view_proportion_pct: number | null
+  cover_click_rate_pct: number | null
+  follower_play_ratio_pct: number | null
+}
+
+/**
+ * 单稿指标 `item/mget`：读 `items[].metrics.*`，补齐列表 `statistics` 未暴露的
+ * 计数类指标（danmaku_count）与 item_compare 缺失时的兜底指标。
+ *
+ * 返回 Map 而不是只取 items[0]：`ids` 是复数，拦截到的响应可能是多作品批量
+ * 请求，盲取首元素会把别的作品的指标记到当前作品上。
+ */
+export function parseItemMget(json: unknown): Map<string, MgetRow> {
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const list = Array.isArray(payload.items) ? payload.items : []
+  const rows = new Map<string, MgetRow>()
+  for (const item of list) {
+    const record = recordOf(item)
+    if (record === null) continue
+    const id = firstPresent(record.id, record.item_id, record.aweme_id)
     if (id === null) continue
-    result.set(id, {
-      danmakuCount: toNumber(record.danmaku_count),
-      playCount: toNumber(firstPresent(record.play_count, record.view_count)),
-      avgWatchDuration: round2(toNumber(record.avg_view_second)),
-      completionRate: pct(record.completion_rate),
-      completionRate5s: pct(record.completion_rate_5s),
-      bounceRate2s: pct(record.bounce_rate_2s),
-      avgViewProportion: pct(record.avg_view_proportion),
-      coverClickRate: pct(record.cover_click_rate),
-      followerPlayRatio: pct(firstPresent(record.fan_view_proportion, record.follower_play_ratio)),
+    const metrics = recordOf(record.metrics) ?? {}
+    rows.set(String(id), {
+      danmaku_count: toInt(firstPresent(metrics.danmaku_count, metrics.danmakuCount)),
+      play_count: toInt(metrics.view_count),
+      avg_watch_duration_s: round2(metrics.avg_view_second),
+      completion_rate_pct: pct(metrics.completion_rate),
+      completion_rate_5s_pct: pct(metrics.completion_rate_5s),
+      bounce_rate_2s_pct: pct(metrics.bounce_rate_2s),
+      avg_view_proportion_pct: pct(metrics.avg_view_proportion),
+      cover_click_rate_pct: pct(metrics.cover_click_rate),
+      follower_play_ratio_pct: pct(metrics.fan_view_proportion),
     })
   }
-  return result
+  return rows
 }
 
-/** item summarize 行（两字段独立判缺）。 */
+/** item summarize 单行（完播率与吸粉量独立判缺）。 */
 export interface SummarizeRow {
-  completionRate: number | null
-  fansGainCount: number | null
+  completion_rate_pct: number | null
+  fans_gain_count: number | null
 }
 
+/**
+ * 作品总览 `item/summarize`：`summarize_data.play_finish_ratio`（0..1 比例）与
+ * `new_fans_count`（吸粉量）独立判缺，任一存在即建行，缺失方记 null，绝不因
+ * 一个字段缺失而丢掉另一个。
+ */
 export function parseItemSummarize(json: unknown): Map<string, SummarizeRow> {
-  const result = new Map<string, SummarizeRow>()
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const items = objectsOf(payload.item_list)
-  for (const item of items) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const id = toNumberOrString(firstPresent(record.item_id, record.aweme_id, record.id))
-    if (id === null) continue
-    const completionRate = pct(record.play_finish_ratio)
-    const fansGain = toInt(record.new_fans_count)
-    if (completionRate === null && fansGain === null) continue
-    result.set(id, { completionRate, fansGainCount: fansGain !== null && fansGain < 0 ? null : fansGain })
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const list = Array.isArray(payload.item_list) ? payload.item_list : []
+  const rows = new Map<string, SummarizeRow>()
+  for (const item of list) {
+    const record = recordOf(item)
+    if (record === null) continue
+    const id = firstPresent(record.aweme_id, record.item_id, record.id)
+    const summary = recordOf(record.summarize_data) ?? {}
+    const completionRate = pct(summary.play_finish_ratio)
+    const fansGainCount = toInt(summary.new_fans_count)
+    if (id === null || (completionRate === null && fansGainCount === null)) continue
+    rows.set(String(id), {
+      completion_rate_pct: completionRate,
+      fans_gain_count: fansGainCount === null || fansGainCount < 0 ? null : fansGainCount,
+    })
   }
-  return result
+  return rows
 }
 
 /** 热词三态（status_code===0 才是 ok；unavailable 保留旧集合）。 */
 export interface HotwordResult {
   status: 'ok' | 'unavailable'
   statusCode: number | null
-  words: { word: string; rank: number | null; raw_score: string | null }[]
+  words: { word: string | null; rank: number | null; raw_score: string | null }[]
   error?: string | undefined
 }
 
+/**
+ * 评论热词 `wordCloud`：区分"成功但为空"与"请求失败"。
+ *
+ * `status_code==0` → ok（words 可能为空 → 服务端清空当前集合）；空对象或非零
+ * 状态码 → unavailable（服务端保留旧集合并记 data_gap）。
+ */
 export function parseWordCloud(json: unknown): HotwordResult {
-  if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const statusCode = toNumber(payload.status_code)
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const statusCode = toInt(payload.status_code)
+  if (Object.keys(payload).length === 0) {
+    return { status: 'unavailable', statusCode, words: [] }
+  }
   if (statusCode !== 0) return { status: 'unavailable', statusCode, words: [] }
-  const rows = objectsOf(payload.word_cloud_list).length > 0 ? objectsOf(payload.word_cloud_list) : objectsOf(payload.data)
+  const list = Array.isArray(payload.word_cloud_list) ? payload.word_cloud_list : []
   const words: HotwordResult['words'] = []
-  for (const item of rows) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const word = clampText(firstPresent(record.word, record.keyword), 128)
-    if (word === null) continue
+  for (const item of list) {
+    const record = recordOf(item)
+    if (record === null) continue
+    const word = firstPresent(record.word, record.text)
+    if (!word) continue
     const rank = toInt(record.rank)
-    words.push({ word, rank: rank !== null && rank >= 0 ? rank : null, raw_score: clampText(record.score, 64) })
+    words.push({
+      word: clampText(word, 128),
+      rank: rank === null ? null : Math.max(0, rank),
+      raw_score: clampText(record.score, 64),
+    })
   }
   return { status: 'ok', statusCode, words }
 }
@@ -663,26 +813,32 @@ export interface PlayTrendPoint {
   playCount: number
 }
 
+/**
+ * 单作品官方按日累计趋势：`trend_map.view_count['0']` 累计+按天响应解析。
+ *
+ * `value` 是 6 位小数字符串；`date_time` 取前 10 位为 day（round-trip 校验挡
+ * 形状合规非法日期）；day ≥ todayIso 的点在解析层丢弃（数据未出）；非零业务码/
+ * 结构异常/零点位 → null（调用方记缺口）。截取最近 7 个已完成日，兜住服务端
+ * max_length=7。
+ */
 export function parseItemMetricsTrend(json: unknown, todayIso: string): PlayTrendPoint[] | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
   const statusCode = toNumber(payload.status_code)
   if (statusCode !== null && statusCode !== 0) return null
-  const trendMap = (payload.trend_map && typeof payload.trend_map === 'object' ? payload.trend_map : null) as Record<string, unknown> | null
-  const viewGroup = (trendMap?.view_count && typeof trendMap.view_count === 'object' ? trendMap.view_count : null) as Record<string, unknown> | null
+  const trendMap = recordOf(payload.trend_map)
+  const viewGroup = trendMap === null ? null : recordOf(trendMap.view_count)
   const rows = viewGroup === null ? null : objectsOrNullOf(viewGroup['0'])
   if (rows === null) return null
   const points: PlayTrendPoint[] = []
-  for (const item of rows) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
+  for (const record of rows) {
     const dayRaw = typeof record.date_time === 'string' ? record.date_time.slice(0, 10) : null
     if (dayRaw === null || !/^\d{4}-\d{2}-\d{2}$/u.test(dayRaw)) continue
     // 形状合规非法日期（2026-13-45）round-trip 双校验。
     const roundTrip = new Date(`${dayRaw}T00:00:00Z`).toISOString().slice(0, 10)
     if (roundTrip !== dayRaw) continue
     if (dayRaw >= todayIso) continue
-    const value = typeof record.value === 'string' ? Number(record.value) : Number(record.value)
+    const value = Number(record.value)
     if (!Number.isFinite(value) || value < 0) continue
     points.push({ day: dayRaw, playCount: Math.round(value) })
   }
@@ -690,128 +846,167 @@ export function parseItemMetricsTrend(json: unknown, todayIso: string): PlayTren
   return points.slice(-7).length > 0 ? points.slice(-7) : null
 }
 
-/** 大盘 13+2 指标列映射（english_metric_name → canonical 列）。 */
-const DASHBOARD_RATIO_METRICS = new Set(['cover_click_ratio', 'completion_rate_5s', 'bounce_rate_2s'])
-const DASHBOARD_COLUMNS: Record<string, string> = {
-  play_cnt: 'play_count',
-  digg_cnt: 'like_count',
-  share_count: 'share_count',
-  comment_cnt: 'comment_count',
-  net_fans_cnt: 'net_fans_count',
-  cancel_fans_cnt: 'cancel_fans_count',
+/** 大盘比率指标集合（0..1 原值，入库 ×100）。 */
+export const DASHBOARD_RATIO_METRICS = new Set(['cover_click_ratio', 'completion_rate_5s', 'bounce_rate_2s'])
+
+/** 大盘指标列映射（english_metric_name → 服务端 DouyinAccountDailyItem snake 列；
+ * share_count→share_cnt 是唯一不对称项）。 */
+const DASHBOARD_COLUMN_BY_METRIC: Record<string, string> = {
+  play_cnt: 'play_cnt',
+  digg_cnt: 'digg_cnt',
+  share_count: 'share_cnt',
+  comment_cnt: 'comment_cnt',
+  net_fans_cnt: 'net_fans_cnt',
+  cancel_fans_cnt: 'cancel_fans_cnt',
   cover_click_ratio: 'cover_click_ratio_pct',
-  homepage_view_cnt: 'homepage_view_count',
-  publish_cnt: 'publish_count',
+  homepage_view_cnt: 'homepage_view_cnt',
+  publish_cnt: 'publish_cnt',
   completion_rate_5s: 'completion_rate_5s_pct',
   bounce_rate_2s: 'bounce_rate_2s_pct',
   avg_view_second: 'avg_view_second',
-  total_fans_cnt: 'total_fans_count',
-  new_fans_cnt: 'new_fans_count',
-  home_view_fans_cnt: 'home_view_fans_count',
-}
-
-/** 大盘单值（负值/超界 → undefined 列缺省；net_fans 允许负）。 */
-function dashboardMetricValue(metric: string, raw: unknown): number | undefined {
-  if (metric === 'avg_view_second') {
-    const value = round2(raw)
-    return value === null ? undefined : value
-  }
-  const value = toInt(raw)
-  if (value === null || Math.abs(value) > Number.MAX_SAFE_INTEGER) return undefined
-  if (value < 0 && metric !== 'net_fans_cnt') return undefined
-  return value
-}
-
-function dashboardDay(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null
-  const match = /^(\d{4})(\d{2})(\d{2})$/.exec(raw)
-  if (match === null) return null
-  const iso = `${match[1]}-${match[2]}-${match[3]}`
-  const roundTrip = new Date(`${iso}T00:00:00Z`).toISOString().slice(0, 10)
-  return roundTrip === iso ? iso : null
+  total_fans_cnt: 'total_fans_cnt',
+  new_fans_cnt: 'new_fans_cnt',
+  home_view_fans_cnt: 'home_view_fans_cnt',
 }
 
 /**
- * 大盘解析（dashboard 与 dashboard/fans 共用同构实现）：metrics[].english_metric_name
- * → trends[] 展开为按日行；同日同指标重复保留先出现值；按 day 升序。
+ * `"20261008"` → `"2026-10-08"`；非法日期（含 2 月 30 日这类 roll-over）返回 null。
+ *
+ * round-trip 校验：`Date.parse('2026-02-30T00:00:00Z')` 是 roll-over 而非 NaN，
+ * 必须回读比对。畸形日期若透传，服务端 pydantic 在整个 payload 校验层失败，
+ * ≤30 天回填整批全丢。
+ */
+export function dashboardDay(value: unknown): string | null {
+  const text = typeof value === 'string' ? value : String(value ?? '')
+  const match = /^(\d{4})(\d{2})(\d{2})$/u.exec(text)
+  if (match === null) return null
+  const [, year, month, day] = match
+  const timestamp = Date.parse(`${year}-${month}-${day}T00:00:00Z`)
+  if (Number.isNaN(timestamp)) return null
+  const roundTrip = new Date(timestamp)
+  const dayNumber = Number(day)
+  if (
+    roundTrip.getUTCFullYear() !== Number(year)
+    || roundTrip.getUTCMonth() + 1 !== Number(month)
+    || roundTrip.getUTCDate() !== dayNumber
+  ) return null
+  return `${year}-${month}-${day}`
+}
+
+/**
+ * 非比率指标值守卫：计数列 ge=0（net_fans_cnt 可负）、avg_view_second 非负秒；
+ * 超出 float64 可信精度（2**53）一律列缺省。畸形值返回 undefined（列缺省），
+ * 绝不透传——否则服务端整 payload 校验失败，回填整批丢失。
+ */
+export function dashboardMetricValue(english: string, value: unknown): number | undefined {
+  const num = toNumber(value)
+  if (num === null) return undefined
+  if (english === 'avg_view_second') {
+    const seconds = round2(num)
+    return seconds === null ? undefined : seconds
+  }
+  const integer = toInt(num)
+  if (integer === null) return undefined
+  if (integer > Number.MAX_SAFE_INTEGER || integer < -Number.MAX_SAFE_INTEGER) return undefined
+  if (english === 'net_fans_cnt') return integer
+  return integer < 0 ? undefined : integer
+}
+
+/**
+ * 大盘解析（dashboard 与 dashboard/fans 同构响应共用）：`metrics[].trends[]` →
+ * 按日合并行（snake 列名直投服务端 DouyinAccountDailyItem）。缺失 metric 整组
+ * 缺省；比率 0..1 → ×100（2 位小数）；同日同列先出现者保留；按 day 升序；
+ * 会话失效抛 SessionInvalidError。
  */
 export function parseDashboardMetrics(json: unknown): Record<string, unknown>[] {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const metrics = objectsOf(payload.metrics)
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const metrics = Array.isArray(payload.metrics) ? payload.metrics : []
   const byDay = new Map<string, Record<string, unknown>>()
-  for (const metricRow of metrics) {
-    if (!metricRow || typeof metricRow !== 'object') continue
-    const record = metricRow as Record<string, unknown>
-    const english = typeof record.english_metric_name === 'string' ? record.english_metric_name : null
-    const column = english !== null ? DASHBOARD_COLUMNS[english] : undefined
-    if (column === undefined) continue
-    const trends = objectsOf(record.trends)
-    for (const trend of trends) {
-      if (!trend || typeof trend !== 'object') continue
-      const trendRecord = trend as Record<string, unknown>
-      const day = dashboardDay(trendRecord.date ?? trendRecord.day)
+  for (const metric of metrics) {
+    const metricRecord = recordOf(metric)
+    if (metricRecord === null) continue
+    const english = typeof metricRecord.english_metric_name === 'string' ? metricRecord.english_metric_name : null
+    const column = english !== null ? DASHBOARD_COLUMN_BY_METRIC[english] : undefined
+    if (english === null || column === undefined) continue
+    const ratio = DASHBOARD_RATIO_METRICS.has(english)
+    const trends = Array.isArray(metricRecord.trends) ? metricRecord.trends : []
+    for (const point of trends) {
+      const pointRecord = recordOf(point)
+      if (pointRecord === null) continue
+      const day = dashboardDay(pointRecord.date_time)
       if (day === null) continue
-      const isRatio = english !== null && DASHBOARD_RATIO_METRICS.has(english)
-      const value = isRatio ? pct(trendRecord.value) : dashboardMetricValue(english ?? '', trendRecord.value)
-      if (value === undefined || value === null) continue
+      const value = ratio ? pct(pointRecord.value) : dashboardMetricValue(english, pointRecord.value)
+      if (value === null || value === undefined) continue
       const row = byDay.get(day) ?? { day }
-      if (!(column in row)) row[column] = value
+      if (row[column] === undefined) row[column] = value
       byDay.set(day, row)
     }
   }
   return [...byDay.values()].sort((a, b) => (String(a.day) < String(b.day) ? -1 : String(a.day) > String(b.day) ? 1 : 0))
 }
 
-/** 粉丝画像六类分布（每类 ≤64 行；隐私榜单物理不触碰）。 */
+/** 粉丝画像单类分布行。 */
+export interface FansSummaryRow {
+  label: string | null
+  count: number
+}
+
+/** 账号粉丝画像六类分布（snake 键，直投服务端 DouyinFansProfilePayload strict 子块）。 */
 export interface FansSummary {
-  activeLevels: { label: string; count: number }[] | null
-  activeTimeRange: { label: string; count: number }[] | null
-  ageDistribution: { label: string; count: number }[] | null
-  cityDistribution: { label: string; count: number }[] | null
-  deviceDistribution: { label: string; count: number }[] | null
-  interestDistribution: { label: string; count: number }[] | null
+  active_levels: FansSummaryRow[] | null
+  active_time_range: FansSummaryRow[] | null
+  age_distribution: FansSummaryRow[] | null
+  city_distribution: FansSummaryRow[] | null
+  device_distribution: FansSummaryRow[] | null
+  interest_distribution: FansSummaryRow[] | null
 }
 
-function parseSummaryRows(raw: unknown, key: string): { label: string; count: number }[] | null {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
-  const rows = (raw as Record<string, unknown>)[key]
-  if (!Array.isArray(rows)) return null
-  const parsed: { label: string; count: number }[] = []
-  for (const item of rows) {
-    if (!item || typeof item !== 'object') continue
-    const record = item as Record<string, unknown>
-    const label = clampText(record.name ?? record.label, 128)
-    const count = toInt(record.value ?? record.count)
-    if (label === null || count === null || count < 0) continue
-    parsed.push({ label, count })
-    if (parsed.length >= 64) break
-  }
-  return parsed.length > 0 ? parsed : null
-}
-
+/**
+ * 账号粉丝画像 `bff/data/fans/summary/v2`：顶层 `active_levels` /
+ * `active_time_range` / `age_distribution` / `city_distribution` /
+ * `device_brand_distribution` / `fans_interest_distribution` 六类（每类 ≤64 行，
+ * count<0 行剔除；四邻键按服务端键名投影 device/interest）。
+ *
+ * 隐私边界：`contribution_billboard_7` / `interaction_billboard_7/30` 是用户榜单
+ * （第三方用户昵称/sec_uid/头像/互动分）——不读取、不透传、不入库，本函数物理上
+ * 不触碰这些键。会话失效抛 SessionInvalidError；六类全缺 → null。
+ */
 export function parseFansSummary(json: unknown): FansSummary | null {
   if (isSessionExpiredPayload(json)) throw new SessionInvalidError(SESSION_EXPIRED_STATUS_CODE)
-  const payload = (json && typeof json === 'object' ? json : {}) as Record<string, unknown>
-  const data = (payload.data && typeof payload.data === 'object' ? payload.data : payload) as Record<string, unknown>
-  const summary: FansSummary = {
-    activeLevels: parseSummaryRows(data.active_level_distribution ?? data.active_levels, 'list'),
-    activeTimeRange: parseSummaryRows(data.active_time_distribution ?? data.active_time_range, 'list'),
-    ageDistribution: parseSummaryRows(data.age_distribution, 'list'),
-    cityDistribution: parseSummaryRows(data.city_distribution, 'list'),
-    deviceDistribution: parseSummaryRows(data.device_brand_distribution ?? data.device_distribution, 'list'),
-    interestDistribution: parseSummaryRows(data.fans_interest_distribution ?? data.interest_distribution, 'list'),
+  const payload = json !== null && typeof json === 'object' ? json as Record<string, unknown> : {}
+  const distribution = (key: string): FansSummaryRow[] | null => {
+    const list = Array.isArray(payload[key]) ? payload[key] : []
+    const rows: FansSummaryRow[] = []
+    for (const item of list) {
+      const record = recordOf(item)
+      if (record === null) continue
+      const label = firstPresent(record.label, record.name)
+      const count = toInt(record.count)
+      if (label === null || label === '' || count === null || count < 0) continue
+      rows.push({ label: clampText(label, 128), count })
+    }
+    // 服务端 schema 每类分布 max_length=64：异常超限截断而不是让整批 daily 校验拒绝。
+    return rows.length > 0 ? rows.slice(0, 64) : null
   }
-  const hasAny = Object.values(summary).some(value => value !== null)
-  return hasAny ? summary : null
+  const result: FansSummary = {
+    active_levels: distribution('active_levels'),
+    active_time_range: distribution('active_time_range'),
+    age_distribution: distribution('age_distribution'),
+    city_distribution: distribution('city_distribution'),
+    device_distribution: distribution('device_brand_distribution'),
+    interest_distribution: distribution('fans_interest_distribution'),
+  }
+  const hasAny = Object.values(result).some(value => value !== null)
+  return hasAny ? result : null
 }
 
 /** buildWorkPayload 的组合输入（collector 各端点的解析产物）。 */
 export interface WorkPayloadInput {
   work: WorkItem
-  performance: Map<string, Record<string, number | null>>
+  /** 本作品在批量分析中的一行（无则 null）。 */
+  performance: PerformanceRow | null
   compare: CompareMetrics | null
-  compareGap: string | null
   source: PlaySourceRow[] | null
   portrait: AudiencePortrait | null
   search: SearchKeywordRow[] | null
@@ -820,15 +1015,15 @@ export interface WorkPayloadInput {
   retentionGap: string | null
   bounce: RealtimeTrend | null
   bounceGap: string | null
-  mget: Map<string, Record<string, number | null>>
-  summarize: Map<string, SummarizeRow>
+  mget: Map<string, MgetRow> | null
+  summarize: Map<string, SummarizeRow> | null
   hotword: HotwordResult | null
   metricsTrend: PlayTrendPoint[] | null
   metricsTrendGap: string | null
   observedAt: string
 }
 
-/** 服务端作品载荷（ingest_batch works[] 条目的冻结契约投影 + dataGap）。 */
+/** 服务端作品载荷（ingest_batch works[] 条目的冻结契约投影 + data_gap）。 */
 export interface WorkPayload extends Record<string, unknown> {
   work_id: string
   title: string | null
@@ -862,110 +1057,109 @@ export interface WorkPayload extends Record<string, unknown> {
   data_gap: Record<string, { reason: string; at: string }> | null
 }
 
-const GAP_REASONS = new Set(['not_exposed', 'below_min_view', 'request_failed', 'no_data', 'past_item_below_min_count'])
-
 /**
- * buildWorkPayload 三路合并：compare → mget → performance（或 summarize/work
- * 列表值），缺口一律 null + dataGap[field]={reason, at}；低播放缺口 reason 用
- * compare 的 gapReason（below_min_view / past_item_below_min_count），不得把
- * request_failed/not_exposed 混成低播放。
+ * 把列表/批量/单稿三路数据合并为入库载荷（canonical 键 + data_gap）。
+ *
+ * 合并顺序 compare → mget → performance/summarize → 列表值；本次未取到的字段
+ * 一律 null 并记 `data_gap[field] = { reason, at }`，reason 取 not_exposed
+ * （接口未返回）或具体原因（below_min_view / past_item_below_min_count /
+ * request_failed / no_data）。
  */
 export function buildWorkPayload(input: WorkPayloadInput): WorkPayload {
   const { work } = input
   const gaps: Record<string, { reason: string; at: string }> = {}
   const mark = (field: string, reason: string): void => {
-    if (!GAP_REASONS.has(reason)) reason = 'not_exposed'
     gaps[field] = { reason, at: input.observedAt }
   }
-  const firstNonNull = <T,>(...values: T[]): T | null => {
+  const from = <T,>(value: T | null | undefined, field: string, reason = 'not_exposed'): T | null => {
+    if (value === null || value === undefined) {
+      mark(field, reason)
+      return null
+    }
+    return value
+  }
+  const firstNonNull = <T,>(...values: Array<T | null | undefined>): T | null => {
     for (const value of values) {
       if (value !== null && value !== undefined) return value
     }
     return null
   }
-  const mget = input.mget.get(work.workId)
-  const performance = input.performance.get(work.workId)
-  const summarize = input.summarize.get(work.workId)
-  const compareMetrics = input.compare?.metrics ?? null
+
+  const perf: Partial<PerformanceRow> = input.performance ?? {}
+  const cmp = input.compare !== null ? input.compare.metrics : null
+  const engagement = input.compare !== null ? input.compare.engagement_rates : null
+  // 单稿缺口原因由采集层严格标注：10001 是抖音最低播放门槛；10005 是历史作品数
+  // 门槛；请求成功但无指标是 not_exposed；拦截与兜底都未取到是 request_failed。
   const lowPlayReason = input.compare !== null
-    ? input.compare.gapReason ?? 'not_exposed'
+    ? (input.compare.gapReason || (input.compare.lowPlay ? 'below_min_view' : 'not_exposed'))
     : 'not_exposed'
-  const from = (value: number | null | undefined, field: string, reason = 'not_exposed'): number | null => {
-    if (value !== null && value !== undefined) return value
-    mark(field, reason)
-    return null
-  }
+  // 进度分析：只有取到非空曲线才算有值。取到但为空 → no_data；完全没取到 →
+  // not_exposed。empty 是解析器的内部分隔标记，剥离后入库。
+  const progressValue = input.progress !== null && !input.progress.empty
+    ? { drag_back_curve: input.progress.dragBackward, drag_forward_curve: input.progress.dragForward }
+    : null
+  // 观看趋势：与 progress_analysis 同构的三值语义——取到且两条曲线任一非空才算
+  // 有值；取到但全空 → no_data；没取到 → not_exposed；请求失败 → request_failed
+  // （retentionGap/bounceGap 由 collector 标注）。入库结构只保留 current/similar/
+  // valleys 三键（canonical 契约）。
+  const retentionValue = input.retention !== null && !input.retention.empty && (input.retention.current.length > 0 || input.retention.similar.length > 0)
+    ? { current: input.retention.current, similar: input.retention.similar, valleys: input.retention.valleys }
+    : null
+  const retentionGapReason = input.retentionGap || (input.retention !== null ? 'no_data' : 'not_exposed')
+  if (retentionValue === null) mark('retention_trend', retentionGapReason)
+  const bounceValue = input.bounce !== null && !input.bounce.empty && (input.bounce.current.length > 0 || input.bounce.similar.length > 0)
+    ? { current: input.bounce.current, similar: input.bounce.similar, valleys: input.bounce.valleys }
+    : null
+  const bounceGapReason = input.bounceGap || (input.bounce !== null ? 'no_data' : 'not_exposed')
+  if (bounceValue === null) mark('retention_bounce', bounceGapReason)
+  // 单稿指标按 workId 取值：拦截到的批量响应里可能没有本条作品。
+  const mgetRow = input.mget !== null ? input.mget.get(work.workId) ?? null : null
+  const summaryRow = input.summarize !== null ? input.summarize.get(work.workId) ?? null : null
+  // 官方按日累计回填点位（≤7 个已完成日）。取不到记缺口（可观测），不影响其余
+  // 字段；服务端只回填尚无快照行的历史日，绝不覆盖既有行。
+  const playTrendDaily = Array.isArray(input.metricsTrend) && input.metricsTrend.length > 0
+    ? input.metricsTrend.map(point => ({ day: point.day, play_count: point.playCount }))
+    : null
+  if (playTrendDaily === null) mark('play_trend_daily', input.metricsTrendGap || 'not_exposed')
+
   const payload: WorkPayload = {
     work_id: work.workId,
-    title: work.title,
-    url: work.url,
-    publish_time: work.publishTime,
-    is_private: work.isPrivate,
-    play_count: from(firstNonNull(compareMetrics?.playCount, mget?.playCount, performance?.playCount, work.playCount), 'play_count', lowPlayReason),
+    title: from(work.title, 'title'),
+    url: from(work.url, 'url'),
+    publish_time: from(work.publishTime, 'publish_time'),
+    cover_url: from(work.cover, 'cover_url'),
+    fans_gain_count: from(summaryRow !== null ? summaryRow.fans_gain_count : null, 'fans_gain_count'),
+    play_count: from(firstNonNull(cmp?.play_count, mgetRow?.play_count, perf.play_count, work.playCount), 'play_count'),
     like_count: from(work.likeCount, 'like_count'),
     comment_count: from(work.commentCount, 'comment_count'),
     collect_count: from(work.collectCount, 'collect_count'),
     share_count: from(work.shareCount, 'share_count'),
-    danmaku_count: from(firstNonNull(mget?.danmakuCount, work.danmakuCount), 'danmaku_count'),
-    fans_gain_count: from(summarize?.fansGainCount ?? null, 'fans_gain_count'),
-    completion_rate_pct: from(firstNonNull(compareMetrics?.completionRate, summarize?.completionRate, mget?.completionRate), 'completion_rate_pct', lowPlayReason),
-    completion_rate_5s_pct: from(firstNonNull(compareMetrics?.completionRate5s, mget?.completionRate5s, performance?.completion_rate_5s_pct), 'completion_rate_5s_pct', lowPlayReason),
-    bounce_rate_2s_pct: from(firstNonNull(compareMetrics?.bounceRate2s, mget?.bounceRate2s, performance?.bounce_rate_2s_pct), 'bounce_rate_2s_pct', lowPlayReason),
-    avg_watch_duration_s: from(firstNonNull(compareMetrics?.avgWatchDuration, mget?.avgWatchDuration, performance?.avg_watch_duration_s), 'avg_watch_duration_s', lowPlayReason),
-    avg_view_proportion_pct: from(firstNonNull(compareMetrics?.avgViewProportion, mget?.avgViewProportion), 'avg_view_proportion_pct', lowPlayReason),
-    cover_click_rate_pct: from(firstNonNull(compareMetrics?.coverClickRate, mget?.coverClickRate), 'cover_click_rate_pct', lowPlayReason),
-    follower_play_ratio_pct: from(firstNonNull(compareMetrics?.followerPlayRatio, mget?.followerPlayRatio), 'follower_play_ratio_pct', lowPlayReason),
-    engagement_rates: compareMetrics === null
-      ? (mark('engagement_rates', 'not_exposed'), null)
-      : {
-          like_rate: compareMetrics.likeRate,
-          comment_rate: compareMetrics.commentRate,
-          share_rate: compareMetrics.shareRate,
-          favorite_rate: compareMetrics.favoriteRate,
-        },
-    traffic_source: input.source === null ? (mark('traffic_source', 'not_exposed'), null) : input.source,
-    audience: input.portrait === null
-      ? (mark('audience', 'not_exposed'), null)
-      : { gender: input.portrait.gender, age: input.portrait.age, province: input.portrait.province, city_level: input.portrait.cityLevel },
-    search_keywords: input.search,
-    progress_analysis: input.progress === null
-      ? (mark('progress_analysis', 'not_exposed'), null)
-      : input.progress.empty
-        ? (mark('progress_analysis', 'no_data'), null)
-        : { drag_back_curve: input.progress.dragBackward, drag_forward_curve: input.progress.dragForward },
-    retention_trend: buildTrendBlock(input.retention, input.retentionGap, 'retention_trend', mark),
-    retention_bounce: buildTrendBlock(input.bounce, input.bounceGap, 'retention_bounce', mark),
-    hotword: input.hotword === null
-      ? { source: 'tab', status: 'unavailable', words: [] }
-      : input.hotword.status === 'ok'
-        ? { source: 'tab', status: 'ok', words: input.hotword.words }
-        : { source: 'tab', status: 'unavailable', words: [] },
-    play_trend_daily: input.metricsTrend === null || input.metricsTrend.length === 0
-      ? (mark('play_trend_daily', input.metricsTrendGap ?? 'not_exposed'), null)
-      : input.metricsTrend.slice(-7).map(point => ({ day: point.day, play_count: point.playCount })),
-    cover_url: work.cover,
+    danmaku_count: from(firstNonNull(mgetRow?.danmaku_count, work.danmakuCount), 'danmaku_count'),
+    bounce_rate_2s_pct: from(firstNonNull(cmp?.bounce_rate_2s_pct, mgetRow?.bounce_rate_2s_pct, perf.bounce_rate_2s_pct), 'bounce_rate_2s_pct', lowPlayReason),
+    completion_rate_5s_pct: from(firstNonNull(cmp?.completion_rate_5s_pct, mgetRow?.completion_rate_5s_pct, perf.completion_rate_5s_pct), 'completion_rate_5s_pct', lowPlayReason),
+    completion_rate_pct: from(firstNonNull(cmp?.completion_rate_pct, summaryRow?.completion_rate_pct, mgetRow?.completion_rate_pct), 'completion_rate_pct', lowPlayReason),
+    avg_watch_duration_s: from(firstNonNull(cmp?.avg_watch_duration_s, mgetRow?.avg_watch_duration_s, perf.avg_watch_duration_s), 'avg_watch_duration_s', lowPlayReason),
+    avg_view_proportion_pct: from(firstNonNull(cmp?.avg_view_proportion_pct, mgetRow?.avg_view_proportion_pct), 'avg_view_proportion_pct', lowPlayReason),
+    cover_click_rate_pct: from(firstNonNull(cmp?.cover_click_rate_pct, mgetRow?.cover_click_rate_pct), 'cover_click_rate_pct', lowPlayReason),
+    follower_play_ratio_pct: from(firstNonNull(cmp?.follower_play_ratio_pct, mgetRow?.follower_play_ratio_pct), 'follower_play_ratio_pct', lowPlayReason),
+    traffic_source: from(input.source, 'traffic_source'),
+    search_keywords: from(input.search, 'search_keywords'),
+    progress_analysis: from(progressValue, 'progress_analysis', input.progress !== null ? 'no_data' : 'not_exposed'),
+    retention_trend: from(retentionValue, 'retention_trend', retentionGapReason),
+    retention_bounce: from(bounceValue, 'retention_bounce', bounceGapReason),
+    engagement_rates: from(engagement, 'engagement_rates'),
+    audience: input.portrait !== null
+      ? { gender: input.portrait.gender, age: input.portrait.age, province: input.portrait.province, city_level: input.portrait.city_level }
+      : from(null, 'audience'),
+    hotword: input.hotword !== null && input.hotword.status === 'ok'
+      ? { source: 'tab', status: 'ok', words: input.hotword.words }
+      : { source: 'tab', status: 'unavailable', words: [] },
+    play_trend_daily: playTrendDaily,
+    is_private: work.isPrivate === true,
     data_gap: null,
   }
   payload.data_gap = Object.keys(gaps).length > 0 ? gaps : null
   return payload
-}
-
-/** 留存/跳出块：取到非空曲线才有值；取到但空 → no_data；没取到 → 缺口。 */
-function buildTrendBlock(
-  trend: RealtimeTrend | null,
-  gap: string | null,
-  field: string,
-  mark: (field: string, reason: string) => void,
-): Record<string, unknown> | null {
-  if (trend === null) {
-    mark(field, gap ?? 'not_exposed')
-    return null
-  }
-  if (trend.empty) {
-    mark(field, 'no_data')
-    return null
-  }
-  return { current: trend.current, similar: trend.similar, valleys: trend.valleys }
 }
 
 /** 大盘两源浅合并（主表指标优先，同日同列后合并方不覆盖），按 day 升序。 */

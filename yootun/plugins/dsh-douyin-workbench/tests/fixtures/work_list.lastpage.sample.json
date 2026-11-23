@@ -1,0 +1,17 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/plugins/dsh-yootun-douyin-operation/test/fixtures/work_list.lastpage.sample.json（键名/结构实测真实，值为占位）。",
+  "status_code": 0,
+  "aweme_list": [
+    {
+      "aweme_id": "7412345678901234999",
+      "desc": "占位末页作品",
+      "create_time": 1795000000,
+      "statistics": { "play_count": 1, "digg_count": 0, "comment_count": 0, "collect_count": 0, "share_count": 0 },
+      "video": { "duration": 30000 },
+      "status": { "is_private": false }
+    }
+  ],
+  "has_more": false,
+  "max_cursor": 1795820989000,
+  "cursor": 1795820989000
+}

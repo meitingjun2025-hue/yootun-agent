@@ -1,0 +1,14 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/docs/1015/douyin/fixtures/metrics_trend/cumulative_daily_view_group0.json（trend_map.view_count['0'] 按 6 位小数字符串值 + date_time，键名实测真实，值为占位）。",
+  "status_code": 0,
+  "status_msg": "",
+  "trend_map": {
+    "view_count": {
+      "0": [
+        { "date_time": "2026-11-10 00:00:00", "value": "3000.000000" },
+        { "date_time": "2026-11-11 00:00:00", "value": "3500.000000" },
+        { "date_time": "2026-11-12 00:00:00", "value": "3900.000000" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/docs/1015/douyin/fixtures/fans_summary.sample.json（顶层六类分布键名实测真实：active_levels/active_time_range/age_distribution/city_distribution/device_brand_distribution/fans_interest_distribution；contribution/interaction 榜单含第三方隐私，不采集、样例不出现。值为占位）。",
+  "BaseResp": { "StatusCode": 0, "StatusMessage": "" },
+  "status_code": 0,
+  "status_msg": "",
+  "gender_distribution": [
+    { "count": 46, "label": "male" },
+    { "count": 54, "label": "female" }
+  ],
+  "age_distribution": [
+    { "count": 11, "label": "<23" },
+    { "count": 30, "label": "24-30" },
+    { "count": 40, "label": "31-40" },
+    { "count": 7, "label": "41-50" },
+    { "count": 12, "label": ">50" }
+  ],
+  "city_distribution": [
+    { "count": 25, "label": "占省甲" },
+    { "count": 12, "label": "占省乙" },
+    { "count": 5, "label": "占省丙" }
+  ],
+  "device_brand_distribution": [
+    { "count": 26, "label": "占品牌甲" },
+    { "count": 16, "label": "占品牌乙" },
+    { "count": 12, "label": "占品牌丙" }
+  ],
+  "fans_interest_distribution": [
+    { "count": 17, "label": "占兴趣甲" },
+    { "count": 16, "label": "占兴趣乙" },
+    { "count": 8, "label": "占兴趣丙" }
+  ],
+  "active_levels": [
+    { "count": 11, "label": "低活" },
+    { "count": 5, "label": "轻度" },
+    { "count": 8, "label": "中度" },
+    { "count": 76, "label": "重度" }
+  ],
+  "active_time_range": [
+    { "count": 3, "label": "20-21" },
+    { "count": 2, "label": "19-20" },
+    { "count": 1, "label": "21-22" }
+  ]
+}

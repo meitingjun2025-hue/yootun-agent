@@ -238,7 +238,7 @@ export interface CollectResult {
   listReason?: string | null
   expectedWorkCount?: number
   publishSince?: string | null
-  skippedBeforePublishSince?: number
+  skippedBeforePublishSince?: number | null
   succeededWorkCount?: number
   failedWorkCount?: number
   workFailures?: { workId: string; reason: string }[]
@@ -511,7 +511,8 @@ export async function finishExpiredSession(deps: RunnerDeps, accountId: string, 
       listComplete: false,
       expectedWorkCount: 0,
       publishSince: WORK_PUBLISH_SINCE_REPORT,
-      skippedBeforePublishSince: 0,
+      // 范围外跳过数只随部分成果透传（列表阶段即过期时未知 → null，不造 0）。
+      skippedBeforePublishSince: partial?.skippedBeforePublishSince ?? null,
       succeededWorkCount: 0,
       failedWorkCount: 0,
       sessionReported: report.ok,
@@ -545,7 +546,7 @@ export async function finishExpiredSession(deps: RunnerDeps, accountId: string, 
       listComplete: false,
       expectedWorkCount: partial.expectedWorkCount,
       publishSince: partial.publishSince,
-      skippedBeforePublishSince: 0,
+      skippedBeforePublishSince: partial.skippedBeforePublishSince ?? null,
       succeededWorkCount: ingest.succeededWorkIds.length,
       failedWorkCount: ingest.failedWorkIds.length,
       sessionReported: report.ok,

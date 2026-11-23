@@ -1,0 +1,20 @@
+{
+  "_note": "结构对照 docs/1015 真机抓包形态：items[].metrics.*（键名实测真实，值为占位）。",
+  "status_code": 0,
+  "items": [
+    {
+      "id": "7412345678901234001",
+      "metrics": {
+        "danmaku_count": "7",
+        "view_count": 7000,
+        "avg_view_second": 12.78,
+        "completion_rate": 0.1209,
+        "completion_rate_5s": 0.45,
+        "bounce_rate_2s": 0.29,
+        "avg_view_proportion": 0.66,
+        "cover_click_rate": 0.05,
+        "fan_view_proportion": 0.01
+      }
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "_note": "结构对照 docker-helm.dofe.ai/docs/1015/douyin/fixtures/dashboard.sample.json（metrics[].english_metric_name + trends[].date_time（YYYYMMDD）/value，键名实测真实，值为占位。比率字段 cover_click_ratio/completion_rate_5s/bounce_rate_2s 为 0..1 原值，入库 ×100）。",
+  "status_code": 0,
+  "status_msg": "",
+  "metrics": [
+    {
+      "english_metric_name": "play_cnt",
+      "metric_name": "播放量",
+      "metric_value": 12345,
+      "trends": [
+        { "date_time": "20261001", "value": 7407, "change_rate": 0.1, "douyin_value": 11110, "xigua_value": 0, "yumme_value": 1 },
+        { "date_time": "20261002", "value": 8641, "change_rate": 0.1, "douyin_value": 11110, "xigua_value": 0, "yumme_value": 1 },
+        { "date_time": "20261003", "value": 9876, "change_rate": 0.1, "douyin_value": 11110, "xigua_value": 0, "yumme_value": 1 }
+      ]
+    },
+    {
+      "english_metric_name": "digg_cnt",
+      "metric_name": "点赞量",
+      "metric_value": 86,
+      "trends": [
+        { "date_time": "20261001", "value": 73, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 86, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 98, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "share_count",
+      "metric_name": "分享量",
+      "metric_value": 31,
+      "trends": [
+        { "date_time": "20261001", "value": 27, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 31, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 36, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "comment_cnt",
+      "metric_name": "评论量",
+      "metric_value": 4,
+      "trends": [
+        { "date_time": "20261001", "value": 3, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 4, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 4, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "net_fans_cnt",
+      "metric_name": "净增粉丝",
+      "metric_value": 5,
+      "trends": [
+        { "date_time": "20261001", "value": 4, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 5, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 6, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "cancel_fans_cnt",
+      "metric_name": "取消关注",
+      "metric_value": 1,
+      "trends": [
+        { "date_time": "20261001", "value": 1, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 1, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 1, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "cover_click_ratio",
+      "metric_name": "封面点击率",
+      "metric_value": 0.035,
+      "trends": [
+        { "date_time": "20261001", "value": 0.03, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 0.035, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 0.04, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "homepage_view_cnt",
+      "metric_name": "主页访问量",
+      "metric_value": 54,
+      "trends": [
+        { "date_time": "20261001", "value": 46, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 54, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 62, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "publish_cnt",
+      "metric_name": "投稿数",
+      "metric_value": 2,
+      "trends": [
+        { "date_time": "20261001", "value": 1, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 2, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 2, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "completion_rate_5s",
+      "metric_name": "5s 完播率",
+      "metric_value": 0.42,
+      "trends": [
+        { "date_time": "20261001", "value": 0.36, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 0.42, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 0.48, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "bounce_rate_2s",
+      "metric_name": "2s 跳出率",
+      "metric_value": 0.168,
+      "trends": [
+        { "date_time": "20261001", "value": 0.144, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 0.168, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 0.192, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "avg_view_second",
+      "metric_name": "平均观看时长",
+      "metric_value": 8.61,
+      "trends": [
+        { "date_time": "20261001", "value": 7.38, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 8.61, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 9.84, "change_rate": 0.1 }
+      ]
+    },
+    {
+      "english_metric_name": "total_fans_cnt",
+      "metric_name": "粉丝总量",
+      "metric_value": 350,
+      "trends": [
+        { "date_time": "20261001", "value": 300, "change_rate": 0.1 },
+        { "date_time": "20261002", "value": 350, "change_rate": 0.1 },
+        { "date_time": "20261003", "value": 400, "change_rate": 0.1 }
+      ]
+    }
+  ]
+}
