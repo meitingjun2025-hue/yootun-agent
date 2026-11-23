@@ -72,6 +72,20 @@ export function LineTrendChart(props: {
   const xAt = (index: number): number => padLeft + index * stepX
   const activeIndex = hoverIndex ?? focusIndex
   const activeRow = activeIndex !== null ? rows[activeIndex] : undefined
+  const rowCount = rows.length
+
+  // hooks 必须先于任何提前返回（空态→有值切换时 hooks 数量变化会触发 React #310 崩溃）。
+  useEffect(() => {
+    setHoverIndex(null)
+    setFocusIndex(null)
+  }, [rowCount])
+
+  useLayoutEffect(() => {
+    const plotRect = container?.getBoundingClientRect()
+    if (plotRect !== undefined && activeIndex !== null) {
+      setAnchor({ x: (xAt(activeIndex) / width) * plotRect.width, y: 8 })
+    }
+  }, [activeIndex, container, rowCount])
 
   const valid = rows.filter(row => row.value !== null) as { day: string; value: number }[]
   if (valid.length === 0) {
@@ -85,19 +99,6 @@ export function LineTrendChart(props: {
   const yAt = (value: number): number => padTop + plotHeight - ((value - yMin) / (yMax - yMin)) * plotHeight
   const span = yMax - yMin
   const ticks = Array.from({ length: 5 }, (_, index) => yMin + (span * index) / 4)
-
-  const rowCount = rows.length
-  useEffect(() => {
-    setHoverIndex(null)
-    setFocusIndex(null)
-  }, [rowCount])
-
-  useLayoutEffect(() => {
-    const plotRect = container?.getBoundingClientRect()
-    if (plotRect !== undefined && activeIndex !== null) {
-      setAnchor({ x: (xAt(activeIndex) / width) * plotRect.width, y: 8 })
-    }
-  }, [activeIndex, container, rowCount])
 
   // 折线分段：相邻有效点成段；两点之间的缺口日（列间隔 >1）以虚线连接。
   const segments: { d: string; dashed: boolean }[] = []

@@ -305,7 +305,7 @@ function buildColumns(): WorkColumn[] {
         <span className={css.workCell}>
           <CoverCell row={row} />
           <span className={css.workTitleCell} title={row.title ?? row.work_id}>{row.title ?? row.work_id}</span>
-          {row.promoted && <Tag tone='danger'>{t('promotion.badge')}</Tag>}
+          {row.promoted && <Tag tone='danger' className={css.workTag}>{t('promotion.badge')}</Tag>}
         </span>
       ),
     },

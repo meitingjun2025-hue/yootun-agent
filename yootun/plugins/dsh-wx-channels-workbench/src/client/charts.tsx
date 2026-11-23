@@ -93,6 +93,24 @@ export function LineTrendChart(props: {
       if (value !== null && value !== undefined) values.push(value)
     }
   }
+
+  // 行数变化后旧索引可能越界 / 错位（数据刷新换行）：重置两路激活态。
+  // hooks 必须先于任何提前返回（空态→有值切换时 hooks 数量变化会触发 React #310 崩溃）。
+  const rowCount = rows.length
+  useEffect(() => {
+    setHoverIndex(null)
+    setFocusIndex(null)
+  }, [rowCount])
+
+  // 激活列变化时按 viewBox → 容器的等比缩放重算 tooltip 锚点。
+  useLayoutEffect(() => {
+    const plotRect = container?.getBoundingClientRect()
+    if (plotRect !== undefined && activeIndex !== null) {
+      setAnchor({ x: (xAt(activeIndex) / width) * plotRect.width, y: 8 })
+    }
+    // xAt 随 rows.length 变化；anchor 只依赖激活列与容器宽度。
+  }, [activeIndex, container, rowCount])
+
   if (values.length === 0) {
     return <p className={css.chartEmpty}>{props.trendEmpty}</p>
   }
@@ -113,22 +131,6 @@ export function LineTrendChart(props: {
         : formatInt(row.values[line.key] as number, locale),
       color: line.color,
     }))
-
-  // 行数变化后旧索引可能越界 / 错位（数据刷新换行）：重置两路激活态。
-  const rowCount = rows.length
-  useEffect(() => {
-    setHoverIndex(null)
-    setFocusIndex(null)
-  }, [rowCount])
-
-  // 激活列变化时按 viewBox → 容器的等比缩放重算 tooltip 锚点。
-  useLayoutEffect(() => {
-    const plotRect = container?.getBoundingClientRect()
-    if (plotRect !== undefined && activeIndex !== null) {
-      setAnchor({ x: (xAt(activeIndex) / width) * plotRect.width, y: 8 })
-    }
-    // xAt 随 rows.length 变化；anchor 只依赖激活列与容器宽度。
-  }, [activeIndex, container, rowCount])
 
   return (
     <div ref={setContainer} className={css.plotLayer}>

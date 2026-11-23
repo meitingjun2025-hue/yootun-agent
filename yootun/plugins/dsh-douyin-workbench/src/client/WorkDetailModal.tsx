@@ -185,12 +185,12 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
                               <span className={css.barFill} style={{ width: `${Math.min(100, (sourceRow.value / Math.max(1, ...detail.trafficRows.map(item => item.value ?? 0))) * 100)}%`, background: 'var(--yt-chart-2)' }} />
                             )}
                           </span>
-                          <span className={css.barCount}>{formatCount(sourceRow.value)}</span>
+                          <span className={css.barCount}>{sourceRow.value === null ? EMPTY : `${Math.round(sourceRow.value * 10) / 10}%`}</span>
                         </li>
                       ))}
                     </ul>
                   )
-                  : arrived ? <p className={css.chartEmpty}>{t('retention.noData')}</p> : null}
+                  : arrived ? <p className={css.chartEmpty}>{t('traffic.noData')}</p> : null}
               </DataState>
             </div>
             <div className={css.detailSubBlock} aria-label={t('detail.retention')}>
@@ -279,10 +279,12 @@ function RetentionCurves(props: { points: unknown }): ReactNode {
   const pointOf = (entry: unknown): { time: string; pct: number | null } | null => {
     if (typeof entry !== 'object' || entry === null) return null
     const row = entry as Record<string, unknown>
-    const time = typeof row.time_s === 'number' ? `${row.time_s}s` : typeof row.second === 'number' ? `${row.second}s` : null
+    // 曲线点形状 = {key: 时间(秒/MM:SS), value: 0..100}（parseRealtimeTrend /
+    // buildTrendBlock 同族；真机 2026-11-23：读 time_s/pct 系字段恒空）。
+    const time = typeof row.key === 'string' ? row.key : null
     if (time === null) return null
-    const pct = typeof row.pct === 'number' ? row.pct : typeof row.rate_pct === 'number' ? row.rate_pct : null
-    return { time, pct: pct === null ? null : Math.max(0, Math.min(100, pct)) }
+    const value = typeof row.value === 'number' ? row.value : null
+    return { time, pct: value === null ? null : Math.max(0, Math.min(100, value)) }
   }
   const rows = current.map(pointOf).filter((point): point is { time: string; pct: number | null } => point !== null)
   const similarRows = similar.map(pointOf).filter((point): point is { time: string; pct: number | null } => point !== null)

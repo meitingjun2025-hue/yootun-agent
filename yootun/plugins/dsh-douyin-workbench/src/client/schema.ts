@@ -313,17 +313,17 @@ export function readWorkDetail(payload: Record<string, unknown>): WorkDetailView
   const workRecord = recordOf(data.work)
   const audience = recordOf(data.audience)
   const promotion = recordOf(data.promotion)
-  const trafficSource = recordOf(workRecord?.traffic_source)
+  // traffic_source 顶层即条目数组（[{source_key, source_label, play_count, source_type}…]），
+  // 不是 {rows: […]} 包装——误读包装曾致流量来源恒空（2026-11-23 真机）。
+  const trafficSource = arrayOf(workRecord?.traffic_source)
   const trafficRows: { name: string; value: number | null }[] = []
-  if (trafficSource !== undefined) {
-    for (const entry of arrayOf(trafficSource.rows)) {
-      const row = recordOf(entry)
-      if (row === undefined) continue
-      if (row.sourceType === 999) continue
-      const name = textOf(row.source_label) ?? textOf(row.source_key)
-      if (name === null) continue
-      trafficRows.push({ name, value: numberOf(row.play_count ?? row.playCount) })
-    }
+  for (const entry of trafficSource) {
+    const row = recordOf(entry)
+    if (row === undefined) continue
+    if ((row.source_type ?? row.sourceType) === 999) continue
+    const name = textOf(row.source_label) ?? textOf(row.source_key)
+    if (name === null) continue
+    trafficRows.push({ name, value: numberOf(row.play_count) })
   }
   return {
     work: workRecord === undefined ? null : workRowOf(workRecord),
