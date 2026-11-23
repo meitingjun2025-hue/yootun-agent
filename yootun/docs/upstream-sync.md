@@ -29,7 +29,8 @@
 | gate | 是否扫 `yootun/` | 说明 |
 |---|---|---|
 | `test:coverage` | 否 | vitest include 硬编码 `packages/*/*/src/**`；yootun 源码与测试均不进官方覆盖门禁（也不被官方测试跑——自有测试自带自跑） |
-| `hygiene`（publint/package-deps/runtime-closure/node-next 等） | 否 | 各 leaf gate 的 glob 只含 `packages/*/*`、`vendor/*`、`apps/*` |
+| `hygiene`（publint/package-deps/runtime-closure/node-next 等） | 部分 | 多数 leaf gate 的 glob 只含 `packages/*/*`、`vendor/*`、`apps/*`；全仓清单类 gate 见下一行 |
+| `hygiene` 中的全仓清单 gate（`verify-no-unknown-casts`、`verify-cordis-root`） | 是 | 两者经 `listInventorySources` 扫描全仓受跟踪源码，含 `yootun/`：`as unknown` 断言与 Cordis 根上下文读取分别对照 `scripts/no-unknown-casts.baseline.json` 与 `scripts/cordis-root.baseline.json`，只减不增。`verify-cordis-root` 为官方 0.2.2-rc.3 之后新增，2026-11-23 同步复核时补记本行 |
 | `doc-sync` | 部分 | md-links/md-wrap 的 pattern 不含 `yootun/docs/**`（yootun 文档不进文档站）；但 `verify-translation-pairing` 把任何路径下名为 README.md 的文件纳入双语配对 scope，`verify-repository-references` 扫全仓文本禁止本仓库裸 commit hash。处置：分区导航命名 OVERVIEW.md、文档引用官方版本用版本号/日期而非 hash |
 | `duplication` | 否 | jscpd 只扫 `packages scripts` |
 | `constraints` | 部分 | workspace 成员协议检查覆盖所有 pnpm-workspace 成员：@yootun 包依赖官方 workspace 成员时必须写 `workspace:*` 协议。发布类 manifest 规则不扫 yootun |
@@ -43,6 +44,7 @@
 | 日期 | 基线（同步前 → 后） | 分支 | 波及结论漂移 | 备注 |
 |---|---|---|---|---|
 | 2026-11-15 | 官方 0.2.2-rc.2 → 0.2.2-rc.3 | `main`（本地 `--no-ff` 合并官方镜像 `master`） | 无漂移：constraints 仍部分扫描 workspace，lint 仍全仓扫描，install 仍校验 lockfile | Git 无文本冲突；#5 随上游迁移到 `apps/desktop-publisher/src/`，自检路径同步；上游删除 Python PTC 包后本机残留经官方 clean 清理。详见 [1110/07-upstream-rc3-merge.md](1110/07-upstream-rc3-merge.md) |
+| 2026-11-23 | 官方 0.2.2-rc.3 → 0.2.2-rc.5 | `main`（本地 `--no-ff` 合并 `master`）；`master` fast-forward 到 `master` 上合入 rc.5 的同步合并，官方 `master` HEAD 已是 0.2.3-alpha.2 | 有漂移：hygiene 聚合新增全仓清单 gate `verify-cordis-root`，第三节补记；`rescope-vendor:check` 在纯上游 `master` 同样失败（`apps/web/tests/client-config-sync.e2e.ts` 残留），属上游既有 | Git 无文本冲突；`@yootun/dsh-managed-mcp` 改用隔离的 `McpClientHost`；上游删除 4 个包，本机残留经官方 clean 清理。详见 [1110/17-upstream-rc5-merge.md](1110/17-upstream-rc5-merge.md) |
 
 ## 附录 A：批次 1 gate 实测记录（2026-11-13）
 

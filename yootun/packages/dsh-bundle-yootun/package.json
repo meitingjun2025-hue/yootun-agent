@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-bundle-yootun",
   "description": "yootun 产品 bundle：自有品牌/企业层插件与配置覆盖的 patch 层，插进 desktop profile",
-  "version": "0.2.2-rc.3",
+  "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-wx-channels-workbench",
   "description": "视频号工作台：Host 半（系统 Chrome 扫码与采集状态机、本地 storage_state/profile 管理、经 Workbench MCP 的 19 项白名单调用）+ client 半（root main 中央面板与 sidebar.panellist 入口）",
-  "version": "0.2.2-rc.3",
+  "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

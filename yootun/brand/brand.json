@@ -15,7 +15,7 @@
   "feedOrigin": "https://dofe-public.tos-cn-beijing.volces.com",
   "feedKeyPrefix": "yootun-agent/releases",
   "validationVersion": 1,
-  "baseVersion": "0.2.2-rc.2",
+  "baseVersion": "0.2.2-rc.5",
   "palette": {
     "primary": "#28C8F8",
     "primaryDark": "#3DD4FF",

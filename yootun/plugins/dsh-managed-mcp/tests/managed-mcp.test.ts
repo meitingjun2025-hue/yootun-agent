@@ -12,6 +12,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { credentialRef, type CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
+import { McpClientHost } from '@deepseek-ai/dsh-mcp-client'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
 import * as ManagedMcp from '../src/index.ts'
 import { classifyAgentTool, AGENT_TOOL_NAMES } from '../src/guard.ts'
@@ -30,6 +31,8 @@ interface BootOptions {
   omitServices?: boolean | undefined
   /** 外部 fixture（含已关闭的不可达端口）；提供时不改写环境变量。 */
   fixture?: AgentFixture | undefined
+  /** 是否先在根作用域注册一个外部 `mcpClientHost`（模拟桌面 profile 的官方 mcp-manager）。 */
+  foreignHost?: boolean | undefined
 }
 
 interface Booted {
@@ -77,6 +80,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
+    if (options.foreignHost === true) new McpClientHost(ctx)
     const pluginFiber = await ctx.plugin(ManagedMcp)
     const registeredNames = (): string[] =>
       (ctx.tools.schemas() as Array<{ name: string }>).map(schema => schema.name)
@@ -166,6 +170,21 @@ test('激活后仅 Agent 面 39 项注册，且假 server 走通 initialize / to
     assert.equal(batch.results[1]?.result.isError, false, '发布排期 list 只读放行')
     assert.ok(booted.fixture.toolCalls.includes('yootun_wx_accounts_list'), 'tools/call 到达假 server')
     assert.ok(booted.fixture.toolCalls.includes('yootun_douyin_publish_schedule_list'), '发布排期 list 到达假 server')
+  } finally {
+    await shutdown(booted)
+  }
+})
+
+test('根作用域已有 mcpClientHost 提供方时仍能挂载 Agent 面，且不覆盖该提供方', async () => {
+  const booted = await boot({ foreignHost: true })
+  try {
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, '39 agent tools registered beside the root mcpClientHost')
+    assert.equal(booted.fixture.authorization.length > 0, true, '激活后连接建立')
+
+    // 本插件卸载只会带走自己隔离子作用域里的 host；根作用域的外部提供方必须原样保留。
+    await booted.pluginFiber.dispose()
+    assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0, '插件卸载后工具清空')
+    assert.notEqual(booted.ctx.get('mcpClientHost'), undefined, '根作用域的外部 mcpClientHost 不受本插件影响')
   } finally {
     await shutdown(booted)
   }

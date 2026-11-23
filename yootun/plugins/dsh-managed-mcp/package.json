@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-managed-mcp",
   "description": "yootun 普通会话唯一的 Agent 面 MCP 管理插件：按激活门禁动态挂载官方 dsh-mcp-client（yootun-agent），并注册会话写操作 guard",
-  "version": "0.2.2-rc.3",
+  "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

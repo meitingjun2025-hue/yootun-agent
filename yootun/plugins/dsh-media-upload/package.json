@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-media-upload",
   "description": "yootun 媒体上传能力（纯 Host 插件）：/_dsh/uploader/* 同源路由与 media_upload 会话工具，经 Workbench 面授权后预签名直传，不持有 TOS 凭证",
-  "version": "0.2.2-rc.3",
+  "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

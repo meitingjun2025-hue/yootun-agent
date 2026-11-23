@@ -1,7 +1,7 @@
 {
   "name": "@yootun/dsh-xhs-workbench",
   "description": "小红书工作台：Host 半（`/api/desktop/yootun/xhs-workbench` 同源路由 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile/快照管理 + 经 Workbench MCP 的 19 项白名单调用）；client 半按批次接入",
-  "version": "0.2.2-rc.3",
+  "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",

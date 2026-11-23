@@ -8,8 +8,8 @@
  * 展开、诊断脱敏），本插件不把解析值写入任何状态或日志。
  * @module
  */
-import type { Context, Fiber } from '@deepseek-ai/cordis'
-import * as McpClient from '@deepseek-ai/dsh-mcp-client'
+import type { Context } from '@deepseek-ai/cordis'
+import { McpClientHost, type McpConnectionStatusHandle, type McpServerInstance } from '@deepseek-ai/dsh-mcp-client'
 import { activationServices, isActivated } from './gate.ts'
 import { ACCESS_CREDENTIAL_REF, ACCESS_NAMESPACE, agentUrl, AGENT_SERVER_NAME, TENANT_CODE } from './constants.ts'
 
@@ -32,6 +32,9 @@ const TOOL_CALL_TIMEOUT_MS = 60_000
 /** Transport closure budget (ms), mirroring the mcp-client default. */
 const CLOSE_TIMEOUT_MS = 5_000
 
+/** Configuration path that names the Agent server in validation failures. */
+const CONFIG_PATH: readonly string[] = ['yootun-managed-mcp', 'agent']
+
 /**
  * Create the mount supervisor on the plugin context. Listeners ride the
  * plugin fiber (auto-removed on unload); the child mounts under the same
@@ -40,7 +43,12 @@ const CLOSE_TIMEOUT_MS = 5_000
  * @returns the supervisor handle.
  */
 export function createSupervisor(ctx: Context): AgentSupervisor {
-  let child: Fiber | undefined
+  // 桌面 profile 的官方 mcp-manager 已在根作用域注册 `mcpClientHost`，同名服务重复注册会抛错；
+  // 隔离子作用域各用各的键，且继承本插件的 fiber，host 与其挂载的子实例仍随本插件结束。
+  const host = new McpClientHost(ctx.isolate('mcpClientHost'))
+  let child: McpServerInstance | undefined
+  /** 已挂载子实例的状态句柄；激活完成后由 `ready` 给出。 */
+  let status: McpConnectionStatusHandle | undefined
   let stopped = false
   let queued = false
   let tail: Promise<void> = Promise.resolve()
@@ -53,6 +61,7 @@ export function createSupervisor(ctx: Context): AgentSupervisor {
     const current = child
     child = undefined
     mounted = false
+    status = undefined
     if (current === undefined) return
     // Fiber.dispose 在部分状态下同步返回 undefined；统一收敛成 Promise。
     await Promise.resolve(current.dispose()).catch((error: unknown) => {
@@ -63,7 +72,7 @@ export function createSupervisor(ctx: Context): AgentSupervisor {
   const mount = (): void => {
     // 完整 Config；reconnect 字段省略即官方 dsh-mcp-client 默认重连策略
     // （RECONNECT_DEFAULTS：500ms 起倍增、30s 封顶、10 次）。
-    const fiber = ctx.plugin(McpClient, {
+    const instance = host.mount(host.validate({
       transport: 'streamable-http',
       serverName: AGENT_SERVER_NAME,
       url: agentUrl(),
@@ -72,12 +81,15 @@ export function createSupervisor(ctx: Context): AgentSupervisor {
       closeTimeoutMs: CLOSE_TIMEOUT_MS,
       expandTemplates: true,
       failOnStartupError: false,
-    })
-    child = fiber
+    }, CONFIG_PATH))
+    child = instance
     mounted = true
     // 子实例启动失败（如 serverName 被占用）：复位挂载态并告警，下一次事件重试。
-    void Promise.resolve(fiber.await()).catch((error: unknown) => {
-      if (stopped || child !== fiber) return
+    void instance.ready.then((handle) => {
+      if (stopped || child !== instance) return
+      status = handle
+    }, (error: unknown) => {
+      if (stopped || child !== instance) return
       mounted = false
       ctx.logger.warn(`yootun-managed-mcp: agent client failed to start, will retry on next gate event: ${String(error)}`)
     })
@@ -91,8 +103,7 @@ export function createSupervisor(ctx: Context): AgentSupervisor {
     let rebuild = credentialDirty
     credentialDirty = false
     if (activated && mounted && !rebuild) {
-      const status = child === undefined ? undefined : McpClient.connectionStatusOf(child)?.current()
-      if (status?.state === 'failed') rebuild = true
+      if (status?.current().state === 'failed') rebuild = true
     }
     if (activated && (!mounted || rebuild)) {
       if (mounted) {
