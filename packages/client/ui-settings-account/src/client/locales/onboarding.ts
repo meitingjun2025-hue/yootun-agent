@@ -1,8 +1,8 @@
-/** Chinese first-run copy from the onboarding requirements. */
 /** 品牌产品名：构建环境 YOOTUN_BRAND_PRODUCT_NAME 内联（官方名缺省；define 见
     packages/client/tsdown.client.ts——YOOTUN_ 前缀不被官方环境收口剥离）。 */
 const PRODUCT_NAME = process.env.YOOTUN_BRAND_PRODUCT_NAME ?? 'DeepSeek Harness'
 
+/** Chinese first-run copy from the onboarding requirements. */
 export const onboardingZh = {
   onboardingArtworkLocale: 'zh',
   onboardingWelcome: '欢迎使用',
