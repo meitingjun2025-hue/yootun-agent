@@ -117,13 +117,15 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
     const seq = ++trendSeqRef.current
     setTrendError(null)
     try {
-            const dayFmt = (offsetDays: number): string => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10)
+            const dayFmt = (offsetDays: number): string => new Date(Date.now() + 8 * 3_600_000 + offsetDays * 86_400_000).toISOString().slice(0, 10)
       const res = await hostAction('account.trend', {
         accountId: props.accountId,
         metric: nextMetric,
-        // 固定 7 天窗口（当天往前推 7 天；toDay=今天，服务端对晚于今天 clamp）。
+        // 固定 7 天窗口（上海自然日，从当天往前推 7 天）：服务端窗口是半开
+        // [fromDay, toDay)，toDay 必须取明天否则末端数据日被排除（旧插件
+        // toDay=今天 + 30 天窗口同理覆盖昨日数据）。
         fromDay: dayFmt(-6),
-        toDay: dayFmt(0),
+        toDay: dayFmt(1),
       })
       if (trendSeqRef.current !== seq) return
       setTrendPoints(readAccountTrend(res))
