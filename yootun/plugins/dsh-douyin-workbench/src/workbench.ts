@@ -23,7 +23,7 @@ export interface WorkbenchFace {
   callTool(caller: 'douyin-workbench', domain: 'douyin' | 'viral', name: string, args: unknown, signal?: AbortSignal): Promise<{ structuredContent: unknown; content: unknown }>
 }
 
-/** Douyin 工作台的固定 caller 身份（workbench-mcp 白名单按它收敛 55 项）。 */
+/** Douyin 工作台的固定 caller 身份（workbench-mcp 域门按它限制到 douyin/viral 域）。 */
 export const DOUYIN_CALLER = 'douyin-workbench' as const
 
 /**

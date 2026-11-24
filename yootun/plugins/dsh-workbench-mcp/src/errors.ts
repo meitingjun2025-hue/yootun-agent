@@ -11,6 +11,8 @@ export type WorkbenchErrorCode =
   | 'workbench_not_activated'
   | 'workbench_credential_unavailable'
   | 'workbench_tool_denied'
+  /** 工具通过域门，但服务端 `tools/list` 未广播（服务端未部署该版本或已移除）。 */
+  | 'workbench_tool_unavailable'
   | 'workbench_call_timeout'
   | 'workbench_call_cancelled'
   | 'workbench_network_error'

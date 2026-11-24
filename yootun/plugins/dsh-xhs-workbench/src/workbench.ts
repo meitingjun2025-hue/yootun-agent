@@ -1,6 +1,6 @@
 /**
  * Workbench 面调用缝：本插件对 `ctx.yootunWorkbench` 的窄化接口（caller 固定
- * `xhs-workbench`、domain 固定 `xhs`，19 项白名单由连接器强制）。测试以假 face
+ * `xhs-workbench`、domain 固定 `xhs`，由连接器域门限制到 xhs 域）。测试以假 face
  * 替换；task/hotboard 其余 action 随 X4/X5 批次接入同一缝。
  * @module
  */

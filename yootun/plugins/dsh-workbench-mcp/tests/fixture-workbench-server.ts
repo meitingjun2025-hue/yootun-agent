@@ -1,8 +1,8 @@
 /**
- * 假 Workbench 面 MCP server（stateless Streamable HTTP fixture）：暴露
- * 94 项白名单工具，记录 Authorization 头与连接观测；特殊工具覆盖业务错误、
- * 慢调用与悬挂调用；可注入 serverName 不匹配、白名单外新增工具与白名单
- * 缺项三类清单形态。
+ * 假 Workbench 面 MCP server（stateless Streamable HTTP fixture）：按域各注册
+ * 少量工具覆盖测试路径（业务错误、慢调用、悬挂调用由指定工具承担），记录
+ * Authorization 头与连接观测；可注入 serverName 不匹配与多广播一个额外工具
+ * 两种形态。工具名不代表服务端契约清单。
  * 仅测试使用。
  * @module
  */
@@ -10,13 +10,13 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createMcpHandler, McpServer, type CallToolResult } from '@modelcontextprotocol/server'
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node'
 import { z } from 'zod'
-import { WORKBENCH_TOOL_WHITELIST } from '../src/whitelist.ts'
+import type { WorkbenchDomain } from '../src/whitelist.ts'
 
 export interface WorkbenchFixtureOptions {
   /** initialize 返回的 serverInfo.name（缺省 'yootun-workbench'）。 */
   serverName?: string
-  /** 清单形态注入：'extra' 多注册一个白名单外工具；'missing' 移除一个白名单内工具。 */
-  toolCountMode?: 'exact' | 'extra' | 'missing'
+  /** 多广播形态注入：额外广播的服务端先行工具名（缺省不广播）。 */
+  extraTool?: string
 }
 
 export interface WorkbenchFixture {
@@ -35,12 +35,19 @@ const SLOW_TOOL = 'workbench_douyin_export'
 const SLOW_DELAY_MS = 1_500
 /** 悬挂工具：永不返回，验证取消与卸载中止。 */
 const HANG_TOOL = 'workbench_wx_collect_run_start'
-/** `'missing'` 注入时从白名单内移除的工具。 */
-const MISSING_TOOL = 'workbench_xhs_hotboard_overview'
+
+/** 每域的 fixture 工具名；只覆盖测试路径，不表示服务端契约清单。 */
+const FIXTURE_TOOLS: Readonly<Record<WorkbenchDomain, readonly string[]>> = Object.freeze({
+  wx: ['workbench_wx_account_list', 'workbench_wx_work_list', HANG_TOOL],
+  xhs: ['workbench_xhs_task_create', BUSINESS_ERROR_TOOL, 'workbench_xhs_hotboard_overview'],
+  douyin: ['workbench_douyin_account_list', SLOW_TOOL, 'workbench_douyin_publish_schedule_list'],
+  viral: ['workbench_viral_rewrite_rules_list', 'workbench_viral_workflow_start', 'workbench_viral_dashboard_get'],
+  tos: ['workbench_tos_upload_authorize', 'workbench_tos_upload_commit', 'workbench_tos_upload_abort'],
+})
 
 /**
  * Start the fake Workbench-face MCP server.
- * @param options - identity and contract-drift injection.
+ * @param options - identity and extra-advertisement injection.
  * @returns the running fixture.
  */
 export async function startWorkbenchFixture(options: WorkbenchFixtureOptions = {}): Promise<WorkbenchFixture> {
@@ -52,12 +59,8 @@ export async function startWorkbenchFixture(options: WorkbenchFixtureOptions = {
       { name: serverName, version: '1.0.0' },
       { capabilities: { tools: {} } },
     )
-    const names = [...WORKBENCH_TOOL_WHITELIST]
-    if (options.toolCountMode === 'extra') names.push('workbench_douyin_unknown_extra')
-    if (options.toolCountMode === 'missing') {
-      const index = names.indexOf(MISSING_TOOL)
-      if (index >= 0) names.splice(index, 1)
-    }
+    const names = Object.values(FIXTURE_TOOLS).flat()
+    if (options.extraTool !== undefined) names.push(options.extraTool)
     for (const toolName of names) {
       mcp.registerTool(toolName, { description: `fixture ${toolName}`, inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
         toolCalls.push(toolName)

@@ -1,7 +1,7 @@
 /**
  * Agent 面 managed MCP 生命周期与 guard 测试（node --test，真实 Cordis 组合 +
- * 假 MCP server）：未激活零连接、激活后仅 Agent 39、key 更新/移除、guard
- * 读/写/未识别、Workbench/Catalog 拒绝、卸载清理。
+ * 假 MCP server）：未激活零连接、激活后仅 Agent 面注册、key 更新/移除、
+ * guard 读/写/未分类 ask、Workbench/Catalog 拒绝、卸载清理。
  * 运行：`pnpm --filter @yootun/dsh-managed-mcp test`。
  */
 import assert from 'node:assert/strict'
@@ -10,6 +10,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { credentialRef, type CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
 import { McpClientHost } from '@deepseek-ai/dsh-mcp-client'
@@ -109,19 +110,19 @@ async function shutdown(booted: Booted): Promise<void> {
   await booted.fixture.close().catch(() => undefined)
 }
 
-test('39 项 Agent 契约分类无遗漏且无未知', () => {
-  assert.equal(AGENT_TOOL_NAMES.length, 39)
-  assert.equal(new Set(AGENT_TOOL_NAMES).size, 39)
+test('已分类 Agent 工具无重复、全有归类，Catalog 与 Workbench 名不归类', () => {
+  assert.equal(AGENT_TOOL_NAMES.length, new Set(AGENT_TOOL_NAMES).size)
+  assert.ok(AGENT_TOOL_NAMES.length > 0)
   for (const toolName of AGENT_TOOL_NAMES) assert.notEqual(classifyAgentTool(toolName), 'unknown')
   assert.equal(classifyAgentTool('workbench_wx_account_list'), 'unknown')
   assert.equal(classifyAgentTool('yootun_business_tools_search'), 'unknown')
   assert.equal(classifyAgentTool('yootun_xhs_creative_task_start'), 'task-write')
   assert.equal(classifyAgentTool('yootun_wx_accounts_list'), 'read')
-  // 抖音发布排期三项（分册 08 §4.3）：list 只读，row 写按 ask。
+  // 抖音发布排期（分册 08 §4.3）：list 只读，row 写按 ask。
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_list'), 'read')
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_create'), 'task-write')
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_update'), 'task-write')
-  // row_delete 按产品决策仅进 Workbench 面，会话中未识别 → deny。
+  // row_delete 按产品决策仅进 Workbench 面，会话中未分类 → ask（经确认后可用）。
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_delete'), 'unknown')
 })
 
@@ -147,10 +148,10 @@ test('缺 settings 或 credentials 服务时同样零连接', async () => {
   }
 })
 
-test('激活后仅 Agent 面 39 项注册，且假 server 走通 initialize / tools/list / tools/call', async () => {
+test('激活后仅 Agent 面注册，且假 server 走通 initialize / tools/list / tools/call', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, '39 agent tools registered')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered')
     const agentNames = booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).map(name => name.slice('mcp__yootun-agent__'.length))
     assert.deepEqual(new Set(agentNames), new Set(AGENT_TOOL_NAMES))
     assert.equal(booted.fixture.authorization.length > 0, true, '激活后连接建立')
@@ -178,7 +179,7 @@ test('激活后仅 Agent 面 39 项注册，且假 server 走通 initialize / to
 test('根作用域已有 mcpClientHost 提供方时仍能挂载 Agent 面，且不覆盖该提供方', async () => {
   const booted = await boot({ foreignHost: true })
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, '39 agent tools registered beside the root mcpClientHost')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered beside the root mcpClientHost')
     assert.equal(booted.fixture.authorization.length > 0, true, '激活后连接建立')
 
     // 本插件卸载只会带走自己隔离子作用域里的 host；根作用域的外部提供方必须原样保留。
@@ -193,14 +194,14 @@ test('根作用域已有 mcpClientHost 提供方时仍能挂载 Agent 面，且�
 test('key 更新销毁重建、key 移除卸载', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
     const connectionsAfterMount = booted.fixture.authorization.length
 
     // key 更新：reference-updated 事件触发销毁重建（新 client 重新连接）。
     booted.setKey('rotated-model-key')
     booted.emitCredentialUpdate()
     // 等待「重建后工具重新到齐」，轮换期间的旧连接/新连接都会推高授权头计数。
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length
       && booted.fixture.authorization.length > connectionsAfterMount, 'client rebuilt after key rotation')
     assert.equal(booted.fixture.authorization.length > connectionsAfterMount, true)
     assert.ok(booted.fixture.authorization.includes('Bearer rotated-model-key'), '重建后连接携带轮换后的 key')
@@ -221,7 +222,7 @@ test('setupComplete 翻转控制挂载', async () => {
     assert.equal(booted.fixture.authorization.length, 0)
     booted.setAccess(ACTIVATED_SNAPSHOT)
     booted.emitSettingsUpdate()
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'mounted after activation')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'mounted after activation')
   } finally {
     await shutdown(booted)
   }
@@ -238,10 +239,10 @@ test('validationVersion 不匹配时不挂载', async () => {
   }
 })
 
-test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', async () => {
+test('guard：会话内任务型写/未分类工具经审批管线不放行，Workbench/Catalog 面拒绝', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
     const batch = await booted.ctx.tools.execute({
       signal: AbortSignal.timeout(10_000),
       calls: [
@@ -258,7 +259,40 @@ test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', 
       assert.equal(outcome.result.isError, true, `${outcome.callId} 应被 guard 拒绝`)
     }
     assert.equal(booted.fixture.toolCalls.length, 0, '被拒调用不得到达假 server')
-    // 任务型写被拒走 ask→无 approval 服务→deny 的管线，未知工具走 deny。
+    // 任务型写与未分类工具都走 ask→无 approval 服务→deny 的管线。
+  } finally {
+    await shutdown(booted)
+  }
+})
+
+test('guard 决策：未分类 yootun 工具 ask，Workbench/Catalog 面 deny，非 yootun 透传 next', async () => {
+  const booted = await boot()
+  try {
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
+    const exec = (name: string): ToolExecution => ({
+      callId: brandString<ToolCallId>('guard-probe'),
+      rootCallId: brandString<ToolCallId>('guard-probe'),
+      token: Symbol('guard-probe') as ToolExecutionToken,
+      name,
+      arguments: {},
+      signal: new AbortController().signal,
+    })
+    const next = async (): Promise<PreToolDecision> => ({ kind: 'allow' })
+
+    const unclassified = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__yootun-agent__yootun_business_tools_search'), next)
+    assert.ok(unclassified.kind === 'ask', '未分类 yootun 工具应 ask')
+    assert.equal(unclassified.reason, 'yootun agent tool "yootun_business_tools_search" is not yet classified; confirm before use')
+    assert.equal(unclassified.displayReason?.en, unclassified.reason)
+
+    const workbenchFace = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__yootun-workbench__workbench_wx_account_list'), next)
+    assert.equal(workbenchFace.kind, 'deny', 'Workbench 面仍 deny')
+    const catalogFace = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__yootun-catalog__yootun_business_capabilities_list'), next)
+    assert.equal(catalogFace.kind, 'deny', 'Catalog 面仍 deny')
+
+    const foreignMcp = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__other-plain__tool_x'), next)
+    assert.deepEqual(foreignMcp, { kind: 'allow' }, '非 yootun MCP 工具透传 next')
+    const nativeName = await booted.ctx.waterfall('tools/pre-execute', exec('native_echo'), next)
+    assert.deepEqual(nativeName, { kind: 'allow' }, '原生工具名透传 next')
   } finally {
     await shutdown(booted)
   }
@@ -267,7 +301,7 @@ test('guard：会话内拒绝未识别 yootun 工具与 Workbench/Catalog 面', 
 test('卸载后无残留工具、无新增连接', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
     const connectionsBefore = booted.fixture.authorization.length
     await booted.pluginFiber.dispose()
     assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0, '卸载后 ctx.tools 无 yootun 工具')
@@ -296,7 +330,7 @@ test('初始连接失败不阻塞插件加载，不伪造工具可用', async ()
 test('guard 对 serverName 大小写变体同样拒绝', async () => {
   const booted = await boot()
   try {
-    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === 39, 'initial mount')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
     const batch = await booted.ctx.tools.execute({
       signal: AbortSignal.timeout(10_000),
       calls: [

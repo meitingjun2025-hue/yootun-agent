@@ -24,7 +24,7 @@ import {
 
 // --- 路由 schema 层 ---
 
-test('action allowlist：19 项白名单且全部有 schema', () => {
+test('action allowlist：全部 action 有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus', 'account.refreshLoginQr',
     'account.probe', 'account.promote', 'account.removeLocal', 'account.removeRemote', 'collect.start',

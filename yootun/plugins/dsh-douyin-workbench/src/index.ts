@@ -1,7 +1,7 @@
 /**
  * yootun 抖音工作台插件——`/api/desktop/yootun/douyin-workbench` 同源路由 +
  * action 契约（56 项冻结）+ 本地状态/登录/采集编排 + 经 Workbench MCP 的
- * douyin/viral 分组调用通道（55 项工具面）与 dispose 收口。D2–D8 各批
+ * douyin/viral 分组调用通道（按域放行）与 dispose 收口。D2–D8 各批
  * Host action 与 client 面板（src/client，7 个顶级 Tab 工作台）已全量交付；
  * 插件随 D9 集成批次插入 yootun bundle。Cookie/storage_state/本地路径不进
  * 响应、日志、tools 参数或审计。

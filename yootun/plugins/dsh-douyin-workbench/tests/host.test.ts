@@ -1,15 +1,15 @@
 /**
  * Host 半测试（node --test）：browser.status 唯一实现与路径不透出投影、
- * 未实现 action fail loud、ACTION_TOOL_MAP 与 Workbench 白名单对账
- * （douyin 33−G-1 / viral 22）、本地 action 零远端绑定、服务端稳定码投影、
- * Workbench caller 通道。运行：`node --test tests/host.test.ts`。
+ * 未实现 action fail loud、ACTION_TOOL_MAP 与 Workbench 域门对账、本地
+ * action 零远端绑定、服务端稳定码投影、Workbench caller 通道。
+ * 运行：`node --test tests/host.test.ts`。
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { WORKBENCH_GROUP_TOOLS } from '@yootun/dsh-workbench-mcp'
+import { isAllowedFor } from '@yootun/dsh-workbench-mcp'
 import { ACTION_SCHEMAS, ACTION_TOOL_MAP, ROUTE_PATH } from '../src/route.ts'
 import { DOUYIN_CALLER, createWorkbenchCaller } from '../src/workbench.ts'
-import { STABLE_ERROR_CODES, safeCode } from '../src/errors.ts'
+import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers } from '../src/index.ts'
 import { createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
 
@@ -17,24 +17,16 @@ test('路由路径冻结：/api/desktop/yootun/douyin-workbench', () => {
   assert.equal(ROUTE_PATH, '/api/desktop/yootun/douyin-workbench')
 })
 
-test('ACTION_TOOL_MAP 对账：douyin 32/33（G-1 cancel 未绑定）+ viral 22/22，无越界', () => {
-  const douyinBound = new Set<string>()
-  const viralBound = new Set<string>()
+test('ACTION_TOOL_MAP 对账：Host 侧远端绑定工具名全部通过 douyin-workbench 域门', () => {
+  const boundTools = new Set<string>()
   for (const binding of Object.values(ACTION_TOOL_MAP)) {
     if (binding.kind !== 'remote') continue
     for (const tool of binding.tools) {
-      if (binding.domain === 'douyin') douyinBound.add(tool)
-      else viralBound.add(tool)
+      boundTools.add(tool)
+      assert.equal(isAllowedFor('douyin-workbench', tool), true, `${tool} 不在 douyin-workbench 域门内`)
     }
   }
-  const whitelistDouyin = WORKBENCH_GROUP_TOOLS.douyin as ReadonlySet<string>
-  const whitelistViral = WORKBENCH_GROUP_TOOLS.viral as ReadonlySet<string>
-  // G-1：cancel 是 D0 缺口，唯一无 action 绑定的 douyin 工具。
-  const expectedDouyin = new Set([...whitelistDouyin].filter(name => name !== 'workbench_douyin_collect_run_cancel'))
-  assert.deepEqual([...douyinBound].sort(), [...expectedDouyin].sort())
-  assert.deepEqual([...viralBound].sort(), [...whitelistViral].sort())
-  for (const tool of douyinBound) assert.equal(whitelistDouyin.has(tool), true, `${tool} 不在 douyin 白名单`)
-  for (const tool of viralBound) assert.equal(whitelistViral.has(tool), true, `${tool} 不在 viral 白名单`)
+  assert.ok(boundTools.size > 0, '存在远端绑定')
 })
 
 test('D2–D7 全量 51 个 action 精确实现（D8 缺席）；browser.status 投影不回传设备路径', async () => {
@@ -195,6 +187,11 @@ test('服务端稳定码投影：Workbench envelope code 进白名单即透出�
   assert.equal(safeCode(unknownPayload), 'douyin_operation_request_failed')
   const plain = new Error('raw transport text')
   assert.equal(safeCode(plain), 'douyin_operation_request_failed')
+  // 连接器稳定码登记（LOCAL_ERROR_CODES 的 workbench_* 段即登记表键）：逐个原样投影。
+  for (const code of LOCAL_ERROR_CODES.filter(value => value.startsWith('workbench_'))) {
+    const transport = Object.assign(new Error('x'), { name: 'WorkbenchMcpError', code })
+    assert.equal(safeCode(transport), code, `${code} 原样投影`)
+  }
   void fake
 })
 

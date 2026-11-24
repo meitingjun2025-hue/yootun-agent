@@ -12,7 +12,7 @@
 
 红线：
 
-- 工具清单与计数只在 tools 的 `docs/1116/yootun-mcp.md` 维护；其他仓不手抄计数（docker-helm `route-registry.yml` notes、`AGENTS.md`、`CLAUDE.md` 中的 39/94/133 为待清理的历史手抄）；
+- 工具清单与计数只在 tools 的 `docs/1116/yootun-mcp.md` 维护；其他仓不手抄计数；
 - yootun-agent 代码、注释、测试中不出现 Workbench 工具数量字面量；
 - 新增或维护任何业务特性，先在 [features/](features/) 建实施单（第四节），再动代码。
 
@@ -35,7 +35,7 @@ export const CALLER_DOMAINS = {
 
 - 连接：只校验 `serverName === 'yootun-workbench'`，不做 `tools/list` 子集校验；
 - 调用：工具名必须是 `workbench_<domain>_<rest>`，且 `<domain>` 在该 caller 的域里，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具返回 `workbench_tool_unavailable`，不发请求；
-- 服务端多广播的工具不可达；服务端未部署新工具时，其余工具照常可用；
+- 服务端多广播的域内工具连接器同样放行，但没有 Host handler 调用它，浏览器侧不可达；服务端未部署新工具时，其余工具照常可用；
 - 新增 `workbench_*` 工具时 yootun-agent 白名单零改动，只写调它的 Host handler。
 
 ### 2.2 Agent 面：逐工具策略表
@@ -93,8 +93,3 @@ export const CALLER_DOMAINS = {
 ## 六、与上游同步的关系
 
 上游同步（[upstream-sync.md](upstream-sync.md)）只处理官方 → `master` → `main`，不涉及 tools 与 docker-helm。两条流程在一个点交汇：上游若改动官方 `dsh-mcp-client` / `McpClientHost` 的 API 或 `tools/pre-execute` 决策类型，yootun-agent 的两个连接器要适配（如 0.2.2-rc.5 同步时的 `McpClientHost` 改造），但 tools 契约与 docker-helm 路由不受影响。适配记录写进上游同步的分册，不另开实施单。
-
-## 七、待清理（随实施单 infra-whitelist-domain-gate 执行）
-
-- docker-helm：`runtime/mcp-gateway/route-registry.yml` 三条 yootun 路由 `notes` 中的计数、`AGENTS.md` 与 `CLAUDE.md` 中的 39/94/133，改为一句"工具清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准"；
-- yootun-agent：`08-plugin-mcp.md` §4.3 / §5.2 / §12.2 已按本文修订；`whitelist.ts`、`guard.ts` 头注释与测试中的计数随代码批次删除。

@@ -6,6 +6,7 @@
  * 地址。
  * @module
  */
+import type { WorkbenchErrorCode } from '@yootun/dsh-workbench-mcp'
 
 /** 服务端抖音数据域稳定码（workbench_douyin_* envelope；分册 15 §6 冻结）。 */
 export const SERVER_DOUYIN_ERROR_CODES = Object.freeze([
@@ -107,20 +108,26 @@ export const SERVER_COMMON_ERROR_CODES = Object.freeze([
   'IDEMPOTENCY_OUTCOME_UNKNOWN',
 ])
 
+/** 连接器稳定码登记（原样投影，不收敛兜底）；键受 `WorkbenchErrorCode` 约束，缺键即类型报错。 */
+const WORKBENCH_ERROR_CODES: Readonly<Record<WorkbenchErrorCode, true>> = Object.freeze({
+  workbench_not_activated: true,
+  workbench_credential_unavailable: true,
+  workbench_tool_denied: true,
+  workbench_tool_unavailable: true,
+  workbench_call_timeout: true,
+  workbench_call_cancelled: true,
+  workbench_network_error: true,
+  workbench_protocol_error: true,
+  workbench_call_failed: true,
+  workbench_unavailable: true,
+})
+
 /** 本域（设备端）稳定码：路由层 + 浏览器探测 + 旧插件小写 reason（分册 15 §6）。 */
 export const LOCAL_ERROR_CODES = Object.freeze([
   'GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING',
-  // Workbench MCP 连接器传输层稳定码（分册 15 §6：原样投影，不收敛兜底）。
-  'workbench_tool_denied',
-  'workbench_not_activated',
-  'workbench_network_error',
-  'workbench_protocol_error',
-  'workbench_call_timeout',
-  'workbench_call_cancelled',
-  'workbench_call_failed',
-  'workbench_credential_unavailable',
-  'workbench_unavailable',
+  // Workbench MCP 连接器传输层稳定码（分册 15 §6：原样投影，不收敛兜底）；见上方登记表。
+  ...Object.keys(WORKBENCH_ERROR_CODES),
   'DOUYIN_TOOL_UNAVAILABLE',
   'DOUYIN_ROUTE_UNKNOWN_ACTION',
   'DOUYIN_ROUTE_INVALID_REQUEST',

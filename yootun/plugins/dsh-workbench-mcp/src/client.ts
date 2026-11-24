@@ -1,24 +1,22 @@
 /**
  * Workbench MCP 连接生命周期（直接使用 MCP SDK Streamable HTTP client，
  * 不经官方 dsh-mcp-client——后者会把工具注册进 ctx.tools，破坏普通会话不可
- * 见的边界）。连接时校验 serverName 与 tools/list 子集契约（安装包白名单
- * ⊆ 服务端广播；服务端新增工具为前向兼容，由调用层白名单隔离）；每个调用
- * 显式超时与取消；错误按稳定码投影，上游原文不进入诊断文本。
+ * 见的边界）。连接时只校验 serverName（服务端身份），并把 tools/list 广播
+ * 的工具名集合交给调用层做调用时可用性判断；每个调用显式超时与取消；错误
+ * 按稳定码投影，上游原文不进入诊断文本。
  * @module
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { CLIENT_INFO_NAME, WORKBENCH_SERVER_NAME, workbenchUrl, TENANT_CODE } from './constants.ts'
-import { WORKBENCH_TOOL_WHITELIST } from './whitelist.ts'
 import { WorkbenchMcpError } from './errors.ts'
 
-/** One live connection: the SDK client plus its validated tools/list cache. */
+/** One live connection: the SDK client plus its advertised tools/list cache. */
 export interface WorkbenchConnection {
   client: Client
   /**
-   * The tool names the server advertised. Validated as a superset of
-   * `WORKBENCH_TOOL_WHITELIST`: every whitelisted name is present; the set may
-   * additionally contain newer server-side tools, which stay unreachable
-   * through the caller×domain gate.
+   * The tool names the server advertised. Consulted at call time for
+   * availability (unadvertised names project `workbench_tool_unavailable`);
+   * server-side additions ride along harmlessly.
    */
   toolNames: ReadonlySet<string>
 }
@@ -33,17 +31,14 @@ export interface ConnectOptions {
 
 /**
  * Open one Workbench connection: attach the resolved Authorization value
- * (never logged), connect, validate the server identity and the subset
- * tools/list contract. Forward compatibility: the server may advertise tools
- * beyond the whitelist (e.g. shipped before this client build); connection
- * requires only that every whitelisted name is advertised, and server-side
- * additions stay unreachable through the caller×domain call gate.
+ * (never logged), connect, and validate the server identity; advertised
+ * names are returned for the call-time availability check. No comparison
+ * against any client-side tool list happens at connect time.
  * @param authorization - the resolved `MODELS_API_KEY` value; secret, used only in request headers.
  * @param options - explicit budgets and cancellation for the connect phase.
  * @returns the live connection.
- * @throws {WorkbenchMcpError} `workbench_network_error` on transport failure,
- * `workbench_protocol_error` when the identity does not match or a whitelisted
- * tool is missing from the server advertisement.
+ * @throws {WorkbenchMcpError} `workbench_network_error` on transport or listing failure,
+ * `workbench_protocol_error` when the identity does not match.
  */
 export async function connectWorkbench(authorization: string, options: ConnectOptions = {}): Promise<WorkbenchConnection> {
   const client = new Client({ name: CLIENT_INFO_NAME, version: '1.0.0' })
@@ -74,11 +69,6 @@ export async function connectWorkbench(authorization: string, options: ConnectOp
     throw new WorkbenchMcpError('workbench_network_error', `workbench tools/list failed: ${describeErrorName(error)}`)
   }
   const advertised = new Set(tools.map(tool => tool.name))
-  const missing = [...WORKBENCH_TOOL_WHITELIST].filter(name => !advertised.has(name))
-  if (missing.length > 0) {
-    await closeClient(client)
-    throw new WorkbenchMcpError('workbench_protocol_error', `workbench tools/list contract mismatch: missing ${String(missing.length)} required tools: ${missing.join(', ')}`)
-  }
   return { client, toolNames: advertised }
 }
 
@@ -114,9 +104,9 @@ export interface ToolCallOutcome {
 }
 
 /**
- * Call one whitelisted tool over the live connection.
+ * Call one tool over the live connection.
  * @param connection - the live connection.
- * @param name - tool name (whitelist-checked by the service layer).
+ * @param name - tool name (domain-gate and availability checked by the service layer).
  * @param args - tool arguments.
  * @param timeoutMs - explicit per-call timeout.
  * @param signal - caller cancellation.

@@ -1,8 +1,8 @@
 /**
  * yootun Workbench 面私有 MCP 连接器（`ctx.yootunWorkbench`，Service 插件）。
  * 三个工作台 Host 与媒体上传插件共享；不注册 `ctx.tools`，普通会话不可见。
- * 每次调用内部执行：调用方分组与白名单校验 → 激活门禁 → credential 解析 →
- * 连接与 tools/list 缓存（白名单子集校验）→ tools/call（显式超时/取消）→
+ * 每次调用内部执行：caller×domain 域门 → 激活门禁 → credential 解析 → 连接
+ * （serverName 校验）→ 服务端广播可用性检查 → tools/call（显式超时/取消）→
  * 稳定错误投影。凭证更新即失效连接缓存；卸载关闭全部连接与 in-flight 请求。
  * @module @yootun/dsh-workbench-mcp
  */
@@ -14,13 +14,13 @@ import { ACCESS_CREDENTIAL_REF } from './constants.ts'
 import { activationServices, isActivated } from './gate.ts'
 import { WorkbenchMcpError } from './errors.ts'
 import { callTool, closeWorkbench, connectWorkbench, type ToolCallOutcome, type WorkbenchConnection } from './client.ts'
-import { allowedToolsFor, CALLER_DOMAINS, WORKBENCH_GROUP_TOOLS, type WorkbenchCaller, type WorkbenchDomain } from './whitelist.ts'
+import { isAllowedFor, type WorkbenchCaller, type WorkbenchDomain } from './whitelist.ts'
 
 export { WorkbenchMcpError, serverErrorCodeOf, type WorkbenchErrorCode } from './errors.ts'
 export { workbenchUrl, WORKBENCH_SERVER_NAME, ACCESS_CREDENTIAL_REF, ACCESS_NAMESPACE } from './constants.ts'
 export {
-  allowedToolsFor, CALLER_DOMAINS, WORKBENCH_GROUP_TOOLS, WORKBENCH_TOOL_WHITELIST,
-  CATALOG_TOOL_NAMES, type WorkbenchCaller, type WorkbenchDomain,
+  CALLER_DOMAINS, CATALOG_TOOL_NAMES, domainOf, isAllowedFor, WORKBENCH_TOOL_PREFIX,
+  type WorkbenchCaller, type WorkbenchDomain,
 } from './whitelist.ts'
 export { readAccessSnapshot, isActivated, activationServices, type AccessSnapshot } from './gate.ts'
 export type { ToolCallOutcome, WorkbenchConnection } from './client.ts'
@@ -62,7 +62,6 @@ export default class YootunWorkbenchMcp extends Service {
   /** 世代号：每次 invalidate/teardown 递增，open 产物据此自检。 */
   private generation = 0
   private readonly inFlight = new Set<InFlight>()
-  private readonly callerTools = new Map<WorkbenchCaller, ReadonlySet<string>>()
   private stopped = false
 
   /**
@@ -100,28 +99,20 @@ export default class YootunWorkbenchMcp extends Service {
    * (writes must not double-fire; reads re-invoke explicitly), and idempotency
    * conflicts or unknown outcomes project as-is.
    * @param caller - the calling Host's identity; gates its reachable domains.
-   * @param domain - the tool's group; must be one of the caller's domains.
-   * @param name - exact tool name; must be inside the 90-name whitelist.
+   * @param _domain - the tool's group; kept for Host call-signature compatibility and not consulted.
+   * @param name - exact tool name; must parse as `workbench_<domain>_<rest>` with `<domain>` inside the caller's domains, and the server must advertise it.
    * @param args - tool arguments (passed through; the server owns validation).
    * @param signal - caller cancellation for this call.
    * @returns the tool's output projection (structuredContent preferred).
    * @throws {WorkbenchMcpError} stable projections; see {@link WorkbenchErrorCode}.
    */
-  async callTool(caller: WorkbenchCaller, domain: WorkbenchDomain, name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallOutcome> {
+  async callTool(caller: WorkbenchCaller, _domain: WorkbenchDomain, name: string, args: unknown, signal?: AbortSignal): Promise<ToolCallOutcome> {
     if (this.stopped) throw new WorkbenchMcpError('workbench_unavailable', 'the workbench connector is disposed')
-    // 1. 调用方分组与白名单：未知 caller/domain 或组外一律拒绝，不发起调用。
-    //    caller/domain 运行时可能越出类型面（JS 调用方），先判存在再取属性。
-    const domains = CALLER_DOMAINS[caller]
-    if (domains === undefined || !domains.includes(domain) || !WORKBENCH_GROUP_TOOLS[domain].has(name)) {
-      throw new WorkbenchMcpError('workbench_tool_denied', `workbench tool "${name}" is outside ${caller}'s whitelist`)
-    }
-    let allowed = this.callerTools.get(caller)
-    if (allowed === undefined) {
-      allowed = allowedToolsFor(caller) ?? new Set<string>()
-      this.callerTools.set(caller, allowed)
-    }
-    if (!allowed.has(name)) {
-      throw new WorkbenchMcpError('workbench_tool_denied', `workbench tool "${name}" is outside ${caller}'s whitelist`)
+    // 1. caller×domain 域门：名称形如 workbench_<domain>_<rest> 且 domain 属于
+    //    caller 的域，否则拒绝、不发起调用。caller 运行时可能越出类型面（JS
+    //    调用方），未知 caller 一并拒绝。
+    if (!isAllowedFor(caller, name)) {
+      throw new WorkbenchMcpError('workbench_tool_denied', `workbench tool "${name}" is outside ${caller}'s domains`)
     }
     // 2. 激活门禁。
     const activated = await isActivated(activationServices(this.ctx))
@@ -130,7 +121,12 @@ export default class YootunWorkbenchMcp extends Service {
     const connection = await this.ensureConnection()
     // 连接在途期间发生失效/卸载：本次调用作废，调用方带新状态重试。
     if (this.stopped) throw new WorkbenchMcpError('workbench_unavailable', 'the workbench connector was disposed during connect')
-    // 4. 调用：显式超时 + 调用方取消。
+    // 4. 服务端广播可用性：通过域门但服务端未广播（未部署该版本或已移除）→
+    //    稳定投影，不发请求。
+    if (!connection.toolNames.has(name)) {
+      throw new WorkbenchMcpError('workbench_tool_unavailable', `workbench tool "${name}" is not advertised by the workbench server`)
+    }
+    // 5. 调用：显式超时 + 调用方取消。
     const settle = Promise.withResolvers<void>()
     const inFlight: InFlight = { controller: new AbortController(), done: settle.promise }
     this.inFlight.add(inFlight)

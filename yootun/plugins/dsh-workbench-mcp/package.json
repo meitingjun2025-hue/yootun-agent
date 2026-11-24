@@ -1,6 +1,6 @@
 {
   "name": "@yootun/dsh-workbench-mcp",
-  "description": "yootun 三个工作台 Host 共享的私有 Workbench MCP 连接器（yootun-workbench）：94 项白名单、按调用方分组约束，不注册 ctx.tools",
+  "description": "yootun 三个工作台 Host 共享的私有 Workbench MCP 连接器（yootun-workbench）：按调用方×域放行，不注册 ctx.tools",
   "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",

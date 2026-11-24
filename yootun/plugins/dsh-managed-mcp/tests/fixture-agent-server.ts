@@ -1,7 +1,7 @@
 /**
- * 假 Agent 面 MCP server（stateless Streamable HTTP fixture）：精确暴露
- * Agent 契约 39 项工具，记录每次 HTTP 请求的 Authorization 头（连接观测）
- * 与 tools/call 调用名。仅测试使用。
+ * 假 Agent 面 MCP server（stateless Streamable HTTP fixture）：按
+ * `AGENT_TOOL_NAMES` 暴露已分类的 Agent 工具，记录每次 HTTP 请求的
+ * Authorization 头（连接观测）与 tools/call 调用名。仅测试使用。
  * @module
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'

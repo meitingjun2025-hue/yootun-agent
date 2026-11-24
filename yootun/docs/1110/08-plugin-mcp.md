@@ -208,6 +208,8 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 
 连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具返回 `workbench_tool_unavailable`，不发请求。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
 
+连接器稳定码在 Host 侧的投影（2026-11-24 起）：抖音工作台以受 `WorkbenchErrorCode` 约束的登记表原样投影全部连接器稳定码，连接器新增稳定码而未登记时该包 `build` 类型报错，`workbench_tool_unavailable` 有对应的中英文文案；小红书、视频号工作台与 media-upload 对连接器稳定码统一投影到各自的兜底码，不逐码登记。
+
 ### 5.3 请求约束
 
 - 所有请求由 Host 发起；

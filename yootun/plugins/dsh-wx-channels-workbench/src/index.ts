@@ -1,7 +1,7 @@
 /**
  * 视频号工作台插件：Host 半（`/api/desktop/yootun/wx-workbench` 同源路由 +
  * 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile 管理 + 经
- * `ctx.yootunWorkbench` 的 19 项白名单调用）；client 半挂 root `main` 中央
+ * `ctx.yootunWorkbench` 的按域放行调用）；client 半挂 root `main` 中央
  * 面板与 `sidebar.panellist` 入口。Cookie/storage_state/本地路径不进入响应、
  * 日志、tools 参数或审计。
  * @module @yootun/dsh-wx-channels-workbench
