@@ -164,10 +164,12 @@ X-Company-Code: yootun
 
 Agent 面服务端已按产品任务收敛，桌面侧仍需注册 `tools/pre-execute` guard：
 
-- 读工具允许；
-- 明确任务型写工具在会话中 ask;
-- 高风险批量采集、模型生成、报表重建类工具 ask 或 deny;
+- `READ_TOOLS` 内的读工具直接允许；
+- `TASK_WRITE_TOOLS` 内的任务型写与计费工具在会话中 ask;
+- 两表都不在的未分类 `yootun_*` 工具 ask（交人工确认；2026-11-24 起，原 fail-closed deny 作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）；
 - Workbench Host 的私有调用不走 Agent 面，因此不受该 guard 影响。
+
+两张表是免审批 / 固定审批名单，不是准入闸门：新增 Agent 工具不加表也能用，只是每次调用弹审批；工具数量不写进代码、注释或测试，清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准。
 
 2026-11-20 追加的抖音发布排期能力在 Agent 面暴露 `yootun_douyin_publish_schedule_list`、`..._row_create`、`..._row_update` 三项：list 只读；create / update 是同步幂等写，会话 guard 按 ask 处理；`row_delete` 按产品决策仅进入 Workbench 面，不进入普通会话。
 
@@ -204,7 +206,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 7. 错误 envelope 安全投影；
 8. 新 domain/tool 审计辅助信息。
 
-连接器按子集契约校验 `tools/list`：安装包白名单内的每一项工具必须出现在服务端广播中，缺失任一项以 `workbench_protocol_error` 拒绝连接，message 列出缺失工具名；服务端多出的工具属于前向兼容，容忍但不可达——调用层按 caller×domain 白名单隔离，任何白名单外工具直接拒绝，不得尝试调用。2026-11-20 追加的 4 个 `workbench_douyin_publish_schedule_*` 工具属于抖音数据域；`viral` 分组仍仅由抖音工作台调用。
+连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具返回 `workbench_tool_unavailable`，不发请求。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
 
 ### 5.3 请求约束
 
@@ -498,11 +500,12 @@ tools.dofe.ai dev
 ### 12.2 Workbench MCP
 
 - initialize / tools/list / tools/call;
-- 子集契约：服务端广播 94 项（含白名单外新增 4 项）连接与调用成功；
-- 缺失白名单任一项拒绝连接，message 含缺失工具名；
-- 白名单外工具拒绝；
+- 域级放行：`workbench_<domain>_*` 且域属于 caller 即放行；跨域 `workbench_tool_denied`，不发请求；
+- 域内但服务端未广播 → `workbench_tool_unavailable`，不发请求；服务端多广播的工具不影响连接与其他调用；
 - 三个工作台互不可访问对方分组；
+- serverName 不匹配拒绝连接；连接不做 `tools/list` 子集校验；
 - Workbench client 不能调用 `yootun_business_*` Catalog 工具；
+- 测试与注释不出现工具数量字面量（2026-11-24 起）；
 - 超时、取消、网络错误、协议错误、业务错误分开投影；
 - credential 更新后缓存失效；
 - 插件卸载无 client / timer / request 泄漏。

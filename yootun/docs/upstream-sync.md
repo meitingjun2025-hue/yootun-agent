@@ -2,6 +2,8 @@
 
 本仓库唯一上游是官方 `deepseek-ai/deepseek-harness`（remote 名 `upstream`）。本文是 `yootun/docs/migration-plan.md` 第三节同步模型的落地执行清单，含官方 CI gate 对 `yootun/` 分区的波及结论与历次同步记录。
 
+业务特性在 `tools.dofe.ai` / `docker-helm.dofe.ai` / 本仓之间的协同是另一条流程，见 [cross-repo-sync.md](cross-repo-sync.md)；两条流程的交汇点只有官方 MCP client API 变化时的连接器适配。
+
 ## 一、同步 SOP（每 2–4 周一次，官方 rc 趋稳后跟进；大版本升级先通读 upgrade-guide 全集再排期）
 
 1. `git fetch upstream`，在 `master` 上 fast-forward 官方 `upstream/master`，再回到本地 `main` 执行 `git merge --no-ff master`（同步集成直接停在本地 main，推送仍由维护者确认）；
