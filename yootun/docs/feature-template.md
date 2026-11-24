@@ -36,8 +36,11 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §＿（已同步 / 待同�
 
 ## 4. 状态回填
 
+「分支」列：文档节点填目标分支（`main`），代码节点填特性分支名（`feat/<slug>`，规则见 [cross-repo-sync.md §5.1](cross-repo-sync.md#51-分支)）。
+
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
+| 文档（本文） | | `main` | |
 | tools 合入 `dev` | | | |
 | docker-helm 部署测试环境 | | | |
 | yootun-agent 合入 `main` | | | |
