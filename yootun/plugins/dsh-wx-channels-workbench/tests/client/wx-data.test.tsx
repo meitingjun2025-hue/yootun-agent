@@ -6,13 +6,14 @@
  */
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 
 type Payload = Record<string, unknown>
@@ -1043,6 +1044,11 @@ describe('复审修复回归', () => {
   })
 
   it('P1 关注者趋势卡消费 last_7d fans_trend availability：partial + 有数据 = 源级说明与数据同屏（不逐卡插警告条）', async () => {
+    // 趋势 x 轴按系统时间取上海最近 7 个已完成日（截至昨天）；固定系统时间，
+    // 使夹具日 2026-11-16 恒在窗口 2026-11-16..2026-11-22 内。
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-23T12:00:00+08:00'))
+    onTestFinished(() => { vi.useRealTimers() })
     await renderPage(baseHandlers({
       'account.overview': () => ({
         ...OK,
