@@ -91,6 +91,6 @@
 # transport headers 固定为 Authorization: Bearer ${credential:MODELS_API_KEY} 与
 # X-Company-Code: yootun（expandTemplates 展开、诊断脱敏），key 轮换由插件
 # 销毁重建。本 patch 不再直接插入 mcp-client 路由条目；会话权限边界由该
-# 插件的 tools/pre-execute guard 约束（读允许、任务写 ask、未识别 deny）。
+# 插件的 tools/pre-execute guard 约束（读允许、任务写 ask、未分类 ask）。
 # 插件页面全能力通道由各业务插件的 ctx.webServer.register 同源路由承载
 # （随插件批次迁移）。
