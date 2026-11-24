@@ -22,7 +22,7 @@
     "ink": "#0F172A"
   },
   "artwork": {
-    "appIconSource": "assets/app-icon-source.jpg",
+    "appIconSource": "assets/app-icon-source.png",
     "sidebarMark": "assets/sidebar-mark.png",
     "heroMark": "assets/hero-mark.png",
     "wordmark": "assets/wordmark.png",

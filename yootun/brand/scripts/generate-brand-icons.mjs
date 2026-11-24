@@ -4,10 +4,12 @@
  * `tray-windows.ico`（7 帧全 PNG 编码，帧清单对齐官方 tray-windows.ico）。
  *
  * 派生算法精简自旧桌面 dsh-plugin-desktop/scripts/generate-brand-assets.mjs 与
- * generate-windows-app-icon.mjs：任意尺寸 JPEG 源 → contain 缩放至透明正方形画布 →
- * 边缘连通近白像素 flood-fill 去除（保留图形内部白色细节）→ 内容包围盒居中 → 各产物。
+ * generate-windows-app-icon.mjs：任意尺寸源图（设计交付透明底 PNG；白底 JPEG 亦可用）
+ * → contain 缩放至透明正方形画布 → alpha 归一化 → 边缘连通透明/近白像素 flood-fill
+ * 去除（保留图形内部白色细节）→ 内容包围盒居中 → 各产物。
  * 运行：`node yootun/brand/scripts/generate-brand-icons.mjs`；sharp 复用 apps/desktop
  * 的 devDependency（分区不入 workspace），产物入库后打包链直接读文件。
+ * 设计交付要求：圆角方底吉祥物透明底 PNG，≥1024×1024；黑底导出（JPEG）无法抠图，不收。
  */
 
 import { createRequire } from 'node:module'
@@ -35,6 +37,16 @@ async function loadSquareCanvas() {
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
+  // 设计导出的透明 PNG 常带 alpha 噪声（外部 1–3、主体 250–252）：近透明归零、主体归全不透明。
+  for (let offset = 3; offset < data.length; offset += info.channels) {
+    if (data[offset] >= 240) data[offset] = 255
+    else if (data[offset] < 16) {
+      data[offset] = 0
+      data[offset - 3] = 0
+      data[offset - 2] = 0
+      data[offset - 1] = 0
+    }
+  }
   return { data, info }
 }
 

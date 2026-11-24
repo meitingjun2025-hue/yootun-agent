@@ -1,4 +1,4 @@
-/** 侧边栏品牌占位组件：yootun 潜水员头像位图（与首屏/快捷方式同一品牌形象；
+/** 侧边栏品牌占位组件：yootun 海豚吉祥物位图（与首屏/快捷方式同一品牌形象；
     分册 06 第二轮真机反馈定案：原鲸尾单色 mark 与官方 FishLogo 视觉近似致误认，弃用）。 */
 import type { SidebarBrandMarkOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import heroMarkUrl from './assets/hero-mark.png'
