@@ -15,7 +15,7 @@
 ## MCP 白名单
 
 - Workbench 面（`plugins/dsh-workbench-mcp`）：按域放行，`CALLER_DOMAINS` + `workbench_<domain>_` 前缀；本仓不持有 Workbench 工具名清单；连接只校验 `serverName`，不做 `tools/list` 子集校验；域内未广播 → `workbench_tool_unavailable`。
-- Agent 面（`plugins/dsh-managed-mcp`）：`guard.ts` 的 `READ_TOOLS` / `TASK_WRITE_TOOLS` 是免审批 / 固定审批名单；两表之外的 `yootun_*` 工具 `ask`；`yootun-workbench` / `yootun-catalog` 在普通会话 `deny`。
+- Agent 面（`plugins/dsh-managed-mcp`）：`guard.ts` 的 `READ_TOOLS` 免审批，`TASK_WRITE_TOOLS` / `SCHEDULE_WRITE_TOOLS` 固定审批；三表之外的 `yootun_*` 工具 `ask`；审批卡片文案在 `locales.ts`，中英文成对；`yootun-workbench` / `yootun-catalog` 在普通会话 `deny`。
 - 工具数量不写进代码、注释、测试或部署配置；清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准。
 - 规格：[docs/features/infra-whitelist-domain-gate.md](docs/features/infra-whitelist-domain-gate.md)。
 

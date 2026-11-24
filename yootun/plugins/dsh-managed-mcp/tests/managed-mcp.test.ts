@@ -118,10 +118,10 @@ test('已分类 Agent 工具无重复、全有归类，Catalog 与 Workbench 名
   assert.equal(classifyAgentTool('yootun_business_tools_search'), 'unknown')
   assert.equal(classifyAgentTool('yootun_xhs_creative_task_start'), 'task-write')
   assert.equal(classifyAgentTool('yootun_wx_accounts_list'), 'read')
-  // 抖音发布排期（分册 08 §4.3）：list 只读，row 写按 ask。
+  // 抖音发布排期（分册 08 §4.3）：list 只读，row 写是同步幂等写，单列一类、同样按 ask。
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_list'), 'read')
-  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_create'), 'task-write')
-  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_update'), 'task-write')
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_create'), 'schedule-write')
+  assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_update'), 'schedule-write')
   // row_delete 按产品决策仅进 Workbench 面，会话中未分类 → ask（经确认后可用）。
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_delete'), 'unknown')
 })
@@ -265,7 +265,7 @@ test('guard：会话内任务型写/未分类工具经审批管线不放行，Wo
   }
 })
 
-test('guard 决策：未分类 yootun 工具 ask，Workbench/Catalog 面 deny，非 yootun 透传 next', async () => {
+test('guard 决策：三类 ask 的 reason 与中英文卡片文案，Workbench/Catalog 面 deny，非 yootun 透传 next', async () => {
   const booted = await boot()
   try {
     await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'initial mount')
@@ -279,10 +279,31 @@ test('guard 决策：未分类 yootun 工具 ask，Workbench/Catalog 面 deny，
     })
     const next = async (): Promise<PreToolDecision> => ({ kind: 'allow' })
 
-    const unclassified = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__yootun-agent__yootun_business_tools_search'), next)
-    assert.ok(unclassified.kind === 'ask', '未分类 yootun 工具应 ask')
-    assert.equal(unclassified.reason, 'yootun agent tool "yootun_business_tools_search" is not yet classified; confirm before use')
-    assert.equal(unclassified.displayReason?.en, unclassified.reason)
+    // 三类 ask：模型可见 reason 为英文；卡片文案同时提供 en 与 zh，且 en 与 reason 一致。
+    const asks = [
+      {
+        name: 'mcp__yootun-agent__yootun_xhs_creative_task_start',
+        reason: 'yootun tool "yootun_xhs_creative_task_start" starts or changes a remote task and may incur model fees',
+        zh: 'yootun 工具「yootun_xhs_creative_task_start」会启动或变更远端任务，可能产生模型费用',
+      },
+      {
+        name: 'mcp__yootun-agent__yootun_douyin_publish_schedule_row_update',
+        reason: 'yootun tool "yootun_douyin_publish_schedule_row_update" writes a douyin publish schedule record on the server',
+        zh: 'yootun 工具「yootun_douyin_publish_schedule_row_update」会在服务端写入一条抖音发布排期记录',
+      },
+      {
+        name: 'mcp__yootun-agent__yootun_business_tools_search',
+        reason: 'yootun agent tool "yootun_business_tools_search" is not yet classified; confirm before use',
+        zh: 'yootun 工具「yootun_business_tools_search」尚未归类，使用前请确认',
+      },
+    ]
+    for (const probe of asks) {
+      const decision = await booted.ctx.waterfall('tools/pre-execute', exec(probe.name), next)
+      assert.ok(decision.kind === 'ask', `${probe.name} 应 ask`)
+      assert.equal(decision.reason, probe.reason)
+      assert.equal(decision.displayReason?.en, probe.reason)
+      assert.equal(decision.displayReason?.zh, probe.zh)
+    }
 
     const workbenchFace = await booted.ctx.waterfall('tools/pre-execute', exec('mcp__yootun-workbench__workbench_wx_account_list'), next)
     assert.equal(workbenchFace.kind, 'deny', 'Workbench 面仍 deny')

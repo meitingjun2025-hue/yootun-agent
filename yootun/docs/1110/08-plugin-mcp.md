@@ -165,11 +165,13 @@ X-Company-Code: yootun
 Agent 面服务端已按产品任务收敛，桌面侧仍需注册 `tools/pre-execute` guard：
 
 - `READ_TOOLS` 内的读工具直接允许；
-- `TASK_WRITE_TOOLS` 内的任务型写与计费工具在会话中 ask;
-- 两表都不在的未分类 `yootun_*` 工具 ask（交人工确认；2026-11-24 起，原 fail-closed deny 作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）；
+- `TASK_WRITE_TOOLS` 内的任务型写与计费工具在会话中 ask；
+- `SCHEDULE_WRITE_TOOLS` 内的发布排期记录同步写（`row_create` / `row_update`）在会话中 ask，理由文案与任务写分开（不启动远端任务、不产生模型费用）；
+- 三表都不在的未分类 `yootun_*` 工具 ask（交人工确认；2026-11-24 起，原 fail-closed deny 作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）；
+- 三类 ask 的卡片文案在 `src/locales.ts`，中英文成对，审批卡片按界面语言显示（2026-11-24 起）；
 - Workbench Host 的私有调用不走 Agent 面，因此不受该 guard 影响。
 
-两张表是免审批 / 固定审批名单，不是准入闸门：新增 Agent 工具不加表也能用，只是每次调用弹审批；工具数量不写进代码、注释或测试，清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准。
+三张表是免审批 / 固定审批名单，不是准入闸门：新增 Agent 工具不加表也能用，只是每次调用弹审批；工具数量不写进代码、注释或测试，清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准。
 
 2026-11-20 追加的抖音发布排期能力在 Agent 面暴露 `yootun_douyin_publish_schedule_list`、`..._row_create`、`..._row_update` 三项：list 只读；create / update 是同步幂等写，会话 guard 按 ask 处理；`row_delete` 按产品决策仅进入 Workbench 面，不进入普通会话。
 

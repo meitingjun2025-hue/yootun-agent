@@ -5,15 +5,16 @@
  *    `yootun-agent`），Agent 面 `yootun_*` 工具经它注册进 `ctx.tools`（官方
  *    客户端注册服务端全部工具）；未激活零连接、key 更新销毁重建、key 移除
  *    销毁、卸载无残留；
- * 2. 注册 `tools/pre-execute` guard：读工具允许、任务型写/可能计费 ask、
- *    未分类 yootun 工具 ask（交人工确认）、Workbench/Catalog 面 deny
- *    （会话权限边界 = 挂载清单之外的纵深防御）。
+ * 2. 注册 `tools/pre-execute` guard：读工具允许、任务型写与发布排期写 ask、
+ *    未分类 yootun 工具 ask（三类审批均交人工确认，卡片文案见 locales.ts）、
+ *    Workbench/Catalog 面 deny（会话权限边界 = 挂载清单之外的纵深防御）。
  * @module @yootun/dsh-managed-mcp
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreToolDecision } from '@deepseek-ai/dsh-tools'
 import { AGENT_SERVER_NAME, FORBIDDEN_SERVER_NAMES, MCP_TOOL_PREFIX } from './constants.ts'
 import { classifyAgentTool } from './guard.ts'
+import { askDecision } from './locales.ts'
 import { createSupervisor, type AgentSupervisor } from './supervisor.ts'
 
 /** Cordis function-plugin name. */
@@ -29,9 +30,10 @@ export { agentUrl, AGENT_SERVER_NAME, ACCESS_CREDENTIAL_REF, ACCESS_NAMESPACE } 
 
 /**
  * The session guard over `mcp__<serverName>__<rawName>` public names: yootun
- * Agent reads flow through, task writes ask, unclassified yootun tools ask
- * for human confirmation, and the Workbench/Catalog faces are refused
- * outright. Non-yootun MCP tools and native tools are untouched.
+ * Agent reads flow through, task writes, schedule writes and unclassified
+ * yootun tools ask for human confirmation (card text per locale), and the
+ * Workbench/Catalog faces are refused outright. Non-yootun MCP tools and
+ * native tools are untouched.
  * @param exec - the pending tool execution.
  * @param next - allow-delegation continuation.
  * @returns the pre-execute decision.
@@ -48,18 +50,7 @@ async function sessionGuard(exec: { name: string }, next: () => Promise<PreToolD
     const rawName = rest.slice(separator + 2)
     const toolClass = classifyAgentTool(rawName)
     if (toolClass === 'read') return next()
-    if (toolClass === 'task-write') {
-      return {
-        kind: 'ask',
-        reason: `yootun tool "${rawName}" starts or changes a remote task and may incur model fees`,
-        displayReason: { en: `yootun tool "${rawName}" starts or changes a remote task and may incur model fees` },
-      }
-    }
-    return {
-      kind: 'ask',
-      reason: `yootun agent tool "${rawName}" is not yet classified; confirm before use`,
-      displayReason: { en: `yootun agent tool "${rawName}" is not yet classified; confirm before use` },
-    }
+    return askDecision(toolClass, rawName)
   }
   if (FORBIDDEN_SERVER_NAMES.has(normalized)) {
     return { kind: 'deny', reason: `yootun ${normalized} tools are not available in ordinary sessions` }

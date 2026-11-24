@@ -1,22 +1,25 @@
 /**
  * 会话写操作 guard 的工具分类（分册 08 §4.3）。分类只依据公开工具名，
- * 不读取参数、不改业务 schema。READ_TOOLS / TASK_WRITE_TOOLS 是已分类的
- * 免审批 / 固定审批名单，不是准入闸门：未分类的 yootun Agent 工具由 guard
- * 以 `ask` 交人工确认（不入表也能用，只是每次调用弹审批）。工具清单以
- * tools.dofe.ai `docs/1116/yootun-mcp.md` 为准；新工具按其会话策略决定
- * 是否入表。
+ * 不读取参数、不改业务 schema。READ_TOOLS 免审批，TASK_WRITE_TOOLS /
+ * SCHEDULE_WRITE_TOOLS 固定审批；三张表不是准入闸门：未分类的 yootun Agent
+ * 工具由 guard 以 `ask` 交人工确认（不入表也能用，只是每次调用弹审批）。
+ * 工具清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准；新工具按其会话
+ * 策略决定是否入表。
  * @module
  */
 
 /** One agent tool's session policy class. */
-export type AgentToolClass = 'read' | 'task-write' | 'unknown'
+export type AgentToolClass = 'read' | 'task-write' | 'schedule-write' | 'unknown'
 
 /** Task-type writes and model-fee incurring tools: always `ask` in sessions. */
 const TASK_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'yootun_xhs_creative_task_start',
   'yootun_xhs_creative_task_retry',
   'yootun_xhs_creative_task_cancel',
-  // 抖音发布排期：同步幂等写（分册 08 §4.3）
+])
+
+/** Synchronous idempotent writes of douyin publish schedule records: always `ask` in sessions (分册 08 §4.3). */
+const SCHEDULE_WRITE_TOOLS: ReadonlySet<string> = new Set([
   'yootun_douyin_publish_schedule_row_create',
   'yootun_douyin_publish_schedule_row_update',
 ])
@@ -71,9 +74,10 @@ const READ_TOOLS: ReadonlySet<string> = new Set([
  */
 export function classifyAgentTool(rawName: string): AgentToolClass {
   if (TASK_WRITE_TOOLS.has(rawName)) return 'task-write'
+  if (SCHEDULE_WRITE_TOOLS.has(rawName)) return 'schedule-write'
   if (READ_TOOLS.has(rawName)) return 'read'
   return 'unknown'
 }
 
-/** The currently classified Agent tool names (read + task-write); fixture servers and registration assertions consume it. */
-export const AGENT_TOOL_NAMES: readonly string[] = Object.freeze([...TASK_WRITE_TOOLS, ...READ_TOOLS])
+/** The currently classified Agent tool names (read + task-write + schedule-write); fixture servers and registration assertions consume it. */
+export const AGENT_TOOL_NAMES: readonly string[] = Object.freeze([...TASK_WRITE_TOOLS, ...SCHEDULE_WRITE_TOOLS, ...READ_TOOLS])

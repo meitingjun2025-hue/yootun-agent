@@ -70,6 +70,7 @@ tools 契约文档对齐：无工具变更，不需同步 `docs/1116/yootun-mcp.
 - [x] 三个工作台 Host 与 media-upload 对连接器的依赖仍只有类型（`WorkbenchDomain` / `WorkbenchCaller` / `ToolCallOutcome` / `WorkbenchErrorCode`）；除附录 A11、A12 点名的改动外无需改动，类型检查通过；
 - [x] 抖音 Host 对 `workbench_tool_unavailable` 原样投影，页面有对应的中英文文案；
 - [x] 分区代码、注释、测试与 `package.json` 中无 Workbench 工具数量（action 数不属于工具数）。
+- [x] 三类 `ask` 的卡片文案中英文成对，发布排期写的理由与其行为一致（2026-11-24 追加）。
 
 ## 附录 A：逐文件规格
 
@@ -156,3 +157,9 @@ tools 契约文档对齐：无工具变更，不需同步 `docs/1116/yootun-mcp.
 - `dsh-wx-channels-workbench/tests/host.test.ts` 的用例标题。
 
 只删数量；action 数（如"56 个 action"）不是工具数，保留。
+
+### A13 `yootun/plugins/dsh-managed-mcp/src/{guard,index,locales}.ts`：审批文案（2026-11-24 追加）
+
+- 发布排期记录的同步写（`row_create` / `row_update`）从 `TASK_WRITE_TOOLS` 单列为 `SCHEDULE_WRITE_TOOLS`，类名 `schedule-write`，会话行为仍是 `ask`；沿用任务写的理由（启动远端任务、可能产生模型费用）与实际行为不符；
+- 三类 `ask` 决策由 `locales.ts` 的 `askDecision` 生成：`reason` 取英文（模型可见），`displayReason` 同时提供 `en` 与 `zh`，审批卡片按界面语言显示；两份词典以 `satisfies` 约束，新增类别缺文案即类型报错；
+- 08 册 §4.3、cross-repo-sync 第二节同步。

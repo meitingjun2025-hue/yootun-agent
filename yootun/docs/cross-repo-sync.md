@@ -40,15 +40,17 @@ export const CALLER_DOMAINS = {
 
 ### 2.2 Agent 面：逐工具策略表
 
-`yootun/plugins/dsh-managed-mcp/src/guard.ts` 维护两张表：
+`yootun/plugins/dsh-managed-mcp/src/guard.ts` 维护三张表：
 
 | 表 | 会话行为 | 新增工具时的动作 |
 |---|---|---|
 | `READ_TOOLS` | 直接放行 | 若该工具只读且不想每次弹审批，加入此表 |
-| `TASK_WRITE_TOOLS` | `ask` | 若该工具是任务型写或计费，加入此表（保证文案准确） |
-| 两表都不在 | `ask`（未分类，交人工确认） | 不加也能用，只是每次调用弹审批 |
+| `TASK_WRITE_TOOLS` | `ask` | 若该工具会启动或变更远端任务、可能计费，加入此表 |
+| `SCHEDULE_WRITE_TOOLS` | `ask` | 若该工具是发布排期记录的同步幂等写，加入此表 |
+| 三表都不在 | `ask`（未分类，交人工确认） | 不加也能用，只是每次调用弹审批 |
 
-- 两张表是"免审批/固定审批"名单，不是准入闸门；未分类工具不再 `deny`（2026-11-24 起，原 fail-closed 作废）；
+- 三张表是"免审批/固定审批"名单，不是准入闸门；未分类工具不再 `deny`（2026-11-24 起，原 fail-closed 作废）；
+- 三类 `ask` 的卡片文案在 `src/locales.ts`，中英文成对、按界面语言显示，`reason` 保持英文（模型可见）；新增会 `ask` 的类别时必须同时补两种文案，类型检查强制；
 - `yootun-workbench`、`yootun-catalog` 两个 serverName 在普通会话保持 `deny`；
 - 官方 `dsh-mcp-client` 注册服务端全部工具，新 Agent 工具不打包即可见，经 `ask` 即可用。
 
@@ -57,7 +59,7 @@ export const CALLER_DOMAINS = {
 | 改动类型 | tools.dofe.ai | docker-helm.dofe.ai | yootun-agent |
 |---|---|---|---|
 | 新增 `workbench_<domain>_*` 工具（已有域） | 实现 + 测试 + 契约文档 | 不动（除非新 celery 队列、新 env、新 URL 前缀） | 只写 Host handler；白名单不动 |
-| 新增 `yootun_*` Agent 工具 | 实现 + 测试 + 契约文档 | 不动（同上） | 可选：加入 `READ_TOOLS` / `TASK_WRITE_TOOLS` 免审批；不加则每次 `ask` |
+| 新增 `yootun_*` Agent 工具 | 实现 + 测试 + 契约文档 | 不动（同上） | 可选：加入 `READ_TOOLS` 免审批，或加入 `TASK_WRITE_TOOLS` / `SCHEDULE_WRITE_TOOLS` 取得准确的审批文案；不加则每次 `ask` |
 | 新域（新 `workbench_<newdomain>_*` 前缀） | 实现 + 契约文档 | 视需要 | `WorkbenchDomain` 类型 + 对应 caller 的 `CALLER_DOMAINS` 一行 |
 | 工具兼容变更（加可选参数、加返回字段） | 实现 | 不动 | 类型 / 投影（如消费该字段） |
 | 工具破坏变更 | 升公共路径版本 `/v2` | nginx + route-registry 加 v2 路由 | 两版并存期 |
