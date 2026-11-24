@@ -1,6 +1,6 @@
 # infra-workbench 白名单域级放行与 Agent 未分类转 ask 实施单
 
-状态：已实施并通过验收，待发版 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../cross-repo-sync.md) 第二节
+状态：已实施并通过验收，待发版 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md) 第二节
 
 ## 1. 范围
 

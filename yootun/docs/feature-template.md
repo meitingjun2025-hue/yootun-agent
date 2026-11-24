@@ -1,6 +1,6 @@
 # <工作台或 infra>-<特性名> 实施单
 
-状态：草案 ｜ 创建：YYYY-MM-DD ｜ 流程依据：[cross-repo-sync.md](../cross-repo-sync.md)
+状态：草案 ｜ 创建：YYYY-MM-DD ｜ 流程依据：[cross-repo-sync.md](cross-repo-sync.md)
 
 ## 1. 范围
 
@@ -24,7 +24,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §＿（已同步 / 待同�
 
 ## 3. 影响面
 
-从 [速查表](../cross-repo-sync.md#三速查表改-x-要动哪几个仓) 复制相关行；"不改"也要写并给依据。
+从 [速查表](cross-repo-sync.md#三速查表改-x-要动哪几个仓) 复制相关行；"不改"也要写并给依据。
 
 | 仓 | 位置 | 改动 | 必改 | 依据 |
 |---|---|---|---|---|

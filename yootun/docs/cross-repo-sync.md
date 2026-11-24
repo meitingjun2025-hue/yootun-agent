@@ -14,7 +14,7 @@
 
 - 工具清单与计数只在 tools 的 `docs/1116/yootun-mcp.md` 维护；其他仓不手抄计数；
 - yootun-agent 代码、注释、测试中不出现 Workbench 工具数量字面量；
-- 新增或维护任何业务特性，先在 [features/](features/) 建实施单（第四节），再动代码。
+- 新增或维护任何业务特性，先按第四节在当前批次目录建实施单，再动代码。
 
 ## 二、白名单机制
 
@@ -73,7 +73,9 @@ export const CALLER_DOMAINS = {
 
 ## 四、实施单
 
-位置：`yootun/docs/features/<slug>.md`，从 [_template.md](features/_template.md) 复制。一个特性一份，是三仓共享的唯一协调文件。
+位置：`yootun/docs/<MMDD>/features/<slug>.md`，从 [feature-template.md](feature-template.md) 复制。一个特性一份，是三仓共享的唯一协调文件。
+
+批次目录：`<MMDD>` 是批次起始日期（四位月日，如 `1124`）；从起始日到下次发版之间的全部实施单归同一目录，发版后新特性开新目录；每个批次目录以 `00-overview.md` 作索引。当前批次：[1124/](1124/00-overview.md)。
 
 固定五章：范围、契约增量、影响面、状态回填、验收。要点：
 
@@ -82,7 +84,7 @@ export const CALLER_DOMAINS = {
 - **状态回填四个时间点分开记**：tools 合入 `dev`、docker-helm 部署测试环境、yootun-agent 合入 `main`、发版。tools 合入不等于服务端已上线；
 - 不记裸 commit hash，用日期与版本号。
 
-首份实施单 [infra-whitelist-domain-gate.md](features/infra-whitelist-domain-gate.md) 即第二节白名单机制落地的规格与验收单。
+首份实施单 [1124/features/infra-whitelist-domain-gate.md](1124/features/infra-whitelist-domain-gate.md) 即第二节白名单机制落地的实施与验收单。
 
 ## 五、顺序与门禁
 

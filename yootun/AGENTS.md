@@ -10,14 +10,14 @@
 ## 跨仓改动
 
 - 流程与速查表：[docs/cross-repo-sync.md](docs/cross-repo-sync.md)。`tools.dofe.ai` 是 MCP 契约与实现的唯一来源；`docker-helm.dofe.ai` 只做部署；本仓只做消费。`docker-helm.dofe.ai/plugins/dsh-yootun-*` 旧插件不再维护。
-- 新增或维护任何业务特性，先复制 [docs/features/_template.md](docs/features/_template.md) 建实施单（范围 / 契约增量 / 影响面 / 状态回填 / 验收），再动代码。契约增量先于代码。
+- 新增或维护任何业务特性，先复制 [docs/feature-template.md](docs/feature-template.md) 到当前批次目录（[docs/1124/features/](docs/1124/00-overview.md)）建实施单（范围 / 契约增量 / 影响面 / 状态回填 / 验收），再动代码。契约增量先于代码。
 
 ## MCP 白名单
 
 - Workbench 面（`plugins/dsh-workbench-mcp`）：按域放行，`CALLER_DOMAINS` + `workbench_<domain>_` 前缀；本仓不持有 Workbench 工具名清单；连接只校验 `serverName`，不做 `tools/list` 子集校验；域内未广播 → `workbench_tool_unavailable`。
 - Agent 面（`plugins/dsh-managed-mcp`）：`guard.ts` 的 `READ_TOOLS` 免审批，`TASK_WRITE_TOOLS` / `SCHEDULE_WRITE_TOOLS` 固定审批；三表之外的 `yootun_*` 工具 `ask`；审批卡片文案在 `locales.ts`，中英文成对；`yootun-workbench` / `yootun-catalog` 在普通会话 `deny`。
 - 工具数量不写进代码、注释、测试或部署配置；清单以 tools.dofe.ai `docs/1116/yootun-mcp.md` 为准。
-- 规格：[docs/features/infra-whitelist-domain-gate.md](docs/features/infra-whitelist-domain-gate.md)。
+- 规格：[cross-repo-sync.md](docs/cross-repo-sync.md) 第二节；落地记录：[1124/features/infra-whitelist-domain-gate.md](docs/1124/features/infra-whitelist-domain-gate.md)。
 
 ## 构建与测试
 
