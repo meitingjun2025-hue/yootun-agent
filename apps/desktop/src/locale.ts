@@ -9,7 +9,7 @@ export const BRAND_PRODUCT_NAME = 'Yootun-Agent'
 // dictionary takes the zh mission, every other language takes the en mission), and the API-key
 // onboarding line names the tier product. The neutral welcome salutation
 // (welcomeTaglineBefore/After) keeps the official copy. See yootun/docs/inline-changes.md.
-export const BRAND_MISSION_ZH = '青年人买车就到优惠豚'
+export const BRAND_MISSION_ZH = '优惠豚智能体'
 export const BRAND_MISSION_EN = 'The destination for young car buyers'
 
 export const en = {

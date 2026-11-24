@@ -9,7 +9,7 @@
   "protocolName": "Yootun-Agent",
   "artifactPrefix": "Yootun-Agent",
   "mission": {
-    "zh": "青年人买车就到优惠豚",
+    "zh": "优惠豚智能体",
     "en": "The destination for young car buyers"
   },
   "feedOrigin": "https://dofe-public.tos-cn-beijing.volces.com",
@@ -22,7 +22,7 @@
     "ink": "#0F172A"
   },
   "artwork": {
-    "appIconSource": "assets/app-icon-source.jpg",
+    "appIconSource": "assets/app-icon-source.png",
     "sidebarMark": "assets/sidebar-mark.png",
     "heroMark": "assets/hero-mark.png",
     "wordmark": "assets/wordmark.png",
