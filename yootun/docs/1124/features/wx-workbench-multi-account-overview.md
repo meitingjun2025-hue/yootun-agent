@@ -183,7 +183,7 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 | yootun-agent | `yootun/plugins/dsh-wx-channels-workbench/src/client/{schema,OverviewPage,WorkbenchPage,format}.tsx`、`locales.ts`、`workbench.module.css`、`kit-styles.ts` | 投影、页面重构、自定义日期输入与越界纠偏、`shiftDay`、文案、样式 | 是 | 本单主体 |
 | yootun-agent | `yootun/plugins/dsh-wx-channels-workbench/tests/*` | action 清单、投影、页面、样式守护 | 是 | 行为随实现变更 |
 | yootun-agent | `yootun/docs/1110/11-wx-workbench-ui-layout-parity.md` §5 | 总览页布局条款更新 | 是 | 分册是布局记录 |
-| yootun-agent | `yootun/docs/1124/00-overview.md` | 索引行状态随第 4 节回填 | 是 | 批次索引 |
+| yootun-agent | `yootun/docs/1124/00-overview.md` | 索引行状态随第 4 节回填 | 是 | 目录索引 |
 
 ## 4. 状态回填
 
