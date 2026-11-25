@@ -4,7 +4,8 @@
  * 账号管理栏 + 右侧作品面板的两列布局；账号总览页隐藏账号栏、全宽三段。
  * 单账号采集进度在作品工具栏按钮下方就地呈现；全账号采集面板在账号管理栏。
  * 数据页由 WorksPanel / OverviewPage 承担，本组件持有共享数据与采集编排；
- * 作品 / 摘要查询带内存缓存（切回账号即时渲染上次真实响应，随后后台刷新）。
+ * 作品列表为服务端排序 + 分页（固定每页 10 条），作品 / 摘要查询带内存缓存
+ * （切回账号即时渲染上次真实响应，随后后台刷新）。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -18,8 +19,8 @@ import { reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { zh as wxZh } from './locales.ts'
 import {
-  readBatchStatus, readBrowserState, readOverview, readOverviewAvailability, readWorkRows,
-  type BatchStatusView, type BrowserState, type OverviewAvailability, type OverviewData, type WorkRow,
+  readBatchStatus, readBrowserState, readOverview, readOverviewAvailability, readWorksPage,
+  type BatchStatusView, type BrowserState, type OverviewAvailability, type OverviewData, type WorkRow, type WorksPage,
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { OverviewPage } from './OverviewPage.tsx'
@@ -67,6 +68,9 @@ interface TabItem { value: TabValue; label: string; id: string; panelId: string 
 
 const POLL_MS = 1200
 
+/** 作品列表页大小（固定 10，不提供页大小选择）。 */
+export const WORKS_PAGE_SIZE = 10
+
 /** locale 标签（数值/日期格式化用）：词典逐键不同，逐键等价判定可靠。 */
 export function localeTagOf(t: Translate): string {
   return t('panel') === wxZh.panel ? 'zh' : 'en'
@@ -85,6 +89,13 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [works, setWorks] = useState<WorkRow[]>([])
   const [worksState, setWorksState] = useState<WorksLoadState>('loading')
   const [worksSort, setWorksSort] = useState<SortState>(DEFAULT_SORT_STATE)
+  const [worksPage, setWorksPage] = useState(1)
+  const [worksTotal, setWorksTotal] = useState(0)
+  const [worksGapCount, setWorksGapCount] = useState<number | null>(null)
+  const [worksLatestCollectedAt, setWorksLatestCollectedAt] = useState<string | null>(null)
+  const [worksCompletionRate, setWorksCompletionRate] = useState<number | null>(null)
+  /** works 请求在途（翻页 / 排序 / 后台刷新）：表格 aria-busy 与 Pager busy。 */
+  const [worksBusy, setWorksBusy] = useState(false)
   const [summary, setSummary] = useState<OverviewData | null>(null)
   const [summaryAvailability, setSummaryAvailability] = useState<OverviewAvailability>({ accountMetrics: null, fansTrend: null, fansProfile: null })
   const [summaryState, setSummaryState] = useState<LoadState>('loading')
@@ -104,8 +115,14 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const worksSeqRef = useRef(0)
   /** 已落屏作品行所属账号：partial 保留只对同账号成立，跨账号不得复用。 */
   const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
-  /** works 查询内存缓存（账号 → 最近一次真实响应）：切回账号即时渲染，随后后台刷新。 */
-  const worksCacheRef = useRef(new Map<string, WorkRow[]>())
+  /** works 查询内存缓存（账号|排序|页码 → 最近一次真实响应）：切回时即时渲染，随后后台刷新。 */
+  const worksCacheRef = useRef(new Map<string, WorksPage>())
+  /** 当前页 / 排序 / 查询键镜像：loadWorks 保持零依赖，事件回调先改镜像再发起查询。 */
+  const worksPageRef = useRef(1)
+  const worksSortRef = useRef<SortState>(DEFAULT_SORT_STATE)
+  const worksQueryKeyRef = useRef('')
+  /** 当前页码状态所属账号：切账号回第 1 页（排序态保留）的判定基准。 */
+  const worksPageAccountRef = useRef('')
   const summarySeqRef = useRef(0)
   /** 已落屏摘要所属账号（同账号重复刷新走 refreshing 淡化，跨账号不复用）。 */
   const summaryAccountRef = useRef<string>('')
@@ -160,34 +177,62 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   useEffect(() => { checkBrowser() }, [checkBrowser])
 
-  // ---- 作品列表 / 固定 last_7d 摘要（缓存即时渲染 + 后台刷新；代次 + 账号双守卫）----
-  // 查询只带 accountId（排序全在客户端完成），切换账号时命中缓存立即渲染上次
-  // 真实响应，再发起远端刷新——不再等待一次远端往返才出数据。
+  // ---- 作品列表（服务端排序 + 分页，固定每页 10 条）/ 固定 last_7d 摘要 ----
+  // 查询键 = 账号|排序|页码；命中缓存即时渲染上次真实响应再后台刷新；未命中时
+  // 跨账号清空进 loading，同账号保留当前行只标记在途。过期响应按序号 + 选中
+  // 账号 + 查询键三重守卫整体丢弃。
 
-  /** @returns works 是否拉取成功（stale 竞态让位不计失败）。 */
-  const loadWorks = useCallback(async (accountId: string): Promise<boolean> => {
+  /** 应用一次分页响应（当页行 + 整账号聚合值）。 */
+  const applyWorksPage = (data: WorksPage): void => {
+    setWorks(data.rows)
+    setWorksTotal(data.total)
+    setWorksGapCount(data.gapCount)
+    setWorksLatestCollectedAt(data.latestCollectedAt)
+    setWorksCompletionRate(data.completionRatePct)
+  }
+
+  /**
+   * 拉取一个账号的当前作品页（服务端排序 + 分页）。
+   * @param accountId - 目标账号。
+   * @param options.page - 目标页（缺省用当前页；排序变化时传 1）。
+   * @param options.sort - 目标排序（缺省用当前排序）。
+   * @returns works 是否拉取成功（stale 竞态让位不计失败）。
+   */
+  const loadWorks = useCallback(async (accountId: string, options: { page?: number; sort?: SortState } = {}): Promise<boolean> => {
+    const page = options.page ?? worksPageRef.current
+    const sort = options.sort ?? worksSortRef.current
     const seq = ++worksSeqRef.current
-    const cached = worksCacheRef.current.get(accountId)
+    const queryKey = `${accountId}|${sort.key}|${sort.direction}|${page}`
+    worksQueryKeyRef.current = queryKey
+    const cached = worksCacheRef.current.get(queryKey)
     const resume = worksRowsRef.current.accountId === accountId
     if (cached !== undefined && selectedIdRef.current === accountId) {
       // 缓存即时渲染：真实历史响应，随后后台刷新更新。
-      worksRowsRef.current = { accountId, rows: cached }
-      setWorks(cached)
+      applyWorksPage(cached)
+      worksRowsRef.current = { accountId, rows: cached.rows }
       setWorksState('ready')
     } else if (!resume) {
       worksRowsRef.current = { accountId: '', rows: [] }
       setWorks([])
       setWorksState('loading')
     }
+    setWorksBusy(true)
     try {
-      const res = await hostAction('works.list', { accountId })
-      // 守卫：序号最新 + 响应账号仍是当前选中账号（采集回调按采集账号刷新，
-      // 与当前选中无关，账号不比对会把旧账号数据写进新账号视图）。
-      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return true
-      const rows = readWorkRows(res)
-      worksCacheRef.current.set(accountId, rows)
-      worksRowsRef.current = { accountId, rows }
-      setWorks(rows)
+      const res = await hostAction('works.list', {
+        accountId,
+        sort: sort.key,
+        order: sort.direction,
+        limit: WORKS_PAGE_SIZE,
+        offset: (page - 1) * WORKS_PAGE_SIZE,
+      })
+      // 守卫：序号最新 + 响应账号仍是选中账号 + 查询键未变（翻页 / 排序后旧
+      // 响应整体丢弃；采集回调按采集账号刷新，账号不比对会把旧账号数据写进
+      // 新账号视图）。
+      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId || worksQueryKeyRef.current !== queryKey) return true
+      const pageData = readWorksPage(res)
+      worksCacheRef.current.set(queryKey, pageData)
+      applyWorksPage(pageData)
+      worksRowsRef.current = { accountId, rows: pageData.rows }
       setWorksState('ready')
       return true
     } catch {
@@ -196,8 +241,28 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       const sameAccountRows = worksRowsRef.current.accountId === accountId && worksRowsRef.current.rows.length > 0
       setWorksState(sameAccountRows ? 'partial' : 'error')
       return false
+    } finally {
+      if (worksSeqRef.current === seq) setWorksBusy(false)
     }
   }, [])
+
+  /** 表头排序：发起新查询并回第 1 页（三态循环由 nextSortState 计算）。 */
+  const handleWorksSortChange = useCallback((next: SortState): void => {
+    worksSortRef.current = next
+    setWorksSort(next)
+    worksPageRef.current = 1
+    setWorksPage(1)
+    const accountId = selectedIdRef.current
+    if (accountId !== null) void loadWorks(accountId, { page: 1, sort: next })
+  }, [loadWorks])
+
+  /** 翻页：只改 offset，排序不变。 */
+  const handleWorksPageChange = useCallback((page: number): void => {
+    worksPageRef.current = page
+    setWorksPage(page)
+    const accountId = selectedIdRef.current
+    if (accountId !== null) void loadWorks(accountId, { page })
+  }, [loadWorks])
 
   /** @returns 固定 last_7d 摘要是否拉取成功（stale 竞态让位不计失败）。 */
   const loadSummary = useCallback(async (accountId: string): Promise<boolean> => {
@@ -245,11 +310,19 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   }, [])
 
   // 账号 / tab 变化统一分派：加载初态由 loadWorks / loadSummary 内部按缓存与
-  // resume 判定管理（跨账号不复用旧数据；缓存命中即时渲染）。
+  // resume 判定管理（跨账号不复用旧数据；缓存命中即时渲染）。切换账号回第 1
+  // 页，排序态保留。
   useEffect(() => {
     if (selectedAccountId === null) return
     void loadSummary(selectedAccountId)
-    if (tab === 'works') void loadWorks(selectedAccountId)
+    if (tab === 'works') {
+      if (worksPageAccountRef.current !== selectedAccountId) {
+        worksPageAccountRef.current = selectedAccountId
+        worksPageRef.current = 1
+        setWorksPage(1)
+      }
+      void loadWorks(selectedAccountId)
+    }
   }, [selectedAccountId, tab, loadSummary, loadWorks])
 
   // ---- 登录流 ----
@@ -300,6 +373,10 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   // ---- 单账号采集（乐观运行态；工具栏进度行数据源）----
 
   const refreshAfterDataChange = useCallback(async (accountId: string): Promise<void> => {
+    // 数据变更（采集完成）后该账号的全部页缓存作废：重拉当前页拿新行与新聚合值。
+    for (const key of [...worksCacheRef.current.keys()]) {
+      if (key.startsWith(`${accountId}|`)) worksCacheRef.current.delete(key)
+    }
     await Promise.all([
       loadWorks(accountId),
       loadSummary(accountId),
@@ -506,7 +583,14 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                     works={works}
                     worksState={worksState}
                     worksSort={worksSort}
-                    onSortChange={setWorksSort}
+                    onSortChange={handleWorksSortChange}
+                    worksPage={worksPage}
+                    worksTotal={worksTotal}
+                    worksGapCount={worksGapCount}
+                    worksLatestCollectedAt={worksLatestCollectedAt}
+                    worksCompletionRate={worksCompletionRate}
+                    worksBusy={worksBusy}
+                    onPageChange={handleWorksPageChange}
                     onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId) }}
                     summary={summary}
                     summaryState={summaryState}

@@ -261,6 +261,36 @@ export function readWorkRows(payload: Record<string, unknown>): WorkRow[] {
   return rows
 }
 
+/** works.list 分页投影：当页行 + 整账号聚合值（排序、分页与聚合都在服务端完成）。 */
+export interface WorksPage {
+  rows: WorkRow[]
+  /** 该账号（过滤集合 F）的全部行数；载荷缺失按 0。 */
+  total: number
+  /** 核心字段缺口作品数（整账号口径）；载荷缺失为 null。 */
+  gapCount: number | null
+  /** F 内 latest_collected_at 最大值；缺失为 null。 */
+  latestCollectedAt: string | null
+  /** 按播放加权的完播率（两位小数）；缺失为 null。 */
+  completionRatePct: number | null
+}
+
+/**
+ * works.list → 分页投影：行复用 readWorkRows；total 缺失为 0；聚合值取载荷
+ * 顶层 snake_case 字段（gap_count / latest_collected_at / completion_rate_pct），
+ * 缺失一律 null，不补 0。
+ * @param payload - Host `works.list` 响应载荷。
+ * @returns 当页行与整账号聚合值。
+ */
+export function readWorksPage(payload: Record<string, unknown>): WorksPage {
+  return {
+    rows: readWorkRows(payload),
+    total: numberOf(payload.total) ?? 0,
+    gapCount: numberOf(payload.gap_count),
+    latestCollectedAt: textOf(payload.latest_collected_at),
+    completionRatePct: numberOf(payload.completion_rate_pct),
+  }
+}
+
 /** work.get → 详情四段投影（tools 真实形状 `{ work, traffic_source, retention_trend, daily_metrics }`）。 */
 export function readWorkDetail(payload: Record<string, unknown>): WorkDetailData {
   const workRecord = recordOf(payload.work)

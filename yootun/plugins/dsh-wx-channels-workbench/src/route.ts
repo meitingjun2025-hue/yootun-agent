@@ -19,9 +19,13 @@ export const MAX_BODY_BYTES = 64 * 1024
 /** One whitelisted action's input contract. */
 export interface ActionSchema {
   /** Allowed fields; anything else is rejected. */
-  fields: Readonly<Record<string, 'string' | 'boolean'>>
+  fields: Readonly<Record<string, 'string' | 'boolean' | 'integer'>>
   /** Max length for each string field. */
   limits?: Readonly<Record<string, number>>
+  /** integer 字段的闭区间范围（min / max 含端点）；越界拒绝。 */
+  ranges?: Readonly<Record<string, { min?: number; max?: number }>>
+  /** string 字段的封闭取值集合；截断后不在集合内的值拒绝。 */
+  enums?: Readonly<Record<string, readonly string[]>>
 }
 
 /** Per-action input contracts (explicit allowlist; unknown fields rejected). */
@@ -42,7 +46,15 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'collectAll.cancel': { fields: {} },
   'collectAll.status': { fields: {} },
   'run.get': { fields: { runId: 'string' }, limits: { runId: 128 } },
-  'works.list': { fields: { accountId: 'string', sort: 'string', order: 'string', publishedFrom: 'string', publishedTo: 'string' }, limits: { accountId: 128, sort: 32, order: 8, publishedFrom: 10, publishedTo: 10 } },
+  'works.list': {
+    fields: { accountId: 'string', sort: 'string', order: 'string', publishedFrom: 'string', publishedTo: 'string', limit: 'integer', offset: 'integer' },
+    limits: { accountId: 128, sort: 32, order: 8, publishedFrom: 10, publishedTo: 10 },
+    ranges: { limit: { min: 1, max: 100 }, offset: { min: 0, max: 1000000 } },
+    enums: {
+      sort: ['publish_time', 'completion_rate_pct', 'avg_play_duration_s', 'play_count', 'like_count', 'favorite_count', 'comment_count', 'share_count', 'forward_count', 'follow_count'],
+      order: ['asc', 'desc'],
+    },
+  },
   'work.get': { fields: { accountId: 'string', workId: 'string' }, limits: { accountId: 128, workId: 128 } },
   'work.trend': { fields: { accountId: 'string', workId: 'string' }, limits: { accountId: 128, workId: 128 } },
   'account.overview': { fields: { accountId: 'string', window: 'string' }, limits: { accountId: 128, window: 16 } },
@@ -55,12 +67,14 @@ export function isStableCode(value: string): value is StableErrorCode {
 }
 
 /** One handled action's arguments after validation. */
-export type ActionArgs = Record<string, string | boolean | undefined>
+export type ActionArgs = Record<string, string | boolean | number | undefined>
 
 /**
  * Validate one request body against the action's schema: unknown fields and
  * wrong types are rejected (`WX_ROUTE_INVALID_REQUEST`); strings are trimmed
- * and length-capped.
+ * and length-capped, integer fields must be whole numbers inside their
+ * `ranges` entry, and string fields with an `enums` entry only accept listed
+ * values.
  * @param action - the whitelisted action name.
  * @param body - the parsed request body.
  * @returns the validated arguments.
@@ -83,10 +97,21 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
       args[key] = value
       continue
     }
+    if (kind === 'integer') {
+      if (typeof value !== 'number' || !Number.isInteger(value)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" must be an integer`)
+      const range = schema.ranges?.[key]
+      if (range !== undefined && ((range.min !== undefined && value < range.min) || (range.max !== undefined && value > range.max))) {
+        throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" out of range`)
+      }
+      args[key] = value
+      continue
+    }
     if (typeof value !== 'string') throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" must be a string`)
     const limit = schema.limits?.[key] ?? 128
     const text = value.trim().slice(0, limit)
     if (text === '') continue
+    const allowed = schema.enums?.[key]
+    if (allowed !== undefined && !allowed.includes(text)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" has an invalid value`)
     args[key] = text
   }
   return args

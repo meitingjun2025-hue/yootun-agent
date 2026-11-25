@@ -1,12 +1,13 @@
 /**
  * client 数据页 mock Host 测试（布局回正骨架）：每个数据视图都有 mock response
- * 内容断言（works.list 真实 schema、account.overview 固定 last_7d 摘要、
- * started:false reason、删除两步确认与失败短路、browser 五态不阻断页面、批量
- * 面板、无刷新排序、tab / 键盘 / aria）。
+ * 内容断言（works.list 真实 schema 含服务端分页与聚合字段、account.overview
+ * 固定 last_7d 摘要、started:false reason、删除两步确认与失败短路、browser
+ * 五态不阻断页面、批量面板、服务端排序与翻页、tab / 键盘 / aria）。
  */
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import { en as kitEn, type YtKitLocaleKey } from '@yootun/dsh-client-ui-kit'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
@@ -22,6 +23,16 @@ type Handler = (args: Payload) => Payload | Promise<Payload>
 /** en 词典翻译（与 inject 同口径的 {token} 插值）。 */
 const t = (key: WxLocaleKey, values?: Record<string, string | number>): string => {
   const text = en[key]
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (match, token: string) => {
+    const value = values[token]
+    return value === undefined ? match : String(value)
+  })
+}
+
+/** kit en 词典翻译（Pager 文案断言用；同一 {token} 插值口径）。 */
+const kitT = (key: YtKitLocaleKey, values?: Record<string, string | number>): string => {
+  const text = kitEn[key]
   if (values === undefined) return text
   return text.replace(/\{(\w+)\}/gu, (match, token: string) => {
     const value = values[token]
@@ -68,6 +79,12 @@ const ACCOUNT = {
 }
 
 const WORKS = {
+  // 服务端分页与聚合出参（tools 真实 schema：total / gap_count /
+  // latest_collected_at / completion_rate_pct 在载荷顶层）。
+  total: 2,
+  gap_count: 1,
+  latest_collected_at: '2026-11-18T16:04:00.000Z',
+  completion_rate_pct: 41.2,
   works: [
     {
       work_id: 'w-100',
@@ -474,12 +491,11 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     // 封面列渲染 img（http s 源）；缺失封面行渲染占位文本。
     expect(firstRow?.querySelector('img')).not.toBeNull()
     const listCall = calls.find(call => call.action === 'works.list')
-    // 查询只带账号：排序全在客户端完成，不向服务端传排序参数。
-    expect(listCall?.args).toMatchObject({ accountId: 'finder-a' })
-    expect(listCall?.args['sort']).toBeUndefined()
+    // 默认查询：发布时间降序第 1 页，页大小固定 10。
+    expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 })
   })
 
-  it('固定 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 完播率 / 缺口作品）', async () => {
+  it('固定 5 张作品摘要卡；完播率 / 缺口作品 / 最近采集时间取自列表响应', async () => {
     await renderPage(baseHandlers())
     expect(await screen.findByText(t('summary.worksTotal'))).not.toBeNull()
     for (const key of ['summary.worksTotal', 'summary.play7d', 'summary.follow7d', 'summary.completion', 'summary.gapWorks'] as const) {
@@ -489,45 +505,159 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     const summaryGrid = screen.getByText(t('summary.worksTotal')).closest('div')
     expect(summaryGrid?.children.length).toBe(5)
     // 口径：作品总数取账号 feedCount（12），近7日取固定 last_7d 摘要（1234），
-    // 缺口作品数按核心缺口计数（w-100 有 traffic_source 缺口 → 1）。
+    // 缺口作品数取列表响应的 gap_count（1）。
     expect(screen.getByText('12')).not.toBeNull()
     await screen.findByText('1234')
-    // 完播率同时出现在摘要卡与表格列：限定摘要卡作用域断言。
+    // 完播率取列表响应的 completion_rate_pct（41.2），不基于当页行计算
+    // （当页行 w-100 是 8.37%）：限定摘要卡作用域断言。
     const summaryCard = screen.getByText(t('summary.completion')).closest('section')
-    expect(within(summaryCard as HTMLElement).getByText('8.37%')).not.toBeNull()
+    expect(within(summaryCard as HTMLElement).getByText('41.20%')).not.toBeNull()
     const gapCard = screen.getByText(t('summary.gapWorks')).closest('section')
     expect(within(gapCard as HTMLElement).getByText('1')).not.toBeNull()
+    // 工具栏最近采集时间取列表响应的 latest_collected_at（不基于当页行取最大值）。
+    expect(screen.getByText(t('works.latestCollectedAt', { time: '2026-11-19 00:04' }))).not.toBeNull()
   })
 
-  it('表头排序三态循环且无刷新：新列 desc → asc → 回默认；全程本地重排不重新查询', async () => {
+  it('表头排序三态循环改为服务端排序：点击即发新查询并回第 1 页', async () => {
     const { calls } = await renderPage(baseHandlers())
     await screen.findByText('第一条作品')
-    const worksCalls = (): number => calls.filter(call => call.action === 'works.list').length
+    const lastWorksArgs = (): Payload => {
+      const last = [...calls].reverse().find(call => call.action === 'works.list')
+      return last?.args ?? {}
+    }
     const rows = (): NodeListOf<HTMLElement> =>
       screen.getByRole('table', { name: t('works.table.label') }).querySelectorAll('tbody tr')
-    // 初始默认态：发布时间降序，w-100 在前。
+    // 初始默认态：发布时间降序。
     expect(rows()[0]?.textContent).toContain('第一条作品')
-    const initialCalls = worksCalls()
-    // 新列 → desc（播放降序 w-100 1000 在前）；aria-sort 在 th 上。
+    // 新列 → desc：发起播放降序查询，回第 1 页；aria-sort 在 th 上。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.default') }) }))
+    await waitFor(() => expect(lastWorksArgs()).toMatchObject({ sort: 'play_count', order: 'desc', limit: 10, offset: 0 }))
     expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('descending')
-    expect(rows()[0]?.textContent).toContain('第一条作品')
-    // 同列 → asc：播放升序把 7 播放的「第二条」排到最前（本地重排即时生效）。
+    // 同列 → asc：再次发起新查询，仍是第 1 页。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.desc') }) }))
+    await waitFor(() => expect(lastWorksArgs()).toMatchObject({ sort: 'play_count', order: 'asc', offset: 0 }))
     expect(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }).closest('th')?.getAttribute('aria-sort')).toBe('ascending')
-    expect(rows()[0]?.textContent).toContain('第二条')
     // 再点 → 回默认态（发布时间降序）。
     fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.asc') }) }))
-    expect(rows()[0]?.textContent).toContain('第一条作品')
-    // 比率列 desc：缺失值沉底（w-100 8.37% 在前，w-101 缺失在后）。
-    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.completion'), order: t('sort.default') }) }))
-    expect(rows()[0]?.textContent).toContain('第一条作品')
-    expect(rows()[1]?.textContent).toContain('第二条')
-    // 全程无新的 works.list 调用：排序不重新查询服务端。
-    expect(worksCalls()).toBe(initialCalls)
+    await waitFor(() => expect(lastWorksArgs()).toMatchObject({ sort: 'publish_time', order: 'desc', offset: 0 }))
+    // 三次排序查询全部落在第 1 页（offset 均为 0）。
+    const sortCalls = calls.filter(call => call.action === 'works.list').slice(1)
+    expect(sortCalls.length).toBe(3)
+    for (const call of sortCalls) expect(call.args['offset']).toBe(0)
+  })
+
+  it('翻页只变 offset，排序不变；请求在途保留当前行并标记 aria-busy', async () => {
+    const pagePayload = (offset: number): Payload => ({
+      ...OK,
+      total: 23,
+      gap_count: 1,
+      latest_collected_at: '2026-11-18T16:04:00.000Z',
+      completion_rate_pct: 41.2,
+      works: [offset === 0
+        ? { work_id: 'w-100', title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z', data_gap: null }
+        : { work_id: `w-p${offset}`, title: `第 ${offset / 10 + 1} 页作品`, play_count: 5, like_count: 1, publish_time: null, data_gap: null }],
+    })
+    let resolvePage3: ((payload: Payload) => void) | undefined
+    const { calls } = await renderPage(baseHandlers({
+      // 第 3 页（offset 20）挂起，用于断言在途状态。
+      'works.list': args => {
+        const offset = Number(args.offset ?? 0)
+        if (offset === 20) return new Promise<Payload>(resolve => { resolvePage3 = resolve })
+        return pagePayload(offset)
+      },
+    }))
+    await screen.findByText('第一条作品')
+    const pager = screen.getByRole('navigation', { name: kitT('pager.label') })
+    expect(within(pager as HTMLElement).getByText(kitT('pager.info', { total: 23, page: 1, pages: 3 }))).not.toBeNull()
+    // 下一页：只变 offset，sort / order / limit 不变。
+    fireEvent.click(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }))
+    expect(await screen.findByText('第 2 页作品')).not.toBeNull()
+    expect([...calls].reverse().find(call => call.action === 'works.list')?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc', limit: 10, offset: 10 })
+    expect(within(pager as HTMLElement).getByText(kitT('pager.info', { total: 23, page: 2, pages: 3 }))).not.toBeNull()
+    // 再下一页（挂起）：旧行保留、表格 aria-busy、Pager 两枚按钮禁用。
+    fireEvent.click(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }))
+    await waitFor(() => expect(screen.getByRole('table', { name: t('works.table.label') }).getAttribute('aria-busy')).toBe('true'))
+    expect(screen.getByText('第 2 页作品')).not.toBeNull()
+    expect(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.prev') }).hasAttribute('disabled')).toBe(true)
+    expect(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }).hasAttribute('disabled')).toBe(true)
+    // 第 3 页到达：整体替换，末页「下一页」禁用。
+    resolvePage3?.(pagePayload(20))
+    expect(await screen.findByText('第 3 页作品')).not.toBeNull()
+    await waitFor(() => expect(screen.getByRole('table', { name: t('works.table.label') }).getAttribute('aria-busy')).toBeNull())
+    expect(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }).hasAttribute('disabled')).toBe(true)
+    expect(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.prev') }).hasAttribute('disabled')).toBe(false)
+    // 上一页回到第 2 页：仍只变 offset（命中缓存的页也只重发同参数）。
+    fireEvent.click(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.prev') }))
+    expect(await screen.findByText('第 2 页作品')).not.toBeNull()
+    expect([...calls].reverse().find(call => call.action === 'works.list')?.args).toMatchObject({ sort: 'publish_time', order: 'desc', limit: 10, offset: 10 })
+  })
+
+  it('过期响应丢弃：翻页请求在途时换排序，旧页迟到响应不覆盖新查询结果', async () => {
+    let resolvePage2: ((payload: Payload) => void) | undefined
+    await renderPage(baseHandlers({
+      'works.list': args => {
+        if (Number(args.offset) === 10) return new Promise<Payload>(resolve => { resolvePage2 = resolve })
+        return {
+          ...OK, total: 23, gap_count: 1, latest_collected_at: null, completion_rate_pct: null,
+          works: [{ work_id: 'w-sorted', title: '排序后的行', play_count: 9, like_count: 1, publish_time: null, data_gap: null }],
+        }
+      },
+    }))
+    await screen.findByText('排序后的行')
+    const pager = screen.getByRole('navigation', { name: kitT('pager.label') })
+    // 翻到第 2 页（挂起），随后点播放表头发起排序查询（立即返回并回第 1 页）。
+    fireEvent.click(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }))
+    fireEvent.click(screen.getByRole('button', { name: t('sort.aria', { label: t('col.play'), order: t('sort.default') }) }))
+    expect(await screen.findByText('排序后的行')).not.toBeNull()
+    // 第 2 页的旧响应此刻才到：序号与查询键均已失守，整体丢弃。
+    resolvePage2?.({
+      ...OK, total: 23, gap_count: 1, latest_collected_at: null, completion_rate_pct: null,
+      works: [{ work_id: 'w-stale', title: '过期页数据', play_count: 1, like_count: 1, publish_time: null, data_gap: null }],
+    })
+    await waitFor(() => expect(screen.queryByText('过期页数据')).toBeNull())
+    expect(screen.getByText('排序后的行')).not.toBeNull()
+  })
+
+  it('采集完成刷新当前页：翻页后 offset 保持，不回到第 1 页', async () => {
+    const pagePayload = (offset: number): Payload => ({
+      ...OK, total: 23, gap_count: 1, latest_collected_at: null, completion_rate_pct: null,
+      works: [offset === 0
+        ? { work_id: 'w-100', title: '第一条作品', play_count: 1000, like_count: 50, publish_time: '2026-11-17T08:00:00.000Z', data_gap: null }
+        : { work_id: 'w-p2', title: '第 2 页作品', play_count: 5, like_count: 1, publish_time: null, data_gap: null }],
+    })
+    const { calls } = await renderPage(baseHandlers({
+      'works.list': args => pagePayload(Number(args.offset ?? 0)),
+      'collect.start': () => ({ ...OK, started: true, runId: 'run-1' }),
+      'collect.status': () => ({
+        ...OK, busy: false,
+        collect: {
+          accountId: 'finder-a', attemptId: 'finder-a-1', status: 'completed',
+          startedAt: '2026-11-18T10:00:00.000Z', finishedAt: '2026-11-18T10:05:00.000Z',
+          error: null, progress: null, result: null,
+        },
+        lastRun: null,
+      }),
+    }))
+    await screen.findByText('第一条作品')
+    const pager = screen.getByRole('navigation', { name: kitT('pager.label') })
+    fireEvent.click(within(pager as HTMLElement).getByRole('button', { name: kitT('pager.next') }))
+    expect(await screen.findByText('第 2 页作品')).not.toBeNull()
+    // 采集终态后重拉当前页：offset 仍是 10。
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    await waitFor(() => {
+      const pageCalls = calls.filter(call => call.action === 'works.list')
+      expect(pageCalls.length).toBeGreaterThanOrEqual(3)
+      expect(pageCalls.at(-1)?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc', limit: 10, offset: 10 })
+    })
+    expect(screen.getByText('第 2 页作品')).not.toBeNull()
   })
 
   it('鼠标双击作品行打开详情 Modal：完整四段（基础信息 / 核心指标 / 来源+留存 / 按日趋势 / 缺口）', async () => {
+    // 按日趋势窗口是「相对系统时间」的最近 7 个上海语义日：固定系统时间，
+    // 使夹具发布日 2026-11-17 恒在窗口内（否则真实时间漂移会把整窗推成断线）。
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-23T12:00:00+08:00'))
+    onTestFinished(() => { vi.useRealTimers() })
     const { calls } = await renderPage(baseHandlers({
       'work.get': args => workGetPayload(String(args.workId)),
       'work.trend': args => ({

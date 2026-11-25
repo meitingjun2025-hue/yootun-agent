@@ -59,9 +59,41 @@ test('schema：未知字段拒绝、未知 action 拒绝、字符串截断', () 
     error instanceof WxError && error.code === 'WX_ROUTE_UNKNOWN_ACTION')
   assert.throws(() => validateActionArgs('collect.start', { accountId: 1 }), (error: unknown) =>
     error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
-  const args = validateActionArgs('works.list', { accountId: '  abc  ', sort: 'x'.repeat(64) })
+  const args = validateActionArgs('works.list', { accountId: '  abc  ', sort: 'play_count' })
   assert.equal(args.accountId, 'abc')
-  assert.equal((args.sort as string).length, 32)
+  assert.equal(args.sort, 'play_count')
+})
+
+test('schema：integer 字段只接受整数并按范围校验，string 枚举封闭', () => {
+  const invalid = (body: Record<string, unknown>): void => {
+    assert.throws(() => validateActionArgs('works.list', body), (error: unknown) =>
+      error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+  }
+  // 非整数一律拒绝：小数与字符串数字都不是 integer。
+  invalid({ accountId: 'a', limit: 2.5 })
+  invalid({ accountId: 'a', limit: '3' })
+  // 越界拒绝：limit 1..100，offset 0..1,000,000。
+  invalid({ accountId: 'a', limit: 0 })
+  invalid({ accountId: 'a', limit: 101 })
+  invalid({ accountId: 'a', offset: -1 })
+  invalid({ accountId: 'a', offset: 1000001 })
+  // 范围内整数通过（offset 0 合法）。
+  const paged = validateActionArgs('works.list', { accountId: 'a', limit: 10, offset: 0 })
+  assert.equal(paged.limit, 10)
+  assert.equal(paged.offset, 0)
+  // 枚举封闭：sort / order 枚举外拒绝，枚举内通过。
+  invalid({ accountId: 'a', sort: 'bogus_column' })
+  invalid({ accountId: 'a', order: 'sideways' })
+  const sorted = validateActionArgs('works.list', { accountId: 'a', sort: 'completion_rate_pct', order: 'asc' })
+  assert.equal(sorted.sort, 'completion_rate_pct')
+  assert.equal(sorted.order, 'asc')
+  // 既有 string / boolean 行为不变：trim + 长度截断、boolean 类型校验。
+  const trimmed = validateActionArgs('works.list', { accountId: ` ${'x'.repeat(200)} ` })
+  assert.equal((trimmed.accountId as string).length, 128)
+  assert.throws(() => validateActionArgs('collect.start', { accountId: 'a', newAttempt: 1 }), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+  const flag = validateActionArgs('collect.start', { accountId: 'a', newAttempt: true })
+  assert.equal(flag.newAttempt, true)
 })
 
 test('体上限：超过 64KB 投影 WX_ROUTE_PAYLOAD_TOO_LARGE（413）', async () => {
@@ -409,6 +441,31 @@ test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省�
   assert.equal(capped.publishedFrom, '2026-11-11')
   assert.throws(() => validateActionArgs('works.list', { publishedUntil: '2026-11-11' }), (error: unknown) =>
     error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+})
+
+test('works.list 分页参数：limit / offset 透传 tools，offset 0 不被丢弃', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+  const deps = createWxHostDeps({
+    root: join(tmpdir(), `wx-wp-${String(Math.random()).slice(2)}`),
+    workbench: {
+      callTool: async (_caller: string, _domain: string, name: string, args: unknown) => {
+        calls.push({ name, args: args as Record<string, unknown> })
+        return { structuredContent: { works: [] }, content: [] }
+      },
+    },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
+  const handlers = buildRouteHandlers(deps, batch as never)
+  await handlers['works.list']?.({ accountId: 'acc1', sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
+  await handlers['works.list']?.({ accountId: 'acc1', limit: 10, offset: 0 })
+  assert.deepEqual(calls[0]?.args, { accountId: 'acc1', sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
+  assert.deepEqual(calls[1]?.args, { accountId: 'acc1', limit: 10, offset: 0 })
+  // 缺省不携带：只传账号时工具参数里没有 limit / offset。
+  await handlers['works.list']?.({ accountId: 'acc1' })
+  assert.deepEqual(calls[2]?.args, { accountId: 'acc1' })
 })
 
 test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错误不重试', async () => {
