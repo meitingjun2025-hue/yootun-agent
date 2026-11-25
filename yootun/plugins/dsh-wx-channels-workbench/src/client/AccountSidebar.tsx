@@ -28,6 +28,8 @@ type DeleteStep =
 
 export interface AccountSidebarProps {
   t: Translate
+  /** 计数格式化的展示 locale（账号卡关注者数）。 */
+  localeTag: string
   accounts: AccountRow[]
   selectedId: string | null
   /** chrome / driver 缺失：采集与登录入口禁用并提示。 */
@@ -179,6 +181,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
             <AccountCard
               key={row.accountId}
               t={t}
+              localeTag={props.localeTag}
               row={row}
               selected={row.accountId === props.selectedId}
               collectLocked={collectLocked}
@@ -218,6 +221,8 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
 /** 单张账号卡片：主体切换选中，操作行按会话状态分流。 */
 function AccountCard(props: {
   t: Translate
+  /** 计数格式化的展示 locale（关注者数）。 */
+  localeTag: string
   row: AccountRow
   selected: boolean
   /** 采集 / 批量互斥：与宿主账号状态冲突的卡上操作禁用。 */
@@ -265,7 +270,7 @@ function AccountCard(props: {
         <span className={css.accountCardBody}>
           <span className={css.accountName} title={name}>{name}</span>
           <span className={css.accountMeta}>
-            {t('account.followers', { count: formatCount(row.followerTotalCount) })}
+            {t('account.followers', { count: formatCount(row.followerTotalCount, props.localeTag) })}
             {' · '}
             {t('account.lastSync', { time: formatDateTime(syncTime) ?? '—' })}
           </span>

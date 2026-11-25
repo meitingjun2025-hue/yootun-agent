@@ -1569,7 +1569,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     expect(worksCalls.length).toBe(3)
   })
 
-  it('KPI 五卡取值来自 summary；缺口作品 footnote 随 gapCount 切换；工具栏不再有全部时间作品数', async () => {
+  it('KPI 四卡取值来自 summary；不再有缺口作品卡；工具栏不再有全部时间作品数', async () => {
     installWorksMock()
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
@@ -1578,17 +1578,17 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     expect(screen.getByText(en['works.kpi.fansGainTotal'])).not.toBeNull()
     // 完播率卡与表格列头同文案（≥ 2 处）；卡值由 formatPercent(38.27) 单独锚定。
     expect(screen.getAllByText(en['works.kpi.completion']).length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText(en['works.kpi.gapWorks'])).not.toBeNull()
+    // 数量契约：摘要卡固定 4 张（缺口作品卡已删）。
+    const summaryGrid = screen.getByText(en['works.kpi.worksTotal']).closest('div')
+    expect(summaryGrid?.children.length).toBe(4)
     expect(screen.getByText(formatCount(183))).not.toBeNull()
     expect(screen.getByText(formatCount(1250000))).not.toBeNull()
     expect(screen.getByText(formatCount(4021))).not.toBeNull()
     expect(screen.getByText(formatPercent(38.27))).not.toBeNull()
-    expect(screen.getByText(formatCount(4))).not.toBeNull()
-    expect(screen.getByText(en['works.kpi.gapHint'])).not.toBeNull()
     expect(screen.queryByText(/Works \(all time\)/u)).toBeNull()
   })
 
-  it('KPI：summary 聚合列缺失显示「—」不造 0；缺口 0 落「数据完整」', async () => {
+  it('KPI：summary 聚合列缺失显示「—」不造 0', async () => {
     apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
@@ -1601,7 +1601,6 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await screen.findByRole('table', { name: en['works.table.label'] })
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3)
-    expect(screen.getByText(en['works.kpi.gapComplete'])).not.toBeNull()
   })
 
   /** KPI 卡取值：标签所在卡片的第 2 个 span（值）。 */
@@ -1616,7 +1615,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     }
   const worksRegion = (): HTMLElement => screen.getByRole('region', { name: en['works.table.scrollLabel'] })
 
-  it('作品加载失败：KPI 五卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
+  it('作品加载失败：KPI 四卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
     apiMock.hostAction.mockImplementation(baseHandlers(() => { throw new Error('DOUYIN_OPERATION_REQUEST_FAILED') }))
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
@@ -1626,7 +1625,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     expect(worksRegion().contains(screen.getByText(kitEn['state.error']))).toBe(true)
     expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
     expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
-    for (const key of ['works.kpi.worksTotal', 'works.kpi.playTotal', 'works.kpi.fansGainTotal', 'works.kpi.completion', 'works.kpi.gapWorks'] as const) {
+    for (const key of ['works.kpi.worksTotal', 'works.kpi.playTotal', 'works.kpi.fansGainTotal', 'works.kpi.completion'] as const) {
       expect(kpiValueOf(en[key])).toBe('—')
     }
     expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
@@ -1663,7 +1662,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     expect(worksRegion().getAttribute('data-state')).toBe('loading')
   })
 
-  it('无账号可选：KPI 五卡为「—」，列表区域显示「暂无数据」而不是一直加载', async () => {
+  it('无账号可选：KPI 四卡为「—」，列表区域显示「暂无数据」而不是一直加载', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [], remoteError: null }

@@ -63,13 +63,27 @@ export function formatDateTime(iso: string | null): string | null {
   return `${moment.getFullYear()}-${pad(moment.getMonth() + 1)}-${pad(moment.getDate())} ${pad(moment.getHours())}:${pad(moment.getMinutes())}`
 }
 
+/** locale 紧凑格式化缓存（zh 万/亿、en K/M；绝对值满 1 万的计数走这里）。 */
+const COMPACT_FORMATS = new Map<string, Intl.NumberFormat>()
+
 /**
- * 计数展示：null 显示占位符，整数直排。
+ * 计数展示：缺失为占位符；绝对值满 1 万用 locale 紧凑格式（zh 万/亿、en K/M，
+ * 最多 1 位小数），不足 1 万整数直排。
  * @param value - 计数或 null。
+ * @param localeTag - 展示 locale（缺省 'zh'）。
  * @returns 展示计数。
  */
-export function formatCount(value: number | null): string {
-  return value === null ? '—' : String(Math.round(value))
+export function formatCount(value: number | null, localeTag: string = 'zh'): string {
+  if (value === null) return '—'
+  if (Math.abs(value) >= 10000) {
+    let formatter = COMPACT_FORMATS.get(localeTag)
+    if (formatter === undefined) {
+      formatter = new Intl.NumberFormat(localeTag, { notation: 'compact', maximumFractionDigits: 1 })
+      COMPACT_FORMATS.set(localeTag, formatter)
+    }
+    return formatter.format(value)
+  }
+  return String(Math.round(value))
 }
 
 /**
@@ -121,17 +135,16 @@ export type DeltaTone = 'up' | 'down' | 'flat'
 
 /**
  * 带符号增量展示：正数 `+N`（红）、负数 `-N`（绿）、`0` 与缺失「—」无色
- * （口径同抖音 fanDelta）。
+ * （口径同抖音 fanDelta；量级经 formatCount，满 1 万转「万」并保留符号）。
  * @param value - 增量数值或 null。
- * @param localeTag - 展示 locale（wx 计数为整数直排，保留参数与抖音同形）。
+ * @param localeTag - 展示 locale。
  * @returns 文本与方向。
  */
 export function formatDelta(value: number | null, localeTag: string): { text: string; tone: DeltaTone } {
-  void localeTag
   if (value === null || !Number.isFinite(value) || value === 0) return { text: '—', tone: 'flat' }
   return value > 0
-    ? { text: `+${formatCount(value)}`, tone: 'up' }
-    : { text: `-${formatCount(Math.abs(value))}`, tone: 'down' }
+    ? { text: `+${formatCount(value, localeTag)}`, tone: 'up' }
+    : { text: `-${formatCount(Math.abs(value), localeTag)}`, tone: 'down' }
 }
 
 /**

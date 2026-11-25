@@ -121,6 +121,17 @@ describe('KpiCard', () => {
     expect(screen.getByText('No data')).not.toBeNull()
   })
 
+  it('empty 态传 emptyLabel 时显示该文案且不显示 kit 的 state.empty', () => {
+    renderLocalized(<KpiCard label="播放" value="—" state="empty" emptyLabel="未采集数据" />)
+    expect(screen.getByText('未采集数据')).not.toBeNull()
+    expect(screen.queryByText('No data')).toBeNull()
+  })
+
+  it('empty 态不传 emptyLabel 时沿用 kit 的 state.empty 文案', () => {
+    renderLocalized(<KpiCard label="播放" value="—" state="empty" />)
+    expect(screen.getByText('No data')).not.toBeNull()
+  })
+
   it('disabled 声明 aria-disabled', () => {
     const { container } = render(<KpiCard label="播放" value="—" disabled />)
     expect(container.querySelector('[aria-disabled="true"]')).not.toBeNull()
@@ -149,6 +160,17 @@ describe('ChartFrame', () => {
     expect(container.querySelector('svg')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(onRetry).toHaveBeenCalledOnce()
+  })
+
+  it('empty 态传 emptyLabel 时显示该文案且不显示 kit 的 state.empty', () => {
+    renderLocalized(<ChartFrame title="趋势" state="empty" emptyLabel="未采集数据"><svg /></ChartFrame>)
+    expect(screen.getByText('未采集数据')).not.toBeNull()
+    expect(screen.queryByText('No data')).toBeNull()
+  })
+
+  it('empty 态不传 emptyLabel 时沿用 kit 的 state.empty 文案', () => {
+    renderLocalized(<ChartFrame title="趋势" state="empty"><svg /></ChartFrame>)
+    expect(screen.getByText('No data')).not.toBeNull()
   })
 
   it('footnote 渲染在绘图区之后', () => {

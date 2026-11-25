@@ -1,12 +1,13 @@
 /**
  * 作品面板（作品数据页右侧，对齐旧工作台布局）：作品工具栏（采集本账号全部 /
  * 刷新 / 最近采集时间；采集进度与刷新提示在按钮下方就地呈现，不进顶部通知条）
- * → 5 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率 / 缺口作品）
- * → 高密度 13 列作品表格 + 底部分页（kit Pager，固定每页 10 条）。表头排序为
- * 服务端排序：点击发起新查询并回第 1 页（button + aria-sort；行 tabIndex=0，
- * 鼠标双击或行内 Enter 打开作品详情 Modal，焦点回归由官方 Modal 承担；详情
- * 乐观打开，行数据立即上屏，work.get 到达后增量替换）。完播率、缺口作品与
- * 最近采集时间读 works.list 随带的整账号聚合值，不在页面基于当页行计算。
+ * → 4 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率，空态
+ * 「未采集数据」）→ 高密度 13 列作品表格 + 底部分页（kit Pager，固定每页 10
+ * 条）。表头排序为服务端排序：点击发起新查询并回第 1 页（button + aria-sort；
+ * 行 tabIndex=0，鼠标双击或行内 Enter 打开作品详情 Modal，焦点回归由官方
+ * Modal 承担；详情乐观打开，行数据立即上屏，work.get 到达后增量替换）。
+ * 完播率与最近采集时间读 works.list 随带的整账号聚合值，不在页面基于当页行
+ * 计算。
  * @module
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react'
@@ -49,8 +50,6 @@ export interface WorksPanelProps {
   worksPage: number
   /** 服务端整账号总行数（Pager 总数）。 */
   worksTotal: number
-  /** 服务端聚合：核心缺口作品数（整账号口径）。 */
-  worksGapCount: number | null
   /** 服务端聚合：最近采集时间（整账号最大值）。 */
   worksLatestCollectedAt: string | null
   /** 服务端聚合：按播放加权的完播率。 */
@@ -152,51 +151,45 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
     setDetailState('loading')
   }, [])
 
-  const columns = buildColumns(t)
+  const columns = buildColumns(t, props.localeTag)
 
   // 列表区域四态：加载骨架 / 失败（单个提示 + 重试）/ 空列表（「暂无数据」）/ 表格。
   // 部分失败（worksState = partial）保留已展示的行，由工具栏的刷新失败提示负责告知。
   const listLoading = props.worksState === 'loading' && props.accountId !== ''
   const listFailed = props.worksState === 'error'
   const listState = listLoading ? 'loading' : listFailed ? 'error' : visibleWorks.length === 0 ? 'blank' : 'ready'
-  // 聚合值缺失时不下「数据完整」的结论。
-  const gapFootnote = props.worksGapCount === null
-    ? undefined
-    : props.worksGapCount > 0 ? t('summary.gapHint') : t('summary.gapComplete')
 
   const summaryCards = (
     <div className={`${css.summaryGrid} ${css.refreshDim}`} data-refreshing={props.summaryRefreshing || undefined}>
       <KpiCard
         label={t('summary.worksTotal')}
-        value={formatCount(props.account?.feedCount ?? null)}
+        value={formatCount(props.account?.feedCount ?? null, props.localeTag)}
         footnote={t('summary.worksTotalHint')}
         state={props.account?.feedCount === null || props.account === null ? 'empty' : 'ready'}
+        emptyLabel={t('summary.notCollected')}
       />
       <KpiCard
         label={t('summary.play7d')}
-        value={formatCount(props.summary?.totals.playCount ?? null)}
+        value={formatCount(props.summary?.totals.playCount ?? null, props.localeTag)}
         footnote={t('summary.play7dHint')}
         state={kpiStateOf(props.summaryState, props.summary?.totals.playCount ?? null)}
         onRetry={props.onRetrySummary}
+        emptyLabel={t('summary.notCollected')}
       />
       <KpiCard
         label={t('summary.follow7d')}
-        value={formatCount(props.summary?.totals.followCount ?? null)}
+        value={formatCount(props.summary?.totals.followCount ?? null, props.localeTag)}
         footnote={t('summary.follow7dHint')}
         state={kpiStateOf(props.summaryState, props.summary?.totals.followCount ?? null)}
         onRetry={props.onRetrySummary}
+        emptyLabel={t('summary.notCollected')}
       />
       <KpiCard
         label={t('summary.completion')}
         value={formatPct(props.worksCompletionRate)}
         footnote={t('summary.completionHint')}
         state={listLoading ? 'loading' : props.worksCompletionRate === null ? 'empty' : 'ready'}
-      />
-      <KpiCard
-        label={t('summary.gapWorks')}
-        value={formatCount(props.worksState === 'ready' || props.worksState === 'partial' ? props.worksGapCount : null)}
-        footnote={gapFootnote}
-        state={listLoading ? 'loading' : 'ready'}
+        emptyLabel={t('summary.notCollected')}
       />
     </div>
   )
@@ -344,8 +337,8 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
 }
 
 /** 13 列定义（作品列 = 封面 + 标题；企微 / 通讯录 = 次数/人数组合；无操作列）。 */
-function buildColumns(t: Translate): WorkColumn[] {
-  const num = (value: number | null): string => formatCount(value)
+function buildColumns(t: Translate, localeTag: string): WorkColumn[] {
+  const num = (value: number | null): string => formatCount(value, localeTag)
   return [
     {
       labelKey: 'col.work',

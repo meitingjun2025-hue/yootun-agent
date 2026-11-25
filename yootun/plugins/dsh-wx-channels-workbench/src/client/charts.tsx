@@ -25,6 +25,8 @@ export interface TrendSeries {
 export interface TrendRow {
   day: string
   values: Record<string, number | null>
+  /** 空位（横轴占位但窗口内无此日）：无日期标签、无聚焦热区，折线在此断开。 */
+  emptySlot?: boolean
 }
 
 /** locale 整数千分位格式化（模块级缓存，按 locale 复用）。 */
@@ -52,11 +54,14 @@ function axisLabel(value: number, span: number, locale: string): string {
  * 一个可聚焦的透明热区，focus/hover 都在当日 x 位置画一根贯穿绘图区的竖虚线
  * 并弹出全系列 tooltip（虚线止于日期带上方，不遮日期文字）。focus 与 hover
  * 是两个独立来源：任一路结束都回落到另一路的指示，键盘焦点指示不因鼠标划过
- * 而消失。主系列（首项）最后绘制、压在最上层。
- * @param props.rows - 顺序日行（已按最近 N 日补齐）。
+ * 而消失。主系列（首项）最后绘制、压在最上层。`emptySlot` 行只占横轴位：
+ * 无日期标签、无热区，折线在此断开。`markSinglePoint` 开启且全图有值行恰为
+ * 1 个时（单日窗口），在该行主系列点画系列色实心圆点并在点旁标注数值。
+ * @param props.rows - 顺序日行（已按最近 N 日补齐；可含 emptySlot 空位行）。
  * @param props.series - 系列定义（首项为主系列）。
  * @param props.locale - 数值格式化的 locale 标签。
  * @param props.trendEmpty - 无任何有效值时的空态文案。
+ * @param props.markSinglePoint - 有值行恰为 1 个时标注单点（缺省不画点）。
  * @returns 绘图层元素（配合绝对定位容器）。
  */
 /** x 轴日期标签稀疏规则（B.2 ③）：≤7 全显；8–31 首、尾、中点；>31 首尾。 */
@@ -79,11 +84,31 @@ function LabeledAxisText(props: { x: string; y: number; labeled: boolean; childr
   )
 }
 
+/**
+ * 全图有值行恰为 1 个时的单点标注位（行号 + 主系列值）；空位行与主系列缺失
+ * 的行不参与计数，其余情况返回 undefined（不画点）。
+ */
+function singlePointOf(rows: readonly TrendRow[], series: readonly TrendSeries[]): { index: number; value: number } | undefined {
+  const main = series[0]
+  if (main === undefined) return undefined
+  let found: { index: number; value: number } | undefined
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index]
+    if (row === undefined || row.emptySlot === true) continue
+    const value = row.values[main.key]
+    if (value === null || value === undefined) continue
+    if (found !== undefined) return undefined
+    found = { index, value }
+  }
+  return found
+}
+
 export function LineTrendChart(props: {
   rows: readonly TrendRow[]
   series: readonly TrendSeries[]
   locale: string
   trendEmpty: string
+  markSinglePoint?: boolean
 }): ReactNode {
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
   /** hover 与 focus 分开记录：activeIndex = hover 优先，其次 focus。 */
@@ -142,6 +167,8 @@ export function LineTrendChart(props: {
   const span = yMax - yMin
   const ticks = Array.from({ length: 5 }, (_, index) => yMin + (span * index) / 4)
   const locale = props.locale
+  // 单点标注（单日窗口）：全图有值行恰为 1 个时在该点画圆点并旁注数值。
+  const singlePoint = props.markSinglePoint === true ? singlePointOf(rows, series) : undefined
 
   const dayTooltipRows = (row: TrendRow): ChartTooltipRow[] =>
     series.map(line => ({
@@ -197,11 +224,31 @@ export function LineTrendChart(props: {
           x1={padLeft} y1={padTop + plotHeight} x2={width - padRight} y2={padTop + plotHeight}
           className={css.plotGrid}
         />
+        {singlePoint !== undefined && series[0] !== undefined && (
+          <g aria-hidden="true">
+            <circle
+              cx={xAt(singlePoint.index).toFixed(1)}
+              cy={yAt(singlePoint.value).toFixed(1)}
+              r="4"
+              style={{ fill: `var(${series[0].color})` }}
+            />
+            {/* 点旁数值：终点位在绘图区右缘，文本向左锚定避免越出 viewBox。 */}
+            <text
+              x={(xAt(singlePoint.index) - 9).toFixed(1)}
+              y={Math.max(yAt(singlePoint.value) - 9, 16).toFixed(1)}
+              textAnchor="end"
+              className={css.axisText}
+              style={{ fill: `var(${series[0].color})` }}
+            >
+              {formatInt(singlePoint.value, locale)}
+            </text>
+          </g>
+        )}
         {rows.map((row, index) => (
           <LabeledAxisText
-            key={row.day}
+            key={row.day === '' ? `slot:${index}` : row.day}
             x={xAt(index).toFixed(1)} y={height - 8}
-            labeled={isLabeledIndex(rows.length, index)}
+            labeled={row.emptySlot !== true && isLabeledIndex(rows.length, index)}
           >
             {row.day.slice(5)}
           </LabeledAxisText>
@@ -218,7 +265,7 @@ export function LineTrendChart(props: {
           }}
         />
       )}
-      {rows.map((row, index) => (
+      {rows.map((row, index) => row.emptySlot === true ? null : (
         <button
           key={row.day}
           type="button"

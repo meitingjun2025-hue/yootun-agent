@@ -24,6 +24,8 @@ export interface DataStateProps {
   children?: ReactNode
   /** Extra context rendered under the `empty` label (e.g. a next-step action). */
   emptyAction?: ReactNode
+  /** Replacement copy for the `empty` label; omitting it keeps the kit `state.empty` copy. */
+  emptyLabel?: ReactNode | undefined
   /** Retry handler for the `error` state; omitting it hides the button. */
   onRetry?: (() => void) | undefined
   /** Which skeleton rows count as "long" — only `rows` uses it. */
@@ -36,11 +38,12 @@ export interface DataStateProps {
  * @param props.shape - skeleton silhouette (default `block`).
  * @param props.children - settled content.
  * @param props.emptyAction - next-step affordance for `empty`.
+ * @param props.emptyLabel - `empty` label override (default the kit `state.empty` copy).
  * @param props.onRetry - error retry; hidden when absent.
  * @param props.skeletonRows - row-skeleton line count (default 4).
  * @returns the state presentation; children pass through when settled.
  */
-export function DataState({ state, shape = 'block', children, emptyAction, onRetry, skeletonRows = 4 }: DataStateProps): ReactNode {
+export function DataState({ state, shape = 'block', children, emptyAction, emptyLabel, onRetry, skeletonRows = 4 }: DataStateProps): ReactNode {
   const t = useKitLocale()
   if (state === 'ready') return children
   if (state === 'partial') {
@@ -71,7 +74,7 @@ export function DataState({ state, shape = 'block', children, emptyAction, onRet
   if (state === 'empty') {
     return (
       <div className={css.notice}>
-        <p className={css.noticeText}>{t('state.empty')}</p>
+        <p className={css.noticeText}>{emptyLabel ?? t('state.empty')}</p>
         {emptyAction}
       </div>
     )

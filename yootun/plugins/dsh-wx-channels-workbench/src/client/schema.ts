@@ -5,7 +5,7 @@
  * collectAll.status 顶层 items；overview.accounts 的 fans_totals 与 totals 内部
  * 指标键为 snake_case（daily_play_count / follower_net_count / work_count），
  * 其余 summary 键为 camelCase（accountCount / followerTotalCount / trendDaily /
- * trendWindow / daysObserved）。缺失与非数值一律 null，不补 0；封面 URL 只接受
+ * daysObserved）。缺失与非数值一律 null，不补 0；封面 URL 只接受
  * http(s)。
  * @module
  */
@@ -269,8 +269,6 @@ export interface WorksPage {
   rows: WorkRow[]
   /** 该账号（过滤集合 F）的全部行数；载荷缺失按 0。 */
   total: number
-  /** 核心字段缺口作品数（整账号口径）；载荷缺失为 null。 */
-  gapCount: number | null
   /** F 内 latest_collected_at 最大值；缺失为 null。 */
   latestCollectedAt: string | null
   /** 按播放加权的完播率（两位小数）；缺失为 null。 */
@@ -279,8 +277,8 @@ export interface WorksPage {
 
 /**
  * works.list → 分页投影：行复用 readWorkRows；total 缺失为 0；聚合值取载荷
- * 顶层 snake_case 字段（gap_count / latest_collected_at / completion_rate_pct），
- * 缺失一律 null，不补 0。
+ * 顶层 snake_case 字段（latest_collected_at / completion_rate_pct），缺失一律
+ * null，不补 0。
  * @param payload - Host `works.list` 响应载荷。
  * @returns 当页行与整账号聚合值。
  */
@@ -288,7 +286,6 @@ export function readWorksPage(payload: Record<string, unknown>): WorksPage {
   return {
     rows: readWorkRows(payload),
     total: numberOf(payload.total) ?? 0,
-    gapCount: numberOf(payload.gap_count),
     latestCollectedAt: textOf(payload.latest_collected_at),
     completionRatePct: numberOf(payload.completion_rate_pct),
   }
@@ -607,7 +604,7 @@ export interface AccountsFansTotals {
   reduceCount: number | null
 }
 
-/** 起止日闭区间（YYYY-MM-DD；summary.window / summary.trendWindow 共用形状）。 */
+/** 起止日闭区间（YYYY-MM-DD；summary.window 的形状）。 */
 export interface AccountsDayRange {
   startDay: string | null
   endDay: string | null
@@ -624,7 +621,6 @@ export interface AccountsOverviewSummary {
   fansTotals: AccountsFansTotals
   /** 各账号最新非空关注者总数之和（近似合计；全部缺失 null）。 */
   followerTotalCount: number | null
-  trendWindow: AccountsDayRange
   /** 合计趋势逐日行（day + follower_total_count；缺失日 null，行不省略）。 */
   trendDaily: Array<{ day: string; followerTotalCount: number | null }>
   /** 汇总窗口内有日表行的去重日历天数（分源）。 */
@@ -716,7 +712,6 @@ export function readAccountsOverview(payload: Record<string, unknown>): Accounts
       totals: readMetricTotals(recordOf(summaryRecord?.totals)),
       fansTotals: readFansTotals(recordOf(summaryRecord?.fans_totals)),
       followerTotalCount: field('followerTotalCount'),
-      trendWindow: readDayRange(recordOf(summaryRecord?.trendWindow)),
       trendDaily,
       daysObserved: {
         accountMetrics: daysObserved === undefined ? null : numberOf(pick(daysObserved, 'account_metrics')),
