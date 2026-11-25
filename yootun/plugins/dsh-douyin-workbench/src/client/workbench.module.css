@@ -426,13 +426,22 @@
   color: var(--dsw-alias-state-success-primary);
 }
 
-/* 作品 KPI 行（固定 5 卡；断点同视频号 summaryGrid） */
-
+/* 作品 KPI 行（固定 5 卡；断点同视频号 summaryGrid）。行高取最小值而不是固定值：
+   脚注换行（缺口提示两行）时行高不变，列表区域高度不随数据变化；更长的内容仍可撑开。 */
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: minmax(120px, auto);
   gap: 10px;
   min-width: 0;
+}
+
+/* 作品页分页页脚占位：高度等于 kit Pager 一行（sm Button 28px），无数据时留空，列表区域高度不变。 */
+.pagerSlot {
+  flex: 0 0 auto;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
 }
 
 /* 高密度表格（作品 12 列 / 排行 11 列 / 爆款 6-7 列 / 报表 9 列共用底盘） */
@@ -450,11 +459,24 @@
   min-height: 0;
 }
 
-/* 作品页表格 wrap 在固定高度面板内弹性填充（worksPanel flex 列）。 */
+/* 作品页表格区域：面板弹性列的直接子元素，高度与行数无关——双列布局下填满面板剩余高度，
+   行多时区域内滚动。 */
 .worksPanel .tableWrap {
   flex: 1 1 0;
   max-height: none;
   min-height: 0;
+}
+
+/* 无表格时（加载骨架 / 失败提示 / 空列表）内容在区域内水平垂直居中，区域高度不变。
+   垂直居中用 auto 外边距：内容高于区域时外边距归零，从顶部起可滚动。 */
+.worksPanel .tableWrap[data-state] {
+  display: flex;
+  flex-direction: column;
+}
+
+.worksPanel .tableWrap[data-state] > * {
+  width: 100%;
+  margin-block: auto;
 }
 
 .tableWrap:focus-visible {
@@ -2426,6 +2448,17 @@
 
   .twoColumn {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 账号栏在上、作品面板在下：面板不再有可分配的剩余高度，页面按自然高度由外层滚动，
+     表格区域改为给定高度（与行数无关）。 */
+  .worksLayout {
+    flex: none;
+  }
+
+  .worksPanel .tableWrap {
+    flex: none;
+    height: 60vh;
   }
 }
 

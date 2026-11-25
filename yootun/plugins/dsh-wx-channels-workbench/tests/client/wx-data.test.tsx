@@ -817,7 +817,7 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     expect(within(dialogB as HTMLElement).queryByRole('img')).toBeNull()
   })
 
-  it('works 刷新失败保留已加载数据（partial 警告条），不再清空', async () => {
+  it('works 刷新失败保留已加载数据（不再清空），卡片与列表区域都不出现「部分数据」提示条', async () => {
     let failNext = false
     const { calls } = await renderPage(baseHandlers({
       'works.list': () => {
@@ -829,16 +829,27 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     // 刷新按钮触发一次会失败的刷新。
     failNext = true
     fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
-    // partial：已加载行保留 + 警告条（kit 文案），数据不被清空。
-    // partial 警告条出现在表格与 partial 状态的摘要卡（≥1 处）；已加载行保留。
-    await waitFor(() => expect(screen.getAllByText('Partial data shown; the rest failed to load').length).toBeGreaterThanOrEqual(1))
+    // partial：已加载行保留；失败提示不在卡片和列表区域重复出现。
+    await waitFor(() => expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(2))
     expect(screen.getByText('第一条作品')).not.toBeNull()
-    // 再次刷新成功恢复 ready。
+    expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
+    expect(screen.queryByText(kitEn['state.error'])).toBeNull()
+    // 再次刷新成功。
     failNext = false
     fireEvent.click(screen.getByRole('button', { name: t('works.refresh') }))
-    await waitFor(() => expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull())
+    await waitFor(() => expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(3))
     expect(screen.getByText('第一条作品')).not.toBeNull()
-    expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('空列表：表格区域保留并在正中显示「暂无数据」（en：No data），不渲染 Pager', async () => {
+    await renderPage(baseHandlers({
+      'works.list': () => ({ ...OK, ...WORKS, works: [], total: 0, gap_count: 0 }),
+    }))
+    const region = screen.getByRole('region', { name: t('works.table.scrollLabel') })
+    await waitFor(() => expect(within(region).getByText(kitEn['state.empty'])).not.toBeNull())
+    expect(region.getAttribute('data-state')).toBe('blank')
+    expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: kitEn['pager.prev'] })).toBeNull()
   })
 
   it('stale-write 守卫：切 tab 后旧账号响应不覆盖新账号数据', async () => {

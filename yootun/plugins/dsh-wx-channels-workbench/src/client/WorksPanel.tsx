@@ -154,6 +154,16 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
 
   const columns = buildColumns(t)
 
+  // 列表区域四态：加载骨架 / 失败（单个提示 + 重试）/ 空列表（「暂无数据」）/ 表格。
+  // 部分失败（worksState = partial）保留已展示的行，由工具栏的刷新失败提示负责告知。
+  const listLoading = props.worksState === 'loading' && props.accountId !== ''
+  const listFailed = props.worksState === 'error'
+  const listState = listLoading ? 'loading' : listFailed ? 'error' : visibleWorks.length === 0 ? 'blank' : 'ready'
+  // 聚合值缺失时不下「数据完整」的结论。
+  const gapFootnote = props.worksGapCount === null
+    ? undefined
+    : props.worksGapCount > 0 ? t('summary.gapHint') : t('summary.gapComplete')
+
   const summaryCards = (
     <div className={`${css.summaryGrid} ${css.refreshDim}`} data-refreshing={props.summaryRefreshing || undefined}>
       <KpiCard
@@ -180,13 +190,13 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
         label={t('summary.completion')}
         value={formatPct(props.worksCompletionRate)}
         footnote={t('summary.completionHint')}
-        state={props.worksState === 'ready' ? (props.worksCompletionRate === null ? 'empty' : 'ready') : props.worksState}
+        state={listLoading ? 'loading' : props.worksCompletionRate === null ? 'empty' : 'ready'}
       />
       <KpiCard
         label={t('summary.gapWorks')}
         value={formatCount(props.worksState === 'ready' || props.worksState === 'partial' ? props.worksGapCount : null)}
-        footnote={props.worksGapCount !== null && props.worksGapCount > 0 ? t('summary.gapHint') : t('summary.gapComplete')}
-        state={props.worksState === 'ready' || props.worksState === 'partial' ? 'ready' : props.worksState}
+        footnote={gapFootnote}
+        state={listLoading ? 'loading' : 'ready'}
       />
     </div>
   )
@@ -238,23 +248,12 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
         )}
       </div>
       {summaryCards}
-      <DataState
-        state={props.worksState === 'ready' ? (visibleWorks.length > 0 ? 'ready' : 'empty') : props.worksState}
-        shape='rows'
-        onRetry={props.onRetryWorks}
-        emptyAction={(
-          <Button
-            variant='primary'
-            size='sm'
-            disabled={props.accountId === '' || running || props.batchRunning || props.browserBlocked}
-            onClick={() => { props.onStartCollect(props.accountId) }}
-          >
-            {t('works.collect')}
-          </Button>
-        )}
-      >
-        {/* 表格在固定高度区域内滚动；横向滚动只发生在表格内部（键盘可达滚动）。 */}
-        <div className={css.tableWrap} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0}>
+      {/* 表格在固定高度区域内滚动；横向滚动只发生在表格内部（键盘可达滚动）。 */}
+      <div className={`${css.tableWrap} ${css.worksTableWrap}`} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0} data-state={listState === 'ready' ? undefined : listState}>
+        {listState === 'loading' && <DataState state='loading' shape='rows' skeletonRows={WORKS_PAGE_SIZE} />}
+        {listState === 'error' && <DataState state='error' onRetry={props.onRetryWorks} />}
+        {listState === 'blank' && <DataState state='empty' />}
+        {listState === 'ready' && (
           <table className={css.workTable} aria-label={t('works.table.label')} aria-busy={props.worksBusy || undefined}>
             <thead>
               <tr>
@@ -314,7 +313,10 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
               })}
             </tbody>
           </table>
-        </div>
+        )}
+      </div>
+      {/* 页脚占位恒定：无数据时不渲染 Pager 但保留其高度。 */}
+      <div className={css.pagerSlot}>
         {visibleWorks.length > 0 && (
           <Pager
             page={props.worksPage}
@@ -324,7 +326,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
             busy={props.worksBusy}
           />
         )}
-      </DataState>
+      </div>
       <WorkDetailModal
         t={t}
         localeTag={props.localeTag}

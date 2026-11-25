@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
@@ -1195,17 +1195,78 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     expect(screen.getByText(en['works.kpi.gapComplete'])).not.toBeNull()
   })
 
-  it('KPI 状态随 worksState：加载失败五卡呈错误态', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string) => {
+  /** KPI 卡取值：标签所在卡片的第 2 个 span（值）。 */
+  const kpiValueOf = (label: string): string | null | undefined =>
+    screen.getByText(label).parentElement?.querySelector('span:nth-child(2)')?.textContent
+  const baseHandlers = (worksList: (args: Record<string, unknown>) => unknown): ((action: string, args: Record<string, unknown>) => Promise<unknown>) =>
+    async (action: string, args: Record<string, unknown> = {}) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') throw new Error('DOUYIN_OPERATION_REQUEST_FAILED')
+      if (action === 'works.list') return worksList(args)
+      throw new Error(`unexpected action ${action}`)
+    }
+  const worksRegion = (): HTMLElement => screen.getByRole('region', { name: en['works.table.scrollLabel'] })
+
+  it('作品加载失败：KPI 五卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
+    apiMock.hostAction.mockImplementation(baseHandlers(() => { throw new Error('DOUYIN_OPERATION_REQUEST_FAILED') }))
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    // 出错提示与重试只在列表区域出现一次；卡片不再逐个重复。
+    expect((await screen.findAllByText(kitEn['state.error'])).length).toBe(1)
+    expect(screen.getAllByRole('button', { name: kitEn['state.retry'] }).length).toBe(1)
+    expect(worksRegion().contains(screen.getByText(kitEn['state.error']))).toBe(true)
+    expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
+    expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
+    for (const key of ['works.kpi.worksTotal', 'works.kpi.playTotal', 'works.kpi.fansGainTotal', 'works.kpi.completion', 'works.kpi.gapWorks'] as const) {
+      expect(kpiValueOf(en[key])).toBe('—')
+    }
+    expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
+  })
+
+  it('部分失败（刷新时 works.list 失败）：保留已展示的行，不出现「部分数据」提示，工具栏提示刷新失败', async () => {
+    let failNext = false
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'works.list' && failNext) {
+        failNext = false
+        throw new Error('DOUYIN_OPERATION_REQUEST_FAILED')
+      }
+      return baseHandlers(() => ({ status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }))(action, args)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText('第一条作品')).not.toBeNull()
+    failNext = true
+    fireEvent.click(screen.getByRole('button', { name: en['works.refresh'] }))
+    // 行保留；卡片与列表区域都不再出现 partial 文案；失败由工具栏的一行提示负责。
+    await waitFor(() => expect(screen.getByText(en['works.refreshPartial'].replace('{parts}', en['works.refreshPart.works']))).not.toBeNull())
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
+    expect(screen.queryByText(kitEn['state.error'])).toBeNull()
+    expect(kpiValueOf(en['works.kpi.worksTotal'])).toBe(String(worksSummary.work_count))
+  })
+
+  it('加载中：列表区域显示骨架，不显示「暂无数据」', async () => {
+    apiMock.hostAction.mockImplementation(baseHandlers(() => new Promise(() => {})))
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(within(worksRegion()).getByText(kitEn['state.loading'])).not.toBeNull())
+    expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('loading')
+  })
+
+  it('无账号可选：KPI 五卡为「—」，列表区域显示「暂无数据」而不是一直加载', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [], remoteError: null }
       throw new Error(`unexpected action ${action}`)
     })
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
-    // 面板 DataState + 五张 KPI 卡各自呈 error 态（kit state.error 文案 ≥ 5 处）。
-    expect((await screen.findAllByText(kitEn['state.error'])).length).toBeGreaterThanOrEqual(5)
+    expect(await screen.findByText(kitEn['state.empty'])).not.toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('blank')
+    expect(within(worksRegion()).getByText(kitEn['state.empty'])).not.toBeNull()
+    expect(within(worksRegion()).queryByText(kitEn['state.loading'])).toBeNull()
+    expect(kpiValueOf(en['works.kpi.worksTotal'])).toBe('—')
   })
 
   it('Pager total 来自服务端：信息文案与下一页按钮可用', async () => {
@@ -1230,6 +1291,10 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     await waitFor(() => expect(exportButton.getAttribute('disabled')).not.toBeNull())
     expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
     expect(screen.queryByRole('button', { name: kitEn['pager.prev'] })).toBeNull()
+    // 列表区域始终存在；空列表在区域正中显示「暂无数据」（en：No data），不出错、不加载。
+    expect(within(worksRegion()).getByText(kitEn['state.empty'])).not.toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('blank')
+    expect(screen.queryByText(kitEn['state.error'])).toBeNull()
   })
 })
 
