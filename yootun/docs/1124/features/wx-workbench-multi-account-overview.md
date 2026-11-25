@@ -195,7 +195,7 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 | 文档（本文 + 11 册 §5） | 2026-11-25 | `feat/wx-multi-account-overview` → `main` | 阶段 1–3 验收通过；本地联调结论见附录 G，随代码一并合入 |
 | tools 合入 `dev` | 2026-11-25 | `feat/wx-accounts-overview` → `dev`，合并提交 `4d14134`，已推送 | 阶段 1 验收通过：966 passed / 2 skipped，ruff 0 新增；本地联调数据层对账 22 个场景全部一致（附录 G.2） |
 | docker-helm 部署测试环境 | — | — | docker-helm 无改动；测试环境部署与服务端 `tools/list` 核对未做，`dev` 已推送不等于服务端已上线 |
-| yootun-agent 合入 `main` | 2026-11-25 | `feat/wx-multi-account-overview` → `main`，合并提交 `c37b2ba287`，已推送 | 本地联调通过（附录 G）；真机验收待发版前 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/wx-multi-account-overview` → `main`，合并提交「merge: 视频号多账号数据汇总总览批次合入 main」，已推送 | 本地联调通过（附录 G）；真机验收待发版前 |
 | 发版 | | | 待填 |
 
 ## 5. 验收
@@ -780,13 +780,13 @@ MCP 返回与 SQL 独立聚合（不引用实现代码）逐字段比对，22 �
 
 ### G.5 本轮修复的问题
 
-| 问题 | 修复提交 |
+| 问题 | 修复提交（标题） |
 |---|---|
-| 作品详情 Modal 用例的按日趋势夹具日期写死，真实日期越过窗口后用例失败 | `79f252c` |
-| Host `overview.accounts` 把空 `sort` 原样传给 tools，被 `Literal` 校验拒绝为 `VALIDATION_ERROR` | `329badf` |
-| client 读取趋势用的键名是 `trend_daily`，与契约的 `trendDaily` 不一致，趋势图始终无数据；测试载荷与实现写成了同一个错误键名，未能发现 | `5304a4b`（并增加按契约键名构造载荷的用例） |
-| 单账号模式账号表标题显示复数；`custom` 任一端为空时 chip 文案尾部留下连接符 | `33b34d8` |
-| 账号表现表数字列表头包在 `span` 里，右对齐选择器不命中，与数据列错位 | `cacca9ea`（同次提交按用户裁定移除 10 卡逐卡口径注脚与「最近采集」列） |
+| 作品详情 Modal 用例的按日趋势夹具日期写死，真实日期越过窗口后用例失败 | `fix(yootun): 修复视频号作品详情 Modal 按日趋势图例断言` |
+| Host `overview.accounts` 把空 `sort` 原样传给 tools，被 `Literal` 校验拒绝为 `VALIDATION_ERROR` | `fix(yootun): 修复 overview.accounts 空 sort 透传被 tools Literal 拒绝` |
+| client 读取趋势用的键名是 `trend_daily`，与契约的 `trendDaily` 不一致，趋势图始终无数据；测试载荷与实现写成了同一个错误键名，未能发现 | `fix(yootun): 修复视频号总览趋势图读取键名错误导致永不渲染`（并增加按契约键名构造载荷的用例） |
+| 单账号模式账号表标题显示复数；`custom` 任一端为空时 chip 文案尾部留下连接符 | `fix(yootun): 视频号总览单账号文案与自定义日期空值 chip` |
+| 账号表现表数字列表头包在 `span` 里，右对齐选择器不命中，与数据列错位 | `fix(yootun): 视频号总览指标卡去口径注脚与账号表对齐、列精简`（同次提交按用户裁定移除 10 卡逐卡口径注脚与「最近采集」列） |
 
 ### G.6 未覆盖项
 
