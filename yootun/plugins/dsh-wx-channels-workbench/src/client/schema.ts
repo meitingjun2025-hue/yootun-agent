@@ -2,10 +2,11 @@
  * Host action 载荷 → 页面视图模型的投影层：字段名以 tools 真实 schema 为准
  * （snake_case：work_id / cover_url / completion_rate_pct / daily_play_count /
  * follower_net_count / fans_profile envelope；work.trend 顶层 snapshots；
- * collectAll.status 顶层 items；overview.accounts 的 summary.totals.fans_totals /
- * follower_total_count / trend_daily（snake_case 指标键）与 accountCount /
- * trendWindow / rowAvailability（camelCase 元数据键））。缺失与非数值一律 null，
- * 不补 0；封面 URL 只接受 http(s)。
+ * collectAll.status 顶层 items；overview.accounts 的 fans_totals 与 totals 内部
+ * 指标键为 snake_case（daily_play_count / follower_net_count / work_count），
+ * 其余 summary 键为 camelCase（accountCount / followerTotalCount / trendDaily /
+ * trendWindow / daysObserved）。缺失与非数值一律 null，不补 0；封面 URL 只接受
+ * http(s)。
  * @module
  */
 import type { WxLocaleKey } from './locales.ts'
@@ -640,7 +641,7 @@ export function readAccountsOverview(payload: Record<string, unknown>): Accounts
   const summaryRecord = recordOf(payload.summary)
   const availability = recordOf(summaryRecord?.availability)
   const daysObserved = recordOf(summaryRecord?.daysObserved)
-  const trendRows = Array.isArray(summaryRecord?.trend_daily) ? summaryRecord.trend_daily : []
+  const trendRows = Array.isArray(summaryRecord?.trendDaily) ? summaryRecord.trendDaily : []
   const trendDaily: AccountsOverviewSummary['trendDaily'] = []
   for (const entry of trendRows) {
     const record = recordOf(entry)

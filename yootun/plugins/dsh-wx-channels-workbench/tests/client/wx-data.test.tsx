@@ -857,7 +857,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
         fans_totals: { follower_net_count: 3, follower_add_count: 7, follower_reduce_count: 1 },
         followerTotalCount: 167,
         trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
-        trend_daily: Array.from({ length: trendDays }, (_, index) => ({
+        trendDaily: Array.from({ length: trendDays }, (_, index) => ({
           day: dayOffset('2026-11-17', index), follower_total_count: 160 + index,
         })),
         daysObserved: { account_metrics: 7, fans_trend: 7 },
@@ -912,7 +912,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
           window: { startDay: '2026-11-17', endDay: '2026-11-23' },
           totals: {}, fans_totals: {}, followerTotalCount: null,
           trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
-          trend_daily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
+          trendDaily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
           availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
         },
         accounts: [
@@ -933,7 +933,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
           window: { startDay: '2026-11-17', endDay: '2026-11-23' },
           totals: {}, fans_totals: {}, followerTotalCount: null,
           trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
-          trend_daily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
+          trendDaily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
           availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
         },
         accounts: [],
@@ -1057,7 +1057,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
           window: { startDay: start, endDay: '2026-11-23' },
           totals: { daily_play_count: 1234 }, fans_totals: {}, followerTotalCount: 167,
           trendWindow: { startDay: start, endDay: '2026-11-23' },
-          trend_daily: Array.from({ length: 30 }, (_, index) => ({
+          trendDaily: Array.from({ length: 30 }, (_, index) => ({
             day: new Date(Date.UTC(2026, 9, 25 + index)).toISOString().slice(0, 10),
             follower_total_count: 160 + index,
           })),
@@ -1190,7 +1190,7 @@ describe('复审修复回归', () => {
           fans_totals: { follower_net_count: 7 },
           followerTotalCount: 160,
           trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
-          trend_daily: [{ day: '2026-11-17', follower_total_count: 100 }],
+          trendDaily: [{ day: '2026-11-17', follower_total_count: 100 }],
           daysObserved: { account_metrics: 1, fans_trend: 7 },
           availability: { account_metrics: 'ok', fans_trend: 'partial' },
         },
@@ -1319,7 +1319,7 @@ const ACCOUNTS_OVERVIEW_FULL = {
     fans_totals: { follower_net_count: 308, follower_add_count: 400 },
     followerTotalCount: 169,
     trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
-    trend_daily: [
+    trendDaily: [
       { day: '2026-11-17', follower_total_count: 168 },
       { day: '2026-11-18', follower_total_count: 169 },
       { follower_total_count: 170 },
@@ -1399,10 +1399,53 @@ describe('readAccountsOverview', () => {
     }
     const viaOverview = readOverview({ metrics: { totals: totalsRecord }, fans_trend: {} })
     const viaAccounts = readAccountsOverview({
-      summary: { totals: totalsRecord, fans_totals: {}, trend_daily: [] },
+      summary: { totals: totalsRecord, fans_totals: {}, trendDaily: [] },
       accounts: [{ account_id: 'x', metrics: { totals: totalsRecord }, fans_trend: {} }],
     })
     assert.deepEqual(viaOverview.totals, viaAccounts.summary.totals)
     assert.deepEqual(viaAccounts.rows[0]?.totals, viaAccounts.summary.totals)
+  })
+})
+
+describe('readAccountsOverview 键名防线（fixture 按契约文档 §4.4.1 服务端真实形态）', () => {
+  it('trendDaily 键名漂移防护：camelCase trendDaily 读出非空且逐字段正确', () => {
+    // 服务端真实返回：summary.trendDaily 为 camelCase 键（契约文档 §4.4.1）。
+    // 曾因投影读 trend_daily（snake）整体漂移为空、趋势图永不渲染。
+    const payload = {
+      window: 'last_7d',
+      summary: {
+        accountCount: 1,
+        accountTotal: 1,
+        window: { startDay: '2026-11-18', endDay: '2026-11-24' },
+        totals: { daily_play_count: 100, work_count: 3 },
+        fans_totals: { follower_net_count: 4, follower_add_count: 5, follower_reduce_count: 1 },
+        followerTotalCount: 99,
+        trendWindow: { startDay: '2026-11-18', endDay: '2026-11-24' },
+        trendDaily: [
+          { day: '2026-11-18', follower_total_count: 97 },
+          { day: '2026-11-19', follower_total_count: 98 },
+          { day: '2026-11-20', follower_total_count: 99 },
+        ],
+        daysObserved: { account_metrics: 3, fans_trend: 3 },
+        availability: { account_metrics: 'ok', fans_trend: 'ok' },
+      },
+      accounts: [{
+        account_id: 'wx-guard', nickname: '防线账号', avatar: null, session_status: 'ok',
+        last_collected_at: null, feed_count: 3, follower_total_count: 99,
+        metrics: { totals: { daily_play_count: 100, work_count: 3 }, rowAvailability: 'ok' },
+        fans_trend: { totals: { follower_net_count: 4 }, rowAvailability: 'ok' },
+      }],
+      availability: { account_metrics: 'ok', fans_trend: 'ok' },
+    }
+    const data = readAccountsOverview(payload)
+    assert.equal(data.summary.trendDaily.length, 3)
+    assert.equal(data.summary.trendDaily[0]?.day, '2026-11-18')
+    assert.equal(data.summary.trendDaily[0]?.followerTotalCount, 97)
+    assert.equal(data.summary.trendDaily[2]?.followerTotalCount, 99)
+    assert.equal(data.summary.totals.playCount, 100)
+    assert.equal(data.summary.totals.workCount, 3)
+    assert.equal(data.summary.fansTotals.netCount, 4)
+    assert.equal(data.summary.daysObserved.accountMetrics, 3)
+    assert.equal(data.rows[0]?.followerTotalCount, 99)
   })
 })
