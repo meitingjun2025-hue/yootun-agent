@@ -1,5 +1,5 @@
 /**
- * 19+2 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集/批量均为
+ * 19+3 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集/批量均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；
  * collect 与 batch 互斥沿用旧插件三态同步守卫。所有 Workbench 调用经
  * `ctx.yootunWorkbench.callTool`。
@@ -137,6 +137,16 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     'work.trend': args => ['workbench_wx_work_trend', { accountId: asString(args, 'accountId'), workId: asString(args, 'workId') }],
     'account.overview': args => ['workbench_wx_account_overview', filterUndefined({ accountId: asString(args, 'accountId'), window: asString(args, 'window') })],
     'fans.profile.get': args => ['workbench_wx_fans_profile_get', { accountId: asString(args, 'accountId') }],
+    // 多账号汇总：accountIds 仅在显式选账号时下传；fromDay/toDay 仅在 custom 窗口
+    // 下透传（非 custom 携带日期由服务端 DTO validator 拒绝，Host 侧先过滤）。
+    'overview.accounts': args => ['workbench_wx_accounts_overview', {
+      ...(asString(args, 'accountId') !== '' ? { accountIds: [asString(args, 'accountId')] } : {}),
+      window: asString(args, 'window'),
+      ...(asString(args, 'fromDay') !== '' && asString(args, 'window') === 'custom' ? { fromDay: asString(args, 'fromDay') } : {}),
+      ...(asString(args, 'toDay') !== '' && asString(args, 'window') === 'custom' ? { toDay: asString(args, 'toDay') } : {}),
+      sort: asString(args, 'sort'),
+      ...(asString(args, 'sessionStatus') !== '' ? { sessionStatus: asString(args, 'sessionStatus') } : {}),
+    }],
     'run.get': args => ['workbench_wx_collect_run_get', { runId: asString(args, 'runId') }],
   }
   const runPassthrough = async (action: string, args: ActionArgs): Promise<object> => {
@@ -541,6 +551,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     'work.trend': args => runPassthrough('work.trend', args),
     'account.overview': args => runPassthrough('account.overview', args),
     'fans.profile.get': args => runPassthrough('fans.profile.get', args),
+    'overview.accounts': args => runPassthrough('overview.accounts', args),
   }
   // dispose 开始后统一稳定拒绝新 action（不登记）；已通过 guard 的在途 action
   // 一律经 runTracked 登记——dispose 等待其 settle（collect/login 另有 abort
