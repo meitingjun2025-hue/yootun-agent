@@ -34,6 +34,48 @@ test('works.list：别名翻译 + includeNotInList 恒传 + 空作品兜底', as
   }
 })
 
+test('works.list：sort/order/limit/offset 按入参透传（存在才带，缺省不出网）', async () => {
+  const { handlers, calls, cleanup } = await d3Deps({ outcomes: [{ structuredContent: {
+    works: [{ work_id: 'w9' }], total: 183, limit: 10, offset: 20,
+    summary: { work_count: 183, play_count: 1250000, fans_gain_count: 4021, completion_rate_pct: 38.27, gap_count: 4 },
+  } }] })
+  try {
+    const payload = await handlers['works.list']({ accountId: 'acc-1', sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
+    assert.deepEqual(calls[0]?.args, { accountId: 'acc-1', includeNotInList: false, sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
+    assert.equal(payload.total, 183)
+    assert.equal(payload.limit, 10)
+    assert.equal(payload.offset, 20)
+    assert.deepEqual(payload.summary, { work_count: 183, play_count: 1250000, fans_gain_count: 4021, completion_rate_pct: 38.27, gap_count: 4 })
+  } finally {
+    await cleanup()
+  }
+})
+
+test('works.list：载荷缺分页字段时投影兜底（total 0 / limit null / offset 0 / summary null）', async () => {
+  const { handlers, calls, cleanup } = await d3Deps({ outcomes: [{ structuredContent: { works: [] } }] })
+  try {
+    const payload = await handlers['works.list']({ accountId: 'acc-1' })
+    assert.deepEqual(calls[0]?.args, { accountId: 'acc-1', includeNotInList: false })
+    assert.equal(payload.total, 0)
+    assert.equal(payload.limit, null)
+    assert.equal(payload.offset, 0)
+    assert.equal(payload.summary, null)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('works.list：summary 非对象形态投影为 null', async () => {
+  const { handlers, cleanup } = await d3Deps({ outcomes: [{ structuredContent: { works: [], total: 0, summary: 'broken' } }] })
+  try {
+    const payload = await handlers['works.list']({ accountId: 'acc-1' })
+    assert.equal(payload.summary, null)
+    assert.equal(payload.total, 0)
+  } finally {
+    await cleanup()
+  }
+})
+
 test('overview.get：只带已定义参数（空数组/空串不出网）', async () => {
   const { handlers, calls, cleanup } = await d3Deps()
   try {

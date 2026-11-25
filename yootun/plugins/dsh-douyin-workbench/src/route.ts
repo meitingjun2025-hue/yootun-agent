@@ -113,7 +113,19 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'collect.status': { required: ['accountId'], fields: { accountId: 'string' } },
   'collectAll.start': { fields: {} },
   'collectAll.status': { fields: {} },
-  'works.list': { required: ['accountId'], fields: { accountId: 'string', includeNotInList: 'boolean' } },
+  'works.list': {
+    required: ['accountId'],
+    fields: { accountId: 'string', includeNotInList: 'boolean', sort: 'string', order: 'string', limit: 'integer', offset: 'integer' },
+    enums: {
+      sort: [
+        'publish_time', 'play_count', 'collect_count', 'like_count', 'comment_count',
+        'bounce_rate_2s_pct', 'completion_rate_5s_pct', 'completion_rate_pct', 'fans_gain_count',
+        'avg_watch_duration_s', 'avg_view_proportion_pct',
+      ],
+      order: ['asc', 'desc'],
+    },
+    ranges: { limit: { min: 1, max: 100 }, offset: { min: 0, max: 1000000 } },
+  },
   'work.get': { required: ['accountId', 'workId'], fields: { accountId: 'string', workId: 'string' } },
   'work.trend': { required: ['accountId', 'workId'], fields: { accountId: 'string', workId: 'string' } },
   'run.get': { required: ['runId'], fields: { runId: 'string' } },

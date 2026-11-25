@@ -1,6 +1,6 @@
 /**
  * parity 对账测试（p4-douyin-workbench-d2-d5-ui-parity.md 逐行锚点 + 纯函数与
- * 词典契约）：排序三态/缺失恒最后、万位与百分比 clamp、上海时区时间、粉丝增量
+ * 词典契约）：排序三态状态机（执行迁到服务端）、万位与百分比 clamp、上海时区时间、粉丝增量
  * 红涨绿跌语义、观看趋势四状态、数据缺口五类、批量六原因、排期 rowId 十进制
  * 字符串序与快照归一、投流逐项校验分键、schedule 18 码 / report 17 码 / AI 9
  * 码全表、Host 载荷读取器、kit 样式表装载清单。
@@ -35,11 +35,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_WORK_SORT, batchReasonKey, compareNullableNumbers, deltaText, domainErrorText,
+  DEFAULT_WORK_SORT, batchReasonKey, deltaText, domainErrorText,
   fanDelta, formatAgeBucket, formatCount, formatDateTime, formatDuration, formatPercent,
   formatSeconds, genderLabel, gapFieldLabel, gapReasonText, hotLabelText, nextWorkSort,
   reasonText, retentionStatus, retentionStatusKey, safeHttpUrl, safeWorkUrl, shiftDay,
-  sortWorkRows, trafficSourceLabel, type Translate,
+  trafficSourceLabel, type Translate,
 } from '../../src/client/format.ts'
 import { validatePromotionForm } from '../../src/client/PromotionModal.tsx'
 import { progressTextOf } from '../../src/client/WorksPanel.tsx'
@@ -101,7 +101,7 @@ describe('格式化与排序（ui-format.js 语义迁移）', () => {
     expect(deltaText(0)).toEqual({ text: '—', tone: 'flat' })
   })
 
-  it('排序三态状态机 default → desc → asc → default；点击另一列直接 desc', () => {
+  it('排序三态状态机 default → desc → asc → default；点击另一列直接 desc（执行迁到服务端，状态机保留）', () => {
     expect(nextWorkSort({ key: null, direction: 'default' }, 'play_count'))
       .toEqual({ key: 'play_count', direction: 'desc' })
     expect(nextWorkSort({ key: 'play_count', direction: 'desc' }, 'play_count'))
@@ -112,16 +112,15 @@ describe('格式化与排序（ui-format.js 语义迁移）', () => {
       .toEqual({ key: 'like_count', direction: 'desc' })
   })
 
-  it('缺失值排序恒最后且与方向无关；默认态严格保持接口顺序', () => {
-    expect(compareNullableNumbers(null, 5, 'desc')).toBe(1)
-    expect(compareNullableNumbers(null, 5, 'asc')).toBe(1)
-    expect(compareNullableNumbers(5, null, 'desc')).toBe(-1)
-    expect(compareNullableNumbers(3, 9, 'desc')).toBeGreaterThan(0)
-    const rows = [{ play_count: 3 as number | null }, { play_count: null }, { play_count: 9 as number | null }]
-    const valueOf = (row: { play_count: number | null }, key: 'play_count') => row[key]
-    expect(sortWorkRows(rows, DEFAULT_WORK_SORT, valueOf)).toEqual(rows)
-    expect(sortWorkRows(rows, { key: 'play_count', direction: 'desc' }, valueOf))
-      .toEqual([{ play_count: 9 }, { play_count: 3 }, { play_count: null }])
+  it('本地排序函数已删除（排序迁到服务端）：format 与桶导出不再含 sortWorkRows / compareNullableNumbers', () => {
+    const formatSource = readFileSync(join(process.cwd(), 'src', 'client', 'format.ts'), 'utf8')
+    const indexSource = readFileSync(join(process.cwd(), 'src', 'client', 'index.ts'), 'utf8')
+    const worksPanelSource = readFileSync(join(process.cwd(), 'src', 'client', 'WorksPanel.tsx'), 'utf8')
+    expect(formatSource).not.toContain('sortWorkRows')
+    expect(formatSource).not.toContain('compareNullableNumbers')
+    expect(indexSource).not.toContain('sortWorkRows')
+    expect(indexSource).not.toContain('compareNullableNumbers')
+    expect(worksPanelSource).not.toContain('sortWorkRows')
   })
 
   it('观看趋势四状态：请求失败优先 / 未提供 / 未满 24h / 暂无', () => {
