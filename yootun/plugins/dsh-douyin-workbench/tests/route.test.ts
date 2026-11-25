@@ -1,5 +1,5 @@
 /**
- * 路由安全层测试（node --test，结构化假 req/res）：56 项契约与 required 模型、
+ * 路由安全层测试（node --test，结构化假 req/res）：57 项契约与 required 模型、
  * 未知 action/字段拒绝、类型/长度/数值/数组边界、trim 不截断（超长拒绝）、
  * objectArray 逐项契约、十进制整数、来源信任判定、体上限、malformed JSON、
  * 稳定响应头。运行：`node --test tests/route.test.ts`。
@@ -45,9 +45,9 @@ function rowUpdateBase(extra: Record<string, unknown> = {}): Record<string, unkn
   return { accountId: 'a', rowId: 1, expectedVersion: 1, confirm: true, idempotencyKey: 'douyin:publish_schedule_update:1:0f8f1c9e1a2b4c3d8e4f5a6b7c8d9e0f', shootingStatus: false, published: false, publishPlatforms: ['xhs'], ...extra }
 }
 
-test('契约规模：ACTION_SCHEMAS 与 ACTION_TOOL_MAP 各精确 56 项且键一致', () => {
-  assert.equal(Object.keys(ACTION_SCHEMAS).length, 56)
-  assert.equal(Object.keys(ACTION_TOOL_MAP).length, 56)
+test('契约规模：ACTION_SCHEMAS 与 ACTION_TOOL_MAP 各精确 57 项且键一致', () => {
+  assert.equal(Object.keys(ACTION_SCHEMAS).length, 57)
+  assert.equal(Object.keys(ACTION_TOOL_MAP).length, 57)
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), Object.keys(ACTION_TOOL_MAP).sort())
   for (const [action, schema] of Object.entries(ACTION_SCHEMAS)) {
     assert.ok(schema.fields !== undefined, `${action} 缺 fields`)
@@ -61,6 +61,13 @@ test('validateActionArgs：未知 action 与未知字段拒绝；collect.cancel 
   assert.throws(() => validateActionArgs('collect.cancel', {}), (error: unknown) =>
     error instanceof DouyinError && error.code === 'DOUYIN_ROUTE_UNKNOWN_ACTION')
   assert.throws(() => validateActionArgs('schedule.list', { accountId: 'a', extra: 1 }), (error: unknown) =>
+    error instanceof DouyinError && error.code === 'DOUYIN_ROUTE_INVALID_REQUEST')
+})
+
+test('H1 collect.running：allowlist 在册、绑定 local、空入参通过、未知字段拒绝', () => {
+  assert.deepEqual(ACTION_TOOL_MAP['collect.running'], { kind: 'local' })
+  assert.deepEqual(validateActionArgs('collect.running', {}), {})
+  assert.throws(() => validateActionArgs('collect.running', { accountId: 'a' }), (error: unknown) =>
     error instanceof DouyinError && error.code === 'DOUYIN_ROUTE_INVALID_REQUEST')
 })
 

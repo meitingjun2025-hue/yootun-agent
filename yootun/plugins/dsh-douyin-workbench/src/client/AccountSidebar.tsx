@@ -3,7 +3,8 @@
  * 管理 + 采集全部（primary）」→ 批量进度面板（运行中三行 + 终态三态汇总 +
  * 未完成明细六类原因）→ 账号卡片列表 → 添加账号宽主按钮（等待扫码… +
  * aria-busy + 扫码提示 role=status）→ 空态。账号卡：头像安全化（http(s)
- * 白名单失败降级昵称首字符）、昵称、粉丝、会话徽标 StateDot、按会话状态分流
+ * 白名单失败降级昵称首字符）、昵称、粉丝、会话徽标 StateDot、采集运行中状态点
+ * （ongoing + 文案，数据源为页面投影）、按会话状态分流
  * 的检测会话/重新扫码（ghost）、删除（danger error-token 文本 + 两步确认
  * RiskConfirmation：removeLocal 成功才 removeRemote，cleanup_failed 重试块，
  * RUN_STILL_ACTIVE 专属文案）。
@@ -37,7 +38,11 @@ export interface AccountSidebarProps {
   loginActive: boolean
   /** 单账号采集运行中。 */
   collectBusy: boolean
+  /** 批量对采集入口的占用（批量运行中，或挂载恢复的批量确认查询在途）。 */
+  batchBusy: boolean
   batch: BatchView | null
+  /** 正在采集的账号（单账号运行投影 + 批量运行中条目；状态点数据源）。 */
+  collectingAccountIds: readonly string[]
   onSelect: (accountId: string) => void
   onCollectAll: () => void
   onRelogin: () => void
@@ -109,7 +114,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
 
   const batchRunning = props.batch !== null && props.batch.status === 'running'
   const collectable = props.accounts.some(row => row.sessionStatus === 'ok' && !row.isPending)
-  const collectLocked = props.collectBusy || batchRunning
+  const collectLocked = props.collectBusy || props.batchBusy
 
   return (
     <aside className={css.sidebar} aria-label={t('account.title')}>
@@ -135,6 +140,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
               t={t}
               row={row}
               selected={row.accountId === props.selectedId}
+              collecting={props.collectingAccountIds.includes(row.accountId)}
               collectLocked={collectLocked}
               browserBlocked={props.browserBlocked}
               loginActive={props.loginActive}
@@ -177,6 +183,8 @@ function AccountCard(props: {
   t: Translate
   row: AccountRow
   selected: boolean
+  /** 本账号正在采集（会话徽标旁显示「采集中」状态点）。 */
+  collecting: boolean
   collectLocked: boolean
   browserBlocked: boolean
   loginActive: boolean
@@ -222,6 +230,12 @@ function AccountCard(props: {
           <span className={css.accountStateLine}>
             <StateDot state={session.dot} />
             <span>{session.text}</span>
+            {props.collecting && (
+              <>
+                <StateDot state='ongoing' />
+                <span>{t('account.collecting')}</span>
+              </>
+            )}
           </span>
         </span>
       </button>

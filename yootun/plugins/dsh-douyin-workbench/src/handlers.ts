@@ -395,7 +395,7 @@ export async function completeLoginAfterSuccess(
   }
 }
 
-/** 全量 action 处理器表（分册 15 §3 的 56 项：D2–D5 33 项 + D6–D8 23 项）。 */
+/** 全量 action 处理器表（57 项：分册 15 §3 的 56 项 + collect.running）。 */
 export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   collect: ReturnType<typeof createCollectController>
   batch: ReturnType<typeof createBatchCollectController>
@@ -642,6 +642,9 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }
       return { status: 'ready', collect: record }
     },
+
+    // 挂载恢复（只读）：当前运行中的单账号采集（任意账号）+ 批量运行标记。
+    'collect.running': async () => ({ status: 'ready', collect: controllers.collect.running(), batchRunning: controllers.batch.running }),
 
     'collectAll.start': async (_args, requestSignal) => {
       // 前置候选筛选携带请求级 signal（abort → collect_cancelled，不启动 batch）。

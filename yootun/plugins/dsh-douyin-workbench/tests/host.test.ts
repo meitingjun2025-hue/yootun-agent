@@ -5,12 +5,14 @@
  * 运行：`node --test tests/host.test.ts`。
  */
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
 import { test } from 'node:test'
 import { isAllowedFor } from '@yootun/dsh-workbench-mcp'
 import { ACTION_SCHEMAS, ACTION_TOOL_MAP, ROUTE_PATH } from '../src/route.ts'
 import { DOUYIN_CALLER, createWorkbenchCaller } from '../src/workbench.ts'
 import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers } from '../src/index.ts'
+import { runsFilePath } from '../src/runs.ts'
 import { createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
 
 test('路由路径冻结：/api/desktop/yootun/douyin-workbench', () => {
@@ -29,7 +31,7 @@ test('ACTION_TOOL_MAP 对账：Host 侧远端绑定工具名全部通过 douyin-
   assert.ok(boundTools.size > 0, '存在远端绑定')
 })
 
-test('D2–D7 全量 51 个 action 精确实现（D8 缺席）；browser.status 投影不回传设备路径', async () => {
+test('全量 57 个 action 精确实现；browser.status 投影不回传设备路径', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -43,6 +45,7 @@ test('D2–D7 全量 51 个 action 精确实现（D8 缺席）；browser.status 
       'account.removeRemote',
       'collect.start',
       'collect.status',
+      'collect.running',
       'collectAll.start',
       'collectAll.status',
       'works.list',
@@ -121,7 +124,7 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
   }
 })
 
-test('D8 基因库 5 个 action 全部实现，全量 56 项与 ACTION_SCHEMAS 键集对齐', async () => {
+test('D8 基因库 5 个 action 全部实现，全量 57 项与 ACTION_SCHEMAS 键集对齐', async () => {
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
@@ -129,6 +132,33 @@ test('D8 基因库 5 个 action 全部实现，全量 56 项与 ACTION_SCHEMAS �
       assert.equal(typeof handlers[action], 'function', `${action} 属 D8，本批次必须实现`)
     }
     assert.deepEqual(Object.keys(handlers).sort(), Object.keys(ACTION_SCHEMAS).sort())
+  } finally {
+    await cleanup()
+  }
+})
+
+test('H2 collect.running：无运行中采集时 collect 为 null、batchRunning 为 false', async () => {
+  const { deps, cleanup } = await testDeps()
+  try {
+    const handlers = buildRouteHandlers(deps)
+    const payload = await handlers['collect.running']({})
+    assert.equal(payload.status, 'ready')
+    assert.equal(payload.collect, null)
+    assert.equal(payload.batchRunning, false)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('H5 collect.running：只读本地投影——零 Workbench 调用、不读写 runs.json', async () => {
+  const { deps, calls, cleanup } = await testDeps()
+  try {
+    const handlers = buildRouteHandlers(deps)
+    const payload = await handlers['collect.running']({})
+    assert.equal(payload.status, 'ready')
+    assert.equal(calls.length, 0, '本地 action 不发起任何 Workbench 调用')
+    assert.equal(existsSync(runsFilePath(deps.root)), false, '不得创建或改写 runs.json')
+    assert.equal(deps.signals.size, 0)
   } finally {
     await cleanup()
   }
@@ -142,7 +172,7 @@ test('本地 action 零远端绑定；D1 未实现的远端 action 不产生任�
     assert.equal(calls.length, 0, 'browser.status 不发起远端调用')
     for (const [action, binding] of Object.entries(ACTION_TOOL_MAP)) {
       if (binding.kind === 'local') {
-        assert.ok(['browser.status', 'account.loginStatus', 'account.removeLocal', 'collect.status', 'collectAll.status'].includes(action),
+        assert.ok(['browser.status', 'account.loginStatus', 'account.removeLocal', 'collect.status', 'collect.running', 'collectAll.status'].includes(action),
           `未预期的本地 action: ${action}`)
       }
     }

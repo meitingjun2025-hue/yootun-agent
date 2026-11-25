@@ -176,6 +176,12 @@ function runViewOf(record: Record<string, unknown>): CollectView {
   }
 }
 
+/** collect.running → 运行中的单账号采集投影 + 批量运行标记（页面挂载恢复数据源）。 */
+export function readCollectRunning(payload: Record<string, unknown>): { collect: CollectView | null; batchRunning: boolean } {
+  const record = payload.collect === null || payload.collect === undefined ? undefined : recordOf(payload.collect)
+  return { collect: record === undefined ? null : runViewOf(record), batchRunning: payload.batchRunning === true }
+}
+
 /** collectAll.status → BatchView。 */
 export function readBatchStatus(payload: Record<string, unknown>): BatchView {
   const record = recordOf(payload.batch) ?? payload

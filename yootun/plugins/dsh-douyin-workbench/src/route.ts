@@ -98,7 +98,8 @@ const DEFAULT_ARRAY_MAX_ITEMS = 9
 const DEFAULT_ARRAY_ITEM_MAX = 128
 
 /**
- * Per-action input contracts：分册 15 §3 冻结的全部 56 项（显式 allowlist；
+ * Per-action input contracts：57 项（分册 15 §3 的 56 项 + `collect.running`；
+ * 显式 allowlist；
  * 未知字段拒绝；长度/数值/数组边界就地拒绝，不静默截断数值越界）。
  */
 export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.freeze({
@@ -111,6 +112,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.removeRemote': { required: ['accountId'], fields: { accountId: 'string' } },
   'collect.start': { required: ['accountId'], fields: { accountId: 'string', maxPages: 'integer' }, ranges: { maxPages: { min: 1, max: 1000 } } },
   'collect.status': { required: ['accountId'], fields: { accountId: 'string' } },
+  'collect.running': { fields: {} },
   'collectAll.start': { fields: {} },
   'collectAll.status': { fields: {} },
   'works.list': { required: ['accountId'], fields: { accountId: 'string', includeNotInList: 'boolean' } },
@@ -328,6 +330,7 @@ export const ACTION_TOOL_MAP: Readonly<Record<string, ActionToolBinding>> = Obje
     ],
   },
   'collect.status': { kind: 'local' },
+  'collect.running': { kind: 'local' },
   'collectAll.start': {
     kind: 'remote',
     domain: 'douyin',

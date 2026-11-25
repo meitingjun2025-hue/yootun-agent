@@ -15,6 +15,11 @@ describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
+
+  it('账号采集中状态点文案 zh / en 成对', () => {
+    expect(zh['account.collecting']).toBe('采集中')
+    expect(en['account.collecting']).toBe('Collecting')
+  })
 })
 
 describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 tab）', () => {
@@ -53,6 +58,14 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
   it('jsdom 无 Host：加载态可达（empty/error 由 Host 集成验证）', () => {
     render(<WorkbenchPage t={t} />)
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
+  })
+
+  it('jsdom 无 Host：挂载恢复查询失败按无运行中采集处理，不弹错误', async () => {
+    render(<WorkbenchPage t={t} />)
+    // 恢复查询在无 Host 时失败：按无运行中采集处理，页面骨架保持可用。
+    await new Promise(resolve => { setTimeout(resolve, 0) })
+    expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: en['works.collecting'] })).toBeNull()
   })
 })
 
