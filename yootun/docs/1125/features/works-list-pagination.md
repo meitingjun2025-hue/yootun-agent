@@ -1,6 +1,6 @@
 # douyin-wx-workbench-作品列表分页 实施单
 
-状态：已实施，待真机验收（tools 待合入 `dev` 并部署测试环境） ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已实施，本地三仓联调通过，待真机验收（tools 待合入 `dev` 并部署测试环境） ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -248,11 +248,12 @@ export interface PagerProps {
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | | `main` | 待填 |
+| 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | 2026-11-25 | `main` | 已提交本地 `main`，推送待用户确认 |
 | tools 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（tools 仓，自 `dev`） | `pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 850 通过；16 项迁移 / PG 用例因本机无建库权限报错，改动前同样如此；ruff 在改动文件上无新增 |
 | tools 合入 `dev` | | `feat/works-list-pagination` → `dev` | 待用户确认后合入并推送 |
 | docker-helm 部署测试环境 | | — | 待填：部署后 `curl tools/list` 核对，两工具带分页参数可调 |
 | yootun-agent 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（自 `main` 切出；kit `Pager`、抖音、视频号三个提交） | kit `test` 65、抖音 `test`（node --test 17 文件 + vitest 136）、视频号 `test`（node --test 76 + vitest 66），三包 `build`、oxlint 通过；真机验收见 5.2 |
+| 本地三仓联调（本机 tools + 三条特性分支的本地临时集成分支） | 2026-11-25 | — | 通过，记录见 5.3；集成分支只在本地，不推送 |
 | yootun-agent 合入 `main` | | `feat/works-list-pagination` → `main` | 待真机验收通过后合入（以 tools 部署测试环境为前置） |
 | 发版 | | | 待填 |
 
@@ -260,30 +261,51 @@ export interface PagerProps {
 
 ## 5. 验收
 
-环境：本机启动 tools.dofe.ai（读取其 `.env`，`DATABASE_URL` 指向的数据库；[cross-repo-sync.md 第五节](../../cross-repo-sync.md#五顺序与门禁)），yootun-agent 的 Workbench MCP 指向本机 tools。数据集里准备一个作品数超过 650 的抖音账号；没有则用现有作品数最多的账号并记录数量。
+环境：本机启动 tools.dofe.ai（读取其 `.env`，`DATABASE_URL` 指向的数据库；[cross-repo-sync.md 第五节](../../cross-repo-sync.md#五顺序与门禁)），yootun-agent 的 Workbench MCP 指向本机 tools。数据集里准备一个作品数超过 650 的抖音账号；没有则用现有作品数最多的账号并记录数量。2026-11-25 本地联调所用数据：抖音账号 17 个，工作台列出 13 个，作品最多的账号 82 条，其中 1 条不在列表；视频号 1 个账号 53 条。库里没有作品数超过 650 的账号，R5 在本地只验证到机制（见 5.3）。
 
 ### 5.1 自动验收（开发侧执行，每次合入前）
 
-- [ ] tools：`uv run pytest tests/douyin_operation tests/wx_channels_operation tests/yootun -q` 与全量 `uv run pytest -q` 通过；不传新字段时两个工具出参与改动前逐字段一致；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build`；两个插件 `test`、`build`（含样式表与 runtime bundle 校验）通过；
-- [ ] 附录 A 的用例全部存在并通过。
+- [x] tools：`uv run pytest tests/douyin_operation tests/wx_channels_operation tests/yootun -q` 与全量 `uv run pytest -q` 通过；不传新字段时两个工具出参与改动前逐字段一致（2026-11-25）；
+- [x] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build`；两个插件 `test`、`build`（含样式表与 runtime bundle 校验）通过（2026-11-25；与另两条分支集成后复跑结果见 5.3）；
+- [x] 附录 A 的用例全部存在并通过（2026-11-25）。
 
 ### 5.2 真机验收（用户执行）
 
 | # | 步骤 | 预期 |
 |---|---|---|
-| T1 | tools：调用本机 `tools/list` | 清单与改动前一致 |
-| T2 | tools：带 `limit=10, offset=0` 调用 `workbench_douyin_work_list` 与 `workbench_wx_work_list` | `works` 10 行；`total` 为该账号全部行数；`limit=10`、`offset=0`；聚合字段齐全 |
+| T1 | tools：调用本机 `tools/list` | 清单与改动前一致（2026-11-25 本地联调已核对：Workbench 94、Agent 39） |
+| T2 | tools：带 `limit=10, offset=0` 调用 `workbench_douyin_work_list` 与 `workbench_wx_work_list` | `works` 10 行；`total` 为该账号全部行数；`limit=10`、`offset=0`；聚合字段齐全（2026-11-25 本地联调已覆盖） |
 | R1 | 抖音：进入作品页 | 只发一次 `works.list`（`limit=10, offset=0, sort=publish_time, order=desc`）；KPI 五卡出现；第 1 页是最新发布的作品；底部「共 N 条 · 第 1 / M 页」 |
 | R2 | 抖音：点「播放量」表头三次 | 依次为播放量降序（整账号播放量最高的 10 条，回第 1 页）→ 升序 → 回到发布时间降序；空值恒在最后 |
 | R3 | 抖音：下一页、上一页、刷新、切换账号再切回 | 翻页只变 `offset`；末页「下一页」禁用；刷新停留在当前页；切账号回第 1 页且排序保留 |
 | R4 | 抖音：点「采集」等结束 | 当前页刷新，KPI 随之更新 |
 | R5 | 抖音：作品数超过 650 的账号翻到末页 | 可翻到底，不再出现查询失败（`OUTPUT_TOO_LARGE`） |
-| R6 | 抖音：导出 Excel | 仍为全量，行数等于 `total` |
-| R7 | 抖音：R2 的首行与导出 Excel 对照；KPI 播放合计与 Excel 播放量列求和对照 | 一致 |
+| R6 | 抖音：导出 Excel | 仍为全量，行数等于全部已入库作品数；账号有不在列表的作品时为 `total` 加不在列表数（本地样本 83 = 82 + 1，见 5.3） |
+| R7 | 抖音：R2 的首行与导出 Excel 对照；KPI 播放合计与 Excel 播放量列求和对照 | 降序首行等于 Excel 播放量列最大值；Excel 播放量列求和等于 KPI 播放合计加不在列表作品的播放量 |
 | R8 | 视频号：重复 R1–R4、R6 | 同抖音；完播率、缺口作品、最近采集时间与改动前显示一致 |
-| R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | KPI 行与分页控件完整可读 |
+| R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | KPI 行与分页控件完整可读；抖音表格在容器宽度小于 880 px 时不可见，属既有布局缺陷（见 5.3），不计入本单 |
 | R10 | 按 `record-browser-gif` 流程录制排序与翻页片段 | GIF 附在 PR |
+
+### 5.3 本地三仓联调记录（2026-11-25）
+
+环境：本机以 `uv run app` 启动 tools.dofe.ai（读取其 `.env`，连接其 `DATABASE_URL` 指向的数据库），只起 Web 进程，不起 worker 与 beat；yootun-agent 用隔离 Web profile `douyind9`，Workbench 与 Agent 两个 MCP 覆盖指向本机 tools，抖音与视频号状态目录为全新空目录。三条特性分支（`feat/collect-state-restore`、`feat/douyin-collect-all-concurrency`、`feat/works-list-pagination`）先合入一条本地临时分支再验证，集成分支上 kit 65、抖音 211 + 148、视频号 76 + 78 全过，三包 `build` 通过。驱动脚本与截图保存在仓库外。
+
+| 层 | 范围 | 结果 |
+|---|---|---|
+| tools（直连 `/mcp/yootun-workbench` 与 `/mcp/yootun-agent`） | `tools/list`（Workbench 94、Agent 39）；两个 `work_list` 的入参 schema、不传新参数时的全量出参、分页窗口、`total` 与聚合不随页码变化、`offset ≥ total` 返回空、排序页内有序且空值恒最后、`offset > 0` 无 `limit` 与 `limit = 101` 返回 `VALIDATION_ERROR`；视频号 `gap_count` 与播放加权完播率按全量行复算一致 | 28 项通过 |
+| Host（真实 MCP 连接器 + 两个插件的路由处理器） | 首查参数、翻页不重不漏、表头排序两个方向、路由拒绝 `limit = 101` 与枚举外 `sort`、视频号整数字段拒绝非整数、聚合字段经 `readWorksPage` 可读、空闲态的 `collect.running` / `collect.status` / `collectAll.status`、导出 | 28 项通过 |
+| 抖音作品页（无头 Chrome） | 5.2 的 R1、R2、R3 全部步骤；五卡 KPI 与服务端聚合一致；导出下载；三档宽度与明暗主题 | 37 项通过 |
+| 视频号作品页（无头 Chrome） | R1–R3；完播率、缺口作品、最近采集时间取自列表响应；切到其他 Tab 再切回仍停在原页码；三档宽度与明暗主题 | 26 项通过 |
+| 抖音素材看板 | kit `Pager` 显示「49 items · page 1 / 3」，下一页请求 `offset = 20` | 通过 |
+
+联调结论：
+
+- 导出含「不在列表」的作品：导出调用 `list_works(include_not_in_list=True)`，列表 `total` 不含这部分。样本账号导出 83 行，等于 `total` 82 加不在列表 1；播放量列求和 974453 等于 KPI 播放合计，列最大值 220039 等于降序首行（不在列表的作品播放量为 0）。这是既有口径，5.2 的 R6、R7 已按此修订。
+- 全量模式实测约 4.8 KB 一条，82 条即 392 KB，推算约 417 条触到 2,000,000 字节上限，早于 0.1 节约 650 条的估算。分页模式单页响应约 59 KB，与账号作品总数无关。
+- 抖音作品页在容器宽度小于 880 px（账号栏在上、作品面板在下）时，表格滚动容器高度为 0，表格不可见；KPI 行与分页控件可读。`main` 上同样复现，属既有布局缺陷，不在本单范围，需要另行立项。视频号作品页各宽度下表格容器均为 600 px，不受影响。
+- 三条分支相互冲突的文件有 4 个：抖音 `src/client/WorkbenchPage.tsx`、`tests/client/douyin-client.test.tsx`、`tests/client/douyin-parity.test.tsx` 与视频号 `tests/client/wx-data.test.tsx`。按两边逻辑与用例全部保留解决后测试全过；后合入的分支需要带这份解决结果。
+
+本地未覆盖、留在 5.2：R4（采集完成后刷新当前页，需要真实采集）、R5 的作品数超过 650 的真实账号、视频号切换账号（本地库只有 1 个视频号账号）、R10 的 GIF。
 
 ## 附录 A：测试矩阵
 

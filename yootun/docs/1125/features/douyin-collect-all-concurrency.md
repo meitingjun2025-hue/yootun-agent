@@ -117,10 +117,11 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 15 册 §11） | | `main` | 待填 |
+| 文档（本文 + 15 册 §11） | 2026-11-25 | `main` | 已提交本地 `main`，推送待用户确认 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-25 | `feat/douyin-collect-all-concurrency`（基于 `feat/collect-state-restore`） | `test`（node --test 17 文件 + vitest 138）、`build`、oxlint 通过；真机验收见 5.2 |
+| 本地联调 | 2026-11-25 | — | 并发采集需要真实 Chrome，本地没有可覆盖项；与分页分支集成后全量测试通过，见 5.3 |
 | yootun-agent 合入 `main` | | `feat/douyin-collect-all-concurrency` → `main` | 待真机验收通过后合入 |
 | 发版 | | | 待填 |
 | 观察结论（视频号是否镜像） | | | 待填：观察窗口与指标见附录 C |
@@ -131,8 +132,8 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 ### 5.1 自动验收（开发侧执行，每次合入前）
 
-- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
-- [ ] 附录 B 的 B1–B18 对应用例全部存在并通过。
+- [x] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过（2026-11-25）；
+- [x] 附录 B 的 B1–B18 对应用例全部存在并通过（2026-11-25）。
 
 ### 5.2 真机验收（用户执行）
 
@@ -150,6 +151,10 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | R8 | 明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | 多账号行与熔断提示完整可读 |
 | R9 | 按 `record-browser-gif` 流程录制批量面板片段 | GIF 附在 PR |
 | R10 | 发版后按附录 C.4 记录至少 3 轮批量、不少于 1 周 | 整批耗时、并发峰值、风控信号数、熔断次数、批量结束 24 小时内需重新探测或扫码的账号数；结论回填第 4 节 |
+
+### 5.3 本地联调记录（2026-11-25）
+
+并发调度、错峰与熔断只在真实采集时运行，本地没有 Chrome 与登录态，没有可覆盖项，全部留在 5.2。本地只验证了与另两条分支集成后的回归：抖音 `test`（node --test 18 文件 211 例、vitest 148 例）、视频号 `test`（76 + 78）、kit 65 全过，三包 `build` 通过。空闲态挂载查询与批量面板不渲染的结论见 [collect-state-restore.md](collect-state-restore.md) 5.3，冲突文件与解决方式见 [works-list-pagination.md](works-list-pagination.md) 5.3。
 
 ## 附录 A：调度设计
 

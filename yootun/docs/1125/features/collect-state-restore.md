@@ -94,10 +94,11 @@ MCP 工具：无。
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 15 册 §3/§11 + 14 册 §5 + 11 册 §6） | | `main` | 待填 |
+| 文档（本文 + 15 册 §3/§11 + 14 册 §5 + 11 册 §6） | 2026-11-25 | `main` | 已提交本地 `main`，推送待用户确认 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-25 | `feat/collect-state-restore` | 两插件 `test`、`build`、oxlint 通过；真机验收见 5.2 |
+| 本地联调（空闲态挂载） | 2026-11-25 | — | 通过，记录见 5.3；运行中采集的恢复需要真实 Chrome，留在 5.2 |
 | yootun-agent 合入 `main` | | `feat/collect-state-restore` → `main` | 待真机验收通过后合入 |
 | 发版 | | | 待填 |
 
@@ -107,9 +108,9 @@ MCP 工具：无。
 
 ### 5.1 自动验收（开发侧执行，每次合入前）
 
-- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
-- [ ] `pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
-- [ ] 附录 B 的 Host 与 client 用例全部存在并通过。
+- [x] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过（2026-11-25）；
+- [x] `pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过（2026-11-25）；
+- [x] 附录 B 的 Host 与 client 用例全部存在并通过（2026-11-25）。
 
 ### 5.2 真机验收（用户执行）
 
@@ -127,6 +128,15 @@ MCP 工具：无。
 | R8 | 视频号：点「采集全部」后切走 → 切回 → 点取消 → 再切走 → 切回 | 面板显示 stopping，当前账号结束后显示 finished 汇总 |
 | R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | 账号栏状态点与恢复后的面板完整可读 |
 | R10 | 按 `record-browser-gif` 流程录制「切走切回恢复进度」片段 | GIF 附在 PR |
+
+### 5.3 本地联调记录（2026-11-25）
+
+环境同 [works-list-pagination.md](works-list-pagination.md) 5.3：本机 tools，隔离 Web profile，两个状态目录为空。
+
+- 抖音工作台挂载时发出 `collect.running`、`collect.status`、`collectAll.status`，视频号工作台挂载时发出 `collect.status`、`collectAll.status`，与附录 A 一致。
+- 空闲态不出现「采集中」标记，账号栏没有批量面板，不启动轮询。Host 空闲时 `collectAll.status` 返回字段全为空的 `batch` 对象（`status` 为 `null`）而不是 `null`：`readBatchStatus` 读出空闲，`BatchPanel` 对 `status` 为 `null` 不渲染。单测的 mock 用 `batch: null`，真实 Host 的空闲应答是全空对象，两条路径在本地联调中都确认不渲染面板。
+- 运行中采集的恢复（5.2 的 R1–R8）需要真实 Chrome 与已登录账号，本地未覆盖。
+- 与分页分支的冲突文件及解决方式见 [works-list-pagination.md](works-list-pagination.md) 5.3。
 
 实施单第 4 节在本单合入后回填完整。
 
