@@ -106,7 +106,7 @@ test('§2 batchCandidates：abort 后立刻抛 collect_cancelled，不再继续�
   }
 })
 
-test('§2 批量 probe 挂起时 dispose：probe 收到 batch signal，剩余账号不启动，batch failed，信号清理', async () => {
+test('§2 批量 probe 挂起时 dispose：probe 串行且收到 batch signal，剩余账号不启动，batch failed，信号清理', async () => {
   const controller = new AbortController()
   const probeSignals: Array<AbortSignal | undefined> = []
   const collectStarts: string[] = []
@@ -129,12 +129,13 @@ test('§2 批量 probe 挂起时 dispose：probe 收到 batch signal，剩余账
     trackRun: promise => { promise.then(() => runSettled?.()) },
   })
   const started = batch.start(
-    [{ accountId: 'b1', skipped: false, reason: null }, { accountId: 'b2', skipped: false, reason: null }],
+    [{ accountId: 'b1', skipped: false, reason: null }, { accountId: 'b2', skipped: false, reason: null }, { accountId: 'b3', skipped: false, reason: null }],
     { signal: controller.signal },
   )
   assert.equal(started.started, true)
   await new Promise(resolve => setTimeout(resolve, 40))
   assert.equal(probeSignals[0], controller.signal, 'probe 必须收到 batch signal')
+  assert.equal(probeSignals.length, 1, '探测仍逐个串行：首个挂起时后续不并行探测')
   // dispose 语义：abort batch signal 并等待 settle。
   controller.abort()
   await settled
@@ -145,11 +146,11 @@ test('§2 批量 probe 挂起时 dispose：probe 收到 batch signal，剩余账
   assert.ok(status.items.every(item => item.status === 'failed' && item.reason === 'collect_cancelled'))
 })
 
-test('§2 第一个账号采集 Workbench 挂起时 dispose：调用收到 signal 被取消，后续不启动，batch failed', async () => {
+test('§2 在途账号采集 Workbench 挂起时 dispose：调用收到 batch signal，取消后不取新账号，batch failed', async () => {
   const controller = new AbortController()
   const hanging = hangingFace()
   const collectStarts: string[] = []
-  const workbenchSignals: Array<AbortSignal | undefined> = []
+  const collectSignals: Array<AbortSignal | undefined> = []
   let runSettled: (() => void) | undefined
   const settled = new Promise<void>(resolve => { runSettled = resolve })
   const batch = createBatchCollectController({
@@ -157,10 +158,10 @@ test('§2 第一个账号采集 Workbench 挂起时 dispose：调用收到 signa
       start: input => {
         collectStarts.push(input.accountId)
         const signal = input.options?.signal
-        // 第一个账号的采集链路发起挂起的 Workbench 写调用（携带 batch signal）。
+        // 每个在途账号的采集链路发起挂起的 Workbench 写调用（携带 batch signal）。
         void hanging.face.callTool('douyin-workbench', 'douyin', 'workbench_douyin_collect_run_start', {}, signal)
           .catch(() => undefined)
-        workbenchSignals.push(signal)
+        collectSignals.push(signal)
         return {
           started: true,
           record: { accountId: input.accountId, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, events: [], result: null, error: null },
@@ -176,21 +177,82 @@ test('§2 第一个账号采集 Workbench 挂起时 dispose：调用收到 signa
       hasRunning: () => false,
     },
     probe: async () => ({ sessionStatus: 'ok', reason: null }),
+    concurrency: 2,
+    rand: () => 0,
+    sleep: () => Promise.resolve(),
     trackRun: promise => { promise.then(() => runSettled?.()) },
   })
   const started = batch.start(
-    [{ accountId: 'c1', skipped: false, reason: null }, { accountId: 'c2', skipped: false, reason: null }],
+    [{ accountId: 'c1', skipped: false, reason: null }, { accountId: 'c2', skipped: false, reason: null }, { accountId: 'c3', skipped: false, reason: null }, { accountId: 'c4', skipped: false, reason: null }],
     { signal: controller.signal },
   )
   assert.equal(started.started, true)
-  await new Promise(resolve => setTimeout(resolve, 60))
-  assert.equal(workbenchSignals[0], controller.signal, '采集 Workbench 调用收到 batch signal')
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.deepEqual(collectStarts, ['c1', 'c2'], '并发度 2：同时启动两个账号')
+  assert.equal(hanging.calls.length, 2, '两路在途 Workbench 调用')
+  assert.ok(collectSignals.every(signal => signal === controller.signal), '采集携带 batch signal')
+  assert.ok(hanging.signals.every(signal => signal === controller.signal), '在途 Workbench 调用收到 batch signal')
   controller.abort()
   await settled
   const status = batch.status
   assert.equal(status.status, 'failed')
-  assert.deepEqual(collectStarts, ['c1'], '取消后不启动下一账号')
-  assert.ok(status.items.every(item => item.status !== 'running' && item.status !== 'queued'))
+  assert.equal(status.error, 'collect_cancelled')
+  assert.deepEqual(collectStarts, ['c1', 'c2'], '取消后不取新账号')
+  assert.ok(status.items.every(item => item.status === 'failed' && item.reason === 'collect_cancelled'))
+})
+
+test('§2 三个账号同时采集挂起时 dispose：三路在途调用全部收到 signal，后续不启动，批次 failed', async () => {
+  const controller = new AbortController()
+  const hanging = hangingFace()
+  const collectStarts: string[] = []
+  let runSettled: (() => void) | undefined
+  const settled = new Promise<void>(resolve => { runSettled = resolve })
+  const batch = createBatchCollectController({
+    collect: {
+      start: input => {
+        collectStarts.push(input.accountId)
+        const signal = input.options?.signal
+        // 每路采集发起挂起的 Workbench 写调用（携带 batch signal）。
+        void hanging.face.callTool('douyin-workbench', 'douyin', 'workbench_douyin_collect_run_start', {}, signal)
+          .catch(() => undefined)
+        return {
+          started: true,
+          record: { accountId: input.accountId, status: 'running', startedAt: new Date().toISOString(), finishedAt: null, events: [], result: null, error: null },
+        }
+      },
+      wait: () => new Promise(resolve => {
+        // 采集挂起直到 batch 取消（对齐真实长采集：取消才 settle）。
+        const signal = controller.signal
+        if (signal.aborted) { resolve(null); return }
+        signal.addEventListener('abort', () => resolve(null), { once: true })
+      }),
+      hasRunning: () => false,
+    },
+    probe: async () => ({ sessionStatus: 'ok', reason: null }),
+    concurrency: 3,
+    rand: () => 0,
+    sleep: () => Promise.resolve(),
+    trackRun: promise => { promise.then(() => runSettled?.()) },
+  })
+  const started = batch.start(
+    [{ accountId: 'd1', skipped: false, reason: null }, { accountId: 'd2', skipped: false, reason: null }, { accountId: 'd3', skipped: false, reason: null }, { accountId: 'd4', skipped: false, reason: null }],
+    { signal: controller.signal },
+  )
+  assert.equal(started.started, true)
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.deepEqual(collectStarts, ['d1', 'd2', 'd3'], '并发度 3：三个账号同时采集')
+  assert.equal(hanging.calls.length, 3)
+  assert.ok(hanging.signals.every(signal => signal === controller.signal), '三路在途调用全部收到 batch signal')
+  controller.abort()
+  await settled
+  const status = batch.status
+  assert.equal(status.status, 'failed')
+  assert.equal(status.error, 'collect_cancelled')
+  assert.deepEqual(collectStarts, ['d1', 'd2', 'd3'], '取消后第 4 个账号不启动')
+  assert.deepEqual(status.runningAccountIds, [])
+  assert.equal(status.currentAccountId, null)
+  assert.ok(hanging.signals.every(signal => signal?.aborted === true), 'dispose 后全部在途 signal 已 abort')
+  assert.ok(status.items.every(item => item.status === 'failed' && item.reason === 'collect_cancelled'))
 })
 
 test('§2 collectAll.start 信号生命周期：action: 清理、collect:batch: 保留至 settle', async () => {

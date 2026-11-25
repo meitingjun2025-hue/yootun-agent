@@ -962,7 +962,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       expect(apiMock.hostAction.mock.calls.findIndex(([name], index) => name === 'collectAll.status' && index > startCallIndex)).toBeGreaterThan(startCallIndex)
       // 批量横幅进入 running（role=status 容器 aria-busy + 进度文案）；按钮运行态禁用。
       expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
-      expect(screen.getByText(t('batch.progress.collecting', { index: 1, total: 1 }))).not.toBeNull()
+      expect(screen.getByText(t('batch.progress.concurrent', { done: 0, total: 1 }))).not.toBeNull()
       expect(screen.getByRole('button', { name: en['account.collectAllRunning'] }).getAttribute('disabled')).not.toBeNull()
       // 第二次 tick 返回终态 → 汇总横幅、停止轮询。
       act(() => { vi.advanceTimersByTime(1600) })
@@ -1035,6 +1035,122 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       expect(callsOf('collectAll.start')).toBe(1)
       expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(1)
       expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('批量面板多账号与熔断展示（collectAll.status 出参增量）', () => {
+  const callsOf = (action: string): number =>
+    apiMock.hostAction.mock.calls.filter(([name]) => name === action).length
+
+  /** 刷新微任务队列：hostAction 异步 mock 与页面 promise 链在 act 内全部落定。 */
+  const flush = async (): Promise<void> => { await act(async () => { await Promise.resolve() }) }
+
+  /** 挂载链路落定：账号列表 → 选中账号 → 恢复三路查询。 */
+  const settleMount = async (): Promise<void> => { await flush(); await flush() }
+
+  const accountRow2 = { ...accountRow, accountId: 'acc-2', nickname: '账号二' }
+  const accountRow3 = { ...accountRow, accountId: 'acc-3', nickname: '账号三' }
+  const accountRow4 = { ...accountRow, accountId: 'acc-4', nickname: '账号四' }
+  const accountRow5 = { ...accountRow, accountId: 'acc-5', nickname: '账号五' }
+
+  /** 挂载恢复底盘：collect.running 报批量在跑，collectAll.status 按脚本应答。 */
+  const mockBatchRecovery = (batch: Record<string, unknown>): void => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow, accountRow2, accountRow3, accountRow4, accountRow5], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: true }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch }
+      throw new Error(`unexpected action ${action}`)
+    })
+  }
+
+  it('运行中：已完成账号数 + 正在采集三账号列表 + 并发数', async () => {
+    vi.useFakeTimers()
+    try {
+      mockBatchRecovery({
+        batchId: 'batch-1', status: 'running', phase: 'collecting',
+        total: 5, runnableTotal: 5, runnableDone: 2,
+        completedCount: 2, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 5,
+        currentAccountId: 'acc-1', runningAccountIds: ['acc-1', 'acc-2', 'acc-3'], concurrency: 3,
+        items: [
+          { accountId: 'acc-1', status: 'running', reason: null },
+          { accountId: 'acc-2', status: 'running', reason: null },
+          { accountId: 'acc-3', status: 'running', reason: null },
+        ],
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      expect(screen.getByText(t('batch.progress.concurrent', { done: 2, total: 5 }))).not.toBeNull()
+      expect(screen.getByText(t('batch.currentList', { names: '账号一、账号二、账号三' }))).not.toBeNull()
+      expect(screen.getByText(t('batch.concurrency', { count: 3 }))).not.toBeNull()
+      // 终态收尾：停轮询，不留悬挂定时器。
+      act(() => { vi.advanceTimersByTime(1600) })
+      await flush()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('运行中仅一个账号：正在采集列表只显示该账号', async () => {
+    vi.useFakeTimers()
+    try {
+      mockBatchRecovery({
+        batchId: 'batch-1', status: 'running', phase: 'collecting',
+        total: 3, runnableTotal: 3, runnableDone: 1,
+        completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 3,
+        currentAccountId: 'acc-2', runningAccountIds: ['acc-2'], concurrency: 1,
+        items: [{ accountId: 'acc-2', status: 'running', reason: null }],
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      expect(screen.getByText(t('batch.currentList', { names: '账号二' }))).not.toBeNull()
+      expect(screen.queryByText(t('batch.currentList', { names: '账号一、账号二' }))).toBeNull()
+      expect(screen.getByText(t('batch.concurrency', { count: 1 }))).not.toBeNull()
+      act(() => { vi.advanceTimersByTime(1600) })
+      await flush()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('熔断暂停终态：汇总上方暂停提示与剩余数，未完成列表显示疑似风控原因', async () => {
+    vi.useFakeTimers()
+    try {
+      mockBatchRecovery({
+        batchId: 'batch-1', status: 'partial', phase: null,
+        total: 5, runnableTotal: 5, runnableDone: 3,
+        completedCount: 3, partialCount: 0, failedCount: 0, skippedCount: 2, probedCount: 5,
+        currentAccountId: null, runningAccountIds: [], concurrency: 3, error: 'risk_paused',
+        items: [
+          { accountId: 'acc-1', status: 'completed', reason: null },
+          { accountId: 'acc-2', status: 'completed', reason: null },
+          { accountId: 'acc-3', status: 'completed', reason: null },
+          { accountId: 'acc-4', status: 'skipped', reason: 'risk_paused' },
+          { accountId: 'acc-5', status: 'skipped', reason: 'risk_paused' },
+        ],
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      // 恢复查询收到终态：不进入轮询。
+      expect(callsOf('collectAll.status')).toBe(1)
+      const pausedNode = screen.getByText(t('batch.paused', { remaining: 2 }))
+      const summaryNode = screen.getByText(t('batch.summary.partial', { completed: 3, partial: 0, failed: 0, skipped: 2 }))
+      // 暂停提示行在汇总行上方。
+      expect(pausedNode.compareDocumentPosition(summaryNode) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+      // 未完成列表：两条 risk_paused 条目显示对应原因文案。
+      const detail = screen.getByText(en['batch.unfinishedTitle']).parentElement
+      expect(detail).not.toBeNull()
+      expect(within(detail as HTMLElement).getAllByText(en['batch.reason.riskPaused'])).toHaveLength(2)
+      expect(within(detail as HTMLElement).getByText('账号四')).not.toBeNull()
+      expect(within(detail as HTMLElement).getByText('账号五')).not.toBeNull()
     } finally {
       vi.useRealTimers()
     }
@@ -1209,7 +1325,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 面板运行中渲染 + 账号栏 acc-2 显示采集中。
-      expect(screen.getByText(t('batch.progress.collecting', { index: 2, total: 2 }))).not.toBeNull()
+      expect(screen.getByText(t('batch.progress.concurrent', { done: 1, total: 2 }))).not.toBeNull()
       expect(within(cardOf('账号二')).getByText(en['account.collecting'])).not.toBeNull()
       // 恢复查询 + 恢复轮询立即 tick 恰两次。
       expect(callsOf('collectAll.status')).toBe(2)

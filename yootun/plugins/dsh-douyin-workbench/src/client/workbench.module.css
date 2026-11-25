@@ -167,6 +167,16 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
+/* 熔断暂停提示行（终态汇总行上方；警示语义 token，长文案允许换行） */
+
+.batchPaused {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-warn-primary);
+  overflow-wrap: anywhere;
+}
+
 .batchDetail {
   display: flex;
   flex-direction: column;

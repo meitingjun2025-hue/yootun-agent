@@ -1,7 +1,8 @@
 /**
  * 左侧账号管理栏（账号作品页 280px 侧栏；对齐旧工作台布局）：标题行「账号
- * 管理 + 采集全部（primary）」→ 批量进度面板（运行中三行 + 终态三态汇总 +
- * 未完成明细六类原因）→ 账号卡片列表 → 添加账号宽主按钮（等待扫码… +
+ * 管理 + 采集全部（primary）」→ 批量进度面板（运行中进度 + 运行中账号列表 +
+ * 并发数 + 计数行；终态三态汇总 + 熔断暂停提示 + 未完成明细七类原因）→
+ * 账号卡片列表 → 添加账号宽主按钮（等待扫码… +
  * aria-busy + 扫码提示 role=status）→ 空态。账号卡：头像安全化（http(s)
  * 白名单失败降级昵称首字符）、昵称、粉丝、会话徽标 StateDot、采集运行中状态点
  * （ongoing + 文案，数据源为页面投影）、按会话状态分流
@@ -298,8 +299,9 @@ function AccountCard(props: {
 }
 
 /**
- * 批量采集面板：运行中显示总进度 + 当前账号 + 细粒度进度 + 三类计数；终态
- * 三态汇总（完成/部分完成/未完成）+ 未完成明细（六类原因文案）。
+ * 批量采集面板：运行中显示总进度（已完成账号数）+ 运行中账号列表 + 并发数 +
+ * 三类计数；终态三态汇总（完成/部分完成/未完成）+ 熔断暂停提示 + 未完成明细
+ * （七类原因文案）。
  */
 function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: AccountRow[] }): ReactNode {
   const batch = props.batch
@@ -308,11 +310,13 @@ function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: Ac
   const running = batch.status === 'running'
   const nameOf = (accountId: string): string =>
     props.accounts.find(row => row.accountId === accountId)?.nickname ?? accountId
+  const runningNames = batch.runningAccountIds.map(nameOf)
+  const pausedCount = batch.items.filter(item => item.reason === 'risk_paused').length
   const progress = running
     ? batch.phase === 'probing'
       ? t('batch.progress.checking', { index: Math.min(batch.total, batch.probedCount + batch.skippedCount), total: batch.total })
       : batch.total > 0
-        ? t('batch.progress.collecting', { index: Math.min(batch.runnableTotal, batch.runnableDone + 1), total: batch.runnableTotal })
+        ? t('batch.progress.concurrent', { done: batch.runnableDone, total: batch.runnableTotal })
         : t('batch.progress.fallback')
     : null
   const summaryKey = batch.status === 'completed' ? 'batch.summary.completed'
@@ -330,8 +334,11 @@ function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: Ac
       {running && (
         <>
           <p className={css.batchProgress}><StateDot state='ongoing' />{progress}</p>
-          {batch.currentAccountId !== null && (
-            <p className={css.batchLine}>{t('batch.current', { name: nameOf(batch.currentAccountId) })}</p>
+          {runningNames.length > 0 && (
+            <p className={css.batchLine}>{t('batch.currentList', { names: runningNames.join('、') })}</p>
+          )}
+          {batch.concurrency > 0 && (
+            <p className={css.batchLine}>{t('batch.concurrency', { count: batch.concurrency })}</p>
           )}
           <p className={css.batchLine}>
             {t('batch.counts', { completed: batch.completedCount, partial: batch.partialCount, failed: batch.failedCount, skipped: batch.skippedCount })}
@@ -340,6 +347,9 @@ function BatchPanel(props: { t: Translate; batch: BatchView | null; accounts: Ac
       )}
       {!running && (
         <>
+          {batch.error === 'risk_paused' && (
+            <p className={css.batchPaused} role='alert'>{t('batch.paused', { remaining: pausedCount })}</p>
+          )}
           <p className={css.batchSummary} data-tone={batch.status === 'completed' ? 'ok' : batch.status === 'partial' ? 'partial' : 'error'} role='status'>
             {t(summaryKey, { completed: batch.completedCount, partial: batch.partialCount, failed: batch.failedCount, skipped: batch.skippedCount })}
           </p>

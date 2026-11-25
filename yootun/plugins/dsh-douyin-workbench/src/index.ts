@@ -25,21 +25,25 @@ export const name = 'yootun-douyin-workbench'
 /** Host services required before the route registers. */
 export const inject = ['webServer', 'yootunWorkbench']
 
-/** 插件配置：状态目录（缺省旧目录，env 已在 state.ts 处理）。 */
+/** 插件配置：状态目录（缺省旧目录，env 已在 state.ts 处理）与批量并发度。 */
 export interface Config {
   /** 状态根目录覆盖；空串走 `~/.dofe/...` 与 `DOUYIN_OPERATION_STATE_DIR`。 */
   stateDir: string
   /** 采集默认页预算（1..1000；页面可按次覆盖）。 */
   maxPages: number
+  /** 批量采集并发度（1..5；阶段 2 同时采集的账号数上限）。 */
+  batchConcurrency: number
 }
 
-type ConfigInput = Partial<{ stateDir: unknown; maxPages: unknown }>
+type ConfigInput = Partial<{ stateDir: unknown; maxPages: unknown; batchConcurrency: unknown }>
 
 export const Config = z.object({
   /** 默认空串：沿用旧目录与 env 覆盖链。 */
   stateDir: z.string().default(''),
   /** 旧插件 DEFAULT_MAX_PAGES = 1000（消费侧截整）。 */
   maxPages: z.number().min(1).max(1000).default(1000),
+  /** 批量并发度：整数 1..5，缺省 3；非整数/越界/非数字由 schema 拒绝（加载失败）。 */
+  batchConcurrency: z.number().min(1).max(5).step(1).default(3),
 }) as z<ConfigInput, Config>
 
 /**
@@ -69,7 +73,11 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
     maxPages: deps.maxPages,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
   }
-  const collect = createCollectController(runnerDeps, { taskRegistry: deps.taskRegistry })
+  const collect = createCollectController(runnerDeps, {
+    taskRegistry: deps.taskRegistry,
+    // 批量运行中拒绝单账号启动（collect_busy）；闭包晚于 batch 赋值求值。
+    batchHasRunning: () => batch.hasRunning(),
+  })
   const batch = createBatchCollectController({
     collect,
     // probe 回调 = 本地实测 + 尽力上报（旧 deps.batchController 口径；batch
@@ -80,6 +88,7 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
       void report
       return { sessionStatus: session.sessionStatus, reason: session.reason }
     },
+    concurrency: deps.batchConcurrency,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
     trackRun: promise => { deps.taskRegistry.track(promise) },
   })
@@ -94,6 +103,7 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
  * @param options.logger - diagnostic logger.
  * @param options.chromeFactory - Chrome launcher seam (tests).
  * @param options.maxPages - default collect page budget.
+ * @param options.batchConcurrency - batch collect concurrency (1..5).
  * @returns the deps instance shared by handlers, route and dispose.
  */
 export function createDouyinHostDeps(options: {
@@ -103,6 +113,8 @@ export function createDouyinHostDeps(options: {
   logger?: { warn: (message: string, error?: unknown) => void }
   chromeFactory?: ChromeFactory
   maxPages?: number
+  /** 批量采集并发度（缺省 3；Config.batchConcurrency 透传）。 */
+  batchConcurrency?: number
   /** G-2 启动恢复接缝（缺省 recoverInterruptedRuns；测试注入受控实现）。 */
   recovery?: import('./handlers.ts').StartupRecovery
   /** pending 提升接缝（测试注入；生产缺省 promotePendingAccount）。 */
@@ -115,6 +127,7 @@ export function createDouyinHostDeps(options: {
     ...(options.logger !== undefined ? { logger: options.logger } : {}),
     ...(options.chromeFactory !== undefined ? { chromeFactory: options.chromeFactory } : {}),
     ...(options.maxPages !== undefined ? { maxPages: options.maxPages } : {}),
+    ...(options.batchConcurrency !== undefined ? { batchConcurrency: options.batchConcurrency } : {}),
     ...(options.recovery !== undefined ? { recovery: options.recovery } : {}),
     ...(options.promote !== undefined ? { promote: options.promote } : {}),
   })
@@ -152,6 +165,7 @@ export function apply(ctx: DouyinHostContext, config: Config): void {
     workbenchFace: ctx.yootunWorkbench,
     logger: { warn: (message: string, error?: unknown) => { ctx.logger.warn(message, error) } },
     maxPages: config.maxPages,
+    batchConcurrency: config.batchConcurrency,
   })
 
   // 卸载收口：route 拒绝新请求（plugin_disposing）→ abort 全部登记信号 →
