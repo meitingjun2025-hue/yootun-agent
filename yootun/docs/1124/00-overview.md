@@ -15,4 +15,4 @@
 | 实施单 | 内容 | 状态 |
 |---|---|---|
 | [infra-whitelist-domain-gate.md](features/infra-whitelist-domain-gate.md) | Workbench 白名单由工具名清单改为按域放行（`CALLER_DOMAINS`），Agent 面未分类 `yootun_*` 工具由 `deny` 改为 `ask`，审批卡片文案中英成对 | 已实施并通过验收，待发版 |
-| [wx-workbench-multi-account-overview.md](features/wx-workbench-multi-account-overview.md) | 视频号账号总览升级为多账号汇总页：tools 新增 `workbench_wx_accounts_overview` 聚合工具（含自定义日闭区间，趋势跟随窗口，为日报 / 周报对账提供同一数据通路），筛选器（账号 / 时间窗含自定义起止 / 排序 / 会话状态）、汇总 KPI、账号表现表；`FilterMenu` 上移 kit | 草案 |
+| [wx-workbench-multi-account-overview.md](features/wx-workbench-multi-account-overview.md) | 视频号账号总览升级为多账号汇总页：tools 新增 `workbench_wx_accounts_overview` 聚合工具（含自定义日闭区间，趋势跟随窗口，为日报 / 周报对账提供同一数据通路），筛选器（账号 / 时间窗含自定义起止 / 排序 / 会话状态）、汇总 KPI、账号表现表；`FilterMenu` 上移 kit | 开发完成，待联调与合入 |
