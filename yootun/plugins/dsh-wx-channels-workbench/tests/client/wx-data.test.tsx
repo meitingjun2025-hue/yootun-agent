@@ -119,9 +119,11 @@ function workGetPayload(workId: string): Payload {
       ],
     },
     retention_trend: { points: [{ second: 0, rate_pct: 100 }, { second: 3, rate_pct: 22.4 }, { second: 9, ratePct: 14 }] },
+    // 日期必须落在 recentDays(7) 窗口内（dailyTrendRows 按最近 7 个上海已完成日
+    // 对齐）：写死过去日期会随时间推移腐化为空态（本用例曾因此失败）。
     daily_metrics: [
-      { day: '2026-11-15', daily_play_count: 100, daily_like_count: 5 },
-      { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9, daily_follow_count: 2 },
+      { day: recentDaysForTest(3), daily_play_count: 100, daily_like_count: 5 },
+      { day: recentDaysForTest(1), daily_play_count: 140, daily_like_count: 9, daily_follow_count: 2 },
     ],
     data_gap: { traffic_source: { reason: 'not_exposed' } },
   }
