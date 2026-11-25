@@ -8,7 +8,7 @@
 
 | 实施单 | 内容 | 状态 |
 |---|---|---|
-| [douyin-collect-all-concurrency.md](features/douyin-collect-all-concurrency.md) | 抖音「采集全部」由逐账号串行改为 3 路并发（插件 Config 可调 1..5）：阶段 2 改 worker 队列、worker 启动错峰、批内熔断（新原因 `risk_paused`）、批量面板按多账号展示；探测阶段、单账号流程、互斥与取消语义不变 | 草案 |
+| [douyin-collect-all-concurrency.md](features/douyin-collect-all-concurrency.md) | 抖音「采集全部」由逐账号串行改为 3 路并发（插件 Config 可调 1..5）：阶段 2 改 worker 队列、worker 启动错峰、批内熔断（新原因 `risk_paused`）、批量面板按多账号展示；探测阶段、单账号流程、互斥与取消语义不变 | 已实施，待真机验收（`feat/douyin-collect-all-concurrency`） |
 | [works-list-pagination.md](features/works-list-pagination.md) | 抖音、视频号作品列表改服务端分页（固定 10 条/页）与服务端排序，列表接口随带 KPI 聚合（`total` / `summary`）；抖音作品页新增 5 卡 KPI 行与视频号同布局；分页控件 `Pager` 上移 kit；tools 两个 `work_list` 工具增量入参出参，不改工具清单 | 草案 |
 | [collect-state-restore.md](features/collect-state-restore.md) | 抖音、视频号页面重新挂载时向 Host 查询并恢复采集状态：运行中的单账号采集与批量采集恢复进度与轮询，最近一次终态可见，其他账号在采在账号栏可见；抖音 Host 新增本地只读 action `collect.running`（56 → 57 项），视频号 Host 无变化 | 已实施，待真机验收（`feat/collect-state-restore`） |
 

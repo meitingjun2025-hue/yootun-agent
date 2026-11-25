@@ -300,6 +300,7 @@ UI 文案映射沿用旧插件各模块的 reason→文案字典（schedule 的 
 - **G-3 折叠态持久化**：已发布折叠状态旧基线是会话内内存态；新宿主是否跨会话保留由 D1/UI 决定。
 - **G-4 排期分页**：单账号 >200 行的游标分页服务端未提供（产品边界内不裁剪）；若未来突破 500 行需先补 tools 契约再进桌面。
 - **采集状态恢复（2026-11-25）**：新 Host 新增本地只读 action `collect.running`（action 56 → 57），抖音与视频号页面重新挂载时向 Host 查询并恢复运行中的采集与最近一次终态；旧基线的页面状态随卸载丢失，无此能力。实施单 [1125/features/collect-state-restore.md](../1125/features/collect-state-restore.md)；已实施（分支 `feat/collect-state-restore`），待真机验收与发版。
+- **采集全部受控并发（2026-11-25）**：#10 `collectAll.start` 由逐账号串行改为阶段 2 worker 队列（插件 Config `batchConcurrency` 1..5，缺省 3），阶段 1 探测与单账号流程不变；worker 启动错峰与批内熔断（`risk_paused`）。实施单 [1125/features/douyin-collect-all-concurrency.md](../1125/features/douyin-collect-all-concurrency.md)；已实施（分支 `feat/douyin-collect-all-concurrency`），待真机验收、发版后观察。
 - **观察**：确认冻结后旧客户端新增功能一律登记本节并标注「是否迁入」，不提前实现；旧 route 与 yootun Workbench 是两套独立 registry，旧 route 新增工具不自动进 Workbench 94。
 
 ## 12. 验收记录要求

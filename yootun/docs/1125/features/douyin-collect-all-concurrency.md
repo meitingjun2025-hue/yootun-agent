@@ -1,6 +1,6 @@
 # douyin-workbench-采集全部并发 实施单
 
-状态：草案 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已实施，待真机验收 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -72,9 +72,10 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 |---|---|---|---|
 | `currentAccountId` | string \| null | 首个运行中的账号；无运行账号为 null | 保留字段，兼容现有消费者 |
 | `runningAccountIds` | string[] | 运行中的账号，按启动顺序 | 新增；长度 ≤ `concurrency` |
-| `concurrency` | number | 生效的并发度 | 新增；未启动过的空状态为 0 |
+| `concurrency` | number | 生效的并发度 = min(配置并发度, 阶段 2 可运行账号数) | 新增；未启动过的空状态为 0 |
 | `error` | string \| null | 批次级原因 | 新增取值 `risk_paused`（熔断暂停）；`collect_cancelled`、`no_eligible_account` 不变 |
 | `items[].reason` | string \| null | 条目原因 | 新增取值 `risk_paused`，仅出现在 `status: skipped` 的未开始账号上 |
+| `items[].finishedAt` | string \| null | 条目终态时刻 | 新增；只有熔断暂停的条目写暂停时刻，其余为 `null`；client 不消费 |
 | `phase` | `'probing'` \| `'collecting'` \| null | 不变 | 阶段 1 仍为 `probing`，阶段 2 仍为 `collecting` |
 | `status` | `'running'` \| `'completed'` \| `'partial'` \| `'failed'` \| null | 不变 | 熔断批次按既有三态结算 |
 | `runnableDone` / `completedCount` / `partialCount` / `failedCount` / `skippedCount` | number | 不变 | `risk_paused` 条目计入 `skippedCount`，不计入 `runnableDone` |
@@ -119,7 +120,8 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | 文档（本文 + 15 册 §11） | | `main` | 待填 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| yootun-agent 合入 `main` | | `feat/douyin-collect-all-concurrency` → `main` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-25 | `feat/douyin-collect-all-concurrency`（基于 `feat/collect-state-restore`） | `test`（node --test 17 文件 + vitest 138）、`build`、oxlint 通过；真机验收见 5.2 |
+| yootun-agent 合入 `main` | | `feat/douyin-collect-all-concurrency` → `main` | 待真机验收通过后合入 |
 | 发版 | | | 待填 |
 | 观察结论（视频号是否镜像） | | | 待填：观察窗口与指标见附录 C |
 
@@ -164,7 +166,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 1. 若游标已到末尾或批次已取消或已熔断 → 退出；
 2. 首次取账号前等待 `workerIndex × rand(3000, 8000)` 毫秒；之后每次取账号前等待 `rand(0, 3000)` 毫秒。等待可被批次 signal 立即打断；
 3. 取 `runnable[nextIndex]`，`nextIndex += 1`；条目 `status: running`，`runningAccountIds.push(accountId)`，`currentAccountId = runningAccountIds[0] ?? null`；
-4. `collect.start({ accountId, options: { signal } })`；未启动 → 条目 `failed`，原因取 `started.reason ?? 'collect_failed'`；
+4. `collect.start({ accountId, options: { signal }, fromBatch: true })`（批量内部启动，不受单账号控制器的批量互斥钩子拦截）；未启动 → 条目 `failed`，原因取 `started.reason ?? 'collect_failed'`；
 5. 已启动 → `await collect.wait(accountId)`，按 `collectOutcomeStatus` 结算条目（`completed` / `partial` / `failed`），与现状逐字段相同；取消后结算沿用现状：在途条目 `failed` / `collect_cancelled`；
 6. 从 `runningAccountIds` 移除该账号并更新 `currentAccountId`；
 7. 若结算结果是风控信号（附录 C.2）→ 计数加一，达到阈值即置 `paused`，把仍是 `queued` / `ready` 的条目标 `skipped` / `risk_paused`，`current.error = 'risk_paused'`。
@@ -188,7 +190,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | B3 | worker 按顺序取账号；`items` 数组顺序不变 | 断言取账号顺序与 `runnable` 顺序一致 |
 | B4 | 阶段 1 仍串行且先于任何采集完成 | 探测期间 `collect.start` 调用数为 0；探测按顺序逐个进行 |
 | B5 | `no_eligible_account`：全部被探测拦截时不启动任何采集 | 既有行为保留 |
-| B6 | 批量运行中 `collect.start` 返回 `collect_busy`；重复 `collectAll.start` 返回 `collect_busy` | handler 层用例 |
+| B6 | 批量运行中页面发起的 `collect.start` 返回 `collect_busy`（handler 层与单账号控制器的 `batchHasRunning` 钩子两层）；批量内部启动带 `fromBatch: true` 放行；重复 `collectAll.start` 返回 `collect_busy` | handler 层用例 + `batch-concurrency.test.ts` B6b（真实单账号控制器接线） |
 | B7 | 取消：在途条目 `failed` / `collect_cancelled`，未开始条目 `failed` / `collect_cancelled`，批次 `failed` / `collect_cancelled`，取消后无新的 `collect.start` | 批次 signal 中途 abort |
 | B8 | 熔断：第 2 个风控信号后，剩余未开始条目 `skipped` / `risk_paused`，`error = risk_paused`，有成功条目时批次 `partial`，否则 `failed`；运行中的条目正常结算 | 假采集按脚本返回 `session_expired` |
 | B9 | 熔断不误触：单个风控信号、阶段 1 跳过任意数量、`ingest_failed`、`collect_failed`（其他原因）都不暂停 | 参数化用例 |
