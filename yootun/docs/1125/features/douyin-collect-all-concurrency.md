@@ -125,15 +125,29 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 ## 5. 验收
 
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-douyin-workbench test`、`pnpm --filter @yootun/dsh-douyin-workbench build` 通过；
-- [ ] 附录 B 不变量逐条有对应用例并通过；
-- [ ] 本地三仓联调：假 MCP + 真 Chrome 跑一轮不少于 6 个账号的批量，`collectAll.status` 全程 `runningAccountIds.length ≤ 3`，`runs.json` 每条记录的 accountId 与 attemptId 一一对应；
-- [ ] 真机：18 个账号一轮批量，记录整批耗时、并发峰值、`session_invalid` / `probe_failed` 条目数、熔断是否触发；
-- [ ] 真机：批量运行中点单账号「采集」得到 `collect_busy`；批量运行中重复点「采集全部」不产生第二个批次；
-- [ ] 真机：批量运行中退出应用，3 个在途账号的本地 run 落 `cancelled`，重启后 `collect.status` 给出 `recovery_required`（G-2 既有口径）；
-- [ ] UI：明暗主题、三档宽度下批量面板的多账号行与熔断提示完整可读；
-- [ ] PR 附真机录制的 GIF（GUI 行为变更）；
-- [ ] 实施单第 4 节回填完整。
+数据库：与 [collect-state-restore.md](collect-state-restore.md) 第 5 节相同，使用 `tools.dofe.ai` 的 `.env`（`DATABASE_URL`）指向的数据库。
+
+### 5.1 自动验收（开发侧执行，每次合入前）
+
+- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
+- [ ] 附录 B 的 B1–B18 对应用例全部存在并通过。
+
+### 5.2 真机验收（用户执行）
+
+前置：18 个会话状态为 ok 的抖音账号；插件 Config 未设置 `batchConcurrency`（走缺省 3）。
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| R1 | 点「采集全部」 | 面板先显示「正在检查会话 i/n」，随后显示「已完成 x/n 个账号」「正在采集：A、B、C」「3 路并发」并持续更新；任务管理器可见 3 个 Chrome 进程；记录整批耗时 |
+| R2 | 批量运行中点某账号的「采集」 | 提示已有采集任务（`collect_busy`），不启动 |
+| R3 | 批量运行中再点「采集全部」 | 不产生第二个批次 |
+| R4 | 批量运行中分别选中运行中的账号与未开始的账号看作品页 | 运行中的显示实时进度；未开始的不显示进度且按钮禁用 |
+| R5 | 批量运行中 `runs.json`（状态目录下）任取 3 条 running 记录 | accountId 与 attemptId 一一对应，没有同一账号两条 running |
+| R6 | 本轮出现疑似平台风控时（无法人为触发，遇到即记录） | 剩余未开始账号标「疑似风控，批次已暂停」，面板显示暂停提示与剩余数；已运行的账号正常结束 |
+| R7 | 批量运行中退出应用，重新打开 | 3 个在途账号的本地 run 落 cancelled；页面提示「上次采集被中断」 |
+| R8 | 明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | 多账号行与熔断提示完整可读 |
+| R9 | 按 `record-browser-gif` 流程录制批量面板片段 | GIF 附在 PR |
+| R10 | 发版后按附录 C.4 记录至少 3 轮批量、不少于 1 周 | 整批耗时、并发峰值、风控信号数、熔断次数、批量结束 24 小时内需重新探测或扫码的账号数；结论回填第 4 节 |
 
 ## 附录 A：调度设计
 

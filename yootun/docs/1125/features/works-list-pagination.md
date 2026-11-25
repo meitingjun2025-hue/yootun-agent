@@ -255,15 +255,30 @@ export interface PagerProps {
 
 ## 5. 验收
 
-- [ ] tools：`pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 相关用例全过；不传新字段时两个工具出参与改动前逐字段一致；
-- [ ] docker-helm：测试环境 `curl tools/list` 清单不变；带 `limit=10` 调用两个工具返回 `total` 为整账号行数、`works` 为 10 行；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build`；两个插件 `test`、`build`（含样式表与 runtime bundle 校验）；
-- [ ] 本地三仓联调：切账号首屏只拉 10 行；点表头回第 1 页并带新排序参数；翻页只变 `offset`；采集完成后当前页刷新且 KPI 更新；
-- [ ] 数据核对：同账号 `summary.play_count` / `completion_rate_pct` / `gap_count`（抖音）与 `completion_rate_pct` / `gap_count` / `latest_collected_at`（视频号）和改动前页面对全量行的计算结果一致（固定数据集）；
-- [ ] 大账号：作品数超过 650 的账号分页可翻到底，不再出现 `OUTPUT_TOO_LARGE`；
-- [ ] 真机：抖音、视频号作品页明暗主题、三档宽度下 KPI 行与分页控件完整可读；
-- [ ] PR 附 GIF（GUI 行为变更）；
-- [ ] 实施单第 4 节回填完整。
+环境：本机启动 tools.dofe.ai（读取其 `.env`，`DATABASE_URL` 指向的数据库；[cross-repo-sync.md 第五节](../../cross-repo-sync.md#五顺序与门禁)），yootun-agent 的 Workbench MCP 指向本机 tools。数据集里准备一个作品数超过 650 的抖音账号；没有则用现有作品数最多的账号并记录数量。
+
+### 5.1 自动验收（开发侧执行，每次合入前）
+
+- [ ] tools：`uv run pytest tests/douyin_operation tests/wx_channels_operation tests/yootun -q` 与全量 `uv run pytest -q` 通过；不传新字段时两个工具出参与改动前逐字段一致；
+- [ ] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build`；两个插件 `test`、`build`（含样式表与 runtime bundle 校验）通过；
+- [ ] 附录 A 的用例全部存在并通过。
+
+### 5.2 真机验收（用户执行）
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| T1 | tools：调用本机 `tools/list` | 清单与改动前一致 |
+| T2 | tools：带 `limit=10, offset=0` 调用 `workbench_douyin_work_list` 与 `workbench_wx_work_list` | `works` 10 行；`total` 为该账号全部行数；`limit=10`、`offset=0`；聚合字段齐全 |
+| R1 | 抖音：进入作品页 | 只发一次 `works.list`（`limit=10, offset=0, sort=publish_time, order=desc`）；KPI 五卡出现；第 1 页是最新发布的作品；底部「共 N 条 · 第 1 / M 页」 |
+| R2 | 抖音：点「播放量」表头三次 | 依次为播放量降序（整账号播放量最高的 10 条，回第 1 页）→ 升序 → 回到发布时间降序；空值恒在最后 |
+| R3 | 抖音：下一页、上一页、刷新、切换账号再切回 | 翻页只变 `offset`；末页「下一页」禁用；刷新停留在当前页；切账号回第 1 页且排序保留 |
+| R4 | 抖音：点「采集」等结束 | 当前页刷新，KPI 随之更新 |
+| R5 | 抖音：作品数超过 650 的账号翻到末页 | 可翻到底，不再出现查询失败（`OUTPUT_TOO_LARGE`） |
+| R6 | 抖音：导出 Excel | 仍为全量，行数等于 `total` |
+| R7 | 抖音：R2 的首行与导出 Excel 对照；KPI 播放合计与 Excel 播放量列求和对照 | 一致 |
+| R8 | 视频号：重复 R1–R4、R6 | 同抖音；完播率、缺口作品、最近采集时间与改动前显示一致 |
+| R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | KPI 行与分页控件完整可读 |
+| R10 | 按 `record-browser-gif` 流程录制排序与翻页片段 | GIF 附在 PR |
 
 ## 附录 A：测试矩阵
 

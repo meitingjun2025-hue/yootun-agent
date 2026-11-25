@@ -15,3 +15,7 @@
 ## 推进顺序
 
 三张单分两条线。采集线只动 yootun-agent：先合 [collect-state-restore.md](features/collect-state-restore.md)（两个工作台、改动小），再合 [douyin-collect-all-concurrency.md](features/douyin-collect-all-concurrency.md)（只改抖音，合入后发版观察）。分页线 [works-list-pagination.md](features/works-list-pagination.md) 以 tools 契约为前置：tools 合入 `dev` 并部署测试环境，kit 可并行先行，两个插件在 tools 部署后接入；与采集线并行。分支规则见 [cross-repo-sync.md §5.1](../cross-repo-sync.md#51-分支)。
+
+## 验收分工
+
+每张单第 5 节分两张清单：5.1 开发侧自动验收（测试、构建、静态核对），5.2 真机验收由用户执行，每项写明步骤与预期。本机联调与真机验收的数据库以 `tools.dofe.ai` 的 `.env` 指向的数据库为准（[cross-repo-sync.md 第五节](../cross-repo-sync.md#五顺序与门禁)）。
