@@ -59,6 +59,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'work.trend': { fields: { accountId: 'string', workId: 'string' }, limits: { accountId: 128, workId: 128 } },
   'account.overview': { fields: { accountId: 'string', window: 'string' }, limits: { accountId: 128, window: 16 } },
   'fans.profile.get': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
+  'overview.accounts': { fields: { accountId: 'string', window: 'string', fromDay: 'string', toDay: 'string', sort: 'string', sessionStatus: 'string' }, limits: { accountId: 128, window: 16, fromDay: 10, toDay: 10, sort: 16, sessionStatus: 16 } },
 })
 
 /** Whitelisted stable reason codes a handler may return (route-level superset). */

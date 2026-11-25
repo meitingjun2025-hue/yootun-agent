@@ -2,8 +2,11 @@
  * Host action 载荷 → 页面视图模型的投影层：字段名以 tools 真实 schema 为准
  * （snake_case：work_id / cover_url / completion_rate_pct / daily_play_count /
  * follower_net_count / fans_profile envelope；work.trend 顶层 snapshots；
- * collectAll.status 顶层 items）。缺失与非数值一律 null，不补 0；封面 URL 只
- * 接受 http(s)。
+ * collectAll.status 顶层 items；overview.accounts 的 fans_totals 与 totals 内部
+ * 指标键为 snake_case（daily_play_count / follower_net_count / work_count），
+ * 其余 summary 键为 camelCase（accountCount / followerTotalCount / trendDaily /
+ * trendWindow / daysObserved）。缺失与非数值一律 null，不补 0；封面 URL 只接受
+ * http(s)。
  * @module
  */
 import type { WxLocaleKey } from './locales.ts'
@@ -368,34 +371,46 @@ function fansTrendPoint(entry: unknown): FansTrendPoint | null {
   }
 }
 
+/** totals 记录 → 11 字段投影（snake_case tools 键与 camelCase 视图键一一对应）。 */
+function readMetricTotals(record: Record<string, unknown> | undefined): OverviewTotals {
+  const field = (key: string): number | null =>
+    record === undefined ? null : numberOf(pick(record, key))
+  return {
+    playCount: field('daily_play_count'),
+    likeCount: field('daily_like_count'),
+    favoriteCount: field('daily_favorite_count'),
+    commentCount: field('daily_comment_count'),
+    shareCount: field('daily_share_count'),
+    forwardCount: field('daily_forward_count'),
+    followCount: field('daily_follow_count'),
+    ringsetCount: field('daily_ringset_count'),
+    statusRefCount: field('daily_status_ref_count'),
+    statusCoverCount: field('daily_status_cover_count'),
+    workCount: field('work_count'),
+  }
+}
+
+/** fans_trend.totals 记录 → 3 字段投影。 */
+function readFansTotals(record: Record<string, unknown> | undefined): FansTotals {
+  const field = (key: string): number | null =>
+    record === undefined ? null : numberOf(pick(record, key))
+  return {
+    netCount: field('follower_net_count'),
+    addCount: field('follower_add_count'),
+    reduceCount: field('follower_reduce_count'),
+  }
+}
+
 /** account.overview → 全部视频指标 + 关注者增长（metrics.totals / fans_trend）。 */
 export function readOverview(payload: Record<string, unknown>): OverviewData {
   const metrics = recordOf(payload.metrics)
-  const totals = recordOf(metrics?.totals)
   const fansTrend = recordOf(payload.fans_trend)
-  const fansTotals = recordOf(fansTrend?.totals)
   const daily = Array.isArray(fansTrend?.daily) ? fansTrend.daily : []
   const field = (record: Record<string, unknown> | undefined, key: string): number | null =>
     record === undefined ? null : numberOf(pick(record, key))
   return {
-    totals: {
-      playCount: field(totals, 'daily_play_count'),
-      likeCount: field(totals, 'daily_like_count'),
-      favoriteCount: field(totals, 'daily_favorite_count'),
-      commentCount: field(totals, 'daily_comment_count'),
-      shareCount: field(totals, 'daily_share_count'),
-      forwardCount: field(totals, 'daily_forward_count'),
-      followCount: field(totals, 'daily_follow_count'),
-      ringsetCount: field(totals, 'daily_ringset_count'),
-      statusRefCount: field(totals, 'daily_status_ref_count'),
-      statusCoverCount: field(totals, 'daily_status_cover_count'),
-      workCount: field(totals, 'work_count'),
-    },
-    fansTotals: {
-      netCount: field(fansTotals, 'follower_net_count'),
-      addCount: field(fansTotals, 'follower_add_count'),
-      reduceCount: field(fansTotals, 'follower_reduce_count'),
-    },
+    totals: readMetricTotals(recordOf(metrics?.totals)),
+    fansTotals: readFansTotals(recordOf(fansTrend?.totals)),
     followerTotalCount: field(fansTrend, 'followerTotalCount'),
     fansTrend: daily.map(fansTrendPoint).filter((point): point is FansTrendPoint => point !== null),
   }
@@ -568,4 +583,150 @@ export const CORE_GAP_FIELDS: ReadonlySet<string> = new Set([
 export function gapFieldKey(field: string): WxLocaleKey | null {
   const key = `gap.${field}` as WxLocaleKey
   return zh[key] !== undefined ? key : null
+}
+
+/** overview.accounts 的汇总求和（summary.totals / accounts[].metrics.totals 共用键集）。 */
+export interface AccountsOverviewTotals {
+  playCount: number | null
+  likeCount: number | null
+  favoriteCount: number | null
+  commentCount: number | null
+  shareCount: number | null
+  forwardCount: number | null
+  followCount: number | null
+  ringsetCount: number | null
+  statusRefCount: number | null
+  statusCoverCount: number | null
+  workCount: number | null
+}
+
+/** 关注者增长窗口求和（summary.fans_totals / accounts[].fans_trend.totals）。 */
+export interface AccountsFansTotals {
+  netCount: number | null
+  addCount: number | null
+  reduceCount: number | null
+}
+
+/** 起止日闭区间（YYYY-MM-DD；summary.window / summary.trendWindow 共用形状）。 */
+export interface AccountsDayRange {
+  startDay: string | null
+  endDay: string | null
+}
+
+/** overview.accounts 顶层 summary 投影。 */
+export interface AccountsOverviewSummary {
+  /** 过滤后的账号数（= rows.length 的服务端口径）。 */
+  accountCount: number | null
+  /** 过滤前未删除账号总数（「共 N 个账号」）。 */
+  accountTotal: number | null
+  window: AccountsDayRange
+  totals: AccountsOverviewTotals
+  fansTotals: AccountsFansTotals
+  /** 各账号最新非空关注者总数之和（近似合计；全部缺失 null）。 */
+  followerTotalCount: number | null
+  trendWindow: AccountsDayRange
+  /** 合计趋势逐日行（day + follower_total_count；缺失日 null，行不省略）。 */
+  trendDaily: Array<{ day: string; followerTotalCount: number | null }>
+  /** 汇总窗口内有日表行的去重日历天数（分源）。 */
+  daysObserved: { accountMetrics: number | null; fansTrend: number | null }
+  /** 分源可用性（ok / partial / no_data；缺失 null）。 */
+  availability: { accountMetrics: string | null; fansTrend: string | null }
+}
+
+/** overview.accounts 单账号行投影。 */
+export interface AccountsOverviewRow {
+  accountId: string
+  nickname: string | null
+  avatar: string | null
+  sessionStatus: string | null
+  lastCollectedAt: string | null
+  feedCount: number | null
+  /** 窗口内最新非空关注者总数（服务端已回退账号记录值；仍可能 null）。 */
+  followerTotalCount: number | null
+  /** metrics.totals（含 work_count 投影；单账号模式 10 卡数据源）。 */
+  totals: AccountsOverviewTotals
+  /** fans_trend.totals（单账号模式 4 卡数据源）。 */
+  fansTotals: AccountsFansTotals
+  availability: { accountMetrics: string | null; fansTrend: string | null }
+}
+
+/** overview.accounts 顶层投影。 */
+export interface AccountsOverviewData {
+  /** 回传的入参窗口枚举（yesterday / last_7d / last_30d / custom）。 */
+  window: string | null
+  summary: AccountsOverviewSummary
+  rows: AccountsOverviewRow[]
+}
+
+/** 单日范围记录读取（startDay / endDay 缺失为 null）。 */
+function readDayRange(record: Record<string, unknown> | undefined): AccountsDayRange {
+  return {
+    startDay: record === undefined ? null : textOf(pick(record, 'startDay')),
+    endDay: record === undefined ? null : textOf(pick(record, 'endDay')),
+  }
+}
+
+/** overview.accounts → 汇总 + 逐账号行（缺失不补 0；缺 account_id 的行丢弃）。 */
+export function readAccountsOverview(payload: Record<string, unknown>): AccountsOverviewData {
+  const summaryRecord = recordOf(payload.summary)
+  const availability = recordOf(summaryRecord?.availability)
+  const daysObserved = recordOf(summaryRecord?.daysObserved)
+  const trendRows = Array.isArray(summaryRecord?.trendDaily) ? summaryRecord.trendDaily : []
+  const trendDaily: AccountsOverviewSummary['trendDaily'] = []
+  for (const entry of trendRows) {
+    const record = recordOf(entry)
+    if (record === undefined) continue
+    const day = textOf(pick(record, 'day'))
+    if (day === null) continue
+    trendDaily.push({ day, followerTotalCount: numberOf(pick(record, 'follower_total_count')) })
+  }
+  const accounts = Array.isArray(payload.accounts) ? payload.accounts : []
+  const rows: AccountsOverviewRow[] = []
+  for (const entry of accounts) {
+    const record = recordOf(entry)
+    if (record === undefined) continue
+    const accountId = textOf(pick(record, 'account_id'))
+    if (accountId === null) continue
+    const metrics = recordOf(record.metrics)
+    const fansTrend = recordOf(record.fans_trend)
+    rows.push({
+      accountId,
+      nickname: textOf(pick(record, 'nickname')),
+      avatar: safeHttpUrl(pick(record, 'avatar')),
+      sessionStatus: textOf(pick(record, 'session_status')),
+      lastCollectedAt: textOf(pick(record, 'last_collected_at')),
+      feedCount: numberOf(pick(record, 'feed_count')),
+      followerTotalCount: numberOf(pick(record, 'follower_total_count')),
+      totals: readMetricTotals(recordOf(metrics?.totals)),
+      fansTotals: readFansTotals(recordOf(fansTrend?.totals)),
+      availability: {
+        accountMetrics: metrics === undefined ? null : textOf(pick(metrics, 'rowAvailability')),
+        fansTrend: fansTrend === undefined ? null : textOf(pick(fansTrend, 'rowAvailability')),
+      },
+    })
+  }
+  const field = (key: string): number | null =>
+    summaryRecord === undefined ? null : numberOf(pick(summaryRecord, key))
+  return {
+    window: textOf(payload.window),
+    summary: {
+      accountCount: field('accountCount'),
+      accountTotal: field('accountTotal'),
+      window: readDayRange(recordOf(summaryRecord?.window)),
+      totals: readMetricTotals(recordOf(summaryRecord?.totals)),
+      fansTotals: readFansTotals(recordOf(summaryRecord?.fans_totals)),
+      followerTotalCount: field('followerTotalCount'),
+      trendWindow: readDayRange(recordOf(summaryRecord?.trendWindow)),
+      trendDaily,
+      daysObserved: {
+        accountMetrics: daysObserved === undefined ? null : numberOf(pick(daysObserved, 'account_metrics')),
+        fansTrend: daysObserved === undefined ? null : numberOf(pick(daysObserved, 'fans_trend')),
+      },
+      availability: {
+        accountMetrics: availability === undefined ? null : textOf(pick(availability, 'account_metrics')),
+        fansTrend: availability === undefined ? null : textOf(pick(availability, 'fans_trend')),
+      },
+    },
+    rows,
+  }
 }

@@ -19,11 +19,11 @@ import { reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { zh as wxZh } from './locales.ts'
 import {
-  readBatchStatus, readBrowserState, readOverview, readOverviewAvailability, readWorksPage,
-  type BatchStatusView, type BrowserState, type OverviewAvailability, type OverviewData, type WorkRow, type WorksPage,
+  readBatchStatus, readBrowserState, readOverview, readWorksPage,
+  type BatchStatusView, type BrowserState, type OverviewData, type WorkRow, type WorksPage,
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
-import { OverviewPage } from './OverviewPage.tsx'
+import { DEFAULT_OVERVIEW_FILTERS, OverviewPage, type OverviewFilters } from './OverviewPage.tsx'
 import { WorksPanel } from './WorksPanel.tsx'
 import { DEFAULT_SORT_STATE, type SortState } from './works-format.ts'
 
@@ -97,7 +97,6 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   /** works 请求在途（翻页 / 排序 / 后台刷新）：表格 aria-busy 与 Pager busy。 */
   const [worksBusy, setWorksBusy] = useState(false)
   const [summary, setSummary] = useState<OverviewData | null>(null)
-  const [summaryAvailability, setSummaryAvailability] = useState<OverviewAvailability>({ accountMetrics: null, fansTrend: null, fansProfile: null })
   const [summaryState, setSummaryState] = useState<LoadState>('loading')
   /** 同账号后台刷新摘要中（摘要卡淡化；不整块替换为骨架）。 */
   const [summaryRefreshing, setSummaryRefreshing] = useState(false)
@@ -107,6 +106,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [batch, setBatch] = useState<BatchStatusView | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFailedParts, setRefreshFailedParts] = useState<string[]>([])
+  /** 账号总览筛选（页面级持有，切 tab 保留；表格行选中同走这套筛选）。 */
+  const [overviewFilters, setOverviewFilters] = useState<OverviewFilters>(DEFAULT_OVERVIEW_FILTERS)
   const [toast, setToast] = useState<ToastState | null>(null)
 
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -127,7 +128,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   /** 已落屏摘要所属账号（同账号重复刷新走 refreshing 淡化，跨账号不复用）。 */
   const summaryAccountRef = useRef<string>('')
   /** summary 查询内存缓存：切回账号即时渲染，随后后台刷新。 */
-  const summaryCacheRef = useRef(new Map<string, { data: OverviewData; availability: OverviewAvailability }>())
+  const summaryCacheRef = useRef(new Map<string, OverviewData>())
   const selectedIdRef = useRef<string | null>(null)
   const toastSeqRef = useRef(0)
   useEffect(() => { selectedIdRef.current = selectedAccountId }, [selectedAccountId])
@@ -275,25 +276,21 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     } else if (cached !== undefined && selectedIdRef.current === accountId) {
       // 切回账号：缓存即时渲染上次真实响应，随后后台刷新更新。
       summaryAccountRef.current = accountId
-      setSummary(cached.data)
-      setSummaryAvailability(cached.availability)
+      setSummary(cached)
       setSummaryState('ready')
     } else {
       // 首次进入且无缓存：loading 骨架。
       summaryAccountRef.current = accountId
       setSummary(null)
-      setSummaryAvailability({ accountMetrics: null, fansTrend: null, fansProfile: null })
       setSummaryState('loading')
     }
     try {
       const res = await hostAction('account.overview', { accountId, window: 'last_7d' })
       if (summarySeqRef.current !== seq || selectedIdRef.current !== accountId) return true
       const data = readOverview(res)
-      const availability = readOverviewAvailability(res)
-      summaryCacheRef.current.set(accountId, { data, availability })
+      summaryCacheRef.current.set(accountId, data)
       summaryAccountRef.current = accountId
       setSummary(data)
-      setSummaryAvailability(availability)
       setSummaryState('ready')
       return true
     } catch {
@@ -301,7 +298,6 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       // 失败必须显式可见：清掉已渲染值进入 error 态，不保留陈旧摘要。
       summaryAccountRef.current = ''
       setSummary(null)
-      setSummaryAvailability({ accountMetrics: null, fansTrend: null, fansProfile: null })
       setSummaryState('error')
       return false
     } finally {
@@ -614,13 +610,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                 t={t}
                 localeTag={localeTagOf(t)}
                 accounts={accounts}
-                activeAccountId={activeAccountId}
-                onSelectAccount={setSelectedAccountId}
-                summary={summary}
-                summaryAvailability={summaryAvailability}
-                summaryState={summaryState}
-                summaryRefreshing={summaryRefreshing}
-                onRetrySummary={() => { if (activeAccountId !== '') void loadSummary(activeAccountId) }}
+                filters={overviewFilters}
+                onFiltersChange={setOverviewFilters}
               />
             )}
           </div>

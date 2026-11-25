@@ -30,6 +30,7 @@ test('action allowlist：全部 action 有 schema', () => {
     'account.probe', 'account.promote', 'account.removeLocal', 'account.removeRemote', 'collect.start',
     'collect.status', 'collect.cancel', 'collectAll.start', 'collectAll.status', 'collectAll.cancel',
     'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview', 'fans.profile.get',
+    'overview.accounts',
   ]
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
@@ -541,4 +542,44 @@ test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错�
   void finishStart
   // 确定性错误只调用一次 finish（无重试）。
   assert.equal(before <= runStartCount, true)
+})
+
+// --- overview.accounts：多账号汇总的参数装配（E.2 host 行） ---
+
+test('overview.accounts：空参数只带 window/sort，账号与会话状态按需透传', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+  const deps = createWxHostDeps({
+    root: join(tmpdir(), `wx-ov-${String(Math.random()).slice(2)}`),
+    workbench: {
+      callTool: async (_caller: string, _domain: string, name: string, args: Record<string, unknown>) => {
+        calls.push({ name, args })
+        return { structuredContent: { window: 'last_7d', summary: {}, accounts: [], availability: {} }, content: [] }
+      },
+    },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+  })
+  const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
+  const handlers = buildRouteHandlers(deps, batch as never)
+
+  // 空参数：仅 window/sort 两键。
+  await handlers['overview.accounts']?.({})
+  assert.deepEqual(calls[0], { name: 'workbench_wx_accounts_overview', args: { window: '' } })
+
+  // accountId → accountIds=[id]；sessionStatus 透传。
+  await handlers['overview.accounts']?.({ accountId: 'wx-a', sessionStatus: 'expired' })
+  assert.deepEqual(calls[1]?.args, { accountIds: ['wx-a'], window: '', sessionStatus: 'expired' })
+
+  // custom + fromDay/toDay → 透传日期。
+  await handlers['overview.accounts']?.({ window: 'custom', fromDay: '2026-11-17', toDay: '2026-11-23' })
+  assert.deepEqual(calls[2]?.args, { window: 'custom', fromDay: '2026-11-17', toDay: '2026-11-23' })
+
+  // 非 custom 携带 fromDay → 日期被丢弃。
+  await handlers['overview.accounts']?.({ window: 'last_7d', fromDay: '2026-11-17', toDay: '2026-11-23' })
+  assert.deepEqual(calls[3]?.args, { window: 'last_7d' })
+
+  // 路由 schema：日期字段 limit 10，未知字段拒绝。
+  assert.equal(validateActionArgs('overview.accounts', { fromDay: '2026-11-17', toDay: '2026-11-23' }).fromDay, '2026-11-17')
+  assert.throws(() => validateActionArgs('overview.accounts', { bogus: 'x' }), /unknown field/)
 })

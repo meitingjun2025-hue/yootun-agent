@@ -218,70 +218,76 @@ work.trend → { account_id, work_id, snapshots }
 
 ## 5. 账号总览页
 
-账号总览页隐藏左侧账号栏，使用全宽纵向三段：
+> 2026-11-25 起升级为多账号数据汇总页（实施单 [1124/features/wx-workbench-multi-account-overview.md](../1124/features/wx-workbench-multi-account-overview.md)）：本节布局图与 5.1 / 5.2 / 5.3 按其附录 B 更新。调整日期 2026-11-25。
+
+账号总览页隐藏左侧账号栏，全宽布局。顶部为筛选条（kit `FilterBar`）：账号（缺省「全部账号」）、时间窗（枚举三档 + 自定义起止日期）、排序、会话状态；生效筛选以 chip 显示并可清除。数据区纵向四段：
 
 ```text
-当前账号选择器
-└─ 全部视频指标
-└─ 关注者增长 | 关注者增长指标
-└─ 关注者画像
+筛选条（账号 / 时间窗 / 排序 / 会话状态 + chips）
+└─ ① 全部视频指标（10 卡）
+└─ ② 账号表现表（跨账号对比，行点击 / Enter 选中）
+└─ ③ 关注者总数趋势（跟随窗口）| 关注者增长指标（4 卡）
+└─ ④ 关注者画像（全部账号空态；单账号五维）
 ```
 
-当前账号选择器在有可用账号时始终显示，不因单账号隐藏；切换账号时保留选择器，只让三段数据进入加载态。
+全部账号与单账号两种模式走同一数据通路（`workbench_wx_accounts_overview`：全部账号不传 `accountIds`，单账号传 `accountIds=[x]`）；单账号模式表格仅该账号一行（排名 1），切换账号经筛选器或清除 chip。画像仅单账号模式拉取（`fans.profile.get`）。缺失不补 0；筛选键缓存（切回即时渲染 + 后台刷新淡化）+ 请求代次与筛选键双重守卫；自定义日期空值不提交、越界纠偏只触发一次请求。
 
 ### 5.1 全部视频指标
 
 标题行：
 
 ```text
-全部视频指标      [昨日] [近7天] [近30天]
+全部视频指标      共 N 个账号（单账号：该账号 · 窗口）
 ```
 
-指标卡固定 10 张：
+指标卡固定 10 张（数据源：全部账号取 `summary.totals`，单账号取该账号行 `metrics.totals`）：
 
 | 指标 | 字段 |
 |---|---|
-| 播放 | `metrics.totals.daily_play_count` |
-| 喜欢 | `metrics.totals.daily_like_count` |
-| 收藏 | `metrics.totals.daily_favorite_count` |
-| 评论 | `metrics.totals.daily_comment_count` |
-| 分享 | `metrics.totals.daily_share_count` |
-| 转发聊天和朋友圈 | `metrics.totals.daily_forward_count` |
-| 关注量 | `metrics.totals.daily_follow_count` |
-| 设为铃声 | `metrics.totals.daily_ringset_count` |
-| 设为状态 | `metrics.totals.daily_status_ref_count` |
-| 设为朋友圈封面 | `metrics.totals.daily_status_cover_count` |
+| 播放 | `totals.daily_play_count` |
+| 喜欢 | `totals.daily_like_count` |
+| 收藏 | `totals.daily_favorite_count` |
+| 评论 | `totals.daily_comment_count` |
+| 分享 | `totals.daily_share_count` |
+| 转发聊天和朋友圈 | `totals.daily_forward_count` |
+| 关注量 | `totals.daily_follow_count` |
+| 设为铃声 | `totals.daily_ringset_count` |
+| 设为状态 | `totals.daily_status_ref_count` |
+| 设为朋友圈封面 | `totals.daily_status_cover_count` |
 
-`availability.account_metrics=no_data` 时显示真实空态，不把缺失值补成 0。
+`availability.account_metrics=no_data` 时显示真实空态，不把缺失值补成 0；`partial` 有值直排并给区块级说明行。
 
-### 5.2 关注者增长
+### 5.2 账号表现表
 
-左右双卡：
+9 列：排名 / 账号（头像 + 昵称 + 会话状态 Tag + 「暂无数据」Tag）/ 关注者 / 净增（带符号涨跌色）/ 播放 / 喜欢 / 评论 / 分享 / 作品（`work_count` 缺失回退 `feed_count`）。数字列表头与数据同选择器右对齐。行可聚焦（Enter / Space 选中账号，`aria-selected` + `aria-current`）；服务端按 `sort` 排序；`<880` 容器前两列 sticky。
+
+### 5.3 关注者增长
+
+左右双卡（≥1120 双列 1.4fr / 0.8fr）：
 
 ```text
-关注者总数趋势（近 7 天） | 关注者增长指标
+关注者总数趋势（{trendWindow}） | 关注者增长指标
 ```
 
 趋势图：
 
-- 固定使用 `last_7d`，不随账号总览当前时间窗截断；
-- 主线为关注者总数；
-- y 轴有稳定刻度；
-- hover / focus 显示日期和数值；
-- 缺失日断线，不伪造成 0。
+- 范围**跟随当前窗口**：`max(窗口天数, 7)`、以窗口末日为锚（2026-11-25 起，替代原「固定使用 `last_7d`，不随账号总览当前时间窗截断」的口径）；`yesterday` / `last_7d` / 单日自定义 → 7 天，`last_30d` → 30 天；
+- x 轴标签稀疏：≤7 行全显，8–31 行首、尾、中点，>31 行首尾；
+- 主线为关注者总数（各账号非空值合计；全部账号模式为合计线，单账号模式为该账号线）；
+- y 轴有稳定刻度；hover / focus 显示日期和数值；缺失日断线，不伪造成 0。
 
-指标卡固定 4 张：
+指标卡固定 4 张（全部账号取 `summary.fans_totals`，单账号取该账号行）：
 
 | 指标 | 字段 |
 |---|---|
-| 净增关注 | `fans_trend.totals.follower_net_count` |
-| 新增关注 | `fans_trend.totals.follower_add_count` |
-| 取消关注 | `fans_trend.totals.follower_reduce_count` |
-| 关注者总数 | `fans_trend.followerTotalCount` |
+| 净增关注 | `fans_totals.follower_net_count`（红涨绿跌，0 与缺失无色） |
+| 新增关注 | `fans_totals.follower_add_count` |
+| 取消关注 | `fans_totals.follower_reduce_count` |
+| 关注者总数 | `followerTotalCount`（全部账号为各账号最新非空值之和，近似合计） |
 
-### 5.3 关注者画像
+### 5.4 关注者画像
 
-画像五维同屏，不使用维度 tab：
+全部账号模式为空态提示（「在「账号表现」表中选择一个账号查看画像」），不跨账号合并画像；选中账号后画像五维同屏，不使用维度 tab：
 
 ```text
 第一行：性别分布 | 访问设备分布 | 年龄分布

@@ -11,6 +11,7 @@ import { ChartTooltip } from '../src/chart-tooltip.tsx'
 import { DataCard } from '../src/data-card.tsx'
 import { DataState } from '../src/data-state.tsx'
 import { FilterBar } from '../src/filter-bar.tsx'
+import { FilterMenu } from '../src/filter-menu.tsx'
 import { KpiCard } from '../src/kpi-card.tsx'
 import { OperationReceipts } from '../src/operation-receipts.tsx'
 import { Pager } from '../src/pager.tsx'
@@ -447,5 +448,67 @@ describe('页面骨架与头部', () => {
     expect(screen.queryByText('rows')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
     expect(onRetry).toHaveBeenCalledOnce()
+  })
+})
+
+describe('FilterMenu', () => {
+  const ITEMS = [
+    { id: 'all', label: 'All accounts' },
+    { id: 'a', label: 'Account A' },
+    { id: 'b', label: 'Account B' },
+  ] as const
+
+  it('渲染触发按钮与可选可见标签，关闭态不渲染菜单', () => {
+    const { container } = render(
+      <FilterMenu label="Account" visibleLabel="Account:" currentLabel="All accounts" items={ITEMS} selectedId="all" onSelect={() => {}} />,
+    )
+    expect(screen.getByRole('button', { name: 'Account' }).textContent).toBe('All accounts')
+    expect(container.querySelector('span[class*="filterGroupLabel"]')?.textContent).toBe('Account:')
+    expect(screen.queryByRole('menu')).toBeNull()
+    // visibleLabel 缺省不渲染
+    const { container: bare } = render(
+      <FilterMenu label="Sort" currentLabel="By plays" items={ITEMS} selectedId="all" onSelect={() => {}} />,
+    )
+    expect(bare.querySelector('span[class*="filterGroupLabel"]')).toBeNull()
+  })
+
+  it('打开后当前项带 check（selectedId）', () => {
+    const { container } = render(
+      <FilterMenu label="Account" currentLabel="Account A" items={ITEMS} selectedId="a" onSelect={() => {}} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    expect(screen.getAllByRole('menuitem').map(row => row.textContent)).toEqual(['All accounts', 'Account A', 'Account B'])
+    // 选中行渲染尾缀 check 图标（MenuRow selected → IconCheckOutlineRegular）
+    const selected = container.querySelector('[class*="selected"]')
+    expect(selected?.querySelector('svg')).not.toBeNull()
+  })
+
+  it('disabled 时触发按钮不可打开', () => {
+    render(
+      <FilterMenu label="Account" currentLabel="All accounts" items={ITEMS} selectedId="all" disabled onSelect={() => {}} />,
+    )
+    const trigger = screen.getByRole('button', { name: 'Account' })
+    expect((trigger as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(trigger)
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('选择回调收到选项 id 并关闭菜单', () => {
+    const onSelect = vi.fn()
+    render(
+      <FilterMenu label="Account" currentLabel="All accounts" items={ITEMS} selectedId="all" onSelect={onSelect} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Account B' }))
+    expect(onSelect).toHaveBeenCalledOnce()
+    expect(onSelect).toHaveBeenCalledWith('b')
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('triggerClassName 附加到触发按钮', () => {
+    render(
+      <FilterMenu label="Account" currentLabel="All" items={ITEMS} selectedId="all" triggerClassName="pageTrigger" onSelect={() => {}} />,
+    )
+    expect(screen.getByRole('button', { name: 'Account' }).classList.contains('pageTrigger')).toBe(true)
   })
 })
