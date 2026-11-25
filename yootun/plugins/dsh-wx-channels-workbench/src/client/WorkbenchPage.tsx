@@ -91,7 +91,6 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [worksSort, setWorksSort] = useState<SortState>(DEFAULT_SORT_STATE)
   const [worksPage, setWorksPage] = useState(1)
   const [worksTotal, setWorksTotal] = useState(0)
-  const [worksGapCount, setWorksGapCount] = useState<number | null>(null)
   const [worksLatestCollectedAt, setWorksLatestCollectedAt] = useState<string | null>(null)
   const [worksCompletionRate, setWorksCompletionRate] = useState<number | null>(null)
   /** works 请求在途（翻页 / 排序 / 后台刷新）：表格 aria-busy 与 Pager busy。 */
@@ -191,7 +190,6 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const applyWorksPage = (data: WorksPage): void => {
     setWorks(data.rows)
     setWorksTotal(data.total)
-    setWorksGapCount(data.gapCount)
     setWorksLatestCollectedAt(data.latestCollectedAt)
     setWorksCompletionRate(data.completionRatePct)
   }
@@ -610,6 +608,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
               <div className={css.worksLayout}>
                 <AccountSidebar
                   t={t}
+                  localeTag={localeTagOf(t)}
                   accounts={accounts}
                   selectedId={selectedAccountId}
                   browserBlocked={browserBlocking}
@@ -637,7 +636,6 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                     onSortChange={handleWorksSortChange}
                     worksPage={worksPage}
                     worksTotal={worksTotal}
-                    worksGapCount={worksGapCount}
                     worksLatestCollectedAt={worksLatestCollectedAt}
                     worksCompletionRate={worksCompletionRate}
                     worksBusy={worksBusy}

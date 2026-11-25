@@ -2,8 +2,8 @@
  * 作品面板（账号作品页右侧，对齐旧工作台布局）：工具栏（采集本账号全部
  * primary / 负责人入口（未设置·新增 / 已设置·编辑）/ 刷新 / 导出 Excel
  * ghost+icon / 上次采集）→ runBanner 三色 → 采集进度三态（role=status
- * aria-busy）→ KPI 行五卡（作品总数/播放合计/吸粉合计/完播率/缺口作品，值与
- * 状态全部来自 works.list 的 summary；卡片不重复列表的失败提示）→ 固定高度的
+ * aria-busy）→ KPI 行四卡（作品总数/播放合计/吸粉合计/完播率，值与状态全部
+ * 来自 works.list 的 summary；卡片不重复列表的失败提示）→ 固定高度的
  * 列表区域（加载骨架 / 失败提示 + 重试 / 空列表「暂无数据」居中 / 高密度 12 列
  * 作品表格）。表格列序冻结：作品名称/作品链接 sticky；排序由服务端执行：表头
  * 三态循环发起重查并回第 1 页；缺失恒显示「—」不造 0；百分比 clamp；吸粉量
@@ -128,10 +128,6 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const listState = listLoading ? 'loading' : listFailed ? 'error' : visibleWorks.length === 0 ? 'blank' : 'ready'
   // KPI 卡不重复列表的失败提示：加载中呈骨架，其余按值渲染（缺失为「—」）。
   const kpiState = listLoading ? 'loading' : 'ready'
-  // 聚合值缺失时不下「数据完整」的结论。
-  const gapFootnote = summary === null
-    ? undefined
-    : (summary.gapCount ?? 0) > 0 ? t('works.kpi.gapHint') : t('works.kpi.gapComplete')
 
   return (
     <div className={`${css.panelBody} ${css.worksPanelBody}`}>
@@ -206,12 +202,6 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
         <KpiCard label={t('works.kpi.playTotal')} value={formatCount(summary?.playCount ?? null)} footnote={t('works.kpi.playTotalHint')} state={kpiState} />
         <KpiCard label={t('works.kpi.fansGainTotal')} value={formatCount(summary?.fansGainCount ?? null)} footnote={t('works.kpi.fansGainTotalHint')} state={kpiState} />
         <KpiCard label={t('works.kpi.completion')} value={formatPercent(summary?.completionRatePct ?? null)} footnote={t('works.kpi.completionHint')} state={kpiState} />
-        <KpiCard
-          label={t('works.kpi.gapWorks')}
-          value={formatCount(summary?.gapCount ?? null)}
-          footnote={gapFootnote}
-          state={kpiState}
-        />
       </div>
       <div className={css.tableWrap} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0} data-state={listState === 'ready' ? undefined : listState}>
         {listState === 'loading' && <DataState state='loading' shape='rows' skeletonRows={WORKS_PAGE_SIZE} />}

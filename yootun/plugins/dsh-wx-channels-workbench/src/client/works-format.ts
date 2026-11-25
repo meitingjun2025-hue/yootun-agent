@@ -1,11 +1,12 @@
 /**
- * 作品页纯函数：表头排序状态机与按日趋势行装配（发布日前补 0、发布日后缺失
- * 断线）。排序与整账号聚合（加权完播率、缺口计数、最近采集时间）都在服务端
- * 完成，页面只组装查询参数并渲染返回的当页行。
+ * 作品页与账号总览趋势的纯函数：表头排序状态机、按日趋势行装配（发布日前
+ * 补 0、发布日后缺失断线）与关注者趋势 7 位取点。排序与整账号聚合（加权
+ * 完播率、缺口计数、最近采集时间）都在服务端完成，页面只组装查询参数并渲染
+ * 返回的当页行。
  * @module
  */
 import { type WorkDailyRow } from './schema.ts'
-import { shanghaiCompletedDay } from './format.ts'
+import { shanghaiCompletedDay, shiftDay } from './format.ts'
 
 /** 表头排序方向（默认态即发布时间降序，无独立 default 方向）。 */
 export interface SortState {
@@ -120,4 +121,30 @@ export function dailyTrendRows(
       followCount: null,
     }
   })
+}
+
+/**
+ * 关注者总数趋势的 7 个横轴位（定长 7 数组，元素为该位日期或 null 空位），
+ * 按所选时间窗 [startDay, endDay]（闭区间）决定取点：
+ *
+ * - 窗口天数 N < 7：窗口内的日子从最后一个位置往前排（右对齐），左侧留 null；
+ * - N = 7：7 个位置各一天；
+ * - N > 7：第 k 位取窗口起日之后第 `round(k × (N − 1) / 6)` 天（k = 0…6），
+ *   首尾两天必选。
+ *
+ * 起止日非法或 startDay 晚于 endDay 时返回空数组（调用方按无窗口渲染空态）。
+ * @param startDay - 窗口起日（YYYY-MM-DD）。
+ * @param endDay - 窗口止日（YYYY-MM-DD）。
+ * @returns 定长 7 的横轴位（N 非法时为空数组）。
+ */
+export function fansTrendSlots(startDay: string, endDay: string): Array<string | null> {
+  const startMs = Date.parse(`${startDay}T00:00:00Z`)
+  const endMs = Date.parse(`${endDay}T00:00:00Z`)
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return []
+  const spanDays = Math.round((endMs - startMs) / 86_400_000)
+  if (spanDays + 1 < 7) {
+    const windowDays = Array.from({ length: spanDays + 1 }, (_, index) => shiftDay(startDay, index))
+    return [...Array<string | null>(7 - windowDays.length).fill(null), ...windowDays]
+  }
+  return Array.from({ length: 7 }, (_, k) => shiftDay(startDay, Math.round((k * spanDays) / 6)))
 }

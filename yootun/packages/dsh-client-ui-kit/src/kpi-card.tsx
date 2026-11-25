@@ -28,6 +28,8 @@ export interface KpiCardProps {
   footnote?: ReactNode
   /** Data state; `ready` renders the value directly. */
   state?: DataStateKind
+  /** Replacement copy for the `empty` state; forwarded to the inner `DataState`. */
+  emptyLabel?: ReactNode | undefined
   /** Retry handler forwarded to the `error` state. */
   onRetry?: () => void
   /** Renders dimmed and non-interactive when the metric is unavailable. */
@@ -41,17 +43,18 @@ export interface KpiCardProps {
  * @param props.delta - change annotation.
  * @param props.footnote - range or denominator note.
  * @param props.state - data state (default `ready`).
+ * @param props.emptyLabel - `empty` label override forwarded to `DataState`.
  * @param props.onRetry - error retry.
  * @param props.disabled - dim the tile when the metric is unavailable.
  * @returns the KPI element.
  */
-export function KpiCard({ label, value, delta, footnote, state = 'ready', onRetry, disabled = false }: KpiCardProps): ReactNode {
+export function KpiCard({ label, value, delta, footnote, state = 'ready', emptyLabel, onRetry, disabled = false }: KpiCardProps): ReactNode {
   const t = useKitLocale()
   const deltaLabel = delta === undefined ? undefined : t(`kpi.delta.${delta.direction}`)
   return (
     <section className={css.card} aria-disabled={disabled || undefined} data-disabled={disabled || undefined}>
       <span className={css.label}>{label}</span>
-      <DataState state={state} shape="value" onRetry={onRetry}>
+      <DataState state={state} shape="value" emptyLabel={emptyLabel} onRetry={onRetry}>
         <span className={css.value}>{value}</span>
       </DataState>
       {delta !== undefined && state === 'ready' && (

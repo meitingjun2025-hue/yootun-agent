@@ -11,6 +11,8 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { en as kitEn, type YtKitLocaleKey } from '@yootun/dsh-client-ui-kit'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { readAccountsOverview, readOverview } from '../../src/client/schema.ts'
+import { formatCount, formatDelta } from '../../src/client/format.ts'
+import { fansTrendSlots } from '../../src/client/works-format.ts'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
 afterEach(() => {
@@ -760,25 +762,22 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
     expect(listCall?.args).toMatchObject({ accountId: 'finder-a', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 })
   })
 
-  it('固定 5 张作品摘要卡；完播率 / 缺口作品 / 最近采集时间取自列表响应', async () => {
+  it('固定 4 张作品摘要卡；完播率 / 最近采集时间取自列表响应，无缺口作品卡', async () => {
     await renderPage(baseHandlers())
     expect(await screen.findByText(t('summary.worksTotal'))).not.toBeNull()
-    for (const key of ['summary.worksTotal', 'summary.play7d', 'summary.follow7d', 'summary.completion', 'summary.gapWorks'] as const) {
+    for (const key of ['summary.worksTotal', 'summary.play7d', 'summary.follow7d', 'summary.completion'] as const) {
       expect(screen.getByText(t(key))).not.toBeNull()
     }
-    // 数量契约：摘要卡固定 5 张。
+    // 数量契约：摘要卡固定 4 张（缺口作品卡已删）。
     const summaryGrid = screen.getByText(t('summary.worksTotal')).closest('div')
-    expect(summaryGrid?.children.length).toBe(5)
-    // 口径：作品总数取账号 feedCount（12），近7日取固定 last_7d 摘要（1234），
-    // 缺口作品数取列表响应的 gap_count（1）。
+    expect(summaryGrid?.children.length).toBe(4)
+    // 口径：作品总数取账号 feedCount（12），近7日取固定 last_7d 摘要（1234）。
     expect(screen.getByText('12')).not.toBeNull()
     await screen.findByText('1234')
     // 完播率取列表响应的 completion_rate_pct（41.2），不基于当页行计算
     // （当页行 w-100 是 8.37%）：限定摘要卡作用域断言。
     const summaryCard = screen.getByText(t('summary.completion')).closest('section')
     expect(within(summaryCard as HTMLElement).getByText('41.20%')).not.toBeNull()
-    const gapCard = screen.getByText(t('summary.gapWorks')).closest('section')
-    expect(within(gapCard as HTMLElement).getByText('1')).not.toBeNull()
     // 工具栏最近采集时间取列表响应的 latest_collected_at（不基于当页行取最大值）。
     expect(screen.getByText(t('works.latestCollectedAt', { time: '2026-11-19 00:04' }))).not.toBeNull()
   })
@@ -1299,6 +1298,69 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
     expect(screen.getByText(t('overview.portrait.pickAccount'))).not.toBeNull()
   })
 
+  it('账号表现表：首列表头「No.」，账号列只有昵称与状态标签（无首字占位）', async () => {
+    await openOverview(overviewAccountsHandlers())
+    const table = screen.getByRole('table', { name: t('overview.section.accounts') })
+    const headers = within(table as HTMLElement).getAllByRole('columnheader')
+    expect(headers[0]?.textContent).toBe(t('overview.col.rank'))
+    // 账号列不再渲染昵称首字占位。
+    const row = screen.getByText('演示账号').closest('tr')
+    expect(within(row as HTMLElement).queryByText('演')).toBeNull()
+    expect(within(row as HTMLElement).getByText(t('overview.tag.sessionOk'))).not.toBeNull()
+  })
+
+  it('空态与口径文案：指标卡空态「Not collected」、无数据行标签、页脚口径', async () => {
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': () => accountsOverviewPayload({
+        summary: {
+          accountCount: 2, accountTotal: 3,
+          window: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          totals: {}, fans_totals: {}, followerTotalCount: null,
+          trendDaily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
+          availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
+        },
+        accounts: [
+          { account_id: 'finder-a', metrics: { totals: {}, rowAvailability: 'no_data' }, fans_trend: { totals: {}, rowAvailability: 'no_data' } },
+          { account_id: 'finder-b', metrics: { totals: {}, rowAvailability: 'no_data' }, fans_trend: { totals: {}, rowAvailability: 'no_data' } },
+        ],
+        availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
+      }),
+    }))
+    expect(await screen.findByText(t('overview.metricsNoData'))).not.toBeNull()
+    // 指标卡与增长卡空态不再是 kit 的「No data」，而是「Not collected」。
+    expect(screen.getAllByText(t('overview.notCollected')).length).toBeGreaterThanOrEqual(1)
+    // 两份数据都没有的账号行带「Not collected」标签；页脚口径文案换新。
+    expect(screen.getAllByText(t('overview.row.noData')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(t('overview.dataSource')).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('单日窗口：趋势只在最后一位画点并旁注数值，标题为单日', async () => {
+    const day = recentDaysForTest()
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': () => accountsOverviewPayload({
+        summary: {
+          accountCount: 1, accountTotal: 1,
+          window: { startDay: day, endDay: day },
+          totals: { daily_play_count: 100 }, fans_totals: {}, followerTotalCount: 4321,
+          trendDaily: [{ day, follower_total_count: 4321 }],
+          daysObserved: { account_metrics: 1, fans_trend: 1 },
+          availability: { account_metrics: 'ok', fans_trend: 'ok' },
+        },
+        accounts: [ROW_A],
+      }),
+    }))
+    // 标题：单日为「关注者总数趋势（11-24）」形式，不再写「近 7 天」。
+    expect(screen.getByText(t('chart.fansTrendRange', { range: day.slice(5) }))).not.toBeNull()
+    // 横轴固定 7 位：只有最后一位有日期标签，左侧 6 个空位无标签。
+    const labels = document.querySelectorAll('svg text[y="202"]')
+    expect([...labels].map(label => label.textContent)).toEqual([day.slice(5)])
+    // 单点标注：系列色实心圆点 + 点旁数值（en 千分位 4,321）；空位无聚焦热区按钮。
+    expect(document.querySelector('svg circle[style*="--yt-chart-1"]')).not.toBeNull()
+    const dotLabel = document.querySelector('svg text[style*="--yt-chart-1"]')
+    expect(dotLabel?.textContent).toBe('4,321')
+    expect(document.querySelectorAll('[class*="plotColumn"]').length).toBe(1)
+  })
+
   it('availability no_data → 真实空态文案；accountCount=0 → 无匹配账号', async () => {
     await openOverview(overviewAccountsHandlers({
       'overview.accounts': () => accountsOverviewPayload({
@@ -1443,7 +1505,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
     expect(document.querySelectorAll('input[type="date"]').length).toBe(0)
   })
 
-  it('趋势 x 轴点数 = trendWindow 天数（30 天载荷渲染 30 个日期标签）', async () => {
+  it('趋势横轴固定 7 位：30 天窗口等间隔取 7 点，首尾必选', async () => {
     const start = '2026-10-25'
     await openOverview(overviewAccountsHandlers({
       'overview.accounts': () => accountsOverviewPayload({
@@ -1451,7 +1513,6 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
           accountCount: 2, accountTotal: 3,
           window: { startDay: start, endDay: '2026-11-23' },
           totals: { daily_play_count: 1234 }, fans_totals: {}, followerTotalCount: 167,
-          trendWindow: { startDay: start, endDay: '2026-11-23' },
           trendDaily: Array.from({ length: 30 }, (_, index) => ({
             day: new Date(Date.UTC(2026, 9, 25 + index)).toISOString().slice(0, 10),
             follower_total_count: 160 + index,
@@ -1461,11 +1522,17 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
         },
       }),
     }))
-    // x 轴日期标签（axisText 类）数量 = 30（LineTrendChart 渲染稀疏标签后仍 30 个数据列）。
-    // x 轴日期标签 y=202（height 210 - 8），稀疏规则（B.2 ③）：30 行 → 首 / 中点 / 尾 3 个。
+    // 横轴固定 7 位（count ≤ 7 → 全部带日期标签，y=202 = height 210 − 8）。
     const labels = document.querySelectorAll('svg text[y="202"]')
-    expect(labels.length).toBe(3)
-    expect([...labels].map(label => label.textContent)).toEqual(['10-25', '11-08', '11-23'])
+    expect(labels.length).toBe(7)
+    // N = 30：第 k 位取起日后第 round(k × 29 / 6) 天 → 偏移 0/5/10/15/19/24/29，首尾必选。
+    expect([...labels].map(label => label.textContent)).toEqual([
+      '10-25', '10-30', '11-04', '11-09', '11-13', '11-18', '11-23',
+    ])
+    // 标题随所选时间窗，不再写死「近 7 天」；en 标题括号进词典后为半角（上一轮真机缺陷）。
+    const trendTitle = screen.getByText(t('chart.fansTrendRange', { range: '10-25 – 11-23' }))
+    expect(trendTitle.textContent).toContain('(10-25 – 11-23)')
+    expect(trendTitle.textContent).not.toContain('（')
   })
 
   it('筛选切换无缓存时旧值撤下：B 挂起期间不显示 A 的指标值，B 到达后显示 B 值', async () => {
@@ -1573,7 +1640,7 @@ describe('复审修复回归', () => {
   })
 
   it('P1 趋势卡消费 summary.availability.fans_trend：partial + 有数据 = 源级说明与数据同屏（不逐卡插警告条）', async () => {
-    // 趋势窗口来自服务端 trendWindow（末日锚 7 天）；partial 说明走 footnote。
+    // 趋势窗口取 summary.window（7 天窗口）；partial 说明走 footnote。
     await renderPage(baseHandlers({
       'overview.accounts': () => ({
         status: 'ok',
@@ -1750,7 +1817,8 @@ describe('readAccountsOverview', () => {
     assert.equal(data.summary.totals.workCount, 200)
     assert.equal(data.summary.fansTotals.netCount, 308)
     assert.equal(data.summary.followerTotalCount, 169)
-    assert.deepEqual(data.summary.trendWindow, { startDay: '2026-11-17', endDay: '2026-11-23' })
+    // trendWindow 是服务端仍下发的字段，客户端投影不再消费（趋势窗口取 summary.window）。
+    assert.equal('trendWindow' in data.summary, false)
     assert.deepEqual(data.summary.daysObserved, { accountMetrics: 3, fansTrend: 3 })
     assert.deepEqual(data.summary.availability, { accountMetrics: 'partial', fansTrend: 'ok' })
     assert.equal(data.rows.length, 2)
@@ -1842,5 +1910,76 @@ describe('readAccountsOverview 键名防线（fixture 按契约文档 §4.4.1 �
     assert.equal(data.summary.fansTotals.netCount, 4)
     assert.equal(data.summary.daysObserved.accountMetrics, 3)
     assert.equal(data.rows[0]?.followerTotalCount, 99)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatCount / formatDelta（满 1 万转 locale 紧凑格式）
+// ---------------------------------------------------------------------------
+
+describe('计数格式（满 1 万转「万」）', () => {
+  it('formatCount：缺失占位、不足 1 万整数直排、满 1 万 locale 紧凑', () => {
+    assert.equal(formatCount(null), '—')
+    assert.equal(formatCount(0), '0')
+    assert.equal(formatCount(9999), '9999')
+    assert.equal(formatCount(10000), '1万')
+    assert.equal(formatCount(14128), '1.4万')
+    assert.equal(formatCount(71473), '7.1万')
+    assert.equal(formatCount(-123456), '-12.3万')
+    // en 走 K / M 档；负数与万级同样适用。
+    assert.equal(formatCount(10000, 'en'), '10K')
+    assert.equal(formatCount(1250000, 'en'), '1.3M')
+    assert.equal(formatCount(9999, 'en'), '9999')
+  })
+
+  it('formatDelta：符号保留、量级经 formatCount、0 与缺失占位', () => {
+    assert.equal(formatDelta(null, 'zh').text, '—')
+    assert.equal(formatDelta(0, 'zh').text, '—')
+    assert.equal(formatDelta(17300, 'zh').text, '+1.7万')
+    assert.equal(formatDelta(-17300, 'zh').text, '-1.7万')
+    assert.equal(formatDelta(972, 'zh').text, '+972')
+    assert.equal(formatDelta(17300, 'zh').tone, 'up')
+    assert.equal(formatDelta(-17300, 'zh').tone, 'down')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// fansTrendSlots（关注者趋势 7 位取点）
+// ---------------------------------------------------------------------------
+
+describe('fansTrendSlots（横轴固定 7 位）', () => {
+  it('N = 1（单日窗口）：只在最后一位', () => {
+    assert.deepEqual(fansTrendSlots('2026-11-24', '2026-11-24'), [
+      null, null, null, null, null, null, '2026-11-24',
+    ])
+  })
+
+  it('N = 3：窗口内的日子从最后一个位置往前排，左侧留空', () => {
+    assert.deepEqual(fansTrendSlots('2026-11-22', '2026-11-24'), [
+      null, null, null, null, '2026-11-22', '2026-11-23', '2026-11-24',
+    ])
+  })
+
+  it('N = 7：7 个位置各一天', () => {
+    assert.deepEqual(fansTrendSlots('2026-11-18', '2026-11-24'), [
+      '2026-11-18', '2026-11-19', '2026-11-20', '2026-11-21', '2026-11-22', '2026-11-23', '2026-11-24',
+    ])
+  })
+
+  it('N = 30：round(k × 29 / 6) 取点，首尾必选', () => {
+    assert.deepEqual(fansTrendSlots('2026-10-26', '2026-11-24'), [
+      '2026-10-26', '2026-10-31', '2026-11-05', '2026-11-10', '2026-11-14', '2026-11-19', '2026-11-24',
+    ])
+  })
+
+  it('自定义 21 天窗口：等间隔 7 点', () => {
+    assert.deepEqual(fansTrendSlots('2026-11-03', '2026-11-23'), [
+      '2026-11-03', '2026-11-06', '2026-11-10', '2026-11-13', '2026-11-16', '2026-11-20', '2026-11-23',
+    ])
+  })
+
+  it('非法输入（起日晚于止日 / 非日期）返回空数组', () => {
+    assert.deepEqual(fansTrendSlots('2026-11-24', '2026-11-23'), [])
+    assert.deepEqual(fansTrendSlots('not-a-day', '2026-11-24'), [])
   })
 })

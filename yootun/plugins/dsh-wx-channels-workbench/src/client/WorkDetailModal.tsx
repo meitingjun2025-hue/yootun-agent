@@ -110,24 +110,24 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
           <div className={css.metricGrid}>
             <KpiCard label={t('col.completion')} value={formatPct(work.completionRatePct)} />
             <KpiCard label={t('col.avgDuration')} value={formatSeconds(work.avgPlayDurationS, t)} />
-            <KpiCard label={t('col.play')} value={formatCount(work.playCount)} />
-            <KpiCard label={t('col.like')} value={formatCount(work.likeCount)} />
-            <KpiCard label={t('col.favorite')} value={formatCount(work.favoriteCount)} />
-            <KpiCard label={t('col.comment')} value={formatCount(work.commentCount)} />
-            <KpiCard label={t('col.share')} value={formatCount(work.shareCount)} />
-            <KpiCard label={t('col.forward')} value={formatCount(work.forwardCount)} />
-            <KpiCard label={t('col.follow')} value={formatCount(work.followCount)} />
-            <KpiCard label={t('detail.metric.wecomClickCount')} value={formatCount(work.wecomLinkClickCount)} />
-            <KpiCard label={t('detail.metric.wecomClickUv')} value={formatCount(work.wecomLinkClickUv)} />
-            <KpiCard label={t('detail.metric.contactAddCount')} value={formatCount(work.wecomContactAddCount)} />
-            <KpiCard label={t('detail.metric.contactAddUv')} value={formatCount(work.wecomContactAddUv)} />
+            <KpiCard label={t('col.play')} value={formatCount(work.playCount, props.localeTag)} />
+            <KpiCard label={t('col.like')} value={formatCount(work.likeCount, props.localeTag)} />
+            <KpiCard label={t('col.favorite')} value={formatCount(work.favoriteCount, props.localeTag)} />
+            <KpiCard label={t('col.comment')} value={formatCount(work.commentCount, props.localeTag)} />
+            <KpiCard label={t('col.share')} value={formatCount(work.shareCount, props.localeTag)} />
+            <KpiCard label={t('col.forward')} value={formatCount(work.forwardCount, props.localeTag)} />
+            <KpiCard label={t('col.follow')} value={formatCount(work.followCount, props.localeTag)} />
+            <KpiCard label={t('detail.metric.wecomClickCount')} value={formatCount(work.wecomLinkClickCount, props.localeTag)} />
+            <KpiCard label={t('detail.metric.wecomClickUv')} value={formatCount(work.wecomLinkClickUv, props.localeTag)} />
+            <KpiCard label={t('detail.metric.contactAddCount')} value={formatCount(work.wecomContactAddCount, props.localeTag)} />
+            <KpiCard label={t('detail.metric.contactAddUv')} value={formatCount(work.wecomContactAddUv, props.localeTag)} />
           </div>
           <div className={css.twoColumn}>
             <section className={css.detailSection} aria-label={t('detail.traffic')}>
               <h4 className={css.detailSectionTitle}>{t('detail.traffic')}</h4>
               <DataState state={arrived ? 'ready' : detailState} shape='block' onRetry={props.onRetry}>
                 {arrived && detail !== null && detail.trafficRows.length > 0
-                  ? <TrafficBars t={t} rows={detail.trafficRows} />
+                  ? <TrafficBars t={t} rows={detail.trafficRows} localeTag={props.localeTag} />
                   : arrived
                     ? <p className={css.chartEmpty}>{t('detail.trafficEmpty')}</p>
                     : null}
@@ -202,7 +202,7 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
 }
 
 /** 来源分布条形：按播放量降序（缺失沉底），缺失行数值显示占位。 */
-function TrafficBars(props: { t: Translate; rows: TrafficRow[] }): ReactNode {
+function TrafficBars(props: { t: Translate; rows: TrafficRow[]; localeTag: string }): ReactNode {
   const rows = sortTrafficRowsByValue(props.rows)
   const max = Math.max(1, ...rows.map(row => row.value ?? 0))
   return (
@@ -215,7 +215,7 @@ function TrafficBars(props: { t: Translate; rows: TrafficRow[] }): ReactNode {
               <span className={css.barFill} style={{ width: `${Math.max((row.value / max) * 100, 2)}%`, background: 'var(--yt-chart-2)' }} />
             )}
           </span>
-          <span className={css.barCount}>{formatCount(row.value)}</span>
+          <span className={css.barCount}>{formatCount(row.value, props.localeTag)}</span>
         </li>
       ))}
     </ul>

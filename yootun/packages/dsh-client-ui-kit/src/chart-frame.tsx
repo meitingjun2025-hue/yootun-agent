@@ -25,6 +25,8 @@ export interface ChartFrameProps {
   height?: number | 'fit'
   /** Data state of the plotted series. */
   state?: DataStateKind
+  /** Replacement copy for the `empty` state; forwarded to the inner `DataState`. */
+  emptyLabel?: ReactNode | undefined
   /** Retry handler forwarded to the `error` state. */
   onRetry?: () => void
   /** Legend slot (ChartLegend). */
@@ -43,6 +45,7 @@ export interface ChartFrameProps {
  * @param props.ariaLabel - accessible plot-group name.
  * @param props.height - plot height (default 240); `'fit'` follows the marks' height.
  * @param props.state - data state (default `ready`).
+ * @param props.emptyLabel - `empty` label override forwarded to `DataState`.
  * @param props.onRetry - error retry.
  * @param props.legend - legend node.
  * @param props.children - marks.
@@ -50,7 +53,7 @@ export interface ChartFrameProps {
  * @param props.skeleton - loading silhouette (default `chart`).
  * @returns the chart card element.
  */
-export function ChartFrame({ title, ariaLabel, height, state = 'ready', onRetry, legend, children, footnote, skeleton = 'chart' }: ChartFrameProps): ReactNode {
+export function ChartFrame({ title, ariaLabel, height, state = 'ready', emptyLabel, onRetry, legend, children, footnote, skeleton = 'chart' }: ChartFrameProps): ReactNode {
   const plotStyle = height === 'fit' ? { minHeight: '120px' } : { height: `${clampChartHeight(height)}px` }
   const label = ariaLabel ?? (typeof title === 'string' ? title : undefined)
   // §5.2：绘图组必须有 localized accessible name；非字符串标题必须显式给名。
@@ -69,7 +72,7 @@ export function ChartFrame({ title, ariaLabel, height, state = 'ready', onRetry,
         className={css.plot}
         style={plotStyle}
       >
-        <DataState state={state} shape={skeleton} onRetry={onRetry}>{children}</DataState>
+        <DataState state={state} shape={skeleton} emptyLabel={emptyLabel} onRetry={onRetry}>{children}</DataState>
       </div>
       {footnote !== undefined && <div className={css.footnote}>{footnote}</div>}
     </section>

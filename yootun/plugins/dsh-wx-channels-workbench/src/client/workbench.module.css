@@ -325,11 +325,11 @@
   word-break: break-all;
 }
 
-/* 作品摘要卡（固定 5 张） */
+/* 作品摘要卡（固定 4 张） */
 
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1138,10 +1138,6 @@
 }
 
 @container yootun-kit-page (max-width: 1119px) {
-  .summaryGrid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .kpiGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

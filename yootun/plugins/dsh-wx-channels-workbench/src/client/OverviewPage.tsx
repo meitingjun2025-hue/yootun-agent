@@ -1,12 +1,14 @@
 /**
  * 账号总览页（多账号数据汇总）：筛选条（账号 / 时间窗含自定义起止 / 排序 /
- * 会话状态，chips 可清除）→ 全部视频指标 10 卡 → 账号表现表（跨账号对比，行
- * 点击 / Enter 选中）→ 关注者总数趋势（跟随窗口，末日锚补足 7 天）| 增长指标
- * 4 卡 → 关注者画像（全部账号空态，单账号五维）。全部账号与单账号两种模式走
- * 同一数据通路（overview.accounts：全部不传 accountIds、单账号传
- * accountIds=[x]）；画像仅单账号模式拉取（fans.profile.get）。缺失不补 0；
- * 筛选键缓存（切回即时渲染 + 后台刷新）+ 请求代次与筛选键双重守卫；自定义
- * 日期空值不提交、越界纠偏只触发一次请求。
+ * 会话状态，chips 可清除）→ 全部视频指标 10 卡（空态「未采集数据」）→ 账号
+ * 表现表（跨账号对比，行点击 / Enter 选中）→ 关注者总数趋势（窗口由
+ * summary.window 决定，横轴固定 7 位：不足 7 天右对齐留空位、大于 7 天等间隔
+ * 取 7 点首尾必选、单日窗口单点标注数值）| 增长指标 4 卡 → 关注者画像（全部
+ * 账号空态，单账号五维）。全部账号与单账号两种模式走同一数据通路
+ * （overview.accounts：全部不传 accountIds、单账号传 accountIds=[x]）；画像仅
+ * 单账号模式拉取（fans.profile.get）。缺失不补 0；筛选键缓存（切回即时渲染 +
+ * 后台刷新）+ 请求代次与筛选键双重守卫；自定义日期空值不提交、越界纠偏只
+ * 触发一次请求。
  * @module
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -16,7 +18,7 @@ import {
 } from '@yootun/dsh-client-ui-kit'
 import type { FilterChip } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { formatCount, formatDelta, shiftDay, type Translate } from './format.ts'
+import { formatCount, formatDelta, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
   readAccountsOverview, readFansProfile,
@@ -24,7 +26,7 @@ import {
   type FansProfileData, type PortraitSlice,
 } from './schema.ts'
 import { ColumnChart, DonutChart, LineTrendChart, RankBars, type TrendRow } from './charts.tsx'
-import { recentDays } from './works-format.ts'
+import { fansTrendSlots, recentDays } from './works-format.ts'
 import type { AccountRow } from './WorkbenchPage.tsx'
 
 type LoadState = 'loading' | 'ready' | 'empty' | 'error' | 'partial'
@@ -336,26 +338,27 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
       ? 'error'
       : serverState(fansAvailability, fansHasData, false)
 
-  // ③ 趋势：按 summary.trendWindow 逐日对齐（不再固定近 7 天）；缺失日 null 断线。
-  const trendStart = summary?.trendWindow.startDay ?? null
-  const trendEnd = summary?.trendWindow.endDay ?? null
+  // ③ 趋势：横轴固定 7 位，按 summary.window 取点（不足 7 天右对齐留空位、
+  // 大于 7 天等间隔取 7 点首尾必选）；逐日值取 summary.trendDaily，缺失日 null
+  // 断线；指标卡与增长指标仍按完整时间窗，不受取点影响。
+  const trendStart = summary?.window.startDay ?? null
+  const trendEnd = summary?.window.endDay ?? null
   const trendRows: TrendRow[] = useMemo(() => {
     if (trendStart === null || trendEnd === null) return []
-    const rows: TrendRow[] = []
-    let day = trendStart
-    let guard = 0
-    while (day <= trendEnd && guard < 100) {
-      const point = summary?.trendDaily.find(row => row.day === day)
-      rows.push({ day, values: { total: point?.followerTotalCount ?? null } })
-      day = shiftDay(day, 1)
-      guard += 1
-    }
-    return rows
+    const slots = fansTrendSlots(trendStart, trendEnd)
+    const byDay = new Map((summary?.trendDaily ?? []).map(row => [row.day, row.followerTotalCount]))
+    return slots.map(day => ({
+      day: day ?? '',
+      ...(day === null ? { emptySlot: true as const } : {}),
+      values: { total: day === null ? null : byDay.get(day) ?? null },
+    }))
   }, [summary])
   const trendHasData = trendRows.some(row => row.values.total !== null)
   const trendLabel = trendStart !== null && trendEnd !== null
-    ? `${trendStart.slice(5)} – ${trendEnd.slice(5)}`
-    : t('overview.window.last_7d')
+    ? trendStart === trendEnd
+      ? trendStart.slice(5)
+      : `${trendStart.slice(5)} – ${trendEnd.slice(5)}`
+    : windowLabel
   const trendAvailability = fansAvailability
   const trendPartial = fansAvailability === 'partial' && trendHasData
   const trendState = overviewState === 'loading'
@@ -523,9 +526,10 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                     <KpiCard
                       key={card.labelKey}
                       label={t(card.labelKey)}
-                      value={formatCount(value)}
+                      value={formatCount(value, locale)}
                       state={kpiState(metricsState, value)}
                       onRetry={retry}
+                      emptyLabel={t('overview.notCollected')}
                     />
                   )
                 })}
@@ -595,19 +599,18 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                       <td className={css.num}>{index + 1}</td>
                       <td>
                         <span className={css.accountCell}>
-                          <span aria-hidden='true'>{(row.nickname ?? row.accountId).slice(0, 1)}</span>
                           <span>{row.nickname ?? row.accountId}</span>
                           {sessionTag !== null && <Tag tone={sessionTag.tone}>{sessionTag.label}</Tag>}
                           {noDataRowTag(row) && <Tag tone='warning'>{t('overview.row.noData')}</Tag>}
                         </span>
                       </td>
-                      <td className={css.num}>{formatCount(row.followerTotalCount)}</td>
+                      <td className={css.num}>{formatCount(row.followerTotalCount, locale)}</td>
                       <td className={css.num}><span className={netTone(net.tone)}>{net.text}</span></td>
-                      <td className={css.num}>{formatCount(row.totals.playCount)}</td>
-                      <td className={css.num}>{formatCount(row.totals.likeCount)}</td>
-                      <td className={css.num}>{formatCount(row.totals.commentCount)}</td>
-                      <td className={css.num}>{formatCount(row.totals.shareCount)}</td>
-                      <td className={css.num}>{formatCount(row.totals.workCount ?? row.feedCount)}</td>
+                      <td className={css.num}>{formatCount(row.totals.playCount, locale)}</td>
+                      <td className={css.num}>{formatCount(row.totals.likeCount, locale)}</td>
+                      <td className={css.num}>{formatCount(row.totals.commentCount, locale)}</td>
+                      <td className={css.num}>{formatCount(row.totals.shareCount, locale)}</td>
+                      <td className={css.num}>{formatCount(row.totals.workCount ?? row.feedCount, locale)}</td>
                     </tr>
                   )
                 })}
@@ -619,10 +622,11 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
       {/* ③ 关注者总数趋势 | 增长指标 4 卡（≥1120 双列）。 */}
       <div className={css.growthGrid}>
         <ChartFrame
-          title={`${t('chart.fansTrend')}（${trendLabel}）`}
+          title={t('chart.fansTrendRange', { range: trendLabel })}
           ariaLabel={t('chart.fansTrendAria')}
           height='fit'
           state={trendState}
+          emptyLabel={t('overview.notCollected')}
           onRetry={retry}
           legend={<ChartLegend items={[{ id: 'fans-total', label: t('chart.fansSeries'), color: '--yt-chart-1' }]} />}
           footnote={trendPartial ? `${t('overview.dataSource')} · ${t('overview.metricsPartial')}` : t('overview.dataSource')}
@@ -634,6 +638,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                 series={[{ key: 'total', label: t('chart.fansSeries'), color: '--yt-chart-1' }]}
                 locale={locale}
                 trendEmpty={t('chart.trendEmpty')}
+                markSinglePoint
               />
             </div>
           )}
@@ -646,10 +651,11 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                 value={<span className={netTone(formatDelta(fansTotals?.netCount ?? null, locale).tone)}>{formatDelta(fansTotals?.netCount ?? null, locale).text}</span>}
                 state={kpiState(fansCardsState, fansTotals?.netCount ?? null)}
                 onRetry={retry}
+                emptyLabel={t('overview.notCollected')}
               />
-              <KpiCard label={t('fans.add')} value={formatCount(fansTotals?.addCount ?? null)} state={kpiState(fansCardsState, fansTotals?.addCount ?? null)} onRetry={retry} />
-              <KpiCard label={t('fans.reduce')} value={formatCount(fansTotals?.reduceCount ?? null)} state={kpiState(fansCardsState, fansTotals?.reduceCount ?? null)} onRetry={retry} />
-              <KpiCard label={t('fans.total')} value={formatCount(followerTotalCount)} state={kpiState(fansCardsState, followerTotalCount)} onRetry={retry} />
+              <KpiCard label={t('fans.add')} value={formatCount(fansTotals?.addCount ?? null, locale)} state={kpiState(fansCardsState, fansTotals?.addCount ?? null)} onRetry={retry} emptyLabel={t('overview.notCollected')} />
+              <KpiCard label={t('fans.reduce')} value={formatCount(fansTotals?.reduceCount ?? null, locale)} state={kpiState(fansCardsState, fansTotals?.reduceCount ?? null)} onRetry={retry} emptyLabel={t('overview.notCollected')} />
+              <KpiCard label={t('fans.total')} value={formatCount(followerTotalCount, locale)} state={kpiState(fansCardsState, followerTotalCount)} onRetry={retry} emptyLabel={t('overview.notCollected')} />
             </div>
           </div>
         </DataCard>
