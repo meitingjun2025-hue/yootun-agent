@@ -144,7 +144,8 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       window: asString(args, 'window'),
       ...(asString(args, 'fromDay') !== '' && asString(args, 'window') === 'custom' ? { fromDay: asString(args, 'fromDay') } : {}),
       ...(asString(args, 'toDay') !== '' && asString(args, 'window') === 'custom' ? { toDay: asString(args, 'toDay') } : {}),
-      sort: asString(args, 'sort'),
+      // sort 缺省交给 tools（空串透传会被 Literal 拒绝为 VALIDATION_ERROR）。
+      ...(asString(args, 'sort') !== '' ? { sort: asString(args, 'sort') } : {}),
       ...(asString(args, 'sessionStatus') !== '' ? { sessionStatus: asString(args, 'sessionStatus') } : {}),
     }],
     'run.get': args => ['workbench_wx_collect_run_get', { runId: asString(args, 'runId') }],

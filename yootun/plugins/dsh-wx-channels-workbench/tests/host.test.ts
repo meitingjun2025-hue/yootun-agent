@@ -508,19 +508,19 @@ test('overview.accounts：空参数只带 window/sort，账号与会话状态按
 
   // 空参数：仅 window/sort 两键。
   await handlers['overview.accounts']?.({})
-  assert.deepEqual(calls[0], { name: 'workbench_wx_accounts_overview', args: { window: '', sort: '' } })
+  assert.deepEqual(calls[0], { name: 'workbench_wx_accounts_overview', args: { window: '' } })
 
   // accountId → accountIds=[id]；sessionStatus 透传。
   await handlers['overview.accounts']?.({ accountId: 'wx-a', sessionStatus: 'expired' })
-  assert.deepEqual(calls[1]?.args, { accountIds: ['wx-a'], window: '', sort: '', sessionStatus: 'expired' })
+  assert.deepEqual(calls[1]?.args, { accountIds: ['wx-a'], window: '', sessionStatus: 'expired' })
 
   // custom + fromDay/toDay → 透传日期。
   await handlers['overview.accounts']?.({ window: 'custom', fromDay: '2026-11-17', toDay: '2026-11-23' })
-  assert.deepEqual(calls[2]?.args, { window: 'custom', sort: '', fromDay: '2026-11-17', toDay: '2026-11-23' })
+  assert.deepEqual(calls[2]?.args, { window: 'custom', fromDay: '2026-11-17', toDay: '2026-11-23' })
 
   // 非 custom 携带 fromDay → 日期被丢弃。
   await handlers['overview.accounts']?.({ window: 'last_7d', fromDay: '2026-11-17', toDay: '2026-11-23' })
-  assert.deepEqual(calls[3]?.args, { window: 'last_7d', sort: '' })
+  assert.deepEqual(calls[3]?.args, { window: 'last_7d' })
 
   // 路由 schema：日期字段 limit 10，未知字段拒绝。
   assert.equal(validateActionArgs('overview.accounts', { fromDay: '2026-11-17', toDay: '2026-11-23' }).fromDay, '2026-11-17')
