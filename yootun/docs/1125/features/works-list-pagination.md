@@ -251,16 +251,16 @@ export interface PagerProps {
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | 2026-11-25 | `main` | 已提交本地 `main`，推送待用户确认 |
+| 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | 2026-11-25 | `main` | 已提交并推送 `main` |
 | tools 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（tools 仓，自 `dev`） | `pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 850 通过；16 项迁移 / PG 用例因本机无建库权限报错，改动前同样如此；ruff 在改动文件上无新增 |
 | tools 分支同步最新 `dev`（对方新增 `workbench_wx_accounts_overview`） | 2026-11-25 | `feat/works-list-pagination`（tools 仓） | 合并 `origin/dev`：`wx_channels_operation/queries.py` 的 import 与服务目录快照两处冲突已解决，快照按脚本重新生成；`pytest tests/douyin_operation tests/wx_channels_operation tests/yootun tests/mcp` 1373 通过，1 个失败与 53 个错误均为本机 PG 建库权限 |
-| tools 合入 `dev` | 2026-11-25 | `feat/works-list-pagination` → `dev` | 已合并到本地 `dev`，推送待用户确认 |
+| tools 合入 `dev` | 2026-11-25 | `feat/works-list-pagination` → `dev` | 已合并并推送到 `dev` |
 | docker-helm 部署测试环境 | | — | 待填：部署后 `curl tools/list` 核对，两工具带分页参数可调 |
 | yootun-agent 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（自 `main` 切出；kit `Pager`、抖音、视频号三个提交） | kit `test` 65、抖音 `test`（node --test 17 文件 + vitest 136）、视频号 `test`（node --test 76 + vitest 66），三包 `build`、oxlint 通过；真机验收见 5.2 |
 | yootun-agent 分支同步最新 `main`（视频号总览批次已先合入） | 2026-11-25 | `feat/works-list-pagination` | 合并 `origin/main`：抖音 `MaterialPage.tsx` 与视频号 `WorkbenchPage.tsx` 两处 import 冲突已解决，两边内容都保留；合并后 kit 70、抖音 191 + 136、视频号 77 + 74 全过，`build` 通过 |
 | 本地三仓联调（按落地顺序的本地临时预演分支） | 2026-11-25 | — | 通过，记录见 5.3；预演分支只在本地，不推送 |
 | yootun-agent 真实 UI 反馈修复 | 2026-11-25 | `feat/works-list-pagination` | 列表区域固定高度、空列表「暂无数据」、KPI 卡不重复失败提示；两个插件 `test`、`build` 通过，并入预演分支复跑，记录见 5.3 |
-| yootun-agent 合入 `main` | 2026-11-25 | `feat/works-list-pagination` → `main` | 按采集状态恢复 → 采集并发 → 分页的顺序合入本地 `main`；与前两单在 4 个文件的冲突按预演结果解决，代码与预演分支逐文件一致；推送待用户确认。部署时 tools 必须先于或同时于 yootun-agent 上线 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/works-list-pagination` → `main` | 按采集状态恢复 → 采集并发 → 分页的顺序合入 `main`；与前两单在 4 个文件的冲突按预演结果解决，代码与预演分支逐文件一致；已推送。部署时 tools 必须先于或同时于 yootun-agent 上线 |
 | 发版 | | | 待填 |
 
 顺序约束：tools 的 DTO 是 `extra="forbid"`，旧服务端会拒绝新参数，所以 yootun-agent 的两个插件必须在 tools 部署测试环境之后合入；kit `Pager` 不依赖 tools，在分支内先行完成。
