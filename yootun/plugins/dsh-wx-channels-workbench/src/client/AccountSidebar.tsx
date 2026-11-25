@@ -36,6 +36,8 @@ export interface AccountSidebarProps {
   loginActive: boolean
   /** 单账号采集运行中。 */
   collectBusy: boolean
+  /** 单账号采集运行中的账号（无运行中采集为 null）；账号栏状态点数据源之一。 */
+  collectingAccountId: string | null
   batch: BatchStatusView | null
   onSelect: (accountId: string) => void
   onCollectAll: () => void
@@ -140,6 +142,11 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
   }, [props, t])
 
   const batchRunning = props.batch !== null && props.batch.ready !== true && props.batch.phase !== 'finished'
+  // 采集中状态点：单账号采集的账号 + 批量当前账号；只作展示，不改变卡片点击与选中。
+  const collectingIds = new Set<string>()
+  if (props.collectingAccountId !== null) collectingIds.add(props.collectingAccountId)
+  const batchCurrentId = batchRunning && props.batch !== null ? props.batch.currentAccountId : null
+  if (batchCurrentId !== null) collectingIds.add(batchCurrentId)
   const collectable = props.accounts.some(row => row.deleteState !== 'remote_deleted' && row.sessionStatus === 'ok')
   // 动作依赖拆分：探活 / 提升 / 重新扫码都要打开系统 Chrome（probe →
   // refreshSessionState、promote → probeSession、relogin → 扫码窗口），随
@@ -175,6 +182,7 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
               row={row}
               selected={row.accountId === props.selectedId}
               collectLocked={collectLocked}
+              collecting={collectingIds.has(row.accountId)}
               chromeLocked={chromeLocked}
               loginActive={props.loginActive}
               deleteStep={deletes[row.accountId] ?? { kind: 'idle' }}
@@ -214,6 +222,8 @@ function AccountCard(props: {
   selected: boolean
   /** 采集 / 批量互斥：与宿主账号状态冲突的卡上操作禁用。 */
   collectLocked: boolean
+  /** 该账号正在采集（单账号运行中或批量当前账号）：会话徽标旁显示采集中状态点。 */
+  collecting: boolean
   /** chrome / 驱动缺失：探活 / 提升 / 重新扫码都要开 Chrome，一并禁用。 */
   chromeLocked: boolean
   /** 登录进行中：只禁会再开浏览器的重新扫码。 */
@@ -262,6 +272,12 @@ function AccountCard(props: {
           <span className={css.accountStateLine}>
             <StateDot state={session.dot} />
             <span>{session.text}</span>
+            {props.collecting && (
+              <>
+                <StateDot state='ongoing' />
+                <span>{t('account.collecting')}</span>
+              </>
+            )}
             {row.isPending && <span className={css.accountFlag}>{t('account.pending')}</span>}
             {row.localCredentialsMissing === true && <span className={css.accountFlag}>{t('account.localMissing')}</span>}
           </span>

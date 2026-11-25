@@ -672,6 +672,13 @@ export function createCollectController(deps: RunnerDeps, hooks: {
       const record = runs.get(accountId)
       return record === undefined ? null : project(record)
     },
+    /** 运行中的单账号采集投影（任意账号；页面挂载恢复的查询入口，无则 null）。 */
+    running(): Record<string, unknown> | null {
+      for (const record of runs.values()) {
+        if (record.status === 'running') return project(record)
+      }
+      return null
+    },
     async wait(accountId: string): Promise<CollectResult | null> {
       const record = runs.get(accountId)
       if (record === undefined) return null

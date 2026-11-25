@@ -292,3 +292,52 @@ test('§3 collect.start 正常路径：action signal 清理、collect: 信号保
     await cleanup()
   }
 })
+
+test('H3 collect.running：单账号运行中投影 accountId/status，终态后回到 null', async () => {
+  const { root, cleanup } = await tempRoot()
+  try {
+    await seedAccount(root, 'h3')
+    const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: fastFailChrome })
+    const handlers = buildRouteHandlers(deps)
+    assert.equal((await handlers['collect.running']({})).collect, null)
+    const started = await handlers['collect.start']({ accountId: 'h3' })
+    assert.equal(started.status, 'ready')
+    const running = await handlers['collect.running']({})
+    assert.equal(running.status, 'ready')
+    assert.equal(running.batchRunning, false)
+    const collect = running.collect
+    assert.ok(collect !== null && typeof collect === 'object', '运行中投影非空')
+    const view = collect as Record<string, unknown>
+    assert.equal(view.status, 'running')
+    assert.equal(view.accountId, 'h3')
+    // 快速失败 factory 让 run 立即到终态：投影回到 null（终态不入 running 查询）。
+    await deps.taskRegistry.awaitSettled()
+    assert.equal((await handlers['collect.running']({})).collect, null)
+  } finally {
+    await cleanup()
+  }
+})
+
+test('H4 collect.running：批量运行中（探测阶段）batchRunning 为 true，结束后 false', async () => {
+  const { root, cleanup } = await tempRoot()
+  let releaseProbe: (() => void) | undefined
+  const gate = new Promise<void>(resolve => { releaseProbe = resolve })
+  try {
+    await seedAccount(root, 'h4')
+    // 挂起的 chrome factory：probe 停在探测阶段，batch 保持 running 可观察。
+    const hangingChrome = async (): Promise<never> => { await gate; throw new Error('no chrome in lifecycle tests') }
+    const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: hangingChrome })
+    const handlers = buildRouteHandlers(deps)
+    const started = await handlers['collectAll.start']({})
+    assert.equal(started.status, 'ready')
+    const running = await handlers['collect.running']({})
+    assert.equal(running.batchRunning, true)
+    assert.equal(running.collect, null, '批量探测不产生单账号运行投影')
+    // release：probe 快速失败 → 全部 skipped → batch failed（no_eligible_account）。
+    releaseProbe?.()
+    await deps.taskRegistry.awaitSettled()
+    assert.equal((await handlers['collect.running']({})).batchRunning, false)
+  } finally {
+    await cleanup()
+  }
+})

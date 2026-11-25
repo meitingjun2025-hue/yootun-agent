@@ -8,7 +8,9 @@
  * portal 不泄漏，open 状态保留待切回恢复）。共享编排：browser.status 五态、accounts.list、登录扫码流
  * （beginLogin → 2s 轮询 loginStatus → ok(saveError 透出)/timeout/failed 终态
  * 停轮询刷新列表）、单账号采集（collect.start → 1.5s 轮询 collect.status，乐观
- * 运行态，宿主重启丢 record 清乐观态）、批量采集（collectAll.start/status 轮询，
+ * 运行态，宿主重启丢 record 清乐观态）、挂载恢复（collect.running /
+ * collect.status / collectAll.status 三路查询恢复运行态/横幅/批量面板，用户已
+ * 发起则丢弃恢复结果）、批量采集（collectAll.start/status 轮询，
  * 终态刷新）、作品查询（切号缓存 + 序号守卫）、统一作品详情弹层（跨账号显式
  * accountId；detailRequestRef 守卫）、负责人/投流弹层与 Esc 链（官方 Modal 栈
  * 顶层先关、焦点回归）。Toast 收口短暂反馈；素材看板「去拆解」经
@@ -24,7 +26,7 @@ import { DEFAULT_WORK_SORT, reasonText, type Translate, type WorkSortState } fro
 import css from './workbench.module.css'
 import { zh as douyinZh } from './locales.ts'
 import {
-  readAccounts, readBatchStatus, readBrowserState, readCollectStatus, readLogin,
+  readAccounts, readBatchStatus, readBrowserState, readCollectRunning, readCollectStatus, readLogin,
   readWorkDetail, readWorkRows, readWorkTrend, type AccountRow, type BatchView,
   type CollectView, type HotWorkRow, type WorkDetailView, type WorkRow,
 } from './schema.ts'
@@ -87,6 +89,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [collectRecord, setCollectRecord] = useState<CollectView | null>(null)
   const [collectStartReason, setCollectStartReason] = useState<string | null>(null)
   const [batch, setBatch] = useState<BatchView | null>(null)
+  // 挂载恢复期 collect.running 已报批量运行中、collectAll.status 未返回：先锁入口。
+  const [batchRecoveryPending, setBatchRecoveryPending] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshFailedParts, setRefreshFailedParts] = useState<string[]>([])
   const [exporting, setExporting] = useState(false)
@@ -115,9 +119,16 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   const loginPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const collectPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  /** 当前单账号轮询的目标账号（同账号恢复双路指向同一条记录时轮询不重启）。 */
+  const collectPollAccountRef = useRef<string | null>(null)
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   /** collectAll.start 在途标记：请求未返回前的重复点击直接忽略。 */
   const batchStartInFlightRef = useRef(false)
+  // 挂载恢复竞态守卫：用户已发起采集/批量后，到达的恢复响应一律丢弃。
+  const collectInitiatedRef = useRef(false)
+  const batchInitiatedRef = useRef(false)
+  // 挂载恢复一次性标记（账号列表就绪、选中账号确定时触发）。
+  const collectRestoreDoneRef = useRef(false)
   const worksSeqRef = useRef(0)
   const worksCacheRef = useRef(new Map<string, WorkRow[]>())
   const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
@@ -245,18 +256,54 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     })
   }, [beginLoginPolling, notify, t])
 
-  // ---- 单账号采集（乐观运行态；宿主重启丢 record 清乐观态） ----
+  // ---- 单账号采集（乐观运行态；宿主重启丢 record 清乐观态；挂载恢复共用轮询） ----
 
   const stopCollectPolling = useCallback((): void => {
     if (collectPollRef.current !== null) { clearInterval(collectPollRef.current); collectPollRef.current = null }
+    collectPollAccountRef.current = null
   }, [])
 
   const refreshAfterDataChange = useCallback(async (accountId: string): Promise<void> => {
     await Promise.all([loadWorks(accountId), refreshAccounts()])
   }, [loadWorks, refreshAccounts])
 
+  /** 单账号采集轮询（页面发起与挂载恢复共用同一 tick 与终态收尾）。 */
+  const beginCollectPolling = useCallback((accountId: string): void => {
+    // 同账号轮询已在跑则不重启（挂载恢复的 collect.running 与 collect.status
+    // 指向同一条运行中记录时幂等）。
+    if (collectPollRef.current !== null && collectPollAccountRef.current === accountId) return
+    stopCollectPolling()
+    collectPollAccountRef.current = accountId
+    const tick = (): void => {
+      void hostAction('collect.status', { accountId }).then(statusRes => {
+        const statusView = readCollectStatus(statusRes)
+        if (statusView.collect === null) {
+          // 宿主重启/插件重载丢 collectRecord：清乐观 running 态避免永不清除。
+          stopCollectPolling()
+          setCollectBusy(false)
+          setCollectRecord(null)
+          if (statusView.recovery === 'recovery_required') notify(t('run.interrupted'))
+          else notify(t('works.collectLost'))
+          return
+        }
+        setCollectRecord(statusView.collect)
+        if (statusView.collect.status !== 'running') {
+          stopCollectPolling()
+          setCollectBusy(false)
+          if (statusView.collect.status === 'failed') {
+            notify(statusView.collect.error !== null ? `${t('works.collectFailed')}：${reasonText(statusView.collect.error, t)}` : t('works.collectFailed'))
+          }
+          void refreshAfterDataChange(statusView.collect.accountId || accountId)
+        }
+      }).catch(() => undefined)
+    }
+    void tick()
+    collectPollRef.current = setInterval(tick, COLLECT_POLL_MS)
+  }, [notify, refreshAfterDataChange, stopCollectPolling, t])
+
   const startCollect = useCallback((accountId: string): void => {
     if (accountId === '') return
+    collectInitiatedRef.current = true
     setCollectStartReason(null)
     setCollectBusy(true)
     setCollectRecord({ accountId, status: 'running', phase: null, progress: {}, error: null, finishedAt: null })
@@ -269,75 +316,106 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         return
       }
       setCollectRecord(view.collect)
-      stopCollectPolling()
-      const tick = (): void => {
-        void hostAction('collect.status', { accountId }).then(statusRes => {
-          const statusView = readCollectStatus(statusRes)
-          if (statusView.collect === null) {
-            // 宿主重启/插件重载丢 collectRecord：清乐观 running 态避免永不清除。
-            stopCollectPolling()
-            setCollectBusy(false)
-            setCollectRecord(null)
-            if (statusView.recovery === 'recovery_required') notify(t('run.interrupted'))
-            else notify(t('works.collectLost'))
-            return
-          }
-          setCollectRecord(statusView.collect)
-          if (statusView.collect.status !== 'running') {
-            stopCollectPolling()
-            setCollectBusy(false)
-            if (statusView.collect.status === 'failed') {
-              notify(statusView.collect.error !== null ? `${t('works.collectFailed')}：${reasonText(statusView.collect.error, t)}` : t('works.collectFailed'))
-            }
-            void refreshAfterDataChange(statusView.collect.accountId || accountId)
-          }
-        }).catch(() => undefined)
-      }
-      void tick()
-      collectPollRef.current = setInterval(tick, COLLECT_POLL_MS)
+      beginCollectPolling(accountId)
     }).catch(error => {
       stopCollectPolling()
       setCollectBusy(false)
       setCollectRecord(null)
       setCollectStartReason(error instanceof Error ? error.message : 'collect_busy')
     })
-  }, [notify, refreshAfterDataChange, stopCollectPolling, t])
+  }, [beginCollectPolling, stopCollectPolling])
 
-  // ---- 批量采集（终态刷新） ----
+  // ---- 批量采集（终态刷新；挂载恢复共用轮询） ----
 
   const stopBatchPolling = useCallback((): void => {
     if (batchPollRef.current !== null) { clearInterval(batchPollRef.current); batchPollRef.current = null }
   }, [])
 
+  /** 批量采集轮询（页面发起与挂载恢复共用同一 tick 与终态收尾）。 */
+  const beginBatchPolling = useCallback((): void => {
+    stopBatchPolling()
+    const tick = (): void => {
+      void hostAction('collectAll.status', {}).then(batchRes => {
+        const next = readBatchStatus(batchRes)
+        setBatch(next)
+        if (next.status !== null && next.status !== 'running') {
+          stopBatchPolling()
+          const current = selectedIdRef.current
+          if (current !== null) void refreshAfterDataChange(current)
+        }
+      }).catch(() => undefined)
+    }
+    void tick()
+    batchPollRef.current = setInterval(tick, COLLECT_POLL_MS)
+  }, [refreshAfterDataChange, stopBatchPolling])
+
   const startBatch = useCallback((): void => {
     if (batchStartInFlightRef.current) return
+    batchInitiatedRef.current = true
     batchStartInFlightRef.current = true
     setBatch(readBatchStatus({ batch: { status: 'running', phase: 'probing' } }))
     void hostAction('collectAll.start', {}).then(res => {
       // resolve 即已启动：Host 失败走 error envelope（hostAction 抛出，入 catch）。
       batchStartInFlightRef.current = false
       setBatch(readBatchStatus(res))
-      stopBatchPolling()
-      const tick = (): void => {
-        void hostAction('collectAll.status', {}).then(batchRes => {
-          const next = readBatchStatus(batchRes)
-          setBatch(next)
-          if (next.status !== null && next.status !== 'running') {
-            stopBatchPolling()
-            const current = selectedIdRef.current
-            if (current !== null) void refreshAfterDataChange(current)
-          }
-        }).catch(() => undefined)
-      }
-      void tick()
-      batchPollRef.current = setInterval(tick, COLLECT_POLL_MS)
+      beginBatchPolling()
     }).catch(error => {
       batchStartInFlightRef.current = false
       stopBatchPolling()
       setBatch(null)
       notify(`${t('batch.startFailed')}：${reasonText(error instanceof Error ? error.message : 'collect_busy', t)}`)
     })
-  }, [notify, refreshAfterDataChange, stopBatchPolling, t])
+  }, [beginBatchPolling, notify, stopBatchPolling, t])
+
+  // ---- 挂载恢复：三路并行查询，恢复采集态/横幅/批量面板 ----
+
+  useEffect(() => {
+    if (selectedAccountId === null || collectRestoreDoneRef.current) return
+    collectRestoreDoneRef.current = true
+    const accountId = selectedAccountId
+    void hostAction('collect.running').then(res => {
+      const view = readCollectRunning(res)
+      if (view.collect !== null && !collectInitiatedRef.current) {
+        setCollectRecord(view.collect)
+        if (view.collect.status === 'running') {
+          setCollectBusy(true)
+          beginCollectPolling(view.collect.accountId !== '' ? view.collect.accountId : accountId)
+        }
+      }
+      if (view.batchRunning && !batchInitiatedRef.current) {
+        // 批量确认查询返回前先禁用采集入口。
+        setBatchRecoveryPending(true)
+      }
+    }).catch(() => undefined)
+    void hostAction('collect.status', { accountId }).then(res => {
+      if (collectInitiatedRef.current) return
+      const view = readCollectStatus(res)
+      const recovered = view.collect
+      if (recovered === null) {
+        // G-2：重启后内存丢失且无法安全对账 → 提示中断，不进入运行态。
+        if (view.recovery === 'recovery_required') notify(t('run.interrupted'))
+        return
+      }
+      if (recovered.status === 'running') {
+        // 与 collect.running 指向同一条记录时幂等（重复落盘同形投影）。
+        setCollectRecord(recovered)
+        setCollectBusy(true)
+        beginCollectPolling(recovered.accountId !== '' ? recovered.accountId : accountId)
+        return
+      }
+      // 终态：显示横幅；不覆盖其他账号的运行中投影。
+      setCollectRecord(previous => previous !== null && previous.status === 'running' && previous.accountId !== recovered.accountId ? previous : recovered)
+    }).catch(() => undefined)
+    void hostAction('collectAll.status', {}).then(res => {
+      setBatchRecoveryPending(false)
+      if (batchInitiatedRef.current) return
+      // batch 为 null（Host 无批量记录）时不落投影：readBatchStatus 的 fallback
+      // 会把 envelope status 误读为批量状态，渲染出幻影面板。
+      const next = res.batch === null || res.batch === undefined ? null : readBatchStatus(res)
+      setBatch(next)
+      if (next !== null && next.status === 'running') beginBatchPolling()
+    }).catch(() => { setBatchRecoveryPending(false) })
+  }, [beginBatchPolling, beginCollectPolling, notify, selectedAccountId, t])
 
   // ---- 刷新（账号作品页工具栏） ----
 
@@ -543,6 +621,16 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   // ---- Tab 切换（收起 AI 弹层由 AnalysisPage 卸载承担） ----
 
   const batchRunning = batch !== null && batch.status === 'running'
+  // 批量对采集入口的占用 = 运行中或挂载恢复确认在途。
+  const batchBusy = batchRunning || batchRecoveryPending
+  // 账号栏「采集中」状态点数据源：单账号运行投影 + 批量运行中条目。
+  const collectingAccountIds: string[] = []
+  if (collectBusy && collectRecord !== null && collectRecord.accountId !== '') collectingAccountIds.push(collectRecord.accountId)
+  if (batchRunning && batch !== null) {
+    for (const item of batch.items) {
+      if (item.status === 'running' && !collectingAccountIds.includes(item.accountId)) collectingAccountIds.push(item.accountId)
+    }
+  }
   const browserBlocking = browser === 'chrome_missing' || browser === 'driver_missing'
   const loginActive = login !== null && login.state === 'waiting'
   const activeAccountId = selectedAccountId
@@ -625,7 +713,9 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                   browserBlocked={browserBlocking}
                   loginActive={loginActive}
                   collectBusy={collectBusy}
+                  batchBusy={batchBusy}
                   batch={batch}
+                  collectingAccountIds={collectingAccountIds}
                   onSelect={setSelectedAccountId}
                   onCollectAll={startBatch}
                   onRelogin={beginLogin}
@@ -648,7 +738,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                     collectRecord={collectRecord}
                     collectStartReason={collectStartReason}
                     onStartCollect={startCollect}
-                    batchRunning={batchRunning}
+                    batchRunning={batchBusy}
                     browserBlocked={browserBlocking}
                     refreshing={refreshing}
                     refreshFailedParts={refreshFailedParts}

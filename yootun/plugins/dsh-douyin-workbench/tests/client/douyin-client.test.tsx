@@ -9,7 +9,7 @@
 // @vitest-environment jsdom
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
@@ -113,6 +113,7 @@ beforeEach(() => {
     if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
     if (action === 'overview.get') return overviewPayload
     if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1 }
+    if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
     if (action === 'collect.status') return { status: 'ready', collect: null }
     if (action === 'collectAll.status') return { status: 'ready', batch: null }
     if (action === 'breakdown.rewriteRules') return { status: 'ready', rules: [], total: 0 }
@@ -929,21 +930,26 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
         if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
         if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
         if (action === 'collect.status') return { status: 'ready', collect: null }
         if (action === 'collectAll.start') {
           return { status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } }
         }
         if (action === 'collectAll.status') {
           statusCalls += 1
+          // 第 1 次是挂载恢复查询（空态）；start 后立即 tick 运行中；下个间隔终态。
           return statusCalls === 1
-            ? { status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'collecting', total: 1, runnableTotal: 1, runnableDone: 0, currentAccountId: 'acc-1', items: [] } }
-            : { status: 'ready', batch: { batchId: 'batch-1', status: 'completed', phase: null, total: 1, runnableTotal: 1, runnableDone: 1, completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] } }
+            ? { status: 'ready', batch: null }
+            : statusCalls === 2
+              ? { status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'collecting', total: 1, runnableTotal: 1, runnableDone: 0, currentAccountId: 'acc-1', items: [] } }
+              : { status: 'ready', batch: { batchId: 'batch-1', status: 'completed', phase: null, total: 1, runnableTotal: 1, runnableDone: 1, completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] } }
         }
         throw new Error(`unexpected action ${action}`)
       })
       render(<WorkbenchPage t={t} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
+      const baselineStatusCalls = callsOf('collectAll.status')
       fireEvent.click(screen.getByRole('button', { name: en['account.collectAll'] }))
       await flush()
       // Host batch 投影替换乐观态；误导性失败 toast 不出现。
@@ -952,8 +958,8 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       // 依次 collectAll.start → collectAll.status（受理后立即 tick 一次）。
       const startCallIndex = apiMock.hostAction.mock.calls.findIndex(([name]) => name === 'collectAll.start')
       expect(startCallIndex).toBeGreaterThanOrEqual(0)
-      expect(callsOf('collectAll.status')).toBe(1)
-      expect(apiMock.hostAction.mock.calls.findIndex(([name]) => name === 'collectAll.status')).toBeGreaterThan(startCallIndex)
+      expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(1)
+      expect(apiMock.hostAction.mock.calls.findIndex(([name], index) => name === 'collectAll.status' && index > startCallIndex)).toBeGreaterThan(startCallIndex)
       // 批量横幅进入 running（role=status 容器 aria-busy + 进度文案）；按钮运行态禁用。
       expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
       expect(screen.getByText(t('batch.progress.collecting', { index: 1, total: 1 }))).not.toBeNull()
@@ -962,10 +968,10 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       act(() => { vi.advanceTimersByTime(1600) })
       await flush()
       expect(screen.getByText(t('batch.summary.completed', { completed: 1, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull()
-      expect(callsOf('collectAll.status')).toBe(2)
+      expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(2)
       act(() => { vi.advanceTimersByTime(3100) })
       await flush()
-      expect(callsOf('collectAll.status')).toBe(2)
+      expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(2)
     } finally {
       vi.useRealTimers()
     }
@@ -976,6 +982,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
       if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
       if (action === 'collect.status') return { status: 'ready', collect: null }
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       if (action === 'collectAll.start') return Promise.reject(new Error('collect_busy'))
@@ -984,6 +991,9 @@ describe('批量采集启动反馈（collectAll.start）', () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const button = await screen.findByRole('button', { name: en['account.collectAll'] })
+    // 挂载恢复查询已落定（恰一次），失败路径自身不再发起 collectAll.status。
+    await waitFor(() => expect(callsOf('collectAll.status')).toBe(1))
+    const baselineStatusCalls = callsOf('collectAll.status')
     fireEvent.click(button)
     // 失败 toast：startFailed 前缀 + reasonText 收敛的稳定码。
     expect(await screen.findByRole('alert')).not.toBeNull()
@@ -991,7 +1001,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
     // batch 清空：无运行横幅，按钮回到可用态。
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getByRole('button', { name: en['account.collectAll'] }).getAttribute('disabled')).toBeNull()
-    expect(callsOf('collectAll.status')).toBe(0)
+    expect(callsOf('collectAll.status')).toBe(baselineStatusCalls)
   })
 
   it('双击守卫：collectAll.start 在途时重复点击不发起第二次调用，且不吞成功路径', async () => {
@@ -1002,6 +1012,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
         if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
         if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
         if (action === 'collect.status') return { status: 'ready', collect: null }
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         if (action === 'collectAll.start') {
@@ -1012,6 +1023,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       render(<WorkbenchPage t={t} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
+      const baselineStatusCalls = callsOf('collectAll.status')
       const button = screen.getByRole('button', { name: en['account.collectAll'] })
       fireEvent.click(button)
       fireEvent.click(button)
@@ -1021,8 +1033,289 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       resolveStart?.({ status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } })
       await flush()
       expect(callsOf('collectAll.start')).toBe(1)
-      expect(callsOf('collectAll.status')).toBe(1)
+      expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(1)
       expect(screen.queryByRole('alert')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', () => {
+  const callsOf = (action: string): number =>
+    apiMock.hostAction.mock.calls.filter(([name]) => name === action).length
+
+  /** 刷新微任务队列：hostAction 异步 mock 与页面 promise 链在 act 内全部落定。 */
+  const flush = async (): Promise<void> => { await act(async () => { await Promise.resolve() }) }
+
+  /** 挂载链路落定：账号列表 → 选中账号 → 恢复三路查询。 */
+  const settleMount = async (): Promise<void> => { await flush(); await flush() }
+
+  const accountRow2 = { ...accountRow, accountId: 'acc-2', nickname: '账号二' }
+
+  const runningView = (accountId: string, index: number, total: number) => ({
+    accountId, status: 'running', progress: { phase: 'work', index, total }, error: null, finishedAt: null,
+  })
+
+  const completedView = (accountId: string) => ({
+    accountId, status: 'completed', progress: {}, error: null, finishedAt: '2026-11-25T10:00:00Z',
+  })
+
+  /** 按昵称定位账号卡片（article 容器）。 */
+  const cardOf = (nickname: string): HTMLElement => {
+    const card = [...document.querySelectorAll('article')].find(node => node.textContent?.includes(nickname))
+    expect(card, `${nickname} 卡片存在`).not.toBeNull()
+    return card as HTMLElement
+  }
+
+  it('D1 挂载时三路查询各一次；无运行中采集时不启动轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+        if (action === 'collect.status') return { status: 'ready', collect: null }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      await settleMount()
+      expect(callsOf('collect.running')).toBe(1)
+      expect(callsOf('collect.status')).toBe(1)
+      expect(callsOf('collectAll.status')).toBe(1)
+      // 无运行中采集：恢复查询之外零轮询调用。
+      act(() => { vi.advanceTimersByTime(5000) })
+      await flush()
+      expect(callsOf('collect.status')).toBe(1)
+      expect(callsOf('collectAll.status')).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D2 单账号运行中恢复：按钮采集中禁用、进度来自返回记录、轮询按既有间隔继续、终态刷新', async () => {
+    vi.useFakeTimers()
+    try {
+      let statusCalls = 0
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: runningView('acc-1', 3, 10), batchRunning: false }
+        if (action === 'collect.status') {
+          statusCalls += 1
+          // 恢复查询与恢复轮询的立即 tick 均运行中；1.5s 间隔后的 tick 终态。
+          return { status: 'ready', collect: statusCalls <= 2 ? runningView('acc-1', 3, 10) : completedView('acc-1') }
+        }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      // 恢复态：按钮「采集中」禁用，进度来自 collect.running 返回记录。
+      expect(screen.getByRole('button', { name: en['works.collecting'] }).getAttribute('disabled')).not.toBeNull()
+      expect(screen.getByText(t('works.progress.collect', { index: 3, total: 10 }))).not.toBeNull()
+      // 恢复查询 + 恢复轮询立即 tick 恰两次；既有间隔内不再调用。
+      expect(callsOf('collect.status')).toBe(2)
+      act(() => { vi.advanceTimersByTime(1000) })
+      await flush()
+      expect(callsOf('collect.status')).toBe(2)
+      // 1.5s 间隔到 → 终态 → 停轮询并刷新作品当前页与账号列表。
+      act(() => { vi.advanceTimersByTime(600) })
+      await flush()
+      expect(callsOf('collect.status')).toBe(3)
+      expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).toBeNull()
+      expect(screen.getByText(en['run.completed'])).not.toBeNull()
+      expect(callsOf('works.list')).toBe(2)
+      expect(callsOf('accounts.list')).toBe(2)
+      act(() => { vi.advanceTimersByTime(3200) })
+      await flush()
+      expect(callsOf('collect.status')).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D3 终态记录恢复：横幅显示，不轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+        if (action === 'collect.status') return { status: 'ready', collect: completedView('acc-1') }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      expect(screen.getByText(en['run.completed'])).not.toBeNull()
+      expect(callsOf('collect.status')).toBe(1)
+      act(() => { vi.advanceTimersByTime(3200) })
+      await flush()
+      expect(callsOf('collect.status')).toBe(1)
+      expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D4 recovery_required：提示 run.interrupted，不进入运行态', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') {
+        return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
+      }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await settleMount()
+    expect(await screen.findByText(en['run.interrupted'])).not.toBeNull()
+    // 不进入运行态：按钮可用、无进度文案。
+    expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).toBeNull()
+    expect(screen.queryByRole('button', { name: en['works.collecting'] })).toBeNull()
+    expect(screen.queryByText(en['works.progress.fallback'])).toBeNull()
+  })
+
+  it('D5 批量运行中恢复：面板与账号栏按返回值渲染，轮询继续；终态显示汇总不轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      let batchCalls = 0
+      const runningBatch = { batchId: 'batch-1', status: 'running', phase: 'collecting', total: 2, runnableTotal: 2, runnableDone: 1, completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 2, currentAccountId: 'acc-2', items: [{ accountId: 'acc-1', status: 'completed', reason: null }, { accountId: 'acc-2', status: 'running', reason: null }] }
+      const doneBatch = { batchId: 'batch-1', status: 'completed', phase: null, total: 2, runnableTotal: 2, runnableDone: 2, completedCount: 2, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 2, currentAccountId: null, items: [{ accountId: 'acc-1', status: 'completed', reason: null }, { accountId: 'acc-2', status: 'completed', reason: null }] }
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow, accountRow2], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: true }
+        if (action === 'collect.status') return { status: 'ready', collect: null }
+        if (action === 'collectAll.status') {
+          batchCalls += 1
+          // 恢复查询给运行中（立即 tick 复读），1.5s 后的 tick 终态。
+          return { status: 'ready', batch: batchCalls <= 2 ? runningBatch : doneBatch }
+        }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      // 面板运行中渲染 + 账号栏 acc-2 显示采集中。
+      expect(screen.getByText(t('batch.progress.collecting', { index: 2, total: 2 }))).not.toBeNull()
+      expect(within(cardOf('账号二')).getByText(en['account.collecting'])).not.toBeNull()
+      // 恢复查询 + 恢复轮询立即 tick 恰两次。
+      expect(callsOf('collectAll.status')).toBe(2)
+      act(() => { vi.advanceTimersByTime(1600) })
+      await flush()
+      expect(screen.getByText(t('batch.summary.completed', { completed: 2, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull()
+      expect(callsOf('collectAll.status')).toBe(3)
+      act(() => { vi.advanceTimersByTime(3200) })
+      await flush()
+      expect(callsOf('collectAll.status')).toBe(3)
+      // 终态后 acc-2 状态点消失。
+      expect(within(cardOf('账号二')).queryByText(en['account.collecting'])).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D5b collect.running 无批量且查询为 null：无批量面板，采集全部可用', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await settleMount()
+    expect(screen.queryByText(en['batch.unfinishedTitle'])).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('button', { name: en['account.collectAll'] }).getAttribute('disabled')).toBeNull()
+  })
+
+  it('D6 恢复响应到达前用户点采集：恢复结果丢弃', async () => {
+    vi.useFakeTimers()
+    try {
+      let resolveRunning: ((value: Record<string, unknown>) => void) | null = null
+      let resolveRecoveryStatus: ((value: Record<string, unknown>) => void) | null = null
+      let statusCalls = 0
+      apiMock.hostAction.mockImplementation(async (action: string) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'collect.running') {
+          return new Promise<Record<string, unknown>>(resolve => { resolveRunning = resolve })
+        }
+        if (action === 'collect.status') {
+          statusCalls += 1
+          // 第 1 次是恢复查询（挂起待释放）；其后是用户采集的轮询 tick。
+          if (statusCalls === 1) {
+            return new Promise<Record<string, unknown>>(resolve => { resolveRecoveryStatus = resolve })
+          }
+          return { status: 'ready', collect: runningView('acc-1', 1, 5) }
+        }
+        if (action === 'collect.start') return { status: 'ready', collect: runningView('acc-1', 1, 5) }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      // 用户先点采集（恢复响应尚未到达）→ 运行态来自用户自己的 collect.start。
+      fireEvent.click(screen.getByRole('button', { name: en['works.collect'] }))
+      await flush()
+      expect(screen.getByRole('button', { name: en['works.collecting'] }).getAttribute('disabled')).not.toBeNull()
+      expect(screen.getByText(t('works.progress.collect', { index: 1, total: 5 }))).not.toBeNull()
+      // 迟到的恢复响应：stale 运行投影（9/9）与终态记录都不得覆盖用户采集。
+      resolveRunning?.({ status: 'ready', collect: runningView('acc-1', 9, 9), batchRunning: false })
+      resolveRecoveryStatus?.({ status: 'ready', collect: completedView('acc-1') })
+      await flush()
+      expect(screen.getByText(t('works.progress.collect', { index: 1, total: 5 }))).not.toBeNull()
+      expect(screen.queryByText(t('works.progress.collect', { index: 9, total: 9 }))).toBeNull()
+      expect(screen.queryByText(en['run.completed'])).toBeNull()
+      expect(screen.getByRole('button', { name: en['works.collecting'] }).getAttribute('disabled')).not.toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('D7 其他账号在采：该账号卡片显示采集中，选中面板不显示其进度，按钮禁用', async () => {
+    vi.useFakeTimers()
+    try {
+      apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+        if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+        if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow, accountRow2], remoteError: null }
+        if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1 }
+        if (action === 'collect.running') return { status: 'ready', collect: runningView('acc-2', 2, 8), batchRunning: false }
+        if (action === 'collect.status') {
+          // 选中账号的恢复查询给空；acc-2 的恢复轮询给运行中。
+          return args.accountId === 'acc-2' ? { status: 'ready', collect: runningView('acc-2', 2, 8) } : { status: 'ready', collect: null }
+        }
+        if (action === 'collectAll.status') return { status: 'ready', batch: null }
+        throw new Error(`unexpected action ${action}`)
+      })
+      render(<WorkbenchPage t={t} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+      await settleMount()
+      expect(within(cardOf('账号二')).getByText(en['account.collecting'])).not.toBeNull()
+      expect(within(cardOf('账号一')).queryByText(en['account.collecting'])).toBeNull()
+      // 选中账号（acc-1）面板：按钮禁用、不显示 acc-2 的进度。
+      expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).not.toBeNull()
+      expect(screen.queryByText(t('works.progress.collect', { index: 2, total: 8 }))).toBeNull()
+      // 轮询按 acc-2 继续（既有 tick）。
+      expect(apiMock.hostAction).toHaveBeenCalledWith('collect.status', { accountId: 'acc-2' })
     } finally {
       vi.useRealTimers()
     }

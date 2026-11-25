@@ -325,9 +325,13 @@ describe('批量采集面板（账号管理栏标题行下方）', () => {
 
   it('运行中显示当前账号与计数；批量取消后回到终态面板', async () => {
     let cancelled = false
+    let statusCalls = 0
     await renderPage(baseHandlers({
-      'collectAll.status': () => cancelled
-        ? {
+      'collectAll.status': () => {
+        statusCalls += 1
+        // 首次为挂载恢复查询（无运行中批量）；点击发起后的轮询返回运行中 / 终态。
+        if (cancelled) {
+          return {
             ...OK, ready: true, phase: 'finished', total: 2, currentAccountIndex: 1, currentAccountId: null,
             completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 2,
             items: [
@@ -335,11 +339,16 @@ describe('批量采集面板（账号管理栏标题行下方）', () => {
               { accountId: 'finder-b', status: 'skipped', reason: 'collect_busy' },
             ],
           }
-        : {
-            ...OK, ready: false, phase: 'collecting', total: 2, currentAccountIndex: 0,
-            currentAccountId: 'finder-a', completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
-            items: [{ accountId: 'finder-a', status: 'running', reason: null }],
-          },
+        }
+        if (statusCalls === 1) {
+          return { ...OK, ready: true, phase: 'ready', total: 0, currentAccountIndex: -1, currentAccountId: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] }
+        }
+        return {
+          ...OK, ready: false, phase: 'collecting', total: 2, currentAccountIndex: 0,
+          currentAccountId: 'finder-a', completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+          items: [{ accountId: 'finder-a', status: 'running', reason: null }],
+        }
+      },
       'collectAll.start': () => ({ ...OK, started: true, batchId: 'batch-1' }),
       'collectAll.cancel': () => {
         cancelled = true
@@ -407,19 +416,25 @@ describe('作品工具栏（单账号采集入口与就地进度）', () => {
   })
 
   it('运行中：按钮进入采集中 + 工具栏下方进度行 + 取消入口（不进顶部通知条）', async () => {
+    let statusCalls = 0
     await renderPage(baseHandlers({
       'collect.start': () => ({ ...OK, started: true, runId: 'run-1' }),
-      'collect.status': () => ({
-        ...OK,
-        busy: true,
-        collect: {
-          accountId: 'finder-a', attemptId: 'finder-a-abc', status: 'running',
-          startedAt: '2026-11-18T10:00:00.000Z', finishedAt: null, error: null,
-          progress: { phase: 'ingest', batchNo: 2, totalBatches: 5, succeeded: 30, failed: 1, expected: 45 },
-          result: null,
-        },
-        lastRun: null,
-      }),
+      'collect.status': () => {
+        statusCalls += 1
+        // 首次为挂载恢复查询（无运行中采集）；点击发起后的轮询返回运行中。
+        if (statusCalls === 1) return { ...OK, busy: false, collect: null, lastRun: null }
+        return {
+          ...OK,
+          busy: true,
+          collect: {
+            accountId: 'finder-a', attemptId: 'finder-a-abc', status: 'running',
+            startedAt: '2026-11-18T10:00:00.000Z', finishedAt: null, error: null,
+            progress: { phase: 'ingest', batchNo: 2, totalBatches: 5, succeeded: 30, failed: 1, expected: 45 },
+            result: null,
+          },
+          lastRun: null,
+        }
+      },
     }))
     fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
     expect(await screen.findByText(t('works.collecting'))).not.toBeNull()
@@ -447,6 +462,245 @@ describe('作品工具栏（单账号采集入口与就地进度）', () => {
     // 终态后刷新：works / 摘要 / 账号列表再次调用。
     await waitFor(() => expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(2))
     expect(calls.filter(call => call.action === 'accounts.list').length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('采集状态挂载恢复（页面卸载期间采集照常运行，重新挂载还原）', () => {
+  /** 等待宏任务队列清空（负断言「不再有新查询」的前置）。 */
+  const settle = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 25) })
+
+  it('挂载时两路恢复查询各一次；无运行中采集时不进入运行态、不启动轮询', async () => {
+    const { calls } = await renderPage(baseHandlers())
+    await settle()
+    expect(calls.filter(call => call.action === 'collect.status').length).toBe(1)
+    expect(calls.filter(call => call.action === 'collectAll.status').length).toBe(1)
+    expect(screen.queryByText(t('works.collecting'))).toBeNull()
+    expect(screen.queryByText(t('batch.progress.fallback'))).toBeNull()
+    expect(screen.queryByText(t('batch.summaryLine', { completed: 0, partial: 0, failed: 0, skipped: 0 }))).toBeNull()
+    // 无运行中批量：采集全部入口保持可用。
+    expect(screen.getByRole('button', { name: t('account.collectAll') }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('单账号运行中恢复：按钮采集中、进度来自恢复记录、轮询继续到终态并刷新', async () => {
+    let statusCalls = 0
+    let finish = false
+    const { calls } = await renderPage(baseHandlers({
+      'collect.status': () => {
+        statusCalls += 1
+        // 恢复查询与轮询都返回运行中；flip 后轮询读到终态。
+        if (!finish) {
+          return {
+            ...OK,
+            busy: true,
+            collect: {
+              accountId: 'finder-a', status: 'running', startedAt: '2026-11-18T10:00:00.000Z',
+              finishedAt: null, error: null,
+              progress: { phase: 'ingest', batchNo: 3, totalBatches: 6, succeeded: 40, failed: 0, expected: 60 },
+              result: null,
+            },
+            lastRun: null,
+          }
+        }
+        return {
+          ...OK,
+          busy: false,
+          collect: {
+            accountId: 'finder-a', status: 'completed', startedAt: '2026-11-18T10:00:00.000Z',
+            finishedAt: '2026-11-18T10:05:00.000Z', error: null,
+            progress: { phase: 'finishing' }, result: { runId: 'run-9', works: 60 },
+          },
+          lastRun: null,
+        }
+      },
+    }))
+    // 恢复态立即可见：按钮进入采集中，进度行来自恢复记录。
+    expect(await screen.findByText(t('works.collecting'))).not.toBeNull()
+    expect(screen.getByText(t('collect.progress.ingest', { batchNo: 3, totalBatches: 6, succeeded: 40, expected: 60 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('works.collecting') }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: t('works.cancel') })).not.toBeNull()
+    // 轮询到终态：按钮恢复，作品列表与账号列表按采集账号刷新。
+    finish = true
+    await waitFor(() => expect(screen.queryByText(t('works.collecting'))).toBeNull(), { timeout: 3000 })
+    await waitFor(() => expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(2))
+    expect(calls.filter(call => call.action === 'accounts.list').length).toBeGreaterThanOrEqual(2)
+    // 恢复查询 + 首跳轮询（运行中）+ 终态轮询，此后停表。
+    expect(statusCalls).toBe(3)
+  })
+
+  it('恢复查询失败按无运行中采集处理：不进入运行态、不弹错误、不轮询', async () => {
+    let statusCalls = 0
+    await renderPage(baseHandlers({
+      'collect.status': () => {
+        statusCalls += 1
+        if (statusCalls === 1) throw new Error('WX_TOOL_UNAVAILABLE')
+        return { ...OK, busy: false, collect: null, lastRun: null }
+      },
+    }))
+    await screen.findByText('第一条作品')
+    await settle()
+    expect(statusCalls).toBe(1)
+    expect(screen.queryByText(t('works.collecting'))).toBeNull()
+    expect(screen.getByRole('button', { name: t('works.collect') }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('批量运行中恢复（collecting）：面板与当前账号恢复、轮询继续到终态并刷新', async () => {
+    let batchCalls = 0
+    let finish = false
+    const { calls } = await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
+      'collectAll.status': () => {
+        batchCalls += 1
+        // 恢复查询与轮询都返回 collecting；flip 后轮询读到 finished 终态。
+        if (!finish) {
+          return {
+            ...OK, ready: false, phase: 'collecting', total: 2, currentAccountIndex: 1, currentAccountId: 'finder-b',
+            completedCount: 1, partialCount: 0, failedCount: 0, skippedCount: 0,
+            items: [
+              { accountId: 'finder-a', status: 'completed', reason: null },
+              { accountId: 'finder-b', status: 'running', reason: null },
+            ],
+          }
+        }
+        return {
+          ...OK, ready: true, phase: 'finished', total: 2, currentAccountIndex: 2, currentAccountId: null,
+          completedCount: 2, partialCount: 0, failedCount: 0, skippedCount: 0,
+          items: [
+            { accountId: 'finder-a', status: 'completed', reason: null },
+            { accountId: 'finder-b', status: 'completed', reason: null },
+          ],
+        }
+      },
+    }))
+    expect(await screen.findByText(t('batch.progress.collecting', { index: 2, total: 2 }))).not.toBeNull()
+    expect(screen.getByText(t('batch.current', { name: '账号乙' }))).not.toBeNull()
+    expect(screen.getByText(t('batch.counts', { completed: 1, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('account.collectAllRunning') })).not.toBeNull()
+    // 批量当前账号的卡片显示采集中状态点。
+    const cardB = screen.getByText('账号乙').closest('article')
+    expect(within(cardB as HTMLElement).getByText(t('account.collecting'))).not.toBeNull()
+    // 轮询到 finished：汇总显示，不再轮询；当前选中账号数据已刷新。
+    finish = true
+    await waitFor(() => expect(screen.getByText(t('batch.summaryLine', { completed: 2, partial: 0, failed: 0, skipped: 0 }))).not.toBeNull(), { timeout: 3000 })
+    await settle()
+    // 恢复查询 + 首跳轮询（collecting）+ 终态轮询，此后停表。
+    expect(batchCalls).toBe(3)
+    expect(calls.filter(call => call.action === 'works.list').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('批量探测阶段恢复：面板显示正在检查会话，采集全部入口进入运行态', async () => {
+    await renderPage(baseHandlers({
+      'collectAll.status': () => ({
+        ...OK, ready: false, phase: 'probing', total: 1, currentAccountIndex: 0, currentAccountId: null,
+        completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+        items: [{ accountId: 'finder-a', status: 'probing', reason: null }],
+      }),
+    }))
+    expect(await screen.findByText(t('batch.progress.checking', { index: 1, total: 1 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('account.collectAllRunning') })).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('batch.cancel') })).not.toBeNull()
+  })
+
+  it('批量停止阶段恢复：面板仍在运行态且轮询继续', async () => {
+    await renderPage(baseHandlers({
+      'collectAll.status': () => ({
+        ...OK, ready: false, phase: 'stopping', total: 1, currentAccountIndex: 0, currentAccountId: 'finder-a',
+        completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+        items: [{ accountId: 'finder-a', status: 'running', reason: null }],
+      }),
+    }))
+    expect(await screen.findByText(t('batch.progress.collecting', { index: 1, total: 1 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('batch.cancel') })).not.toBeNull()
+  })
+
+  it('批量已结束恢复：只显示汇总，不再轮询', async () => {
+    let batchCalls = 0
+    await renderPage(baseHandlers({
+      'collectAll.status': () => {
+        batchCalls += 1
+        return {
+          ...OK, ready: true, phase: 'finished', total: 2, currentAccountIndex: 2, currentAccountId: null,
+          completedCount: 1, partialCount: 1, failedCount: 0, skippedCount: 0,
+          items: [
+            { accountId: 'finder-a', status: 'completed', reason: null },
+            { accountId: 'finder-b', status: 'partial', reason: 'partial' },
+          ],
+        }
+      },
+    }))
+    expect(await screen.findByText(t('batch.summaryLine', { completed: 1, partial: 1, failed: 0, skipped: 0 }))).not.toBeNull()
+    expect(screen.getByText(`${t('collect.reason.partial')}（partial）`)).not.toBeNull()
+    expect(screen.queryByRole('button', { name: t('batch.cancel') })).toBeNull()
+    await settle()
+    expect(batchCalls).toBe(1)
+  })
+
+  it('批量未启动恢复（ready）：不显示批量面板', async () => {
+    let batchCalls = 0
+    await renderPage(baseHandlers({
+      'collectAll.status': () => {
+        batchCalls += 1
+        return { ...OK, ready: true, phase: 'ready', total: 0, currentAccountIndex: -1, currentAccountId: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] }
+      },
+    }))
+    await settle()
+    expect(batchCalls).toBe(1)
+    expect(screen.queryByText(t('batch.summaryLine', { completed: 0, partial: 0, failed: 0, skipped: 0 }))).toBeNull()
+    expect(screen.queryByRole('button', { name: t('batch.cancel') })).toBeNull()
+  })
+
+  it('恢复响应迟到：用户已发起采集时恢复结果丢弃', async () => {
+    let statusCalls = 0
+    let resolveRestore: ((payload: Payload) => void) | undefined
+    await renderPage(baseHandlers({
+      'collect.status': () => {
+        statusCalls += 1
+        // 首跳为挂载恢复查询（挂起），点击发起后的轮询立即终态。
+        if (statusCalls === 1) return new Promise<Payload>(resolve => { resolveRestore = resolve })
+        return { ...OK, busy: false, collect: null, lastRun: null }
+      },
+      'collect.start': () => ({ ...OK, started: true, runId: 'run-1' }),
+    }))
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    // 用户采集的轮询已收敛（busy:false 终态），页面回到空闲。
+    await waitFor(() => expect(statusCalls).toBe(2))
+    await waitFor(() => expect(screen.queryByText(t('works.collecting'))).toBeNull())
+    expect(screen.getByRole('button', { name: t('works.collect') }).hasAttribute('disabled')).toBe(false)
+    // 迟到的恢复响应（busy:true）不得覆盖用户操作后的状态，也不得重启轮询。
+    resolveRestore?.({
+      ...OK,
+      busy: true,
+      collect: { accountId: 'finder-a', status: 'running', startedAt: '2026-11-18T10:00:00.000Z', finishedAt: null, error: null, progress: null, result: null },
+      lastRun: null,
+    })
+    await settle()
+    expect(screen.queryByText(t('works.collecting'))).toBeNull()
+    expect(statusCalls).toBe(2)
+  })
+
+  it('其他账号在采：对应账号卡片显示采集中，选中账号面板不显示其进度', async () => {
+    await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
+      'collect.status': () => ({
+        ...OK,
+        busy: true,
+        collect: {
+          accountId: 'finder-b', status: 'running', startedAt: '2026-11-18T10:00:00.000Z',
+          finishedAt: null, error: null, progress: { phase: 'details', done: 3, total: 8 }, result: null,
+        },
+        lastRun: null,
+      }),
+    }))
+    // 账号乙卡片显示采集中状态点；账号甲卡片没有。
+    const cardB = screen.getByText('账号乙').closest('article')
+    const cardA = screen.getByText('演示账号').closest('article')
+    expect(within(cardB as HTMLElement).getByText(t('account.collecting'))).not.toBeNull()
+    expect(within(cardA as HTMLElement).queryByText(t('account.collecting'))).toBeNull()
+    // 选中账号（甲）的面板不显示乙的进度；宿主单槽互斥使采集按钮禁用。
+    expect(screen.queryByText(t('collect.progress.details', { done: 3, total: 8 }))).toBeNull()
+    expect(screen.getByRole('button', { name: t('works.collect') }).hasAttribute('disabled')).toBe(true)
+    // 状态点不改变点击与选中：点乙卡片仍正常切换选中。
+    fireEvent.click(screen.getByText('账号乙').closest('button') as HTMLButtonElement)
+    expect(cardB?.getAttribute('aria-current')).toBe('true')
   })
 })
 
@@ -539,6 +793,11 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
   })
 
   it('鼠标双击作品行打开详情 Modal：完整四段（基础信息 / 核心指标 / 来源+留存 / 按日趋势 / 缺口）', async () => {
+    // 按日趋势窗口按系统时间取上海最近 7 个已完成日；固定系统时间，使夹具日
+    // 2026-11-15 / 2026-11-17 恒在窗口内（不固定则随真实日期漂移出窗）。
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-23T12:00:00+08:00'))
+    onTestFinished(() => { vi.useRealTimers() })
     const { calls } = await renderPage(baseHandlers({
       'work.get': args => workGetPayload(String(args.workId)),
       'work.trend': args => ({
