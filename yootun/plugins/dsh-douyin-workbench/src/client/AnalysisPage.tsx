@@ -10,8 +10,8 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Menu, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartFrame, DataCard, DataState } from '@yootun/dsh-client-ui-kit'
+import { Button, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ChartFrame, DataCard, DataState, FilterMenu } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import {
   basisLines, domainErrorText, fanDelta, formatAgeBucket, formatCount, formatDateTime,
@@ -657,37 +657,19 @@ function EvidenceChips(props: {
   )
 }
 
-/** 指标 Menu（7 枚举）。 */
+/** 指标 Menu（7 枚举；kit FilterMenu 薄包装）。 */
 function MetricMenu(props: { t: Translate; metric: string; onChange: (metric: string) => void }): ReactNode {
-  const [open, setOpen] = useState(false)
   const current = TREND_METRICS.find(item => item.id === props.metric) ?? TREND_METRICS[0]
   if (current === undefined) return null
   return (
-    <span className={css.filterGroup}>
-      <span className={css.filterGroupLabel}>{props.t('analysis.trend.metric')}</span>
-      <Menu
-        open={open}
-        anchor={(
-          <Button
-            variant='outline'
-            size='sm'
-            aria-haspopup='menu'
-            aria-expanded={open}
-            aria-label={props.t('analysis.trend.metric')}
-            onClick={() => { setOpen(value => !value) }}
-          >
-            {props.t(current.labelKey)}
-          </Button>
-        )}
-        items={TREND_METRICS.map(item => ({ id: item.id, label: props.t(item.labelKey) }))}
-        selectedId={props.metric}
-        onSelect={id => {
-          setOpen(false)
-          props.onChange(id)
-        }}
-        onClose={() => { setOpen(false) }}
-      />
-    </span>
+    <FilterMenu
+      label={props.t('analysis.trend.metric')}
+      visibleLabel={props.t('analysis.trend.metric')}
+      currentLabel={props.t(current.labelKey)}
+      items={TREND_METRICS.map(item => ({ id: item.id, label: props.t(item.labelKey) }))}
+      selectedId={props.metric}
+      onSelect={props.onChange}
+    />
   )
 }
 

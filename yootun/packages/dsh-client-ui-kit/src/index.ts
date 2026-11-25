@@ -10,6 +10,11 @@
 export { PluginPageShell, type PluginPageShellProps } from './page-shell.tsx'
 export { PluginHeader, type PluginHeaderProps } from './plugin-header.tsx'
 export { FilterBar, type FilterBarProps, type FilterChip } from './filter-bar.tsx'
+export {
+  FilterMenu,
+  type FilterMenuItem,
+  type FilterMenuProps,
+} from './filter-menu.tsx'
 export { DataCard, type DataCardProps } from './data-card.tsx'
 export { KpiCard, type KpiCardProps, type KpiDeltaDirection } from './kpi-card.tsx'
 export { ChartFrame, type ChartFrameProps } from './chart-frame.tsx'
