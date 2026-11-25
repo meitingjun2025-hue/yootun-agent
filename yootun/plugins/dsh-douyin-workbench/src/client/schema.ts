@@ -98,6 +98,12 @@ export interface BatchView {
   skippedCount: number
   probedCount: number
   currentAccountId: string | null
+  /** 运行中的账号（按启动顺序；缺失为 []）。 */
+  runningAccountIds: string[]
+  /** 生效并发度（未启动过的空状态为 0）。 */
+  concurrency: number
+  /** 批次级原因（熔断暂停为 risk_paused；缺失为 null）。 */
+  error: string | null
   items: BatchItemView[]
 }
 
@@ -205,6 +211,11 @@ export function readBatchStatus(payload: Record<string, unknown>): BatchView {
     skippedCount: numberOf(record.skippedCount) ?? 0,
     probedCount: numberOf(record.probedCount) ?? 0,
     currentAccountId: textOf(record.currentAccountId),
+    runningAccountIds: arrayOf(record.runningAccountIds)
+      .map(id => typeof id === 'string' ? id : '')
+      .filter(id => id !== ''),
+    concurrency: numberOf(record.concurrency) ?? 0,
+    error: textOf(record.error),
     items,
   }
 }

@@ -374,7 +374,7 @@ export function avatarFallbackChar(name: string): string {
   return trimmed === '' ? '·' : trimmed.slice(0, 1)
 }
 
-// ---- 批量未完成原因（六类） ----
+// ---- 批量未完成原因（七类） ----
 
 /**
  * 批量 skipped/failed 稳定原因 → 文案键；未知码收敛通用失败文案。
@@ -388,6 +388,7 @@ export function batchReasonKey(reason: string | null): DouyinLocaleKey {
   if (reason === 'pending_account') return 'batch.reason.pending'
   if (reason === 'probe_failed') return 'batch.reason.probeFailed'
   if (reason === 'ingest_failed') return 'batch.reason.ingestFailed'
+  if (reason === 'risk_paused') return 'batch.reason.riskPaused'
   return 'batch.reason.failed'
 }
 

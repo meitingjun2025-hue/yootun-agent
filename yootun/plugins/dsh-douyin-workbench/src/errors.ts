@@ -181,6 +181,8 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'export_too_large',
   'export_failed',
   'overview_too_many_accounts',
+  // 批量采集批内熔断（collectAll 批次 error 槽与未开始条目 reason 槽；不是路由 reason）。
+  'risk_paused',
 ])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */

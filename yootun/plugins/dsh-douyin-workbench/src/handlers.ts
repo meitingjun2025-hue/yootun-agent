@@ -53,6 +53,8 @@ export interface DouyinHandlerDeps {
   chromeFactory: ChromeFactory | undefined
   loginRuns: Map<string, LoginRun>
   maxPages: number
+  /** 批量采集并发度（阶段 2 worker 数；1..5）。 */
+  batchConcurrency: number
   /** 启动恢复（G-2）：running→interrupted 标记；业务 action 在它 settle 前等待。 */
   startupReady: Promise<void>
   /** 启动恢复失败（runs.json 语义损坏）的稳定码；非 null 时业务 action 拒绝。 */
@@ -83,6 +85,7 @@ export type StartupRecovery = (root: string) => Promise<number>
  * @param options.logger - diagnostic logger.
  * @param options.chromeFactory - Chrome launcher seam (tests).
  * @param options.maxPages - default collect page budget.
+ * @param options.batchConcurrency - batch collect concurrency (defaults to 3).
  * @param options.taskRegistry - task registry (defaults to a fresh one).
  * @param options.recovery - startup recovery seam (defaults to recoverInterruptedRuns).
  * @returns the deps shared by handlers.
@@ -94,6 +97,7 @@ export function createHandlerDeps(options: {
   logger?: { warn(message: string, error?: unknown): void }
   chromeFactory?: ChromeFactory
   maxPages?: number
+  batchConcurrency?: number
   taskRegistry?: TaskRegistry
   recovery?: StartupRecovery
   /** pending 提升接缝（测试注入；生产缺省 promotePendingAccount）。 */
@@ -111,6 +115,7 @@ export function createHandlerDeps(options: {
     chromeFactory: options.chromeFactory ?? launchChromeSession,
     loginRuns: new Map(),
     maxPages: options.maxPages ?? 1000,
+    batchConcurrency: options.batchConcurrency ?? 3,
     startupError: null,
     startupReady: Promise.resolve(),
     promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined }) =>

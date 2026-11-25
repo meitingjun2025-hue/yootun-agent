@@ -1,7 +1,7 @@
 /**
  * parity 对账测试（p4-douyin-workbench-d2-d5-ui-parity.md 逐行锚点 + 纯函数与
  * 词典契约）：排序三态/缺失恒最后、万位与百分比 clamp、上海时区时间、粉丝增量
- * 红涨绿跌语义、观看趋势四状态、数据缺口五类、批量六原因、排期 rowId 十进制
+ * 红涨绿跌语义、观看趋势四状态、数据缺口五类、批量七原因、排期 rowId 十进制
  * 字符串序与快照归一、投流逐项校验分键、schedule 18 码 / report 17 码 / AI 9
  * 码全表、Host 载荷读取器、kit 样式表装载清单。
  *
@@ -13,7 +13,7 @@
  *   枚举 30 天窗口缺口虚线 + 内容指标 + 观众与流量 5 块 + 本账号爆款 7 列 +
  *   AI 弹层六卡/状态机/轮询 3s（「单账号分析」与「键盘路径」组；轮询节奏本地
  *   以实现常量锁定，真机节奏为遗留）
- * - §3 账号作品：左栏 280px 两列 + 批量三态/六原因 + 删除两步 RUN_STILL_ACTIVE
+ * - §3 账号作品：左栏 280px 两列 + 批量三态/七原因 + 删除两步 RUN_STILL_ACTIVE
  *   文案 + 工具栏主/次分层 + runBanner 三色 + 12 列冻结 + 排序三态 + 详情弹层
  *   区块顺序冻结（「账号作品页」组）
  * - §4 发布排期：12 列 + 副标 + 行状态机六态 + no-op/dirty/同键重试/放弃 +
@@ -148,13 +148,14 @@ describe('格式化与排序（ui-format.js 语义迁移）', () => {
     expect(gapFieldLabel('mystery', t)).toBe(zh['gap.field.other'])
   })
 
-  it('批量六原因映射；爆款依据/标签/性别/年龄/流量来源中文化', () => {
+  it('批量七原因映射；爆款依据/标签/性别/年龄/流量来源中文化', () => {
     expect(batchReasonKey('session_required')).toBe('batch.reason.sessionExpired')
     expect(batchReasonKey('session_invalid')).toBe('batch.reason.sessionExpired')
     expect(batchReasonKey('storage_state_missing')).toBe('batch.reason.storageMissing')
     expect(batchReasonKey('pending_account')).toBe('batch.reason.pending')
     expect(batchReasonKey('probe_failed')).toBe('batch.reason.probeFailed')
     expect(batchReasonKey('ingest_failed')).toBe('batch.reason.ingestFailed')
+    expect(batchReasonKey('risk_paused')).toBe('batch.reason.riskPaused')
     expect(batchReasonKey('whatever')).toBe('batch.reason.failed')
     expect(batchReasonKey(null)).toBe('batch.reason.failed')
     expect(hotLabelText(['absolute', 'absolute', 'weird'], t)).toBe(`${zh['hot.label.absolute']} + ${zh['hot.label.other']}`)
@@ -322,6 +323,19 @@ describe('Host 载荷读取器（缺失 null 不补 0）', () => {
     const batch = readBatchStatus({ batch: { status: 'partial', phase: null, total: 3, runnableTotal: 2, runnableDone: 2, completedCount: 1, failedCount: 1, skippedCount: 1, probedCount: 3, currentAccountId: null, items: [{ accountId: 'a', status: 'failed', reason: 'session_required' }] } })
     expect(batch.status).toBe('partial')
     expect(batch.items[0]?.reason).toBe('session_required')
+  })
+
+  it('readBatchStatus 运行中账号与并发度：读出列表与数值，缺失兜底 [] / 0', () => {
+    const batch = readBatchStatus({ batch: { status: 'running', phase: 'collecting', total: 3, runnableTotal: 3, runnableDone: 1, currentAccountId: 'acc-2', runningAccountIds: ['acc-2', 'acc-3'], concurrency: 3, error: null, items: [] } })
+    expect(batch.runningAccountIds).toEqual(['acc-2', 'acc-3'])
+    expect(batch.concurrency).toBe(3)
+    expect(batch.error).toBeNull()
+    // 非字符串条目剔除；字段整体缺失兜底空数组与 0。
+    const filtered = readBatchStatus({ batch: { status: 'running', runningAccountIds: ['acc-1', 5, null], concurrency: '3' } })
+    expect(filtered.runningAccountIds).toEqual(['acc-1'])
+    const fallback = readBatchStatus({ batch: { status: 'running', phase: 'probing' } })
+    expect(fallback.runningAccountIds).toEqual([])
+    expect(fallback.concurrency).toBe(0)
   })
 
   it('readOverview：目录完整性判定字段 + 缺失 KPI 字段为 null', () => {

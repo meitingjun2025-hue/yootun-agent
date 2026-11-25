@@ -2,7 +2,7 @@
  * 抖音工作台 locale 词典：zh 为键集事实源，en 全量同步（plugin-ui-ux §七）。
  * 文案基线为旧插件产品文案（功能与任务动线完全参考旧插件；语义迁移不裁剪）：
  * `reason.*` 通用稳定码、`schedule.error.*` 18 码全表、`report.error.*` 17 码、
- * `ai.error.*` 9 码、`gap.reason.*` 五类、`batch.reason.*` 六原因、投流/负责人
+ * `ai.error.*` 9 码、`gap.reason.*` 五类、`batch.reason.*` 七原因、投流/负责人
  * 专属错误在 `promotion.error.*` / `owner.error.*`。
  * @module
  */
@@ -78,13 +78,15 @@ export const zh = {
 
   // 批量采集面板（左栏标题行下方）
   'batch.progress.checking': '正在检查会话 {index}/{total}',
-  'batch.progress.collecting': '第 {index}/{total} 个账号',
+  'batch.progress.concurrent': '已完成 {done}/{total} 个账号',
   'batch.progress.fallback': '正在采集…',
-  'batch.current': '当前账号 {name}',
+  'batch.currentList': '正在采集：{names}',
+  'batch.concurrency': '{count} 路并发',
   'batch.counts': '成功 {completed} · 部分完成 {partial} · 失败 {failed} · 跳过 {skipped}',
   'batch.summary.completed': '批量完成：成功 {completed}、部分完成 {partial}、失败 {failed}、跳过 {skipped}',
   'batch.summary.partial': '部分完成：成功 {completed}、部分完成 {partial}、失败 {failed}、跳过 {skipped}',
   'batch.summary.failed': '批量未完成：成功 {completed}、部分完成 {partial}、失败 {failed}、跳过 {skipped}',
+  'batch.paused': '检测到疑似平台风控，批次已暂停，剩余 {remaining} 个账号未采集',
   'batch.startFailed': '批量采集未启动',
   'batch.unfinishedTitle': '未完成账号',
   'batch.reason.sessionExpired': '会话过期，请重新扫码',
@@ -92,6 +94,7 @@ export const zh = {
   'batch.reason.pending': '待确认账号，请先完成登录',
   'batch.reason.probeFailed': '会话检测失败',
   'batch.reason.ingestFailed': '采集完成但入库失败，可重试',
+  'batch.reason.riskPaused': '疑似风控，批次已暂停',
   'batch.reason.failed': '采集失败',
 
   // 账号作品工具栏
@@ -1257,13 +1260,15 @@ export const en: Record<DouyinLocaleKey, string> = {
   'login.failedToast': 'Sign-in failed; retry',
 
   'batch.progress.checking': 'Checking sessions {index}/{total}',
-  'batch.progress.collecting': 'Account {index}/{total}',
+  'batch.progress.concurrent': '{done}/{total} accounts done',
   'batch.progress.fallback': 'Collecting…',
-  'batch.current': 'Current account {name}',
+  'batch.currentList': 'Collecting: {names}',
+  'batch.concurrency': '{count} in parallel',
   'batch.counts': 'Completed {completed} · Partial {partial} · Failed {failed} · Skipped {skipped}',
   'batch.summary.completed': 'Batch completed: {completed} completed, {partial} partial, {failed} failed, {skipped} skipped',
   'batch.summary.partial': 'Partially completed: {completed} completed, {partial} partial, {failed} failed, {skipped} skipped',
   'batch.summary.failed': 'Batch unfinished: {completed} completed, {partial} partial, {failed} failed, {skipped} skipped',
+  'batch.paused': 'Possible platform risk control detected; the batch is paused with {remaining} accounts not collected',
   'batch.startFailed': 'Batch collection did not start',
   'batch.unfinishedTitle': 'Unfinished accounts',
   'batch.reason.sessionExpired': 'Session expired; scan again',
@@ -1271,6 +1276,7 @@ export const en: Record<DouyinLocaleKey, string> = {
   'batch.reason.pending': 'Account pending confirmation; finish signing in first',
   'batch.reason.probeFailed': 'Session probe failed',
   'batch.reason.ingestFailed': 'Collected but ingest failed; retry',
+  'batch.reason.riskPaused': 'Paused for possible risk control',
   'batch.reason.failed': 'Collection failed',
 
   'works.collect': 'Collect all works of this account',

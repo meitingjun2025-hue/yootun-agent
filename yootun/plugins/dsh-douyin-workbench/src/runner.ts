@@ -4,7 +4,8 @@
  * storage_state（zh-CN / Asia/Shanghai）→ collectAccountWorksOn → 入库编排 →
  * ok 恢复上报（多设备 seq floor 对齐）→ 头像补写。SessionInvalid 走过期收尾
  * （部分成果入库保留、listComplete 强制 false、无作品不建 run）。批量控制器
- * 与单账号互斥（collect_busy）、串行、no_eligible_account。
+ * 与单账号互斥（collect_busy）、阶段 2 受控并发（worker 队列 + 批内熔断）、
+ * no_eligible_account。
  * @module
  */
 import type { Page } from 'playwright-core'
@@ -601,6 +602,18 @@ export interface CollectRecord {
 
 const EVENT_LIMIT = 200
 
+/** 单账号控制器的启动入参。 */
+export interface CollectStartInput {
+  accountId: string
+  options?: Partial<RunOptions>
+  /**
+   * 批量控制器的内部启动。批量运行中，页面发起的单账号采集由
+   * `batchHasRunning` 钩子拒绝（collect_busy）；批量自己的 worker 取号启动
+   * 不受该钩子拦截。
+   */
+  fromBatch?: boolean
+}
+
 /** 单账号采集控制器：同账号单飞幂等复用；事件环形裁剪。 */
 export function createCollectController(deps: RunnerDeps, hooks: {
   batchHasRunning?: (() => boolean) | undefined
@@ -618,14 +631,14 @@ export function createCollectController(deps: RunnerDeps, hooks: {
   })
   return {
     /** Start (or idempotently reuse) one account's collect run. */
-    start(input: { accountId: string; options?: Partial<RunOptions> }): { started: boolean; record: CollectRecord | null; reason?: string } {
+    start(input: CollectStartInput): { started: boolean; record: CollectRecord | null; reason?: string } {
       const accountId = input.accountId
       if (accountId === '') return { started: false, record: null, reason: 'account_id_required' }
       const existing = runs.get(accountId)
       if (existing !== undefined && existing.status === 'running') {
         return { started: false, record: existing, reason: 'collect_busy' }
       }
-      if (hooks.batchHasRunning?.() === true) {
+      if (input.fromBatch !== true && hooks.batchHasRunning?.() === true) {
         return { started: false, record: null, reason: 'collect_busy' }
       }
       const record: CollectRecord = {
@@ -723,11 +736,35 @@ function projectResult(result: CollectResult): Record<string, unknown> {
 
 // ---- 批量控制器 ----
 
+/** 批量采集并发缺省值（Config.batchConcurrency 未传时的运行时兜底）。 */
+const DEFAULT_BATCH_CONCURRENCY = 3
+/** worker 启动错峰：第 k 个 worker 首取前等待 k ×（基数 + rand×跨度）毫秒。 */
+const BATCH_STAGGER_BASE_MS = 3_000
+const BATCH_STAGGER_SPREAD_MS = 5_000
+/** 相邻取号间隔上限（rand×跨度毫秒）。 */
+const BATCH_TAKE_GAP_MS = 3_000
+/** 批内熔断阈值：同批风控信号达到该数量即暂停剩余账号。 */
+const BATCH_RISK_PAUSE_THRESHOLD = 2
+
+/** 可被 signal 立即打断的等待（阶段 2 缺省等待接缝）：批次取消时提前返回。 */
+const interruptibleSleep = (ms: number, signal?: AbortSignal): Promise<void> => new Promise(resolve => {
+  if (signal?.aborted === true) { resolve(); return }
+  const wake = (): void => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', wake)
+    resolve()
+  }
+  const timer = setTimeout(wake, ms)
+  signal?.addEventListener('abort', wake, { once: true })
+})
+
 /** 批量条目投影。 */
 export interface BatchItem {
   accountId: string
   status: 'queued' | 'probing' | 'ready' | 'running' | 'completed' | 'partial' | 'failed' | 'skipped'
   reason: string | null
+  /** 条目终态时刻（熔断暂停的条目写暂停时刻；其余条目 null）。 */
+  finishedAt: string | null
   collect?: { status: string; error: string | null; result: Record<string, unknown> | null } | undefined
 }
 
@@ -740,6 +777,10 @@ export interface BatchStatus {
   finishedAt: string | null
   error: string | null
   currentAccountId: string | null
+  /** 运行中的账号（按启动顺序；终态后为空数组）。 */
+  runningAccountIds: string[]
+  /** 生效并发度（未启动过的空状态为 0）。 */
+  concurrency: number
   total: number
   runnableTotal: number
   runnableDone: number
@@ -759,6 +800,10 @@ interface BatchState {
   finishedAt: string | null
   error: string | null
   currentAccountId: string | null
+  /** 运行中的账号（按启动顺序；worker 取号/结算时维护，与 currentAccountId 同步）。 */
+  runningAccountIds: string[]
+  /** 生效并发度（阶段 2 启动时按 min(配置并发度, ready 账号数) 落定）。 */
+  concurrency: number
   items: BatchItem[]
   /** batch 级取消信号（dispose/采集取消贯穿 probe 与逐账号采集）。 */
   signal: AbortSignal | undefined
@@ -767,13 +812,13 @@ interface BatchState {
 let batchSeq = 0
 
 /**
- * 批量采集控制器（旧九条行为）：全局单飞幂等、与单账号互斥、稳定排序、
- * no_eligible_account、串行 probing→collecting、全拦截 batch failed、复用单
- * 账号控制器、结算三态。
+ * 批量采集控制器：全局单飞幂等、与单账号互斥、稳定排序、no_eligible_account、
+ * 串行 probing → 受控并发 collecting（worker 队列 + 启动错峰 + 批内熔断）、
+ * 全拦截 batch failed、复用单账号控制器、结算三态。
  */
 export function createBatchCollectController(options: {
   collect: {
-    start(input: { accountId: string; options?: Partial<RunOptions> }): { started: boolean; record: CollectRecord | null; reason?: string }
+    start(input: CollectStartInput): { started: boolean; record: CollectRecord | null; reason?: string }
     wait(accountId: string): Promise<CollectResult | null>
     hasRunning(): boolean
   }
@@ -781,6 +826,12 @@ export function createBatchCollectController(options: {
   logger?: { warn(message: string): void } | undefined
   /** 整次 batch run promise 交给调用方任务登记；dispose 等待它。 */
   trackRun?: ((promise: Promise<void>) => void) | undefined
+  /** 阶段 2 并发 worker 数（Config.batchConcurrency；缺省 3；生效值 = min(并发度, ready 账号数)）。 */
+  concurrency?: number | undefined
+  /** 随机数接缝（返回 [0,1)；错峰与取号间隔抖动；测试注入定值）。 */
+  rand?: (() => number) | undefined
+  /** 等待接缝（毫秒；可被批次 signal 打断；测试注入零等待）。 */
+  sleep?: ((ms: number, signal?: AbortSignal) => Promise<void>) | undefined
 }) {
   let state: BatchState | null = null
   const projectItems = (items: BatchItem[]): Record<string, unknown>[] => items.map(item => ({
@@ -793,7 +844,7 @@ export function createBatchCollectController(options: {
     // 闭包内不保留 let 收窄：进入即快照。
     const snapshot = state
     if (snapshot === null) {
-      return { batchId: null, status: null, phase: null, startedAt: null, finishedAt: null, error: null, currentAccountId: null, total: 0, runnableTotal: 0, runnableDone: 0, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 0, items: [] }
+      return { batchId: null, status: null, phase: null, startedAt: null, finishedAt: null, error: null, currentAccountId: null, runningAccountIds: [], concurrency: 0, total: 0, runnableTotal: 0, runnableDone: 0, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, probedCount: 0, items: [] }
     }
     const count = (status: BatchItem['status']): number => snapshot.items.filter(item => item.status === status).length
     const skipped = count('skipped')
@@ -809,6 +860,8 @@ export function createBatchCollectController(options: {
       finishedAt: snapshot.finishedAt,
       error: snapshot.error,
       currentAccountId: snapshot.currentAccountId,
+      runningAccountIds: snapshot.runningAccountIds,
+      concurrency: snapshot.concurrency,
       total: snapshot.items.length,
       runnableTotal: snapshot.items.length - skipped,
       runnableDone: completed + partial + failed,
@@ -825,7 +878,7 @@ export function createBatchCollectController(options: {
     get running(): boolean { return state !== null && state.status === 'running' },
     hasRunning(): boolean { return this.running },
 
-    /** Start one batch (single-flight; probes then collects serially). */
+    /** Start one batch (single-flight; serial probes, then concurrent collects). */
     start(accounts: Array<{ accountId: string; skipped: boolean; reason: string | null }>, startOptions?: { signal?: AbortSignal }): { started: boolean; batch?: BatchStatus; reason?: string; skipped?: Record<string, unknown>[]; runPromise?: Promise<void> } {
       if (state !== null && state.status === 'running') {
         return { started: false, reason: 'collect_busy', batch: project() }
@@ -834,8 +887,8 @@ export function createBatchCollectController(options: {
       const items: BatchItem[] = [...accounts]
         .sort((a, b) => a.accountId.localeCompare(b.accountId))
         .map(account => account.skipped
-          ? { accountId: account.accountId, status: 'skipped', reason: account.reason ?? 'not_eligible' }
-          : { accountId: account.accountId, status: 'queued', reason: null })
+          ? { accountId: account.accountId, status: 'skipped', reason: account.reason ?? 'not_eligible', finishedAt: null }
+          : { accountId: account.accountId, status: 'queued', reason: null, finishedAt: null })
       const runnable = items.filter(item => item.status === 'queued')
       if (runnable.length === 0) {
         return { started: false, reason: 'no_eligible_account', skipped: projectItems(items) }
@@ -849,6 +902,11 @@ export function createBatchCollectController(options: {
         finishedAt: null,
         error: null,
         currentAccountId: null,
+        runningAccountIds: [],
+        concurrency: Math.min(
+          Math.max(1, options.concurrency ?? DEFAULT_BATCH_CONCURRENCY),
+          Math.max(1, items.filter(item => item.status === 'queued').length),
+        ),
         items,
         signal: startOptions?.signal,
       }
@@ -863,6 +921,9 @@ export function createBatchCollectController(options: {
               item.reason = reason
             }
           }
+          // 崩溃即无运行中账号：投影必须回到空集合（currentAccountId 派生口径）。
+          state.runningAccountIds = []
+          state.currentAccountId = null
           state.status = 'failed'
           state.finishedAt = new Date().toISOString()
         }
@@ -929,41 +990,93 @@ export function createBatchCollectController(options: {
           current.error = 'no_eligible_account'
           return
         }
-        // 阶段 2：严格串行 collecting（上一个账号完全结束才启动下一个）。
+        // 阶段 2：受控并发 collecting（worker 队列共享取数游标；同账号仍单飞）。
         current.phase = 'collecting'
-        for (const item of runnable) {
-          if (cancelled()) {
-            item.status = 'failed'
-            item.reason = 'collect_cancelled'
-            continue
-          }
-          current.currentAccountId = item.accountId
-          item.status = 'running'
-          const started = options.collect.start({ accountId: item.accountId, options: { signal: current.signal } })
-          if (!started.started || started.record === null) {
-            item.status = 'failed'
-            item.reason = started.reason ?? 'collect_failed'
-            current.currentAccountId = null
-            continue
-          }
-          const result = await options.collect.wait(item.accountId)
-          // 与单账号同口径（collectOutcomeStatus）：部分失败绝不伪装成整体成功。
-          const outcome = result !== null ? collectOutcomeStatus(result) : 'failed'
-          item.collect = {
-            status: outcome,
-            error: result?.reason ?? null,
-            result: result === null ? null : projectResult(result),
-          }
-          if (cancelled()) {
-            item.status = 'failed'
-            item.reason = 'collect_cancelled'
-            current.currentAccountId = null
-            continue
-          }
-          item.status = outcome
-          item.reason = item.status === 'failed' ? result?.reason ?? 'collect_failed' : null
-          current.currentAccountId = null
+        const concurrency = Math.max(1, options.concurrency ?? DEFAULT_BATCH_CONCURRENCY)
+        const workerCount = Math.min(concurrency, runnable.length)
+        current.concurrency = workerCount
+        const rand = options.rand ?? Math.random
+        const sleepFor = options.sleep ?? interruptibleSleep
+        let nextIndex = 0
+        let riskSignals = 0
+        let paused = false
+        const updateCurrentAccount = (): void => {
+          current.currentAccountId = current.runningAccountIds[0] ?? null
         }
+        const releaseRunning = (accountId: string): void => {
+          const at = current.runningAccountIds.indexOf(accountId)
+          if (at >= 0) current.runningAccountIds.splice(at, 1)
+          updateCurrentAccount()
+        }
+        // 风控信号：探测通过后采集途中会话失效（status 或失败原因承载）。
+        const isRiskSignal = (result: CollectResult | null): boolean => {
+          if (result === null) return false
+          if (result.status === 'session_expired') return true
+          return result.status === 'collect_failed' && (result.reason === 'session_expired' || result.reason === 'probe_failed')
+        }
+        const pauseRest = (): void => {
+          current.error = 'risk_paused'
+          const pausedAt = new Date().toISOString()
+          for (const item of runnable) {
+            if (item.status === 'queued' || item.status === 'ready') {
+              item.status = 'skipped'
+              item.reason = 'risk_paused'
+              item.finishedAt = pausedAt
+            }
+          }
+        }
+        const runWorker = async (workerIndex: number): Promise<void> => {
+          let firstTake = true
+          for (;;) {
+            if (paused || cancelled() || nextIndex >= runnable.length) return
+            // 启动错峰：首取 workerIndex × 随机 3–8 秒，其后取号间隔随机 0–3 秒。
+            const delay = firstTake
+              ? workerIndex * (BATCH_STAGGER_BASE_MS + rand() * BATCH_STAGGER_SPREAD_MS)
+              : rand() * BATCH_TAKE_GAP_MS
+            firstTake = false
+            await sleepFor(delay, current.signal)
+            if (paused || cancelled() || nextIndex >= runnable.length) return
+            const item = runnable[nextIndex]
+            if (item === undefined) return
+            nextIndex += 1
+            item.status = 'running'
+            current.runningAccountIds.push(item.accountId)
+            updateCurrentAccount()
+            const started = options.collect.start({ accountId: item.accountId, options: { signal: current.signal }, fromBatch: true })
+            if (!started.started || started.record === null) {
+              item.status = 'failed'
+              item.reason = started.reason ?? 'collect_failed'
+              releaseRunning(item.accountId)
+              continue
+            }
+            const result = await options.collect.wait(item.accountId)
+            // 与单账号同口径（collectOutcomeStatus）：部分失败绝不伪装成整体成功。
+            const outcome = result !== null ? collectOutcomeStatus(result) : 'failed'
+            item.collect = {
+              status: outcome,
+              error: result?.reason ?? null,
+              result: result === null ? null : projectResult(result),
+            }
+            if (cancelled()) {
+              item.status = 'failed'
+              item.reason = 'collect_cancelled'
+            } else {
+              item.status = outcome
+              item.reason = item.status === 'failed' ? result?.reason ?? 'collect_failed' : null
+            }
+            releaseRunning(item.accountId)
+            if (!cancelled() && isRiskSignal(result)) {
+              riskSignals += 1
+              if (riskSignals >= BATCH_RISK_PAUSE_THRESHOLD && !paused) {
+                paused = true
+                pauseRest()
+              }
+            }
+          }
+        }
+        const workers: Promise<void>[] = []
+        for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) workers.push(runWorker(workerIndex))
+        await Promise.all(workers)
         if (cancelled()) {
           failRest('collect_cancelled')
           current.status = 'failed'
