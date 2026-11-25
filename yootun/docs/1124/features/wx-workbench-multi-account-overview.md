@@ -135,7 +135,7 @@ Pydantic DTO：`WxAccountsOverviewInput(CamelModel)`，字段 `account_ids / win
 | 自定义窗口 | `from_day = _parse_day(fromDay)`、`to_day = _parse_day(toDay)`；校验顺序：格式（`INVALID_TIME_WINDOW`）→ `from_day <= to_day`（`INVALID_TIME_WINDOW`）→ `to_day <= latestCompletedDay()`（`INVALID_TIME_WINDOW`，当天未收盘不入日表）→ `(to_day - from_day).days + 1 <= MAX_OVERVIEW_CUSTOM_DAYS`（`INVALID_TIME_WINDOW`）。单日区间合法（日报对账用）。`summary.window` 回传实际 `{startDay, endDay}` 供调用方核对 |
 | 汇总求和 | `summary.totals` 与 `summary.fans_totals` = 各账号同行字段求和；某字段在所有账号都缺失时该字段**不出现**（不写 0）；某账号缺失该字段则不计入。`summary.totals.work_count` 为各账号窗口内发布作品数（`wx_channels_work.publish_time` 落窗）之和；账号无 work 记录时该键不出现，有记录而窗口内为 0 返回 0 |
 | 汇总关注者总数 | `summary.followerTotalCount` = 各账号 `follower_total_count` 非空值之和；全部缺失时为 `null` |
-| 合计趋势 | `summary.trendWindow` 跟随窗口：`trend_end = window_end`，`trend_start = trend_end - (max(window_days, 7) - 1)`，即窗口不足 7 天时以末日为锚补足 7 天、等于或超过 7 天时与窗口重合；`yesterday` → 7 天（与现状一致），`last_7d` → 7 天，`last_30d` → 30 天，`custom [Mon, Sun]` → 7 天（周报范围），`custom [D, D]` → 7 天（含 D 的近一周），`custom [11-01, 11-30]` → 30 天（月报范围）。`trendDaily[i].follower_total_count` = 该日各账号 `follower_total_count` 非空值之和，该日全部缺失为 `null`；行数 = 趋势天数，缺失日不省略。趋势查询范围与窗口查询范围合并为一次 `IN` 查询（`min(window_start, trend_start) .. window_end`），内存分别聚合 |
+| 合计趋势 | `summary.trendWindow` 跟随窗口：`trend_end = window_end`，`trend_start = trend_end - (max(window_days, 7) - 1)`，即窗口不足 7 天时以末日为锚补足 7 天、等于或超过 7 天时与窗口重合；`yesterday` → 7 天（与现状一致），`last_7d` → 7 天，`last_30d` → 30 天，`custom [Mon, Sun]` → 7 天（周报范围），`custom [D, D]` → 7 天（含 D 的近一周），`custom [11-01, 11-30]` → 30 天（月报范围）。页面自 2026-11-25 真机验收起严格按所选时间窗取点（横轴固定 7 位），见 [device-review-fixes.md](../../1125/features/device-review-fixes.md) 2.5；本字段契约不变。`trendDaily[i].follower_total_count` = 该日各账号 `follower_total_count` 非空值之和，该日全部缺失为 `null`；行数 = 趋势天数，缺失日不省略。趋势查询范围与窗口查询范围合并为一次 `IN` 查询（`min(window_start, trend_start) .. window_end`），内存分别聚合 |
 | 对账契约 | 日报 / 周报等报告生成方调用本工具时，与页面使用同一入参得到同一结果：同一 `[fromDay, toDay]` 的 `summary.totals` / `fans_totals` / `followerTotalCount` / `trendDaily` 完全确定（日表是已完成日的快照，采集补录历史日会改变结果，报告应记录生成时刻）。数据完整性由 `daysObserved` / `daysExpected` / `availability` 三项表达，报告方据此判定 `ok` / `partial` / `no_data`，不得把缺失日当 0 |
 | 汇总 availability | 每账号 `metrics.rowAvailability` / `fans_trend.rowAvailability` 聚合：全部 `no_data` → `no_data`；全部 `ok` → `ok`；其余 → `partial`；账号集合为空 → `no_data` |
 | `summary.accountCount` | 过滤后的账号数；`summary.accountTotal` = 过滤前 `delete_state='none'` 的账号数（供 UI 显示「共 N 个账号」与筛选命中率） |
@@ -477,7 +477,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 列 | `th` 文案 | 单元格 | 字段 | 格式 | 对齐 |
 |---|---|---|---|---|---|
 | 排名 | `overview.col.rank` | 行序号（服务端排序后的索引 + 1） | — | 整数 | 右 |
-| 账号 | `overview.col.account` | 头像（`avatar`，28px 圆形，缺省首字符）+ `nickname ?? accountId` + 会话状态 Tag（`ok` 中性 / `expired` `tone='danger'` / 其他不显示）+ `availability.accountMetrics === 'no_data' && availability.fansTrend === 'no_data'` 时追加 Tag「暂无数据」（`tone='warning'`） | `nickname` `avatar` `sessionStatus` `availability` | — | 左 |
+| 账号 | `overview.col.account` | `nickname ?? accountId`（2026-11-25 真机验收起不显示昵称首字占位，见 [device-review-fixes.md](../../1125/features/device-review-fixes.md)） + 会话状态 Tag（`ok` 中性 / `expired` `tone='danger'` / 其他不显示）+ `availability.accountMetrics === 'no_data' && availability.fansTrend === 'no_data'` 时追加 Tag「未采集数据」（`tone='warning'`） | `nickname` `avatar` `sessionStatus` `availability` | — | 左 |
 | 关注者 | `overview.col.followers` | `followerTotalCount` | `formatCount` | 右 |
 | 净增 | `overview.col.netFans` | `fansTotals.netCount`，带符号与涨跌色 | `formatDelta` | 右 |
 | 播放 | `col.play` | `totals.playCount` | `formatCount` | 右 |
@@ -565,14 +565,14 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | `overview.section.accounts` | 账号表现 | Account performance |
 | `overview.section.accountsCount` | 共 {count} 个账号 | {count} accounts |
 | `overview.section.singleAccount` | 该账号 · {window} | This account · {window} |
-| `overview.col.rank` | # | # |
+| `overview.col.rank` | 序号 | No. |
 | `overview.col.account` | 账号 | Account |
 | `overview.col.followers` | 关注者 | Followers |
 | `overview.col.netFans` | 净增关注 | Net followers |
 | `overview.col.works` | 作品数 | Works |
 | `overview.col.lastCollected` | 最近采集 | Last collected（2026-11-25 起账号表现表无此列，键保留在词典中，页面无引用） |
 | `overview.row.selectAria` | 选择账号 {name} | Select account {name} |
-| `overview.row.noData` | 暂无数据 | No data |
+| `overview.row.noData` | 未采集数据 | Not collected |
 | `overview.tag.sessionOk` | 正常 | OK |
 | `overview.tag.sessionExpired` | 已过期 | Expired |
 | `overview.tag.sessionUnknown` | 未知 | Unknown |

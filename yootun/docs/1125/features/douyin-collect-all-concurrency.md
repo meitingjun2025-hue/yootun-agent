@@ -92,7 +92,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 |---|---|---|
 | `batch.progress.concurrent` | 已完成 {done}/{total} 个账号 | {done}/{total} accounts done |
 | `batch.currentList` | 正在采集：{names} | Collecting: {names} |
-| `batch.concurrency` | {count} 路并发 | {count} in parallel |
+| `batch.concurrency` | 最多同时采集 {count} 个账号 | Up to {count} accounts collected at a time |
 | `batch.paused` | 检测到疑似平台风控，批次已暂停，剩余 {remaining} 个账号未采集 | Possible platform risk control detected; the batch is paused with {remaining} accounts not collected |
 | `batch.reason.riskPaused` | 疑似风控，批次已暂停 | Paused for possible risk control |
 
@@ -142,7 +142,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 | # | 步骤 | 预期 |
 |---|---|---|
-| R1 | 点「采集全部」 | 面板先显示「正在检查会话 i/n」，随后显示「已完成 x/n 个账号」「正在采集：A、B、C」「3 路并发」并持续更新；任务管理器可见 3 个 Chrome 进程；记录整批耗时 |
+| R1 | 点「采集全部」 | 面板先显示「正在检查会话 i/n」，随后显示「已完成 x/n 个账号」「正在采集：A、B、C」「最多同时采集 3 个账号」并持续更新；任务管理器可见 3 个 Chrome 进程；记录整批耗时 |
 | R2 | 批量运行中点某账号的「采集」 | 提示已有采集任务（`collect_busy`），不启动 |
 | R3 | 批量运行中再点「采集全部」 | 不产生第二个批次 |
 | R4 | 批量运行中分别选中运行中的账号与未开始的账号看作品页 | 运行中的显示实时进度；未开始的不显示进度且按钮禁用 |
@@ -212,7 +212,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 |---|---|
 | B15 | `readBatchStatus` 读出 `runningAccountIds` / `concurrency`，缺失时为 `[]` / `0` |
 | B16 | `batchReasonKey('risk_paused')` → `batch.reason.riskPaused` |
-| B17 | 运行中面板显示「正在采集：A、B、C」与「3 路并发」；仅一个账号运行时显示它一个 |
+| B17 | 运行中面板显示「正在采集：A、B、C」与「最多同时采集 3 个账号」（2026-11-25 真机验收后文案由「3 路并发」调整）；仅一个账号运行时显示它一个 |
 | B18 | `error = risk_paused` 时显示暂停文案与剩余数，未完成账号列表里的 `risk_paused` 条目显示 `batch.reason.riskPaused` |
 
 ## 附录 C：风控分析与对策
@@ -251,7 +251,7 @@ worker 启动间隔与取号间隔（附录 A.2）让三条采集链路不同相
 | 状态 | 现状 | 变更 |
 |---|---|---|
 | 阶段 1 运行中 | 「正在检查会话 i/n」 | 不变 |
-| 阶段 2 运行中 | 「第 i/n 个账号」+「当前账号 X」 | 「已完成 {done}/{total} 个账号」+「正在采集：A、B、C」+「{count} 路并发」 |
+| 阶段 2 运行中 | 「第 i/n 个账号」+「当前账号 X」 | 「已完成 {done}/{total} 个账号」+「正在采集：A、B、C」+「最多同时采集 {count} 个账号」 |
 | 熔断结束 | 三态汇总 + 未完成账号列表 | 汇总行上方增加暂停提示行；未完成列表里 `risk_paused` 条目显示对应原因 |
 
 昵称用 `nameOf(accountId)` 既有映射；三个以上名称在窄容器换行，不截断账号名。
