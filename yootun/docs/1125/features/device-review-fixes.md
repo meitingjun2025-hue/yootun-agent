@@ -94,12 +94,12 @@
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 1125 索引） | 2026-11-25 | `main` | 已提交本地 `main`，随代码一起推送 |
+| 文档（本文 + 1125 索引） | 2026-11-25 | `main` | 已提交并推送 `main` |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | yootun-agent 开发 | 2026-11-25 | `feat/device-review-fixes` | 完成；两轮审查回修通过，自动验收见 5.1 |
 | 本地页面验收 | 2026-11-25 | — | 通过，记录见 5.3 |
-| yootun-agent 合入 `main` | 2026-11-25 | `feat/device-review-fixes` → `main` | 已合入本地 `main`，推送待用户确认 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/device-review-fixes` → `main` | 已合入并推送 `main` |
 | 发版 | | | 待填 |
 
 ## 5. 验收
