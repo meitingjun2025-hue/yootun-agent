@@ -336,6 +336,36 @@ test('account.loginStatus 二选一：双缺/双空拒绝，单字段通过', ()
   assert.equal(byKey.loginKey, 'pending-1')
 })
 
+test('works.list 分页参数：sort/order 枚举、limit/offset 整数与范围、accountId 仍必填', () => {
+  // 类型：sort/order 必须 string，limit/offset 必须整数（十进制串放行）。
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', sort: 7 }), (error: unknown) =>
+    error instanceof DouyinError && error.code === 'DOUYIN_ROUTE_INVALID_REQUEST')
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', order: true }), DouyinError)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', limit: 1.5 }), /must be an integer/)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', offset: 'abc' }), /must be an integer/)
+  // sort 十一枚举：枚举外拒绝、枚举内逐一通过。
+  const sortKeys = ['publish_time', 'play_count', 'collect_count', 'like_count', 'comment_count', 'bounce_rate_2s_pct', 'completion_rate_5s_pct', 'completion_rate_pct', 'fans_gain_count', 'avg_watch_duration_s', 'avg_view_proportion_pct']
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', sort: 'random' }), /not an allowed value/)
+  for (const key of sortKeys) {
+    assert.equal(validateActionArgs('works.list', { accountId: 'a', sort: key }).sort, key)
+  }
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', order: 'ascending' }), /not an allowed value/)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', order: 'asc' }).order, 'asc')
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', order: 'desc' }).order, 'desc')
+  // 范围：limit 1..100、offset 0..1000000（0 合法、负数与越界拒绝）。
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', limit: 0 }), /out of range/)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', limit: 101 }), /out of range/)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', limit: 100 }).limit, 100)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', limit: '10' }).limit, 10)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', offset: -1 }), /out of range/)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', offset: 1000001 }), /out of range/)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', offset: 0 }).offset, 0)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', offset: 1000000 }).offset, 1000000)
+  assert.equal(validateActionArgs('works.list', { accountId: 'a', offset: '20' }).offset, 20)
+  // accountId 仍必填。
+  assert.throws(() => validateActionArgs('works.list', { limit: 10, offset: 0 }), /missing required field "accountId"/)
+})
+
 test('服务端封闭枚举：总览排序/热门形态/账号趋势指标/报表状态', () => {
   assert.throws(() => validateActionArgs('overview.get', { sort: 'random' }), /not an allowed value/)
   assert.equal(validateActionArgs('overview.get', { sort: 'median_play' }).sort, 'median_play')

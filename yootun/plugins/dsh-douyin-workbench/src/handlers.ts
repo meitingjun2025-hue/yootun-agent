@@ -683,13 +683,18 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       const outcome = await deps.callTool('workbench_douyin_work_list', {
         accountId,
         includeNotInList: args.includeNotInList === true,
+        ...definedArgs(args, ['sort', 'order', 'limit', 'offset']),
       }, signal)
       const payload = outcome.structuredContent && typeof outcome.structuredContent === 'object' ? outcome.structuredContent as Record<string, unknown> : {}
+      const summary = payload.summary
       return {
         status: 'ready',
         accountId,
         works: Array.isArray(payload.works) ? payload.works : [],
         total: typeof payload.total === 'number' ? payload.total : 0,
+        limit: typeof payload.limit === 'number' ? payload.limit : null,
+        offset: typeof payload.offset === 'number' ? payload.offset : 0,
+        summary: summary !== null && typeof summary === 'object' && !Array.isArray(summary) ? summary as Record<string, unknown> : null,
       }
     },
 

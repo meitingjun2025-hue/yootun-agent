@@ -16,6 +16,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
+import { en as kitEn } from '@yootun/dsh-client-ui-kit'
 import { filterBreakdownHistory, breakdownStatusTone, shotScriptTable } from '../../src/client/BreakdownPage.tsx'
 
 const apiMock = vi.hoisted(() => ({ hostAction: vi.fn() }))
@@ -26,6 +27,13 @@ afterEach(cleanup)
 
 const t = (key: DouyinLocaleKey, values?: Record<string, string | number>): string => {
   const text = en[key] ?? key
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+}
+
+/** kit 词典文案插值（分页控件文案随 WorkbenchPage 的 KitLocaleProvider 注入）。 */
+const kitT = (key: keyof typeof kitEn, values?: Record<string, string | number>): string => {
+  const text = kitEn[key]
   if (values === undefined) return text
   return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
 }
@@ -357,9 +365,9 @@ describe('爆款素材看板（parity §4–§7）', () => {
     // KPI total 用服务端 40 不用当页行数 1 冒充。
     expect(screen.getByText('40')).not.toBeNull()
     // 分页：共 40 条 → 第 1/2 页，下一页可点、上一页禁用。
-    expect(screen.getByText(t('mat.page.info', { total: '40', page: 1, pages: 2 }))).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['mat.page.prev'] }).getAttribute('disabled')).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['mat.page.next'] }).getAttribute('disabled')).toBeNull()
+    expect(screen.getByText(kitT('pager.info', { total: 40, page: 1, pages: 2 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: kitEn['pager.prev'] }).getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByRole('button', { name: kitEn['pager.next'] }).getAttribute('disabled')).toBeNull()
   })
 
   it('筛选变化 offset 归零并按最新请求收口；q 走防抖路径不立即发', async () => {
@@ -367,7 +375,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ offset: 0 })))
-    fireEvent.click(screen.getByRole('button', { name: en['mat.page.next'] }))
+    fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ offset: 20 })))
     // 切换档位筛选 → offset 归零。
     fireEvent.click(screen.getByRole('button', { name: en['mat.filter.minLevel'] }))
@@ -878,7 +886,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     expect(await screen.findByText(en['mat.error.PROVIDER_ERROR'])).not.toBeNull()
     // 已有行仍可见（不清空可见数据）；total 降级为统计加载中。
     expect(screen.getByRole('link', { name: '超长标题的超长标题的超长标题的超长标题' })).not.toBeNull()
-    expect(screen.getByText(en['mat.page.loading'])).not.toBeNull()
+    expect(screen.getByText(kitEn['pager.loading'])).not.toBeNull()
   })
 
   it('评分理由抽屉：Esc 关闭并回归焦点触发按钮；遮罩点击关闭', async () => {

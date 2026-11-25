@@ -160,9 +160,9 @@ export function formatSeconds(value: number | null, t: Translate): string {
   return `${Math.round(value * 100) / 100}${t('unit.seconds')}`
 }
 
-// ---- 作品表排序（三态；默认态严格保持接口顺序） ----
+// ---- 作品表排序（三态状态机；排序由服务端执行，默认态即发布时间降序） ----
 
-/** 可排序数值列（12 列中的 10 个数值列）。 */
+/** 可排序数值列（12 列中的 10 个数值列；与服务端 sort 枚举一致）。 */
 export type WorkSortKey =
   | 'play_count'
   | 'collect_count'
@@ -175,17 +175,18 @@ export type WorkSortKey =
   | 'avg_watch_duration_s'
   | 'avg_view_proportion_pct'
 
-/** 排序态：default 严格保持接口返回顺序（key=null）。 */
+/** 排序态：default 即服务端默认（发布时间降序，key=null）。 */
 export interface WorkSortState {
   key: WorkSortKey | null
   direction: 'default' | 'desc' | 'asc'
 }
 
-/** 默认排序态（接口顺序）。 */
+/** 默认排序态（发布时间降序）。 */
 export const DEFAULT_WORK_SORT: WorkSortState = { key: null, direction: 'default' }
 
 /**
  * 表头排序三态状态机：default → desc → asc → default；点击另一列直接 desc。
+ * 排序执行在服务端，调用方以返回态重新查询并回第 1 页。
  * @param currentState - 当前排序态。
  * @param columnKey - 被点击的列。
  * @returns 下一个排序态。
@@ -196,44 +197,6 @@ export function nextWorkSort(currentState: WorkSortState, columnKey: WorkSortKey
   }
   if (currentState.direction === 'desc') return { key: columnKey, direction: 'asc' }
   return { ...DEFAULT_WORK_SORT }
-}
-
-/**
- * 数值比较：空值与非有限值恒排最后且与方向无关（缺失不能被当作 0）。
- * @param a - 左值（原始 unknown 形态；null/undefined/'' 均为缺失）。
- * @param b - 右值。
- * @param direction - 排序方向（default 由调用方短路）。
- * @returns 比较结果。
- */
-export function compareNullableNumbers(a: unknown, b: unknown, direction: 'asc' | 'desc'): number {
-  const valueA = Number(a)
-  const valueB = Number(b)
-  const validA = a !== null && a !== undefined && a !== '' && Number.isFinite(valueA)
-  const validB = b !== null && b !== undefined && b !== '' && Number.isFinite(valueB)
-  if (!validA && !validB) return 0
-  if (!validA) return 1
-  if (!validB) return -1
-  return direction === 'asc' ? valueA - valueB : valueB - valueA
-}
-
-/**
- * 排序返回新数组不改入参；同值行保持接口原始相对顺序。
- * @param rows - 作品行。
- * @param sortState - 表头排序态。
- * @param valueOf - 行 → 可排序列取值（调用方持有行类型）。
- * @returns 排序后的行。
- */
-export function sortWorkRows<T>(rows: readonly T[], sortState: WorkSortState, valueOf: (row: T, key: WorkSortKey) => unknown): T[] {
-  if (sortState.key === null || sortState.direction === 'default') return [...rows]
-  const key = sortState.key
-  const direction = sortState.direction === 'asc' ? 'asc' : 'desc'
-  return rows
-    .map((row, index) => ({ row, index }))
-    .sort((left, right) => {
-      const diff = compareNullableNumbers(valueOf(left.row, key), valueOf(right.row, key), direction)
-      return diff !== 0 ? diff : left.index - right.index
-    })
-    .map(entry => entry.row)
 }
 
 // ---- 观看趋势四状态（1104 方案 §2.3 语义迁移） ----

@@ -286,6 +286,43 @@ function workRowOf(entry: unknown): WorkRow | null {
   }
 }
 
+/** works.list summary（整账号聚合值；字段缺失为 null）。 */
+export interface WorksSummary {
+  workCount: number | null
+  playCount: number | null
+  fansGainCount: number | null
+  completionRatePct: number | null
+  gapCount: number | null
+}
+
+/** works.list 分页投影：当页行 + 服务端 total + 整账号聚合 summary。 */
+export interface WorksPage {
+  rows: WorkRow[]
+  total: number
+  summary: WorksSummary | null
+}
+
+/**
+ * works.list → 分页投影：行复用 readWorkRows，total 缺失按 0，summary 从
+ * snake_case 字段读取（聚合列全 NULL 时服务端下发 null，不造 0）。
+ * @param payload - works.list Host 响应。
+ * @returns 行、总数与整账号聚合值。
+ */
+export function readWorksPage(payload: Record<string, unknown>): WorksPage {
+  const summary = recordOf(payload.summary)
+  return {
+    rows: readWorkRows(payload),
+    total: numberOf(payload.total) ?? 0,
+    summary: summary === undefined ? null : {
+      workCount: numberOf(summary.work_count),
+      playCount: numberOf(summary.play_count),
+      fansGainCount: numberOf(summary.fans_gain_count),
+      completionRatePct: numberOf(summary.completion_rate_pct),
+      gapCount: numberOf(summary.gap_count),
+    },
+  }
+}
+
 /** 受众一个维度的分布行。 */
 export interface DistRow {
   key: string

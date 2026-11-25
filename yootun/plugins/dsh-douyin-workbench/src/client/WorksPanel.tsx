@@ -1,26 +1,33 @@
 /**
  * 作品面板（账号作品页右侧，对齐旧工作台布局）：工具栏（采集本账号全部
  * primary / 负责人入口（未设置·新增 / 已设置·编辑）/ 刷新 / 导出 Excel
- * ghost+icon / 上次采集 / 全部时间作品数）→ runBanner 三色 → 采集进度三态
- * （role=status aria-busy）→ 高密度 12 列作品表格（列序冻结：作品名称/作品
- * 链接 sticky；10 数值列三态排序循环、缺失恒最后显示「—」不造 0；百分比
- * clamp；吸粉量红涨绿跌；已投流行 error-token 淡底 + Tag；行 Enter/双击开
- * 详情；链接白名单 douyin.com；封面图 + 时长角标）。
+ * ghost+icon / 上次采集）→ runBanner 三色 → 采集进度三态（role=status
+ * aria-busy）→ KPI 行五卡（作品总数/播放合计/吸粉合计/完播率/缺口作品，值与
+ * 状态全部来自 works.list 的 summary；卡片不重复列表的失败提示）→ 固定高度的
+ * 列表区域（加载骨架 / 失败提示 + 重试 / 空列表「暂无数据」居中 / 高密度 12 列
+ * 作品表格）。表格列序冻结：作品名称/作品链接 sticky；排序由服务端执行：表头
+ * 三态循环发起重查并回第 1 页；缺失恒显示「—」不造 0；百分比 clamp；吸粉量
+ * 红涨绿跌；已投流行 error-token
+ * 淡底 + Tag；行 Enter/双击开详情；链接白名单 douyin.com；封面图 + 时长角标；
+ * 请求在途 aria-busy。区域下方是 kit Pager（固定 10 条/页，total 来自服务端）。
  * @module
  */
 import { type ReactNode } from 'react'
 import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataState } from '@yootun/dsh-client-ui-kit'
+import { DataState, KpiCard, Pager } from '@yootun/dsh-client-ui-kit'
 import {
   EMPTY, formatCount, formatDateTime, formatDuration, formatPercent, formatSeconds,
-  nextWorkSort, reasonText, safeHttpUrl, safeWorkUrl, sortWorkRows, type Translate,
+  nextWorkSort, reasonText, safeHttpUrl, safeWorkUrl, type Translate,
   type WorkSortKey, type WorkSortState,
 } from './format.ts'
 import css from './workbench.module.css'
 import type { AccountRow, CollectView } from './WorkbenchPage.tsx'
-import type { WorkRow } from './schema.ts'
+import type { WorkRow, WorksSummary } from './schema.ts'
 
 type WorksLoadState = 'loading' | 'ready' | 'error' | 'partial'
+
+/** 页大小（固定 10，服务端分页；不提供页码大小选择）。 */
+export const WORKS_PAGE_SIZE = 10
 
 /** 12 列定义（列序冻结；sortable = 10 个数值列）。 */
 interface WorkColumn {
@@ -38,7 +45,16 @@ export interface WorksPanelProps {
   works: WorkRow[]
   worksState: WorksLoadState
   worksSort: WorkSortState
+  /** 当前页（1 起）。 */
+  worksPage: number
+  /** 服务端 total（整账号行数；导出禁用态与 Pager 共用）。 */
+  worksTotal: number
+  /** works.list summary 整账号聚合值。 */
+  worksSummary: WorksSummary | null
+  /** 页/排序请求在途：表格 aria-busy、Pager 按钮禁用。 */
+  worksBusy: boolean
   onSortChange: (next: WorkSortState) => void
+  onPageChange: (page: number) => void
   onRetryWorks: () => void
   collectBusy: boolean
   collectRecord: CollectView | null
@@ -103,7 +119,19 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
     : null
   const columns = buildColumns()
   const sort = props.worksSort
-  const visibleWorks = sortWorkRows(props.works, sort, (row, key) => row[key])
+  const visibleWorks = props.works
+  const summary = props.worksSummary
+  // 列表区域四态：加载骨架 / 失败（单个提示 + 重试）/ 空列表（「暂无数据」）/ 表格。
+  // 部分失败（worksState = partial）保留已展示的行，由工具栏的刷新失败提示负责告知。
+  const listLoading = props.worksState === 'loading' && props.accountId !== ''
+  const listFailed = props.worksState === 'error'
+  const listState = listLoading ? 'loading' : listFailed ? 'error' : visibleWorks.length === 0 ? 'blank' : 'ready'
+  // KPI 卡不重复列表的失败提示：加载中呈骨架，其余按值渲染（缺失为「—」）。
+  const kpiState = listLoading ? 'loading' : 'ready'
+  // 聚合值缺失时不下「数据完整」的结论。
+  const gapFootnote = summary === null
+    ? undefined
+    : (summary.gapCount ?? 0) > 0 ? t('works.kpi.gapHint') : t('works.kpi.gapComplete')
 
   return (
     <div className={`${css.panelBody} ${css.worksPanelBody}`}>
@@ -136,18 +164,15 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
             variant='ghost'
             size='sm'
             icon={<DownloadIcon />}
-            disabled={props.accountId === '' || props.exporting || props.works.length === 0}
+            disabled={props.accountId === '' || props.exporting || props.worksTotal === 0}
             aria-busy={props.exporting || undefined}
-            title={props.works.length === 0 ? t('works.exportNoData') : undefined}
+            title={props.worksTotal === 0 ? t('works.exportNoData') : undefined}
             onClick={props.onExport}
           >
             {props.exporting ? t('works.exporting') : t('works.exportExcel')}
           </Button>
           {props.account?.lastCollectedAt != null && (
             <span className={css.toolbarNote}>{t('works.lastCollected', { time: formatDateTime(props.account.lastCollectedAt) })}</span>
-          )}
-          {visibleWorks.length > 0 && (
-            <span className={css.toolbarNote}>{t('works.workCountAllTime', { count: props.works.length })}</span>
           )}
         </div>
         {(runBanner !== null || running || props.collectStartReason !== null || props.refreshFailedParts.length > 0) && (
@@ -176,23 +201,24 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
           </div>
         )}
       </div>
-      <DataState
-        state={props.worksState === 'ready' ? (visibleWorks.length > 0 ? 'ready' : 'empty') : props.worksState}
-        shape='rows'
-        onRetry={props.onRetryWorks}
-        emptyAction={(
-          <Button
-            variant='primary'
-            size='sm'
-            disabled={props.accountId === '' || running || props.batchRunning || props.browserBlocked}
-            onClick={() => { props.onStartCollect(props.accountId) }}
-          >
-            {t('works.collect')}
-          </Button>
-        )}
-      >
-        <div className={css.tableWrap} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0}>
-          <table className={css.workTable} aria-label={t('works.table.label')}>
+      <div className={css.summaryGrid}>
+        <KpiCard label={t('works.kpi.worksTotal')} value={formatCount(summary?.workCount ?? null)} footnote={t('works.kpi.worksTotalHint')} state={kpiState} />
+        <KpiCard label={t('works.kpi.playTotal')} value={formatCount(summary?.playCount ?? null)} footnote={t('works.kpi.playTotalHint')} state={kpiState} />
+        <KpiCard label={t('works.kpi.fansGainTotal')} value={formatCount(summary?.fansGainCount ?? null)} footnote={t('works.kpi.fansGainTotalHint')} state={kpiState} />
+        <KpiCard label={t('works.kpi.completion')} value={formatPercent(summary?.completionRatePct ?? null)} footnote={t('works.kpi.completionHint')} state={kpiState} />
+        <KpiCard
+          label={t('works.kpi.gapWorks')}
+          value={formatCount(summary?.gapCount ?? null)}
+          footnote={gapFootnote}
+          state={kpiState}
+        />
+      </div>
+      <div className={css.tableWrap} role='region' aria-label={t('works.table.scrollLabel')} tabIndex={0} data-state={listState === 'ready' ? undefined : listState}>
+        {listState === 'loading' && <DataState state='loading' shape='rows' skeletonRows={WORKS_PAGE_SIZE} />}
+        {listState === 'error' && <DataState state='error' onRetry={props.onRetryWorks} />}
+        {listState === 'blank' && <DataState state='empty' />}
+        {listState === 'ready' && (
+          <table className={css.workTable} aria-label={t('works.table.label')} aria-busy={props.worksBusy || undefined}>
             <thead>
               <tr>
                 {columns.map(column => {
@@ -250,8 +276,20 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
               })}
             </tbody>
           </table>
-        </div>
-      </DataState>
+        )}
+      </div>
+      {/* 页脚占位恒定：无数据时不渲染 Pager 但保留其高度，列表区域高度不随数据变化。 */}
+      <div className={css.pagerSlot}>
+        {visibleWorks.length > 0 && (
+          <Pager
+            page={props.worksPage}
+            pageSize={WORKS_PAGE_SIZE}
+            total={props.worksTotal}
+            onPage={props.onPageChange}
+            busy={props.worksBusy}
+          />
+        )}
+      </div>
     </div>
   )
 }

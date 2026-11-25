@@ -1,0 +1,18 @@
+/* Pager: totals info plus prev/next buttons on one row; wraps in narrow
+   containers. Buttons are the official atom and carry their own focus styling. */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.info {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

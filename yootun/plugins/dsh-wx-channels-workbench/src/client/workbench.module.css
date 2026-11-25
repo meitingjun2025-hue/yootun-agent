@@ -347,6 +347,31 @@
   outline-offset: 1px;
 }
 
+/* 作品页表格区域：固定高度（与行数无关），行多时区域内滚动；账号表现表等其它表格不受影响。 */
+.worksTableWrap {
+  height: 60vh;
+  max-height: none;
+}
+
+/* 无表格时（加载骨架 / 失败提示 / 空列表）内容在区域内水平垂直居中，区域高度不变。 */
+.worksTableWrap[data-state] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 垂直居中用 auto 外边距：内容高于区域时外边距归零，从顶部起可滚动。 */
+.worksTableWrap[data-state] > * {
+  width: 100%;
+  margin-block: auto;
+}
+
+/* 作品页分页页脚占位：高度等于 kit Pager 一行（sm Button 28px），无数据时留空。 */
+.pagerSlot {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+}
+
 .workTable {
   width: max-content;
   min-width: 100%;

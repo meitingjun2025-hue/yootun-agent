@@ -11,7 +11,9 @@
  * 运行态，宿主重启丢 record 清乐观态）、挂载恢复（collect.running /
  * collect.status / collectAll.status 三路查询恢复运行态/横幅/批量面板，用户已
  * 发起则丢弃恢复结果）、批量采集（collectAll.start/status 轮询，
- * 终态刷新）、作品查询（切号缓存 + 序号守卫）、统一作品详情弹层（跨账号显式
+ * 终态刷新）、作品查询（服务端分页排序：固定 10 条/页；切号回第 1 页排序保留；
+ * 缓存键=账号|排序|方向|页；序号+账号+查询键三重守卫，过期响应整体丢弃）、
+ * 统一作品详情弹层（跨账号显式
  * accountId；detailRequestRef 守卫）、负责人/投流弹层与 Esc 链（官方 Modal 栈
  * 顶层先关、焦点回归）。Toast 收口短暂反馈；素材看板「去拆解」经
  * breakdownPrefill 跨 Tab 预填链接（不自动开始）。
@@ -27,8 +29,9 @@ import css from './workbench.module.css'
 import { zh as douyinZh } from './locales.ts'
 import {
   readAccounts, readBatchStatus, readBrowserState, readCollectRunning, readCollectStatus, readLogin,
-  readWorkDetail, readWorkRows, readWorkTrend, type AccountRow, type BatchView,
-  type CollectView, type HotWorkRow, type WorkDetailView, type WorkRow,
+  readWorkDetail, readWorksPage, readWorkTrend, type AccountRow, type BatchView,
+  type CollectView, type HotWorkRow, type WorkDetailView, type WorkRow, type WorksPage,
+  type WorksSummary,
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { AnalysisPage, attemptId } from './AnalysisPage.tsx'
@@ -41,7 +44,7 @@ import { PromotionModal } from './PromotionModal.tsx'
 import { ReportPage } from './ReportPage.tsx'
 import { SchedulePage } from './SchedulePage.tsx'
 import { WorkDetailModal, type PromotionModalData } from './WorkDetailModal.tsx'
-import { WorksPanel } from './WorksPanel.tsx'
+import { WORKS_PAGE_SIZE, WorksPanel } from './WorksPanel.tsx'
 import { workTrendRows } from './charts.tsx'
 
 export type { Translate } from './format.ts'
@@ -85,6 +88,10 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const [works, setWorks] = useState<WorkRow[]>([])
   const [worksState, setWorksState] = useState<WorksLoadState>('loading')
   const [worksSort, setWorksSort] = useState<WorkSortState>(DEFAULT_WORK_SORT)
+  const [worksPage, setWorksPage] = useState(1)
+  const [worksTotal, setWorksTotal] = useState(0)
+  const [worksSummary, setWorksSummary] = useState<WorksSummary | null>(null)
+  const [worksBusy, setWorksBusy] = useState(false)
   const [collectBusy, setCollectBusy] = useState(false)
   const [collectRecord, setCollectRecord] = useState<CollectView | null>(null)
   const [collectStartReason, setCollectStartReason] = useState<string | null>(null)
@@ -130,14 +137,20 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   // 挂载恢复一次性标记（账号列表就绪、选中账号确定时触发）。
   const collectRestoreDoneRef = useRef(false)
   const worksSeqRef = useRef(0)
-  const worksCacheRef = useRef(new Map<string, WorkRow[]>())
+  const worksCacheRef = useRef(new Map<string, WorksPage>())
   const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
+  const worksSortRef = useRef(worksSort)
+  const worksPageRef = useRef(worksPage)
+  const worksQueryRef = useRef('')
+  const worksAccountRef = useRef<string | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const accountsRef = useRef<AccountRow[]>([])
   const detailSeqRef = useRef(0)
   const toastSeqRef = useRef(0)
   useEffect(() => { selectedIdRef.current = selectedAccountId }, [selectedAccountId])
   useEffect(() => { accountsRef.current = accounts }, [accounts])
+  useEffect(() => { worksSortRef.current = worksSort }, [worksSort])
+  useEffect(() => { worksPageRef.current = worksPage }, [worksPage])
 
   const kitTranslate = localeTagOf(t) === 'zh' ? createKitTranslate(kitZh) : createKitTranslate(kitEn)
   const localeTag = localeTagOf(t)
@@ -176,43 +189,91 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     }
   }, [refreshAccounts])
 
-  // ---- 作品列表（切号缓存 + 序号守卫 + 账号双守卫） ----
+  // ---- 作品列表（服务端分页排序：切号回第 1 页排序保留；缓存键=账号|排序|方向|页；
+  // 序号 + 账号 + 查询键三重守卫，过期响应整体丢弃） ----
 
-  /** @returns works 是否拉取成功（stale 竞态让位不计失败）。 */
-  const loadWorks = useCallback(async (accountId: string): Promise<boolean> => {
+  /**
+   * 拉取一页作品（无 override 时取当前排序态与页码；排序/翻页变化由调用方显式传）。
+   * 命中缓存先即时渲染再后台刷新；请求在途保留当前已渲染行（worksBusy 标记）。
+   * @returns works 是否拉取成功（stale 竞态让位不计失败）。
+   */
+  const loadWorks = useCallback(async (accountId: string, override: { page?: number; sort?: WorkSortState } = {}): Promise<boolean> => {
+    const sort = override.sort ?? worksSortRef.current
+    const page = Math.max(1, override.page ?? worksPageRef.current)
+    const sortKey = sort.key ?? 'publish_time'
+    const order: 'asc' | 'desc' = sort.direction === 'asc' ? 'asc' : 'desc'
+    const queryKey = `${accountId}|${sortKey}|${order}|${page}`
     const seq = ++worksSeqRef.current
-    const cached = worksCacheRef.current.get(accountId)
+    worksQueryRef.current = queryKey
+    const cached = worksCacheRef.current.get(queryKey)
     const resume = worksRowsRef.current.accountId === accountId
     if (cached !== undefined && selectedIdRef.current === accountId) {
-      worksRowsRef.current = { accountId, rows: cached }
-      setWorks(cached)
+      worksRowsRef.current = { accountId, rows: cached.rows }
+      setWorks(cached.rows)
+      setWorksTotal(cached.total)
+      setWorksSummary(cached.summary)
       setWorksState('ready')
     } else if (!resume) {
       worksRowsRef.current = { accountId: '', rows: [] }
       setWorks([])
+      setWorksTotal(0)
+      setWorksSummary(null)
       setWorksState('loading')
     }
+    setWorksBusy(true)
     try {
-      const res = await hostAction('works.list', { accountId })
-      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return true
-      const rows = readWorkRows(res)
-      worksCacheRef.current.set(accountId, rows)
-      worksRowsRef.current = { accountId, rows }
-      setWorks(rows)
+      const res = await hostAction('works.list', {
+        accountId, sort: sortKey, order, limit: WORKS_PAGE_SIZE, offset: (page - 1) * WORKS_PAGE_SIZE,
+      })
+      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId || worksQueryRef.current !== queryKey) return true
+      const view = readWorksPage(res)
+      worksCacheRef.current.set(queryKey, view)
+      worksRowsRef.current = { accountId, rows: view.rows }
+      setWorks(view.rows)
+      setWorksTotal(view.total)
+      setWorksSummary(view.summary)
       setWorksState('ready')
       return true
     } catch {
-      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId) return true
+      if (worksSeqRef.current !== seq || selectedIdRef.current !== accountId || worksQueryRef.current !== queryKey) return true
       const sameAccountRows = worksRowsRef.current.accountId === accountId && worksRowsRef.current.rows.length > 0
       setWorksState(sameAccountRows ? 'partial' : 'error')
       return false
+    } finally {
+      if (worksSeqRef.current === seq) setWorksBusy(false)
     }
   }, [])
 
   useEffect(() => {
     if (selectedAccountId === null) return
-    if (tab === 'works') void loadWorks(selectedAccountId)
+    if (tab !== 'works') return
+    const switched = worksAccountRef.current !== selectedAccountId
+    worksAccountRef.current = selectedAccountId
+    if (switched) {
+      worksPageRef.current = 1
+      setWorksPage(1)
+      void loadWorks(selectedAccountId, { page: 1 })
+      return
+    }
+    void loadWorks(selectedAccountId)
   }, [selectedAccountId, tab, loadWorks])
+
+  /** 表头排序：回第 1 页并以新排序重拉（排序态保留到切号）。 */
+  const changeWorksSort = useCallback((next: WorkSortState): void => {
+    setWorksSort(next)
+    worksPageRef.current = 1
+    setWorksPage(1)
+    const accountId = selectedIdRef.current
+    if (accountId !== null && accountId !== '') void loadWorks(accountId, { page: 1, sort: next })
+  }, [loadWorks])
+
+  /** 翻页：只改 offset，排序不变。 */
+  const changeWorksPage = useCallback((page: number): void => {
+    worksPageRef.current = page
+    setWorksPage(page)
+    const accountId = selectedIdRef.current
+    if (accountId !== null && accountId !== '') void loadWorks(accountId, { page })
+  }, [loadWorks])
 
   // ---- 登录扫码流（2s 轮询；终态停轮询刷新列表） ----
 
@@ -264,6 +325,9 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   }, [])
 
   const refreshAfterDataChange = useCallback(async (accountId: string): Promise<void> => {
+    for (const key of [...worksCacheRef.current.keys()]) {
+      if (key.startsWith(`${accountId}|`)) worksCacheRef.current.delete(key)
+    }
     await Promise.all([loadWorks(accountId), refreshAccounts()])
   }, [loadWorks, refreshAccounts])
 
@@ -732,7 +796,12 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                     works={works}
                     worksState={worksState}
                     worksSort={worksSort}
-                    onSortChange={setWorksSort}
+                    worksPage={worksPage}
+                    worksTotal={worksTotal}
+                    worksSummary={worksSummary}
+                    worksBusy={worksBusy}
+                    onSortChange={changeWorksSort}
+                    onPageChange={changeWorksPage}
                     onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId) }}
                     collectBusy={collectBusy}
                     collectRecord={collectRecord}

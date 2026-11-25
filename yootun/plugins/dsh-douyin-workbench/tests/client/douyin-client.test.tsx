@@ -12,8 +12,9 @@ import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
+import { en as kitEn } from '@yootun/dsh-client-ui-kit'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
-import { reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
+import { formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -90,6 +91,11 @@ const workRow = {
   avg_view_proportion_pct: 44.4, promoted: false, visibility: null, data_gap: null,
 }
 
+/** works.list summary（整账号聚合值；与 workRow 单行数据同源）。 */
+const worksSummary = { work_count: 1, play_count: 123456, fans_gain_count: -7, completion_rate_pct: 33.3, gap_count: 0 }
+/** 空账号 summary（聚合列全 NULL → null，不造 0）。 */
+const worksSummaryEmpty = { work_count: 0, play_count: null, fans_gain_count: null, completion_rate_pct: null, gap_count: 0 }
+
 /** 排期行（服务端 snake_case）。 */
 const scheduleRow = (id: number, published: boolean) => ({
   id, account_id: 'acc-1', shooting_date: '2026-11-20', video_content: `内容 ${id}`,
@@ -112,7 +118,7 @@ beforeEach(() => {
     if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
     if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
     if (action === 'overview.get') return overviewPayload
-    if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1 }
+    if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
     if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
     if (action === 'collect.status') return { status: 'ready', collect: null }
     if (action === 'collectAll.status') return { status: 'ready', batch: null }
@@ -372,7 +378,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
       if (action === 'work.get') return { status: 'ready', data: {} }
       if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
       if (action === 'collect.status') return { status: 'ready', collect: null }
@@ -400,7 +406,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
       if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
       if (action === 'work.get') {
         return {
@@ -451,7 +457,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
       if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
       if (action === 'work.get') {
         return {
@@ -510,7 +516,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
       if (action === 'work.get') {
         workGetCalls += 1
         // 第一次打开详情成功；stale-add 恢复重拉直接拒绝。
@@ -901,7 +907,7 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
       if (action === 'account.beginLogin') return { status: 'ready', login: { loginKey: 'pending-1', status: 'waiting', accountId: null, error: null, saveError: null } }
       if (action === 'account.loginStatus') return { status: 'ready', login: { loginKey: 'pending-1', status: 'waiting', accountId: null, error: null, saveError: null } }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [], total: 0 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [], total: 0, limit: 10, offset: 0, summary: worksSummaryEmpty }
       if (action === 'collect.status') return { status: 'ready', collect: null }
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
@@ -929,7 +935,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       apiMock.hostAction.mockImplementation(async (action: string) => {
         if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
         if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
         if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
         if (action === 'collect.status') return { status: 'ready', collect: null }
         if (action === 'collectAll.start') {
@@ -981,7 +987,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
       if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
       if (action === 'collect.status') return { status: 'ready', collect: null }
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
@@ -1011,7 +1017,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       apiMock.hostAction.mockImplementation(async (action: string) => {
         if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
         if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+        if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
         if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
         if (action === 'collect.status') return { status: 'ready', collect: null }
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
@@ -1435,6 +1441,269 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('作品列表服务端分页 / 排序 / KPI 行', () => {
+  const summary183 = { work_count: 183, play_count: 1250000, fans_gain_count: 4021, completion_rate_pct: 38.27, gap_count: 4 }
+  const account2 = { ...accountRow, accountId: 'acc-2', nickname: '账号二' }
+  /** works.list 全部调用参数（最近一次 = at(-1)）。 */
+  let worksCalls: Array<Record<string, unknown>>
+  /** 刷新微任务队列：hostAction 异步 mock 与页面 promise 链在 act 内全部落定。 */
+  const flush = async (): Promise<void> => { await act(async () => { await Promise.resolve() }) }
+  /** 播放列表头的可达名称（随排序态变化）。 */
+  const playAria = (order: 'default' | 'desc' | 'asc'): string =>
+    t('sort.aria', { label: en['col.play'], order: order === 'desc' ? en['sort.desc'] : order === 'asc' ? en['sort.asc'] : en['sort.default'] })
+  /** kit Pager 信息文案（en 词典直取；页面 kitTranslate 为 en）。 */
+  const pagerInfo = (total: number, page: number, pages: number): string =>
+    kitEn['pager.info'].replace('{total}', String(total)).replace('{page}', String(page)).replace('{pages}', String(pages))
+  /** 双账号 + total 183 分页 mock：行按 offset 命名并记录 works.list 调用参数。 */
+  const installWorksMock = (extra: (action: string, args: Record<string, unknown>) => Record<string, unknown> | undefined = () => undefined): void => {
+    worksCalls = []
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow, account2], remoteError: null }
+      if (action === 'works.list') {
+        worksCalls.push({ ...args })
+        return {
+          status: 'ready',
+          accountId: args.accountId,
+          works: [{ ...workRow, work_id: `w-${String(args.offset)}`, title: `作品 ${String(args.offset)}` }],
+          total: 183, limit: 10, offset: typeof args.offset === 'number' ? args.offset : 0,
+          summary: summary183,
+        }
+      }
+      const extraResult = extra(action, args)
+      if (extraResult !== undefined) return extraResult
+      throw new Error(`unexpected action ${action}`)
+    })
+  }
+
+  it('进入作品页拉第 1 页（limit 10 / offset 0 / publish_time desc）；点表头发新参数回第 1 页；三态循环', async () => {
+    installWorksMock()
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(worksCalls[0]).toEqual({ accountId: 'acc-1', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 }))
+    fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
+    await waitFor(() => expect(worksCalls.at(-1)).toEqual({ accountId: 'acc-1', sort: 'play_count', order: 'desc', limit: 10, offset: 0 }))
+    fireEvent.click(screen.getByRole('button', { name: playAria('desc') }))
+    await waitFor(() => expect(worksCalls.at(-1)).toEqual({ accountId: 'acc-1', sort: 'play_count', order: 'asc', limit: 10, offset: 0 }))
+    fireEvent.click(screen.getByRole('button', { name: playAria('asc') }))
+    await waitFor(() => expect(worksCalls.at(-1)).toEqual({ accountId: 'acc-1', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 }))
+  })
+
+  it('切账号回第 1 页且排序态保留', async () => {
+    installWorksMock()
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(worksCalls.length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
+    await waitFor(() => expect(worksCalls.at(-1)?.sort).toBe('play_count'))
+    fireEvent.click(await screen.findByText('账号二'))
+    await waitFor(() => expect(worksCalls.at(-1)).toEqual({ accountId: 'acc-2', sort: 'play_count', order: 'desc', limit: 10, offset: 0 }))
+  })
+
+  it('翻页只变 offset：排序与 limit 不变，信息文案随页推进', async () => {
+    installWorksMock()
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
+    await waitFor(() => expect(worksCalls.at(-1)).toEqual({ accountId: 'acc-1', sort: 'publish_time', order: 'desc', limit: 10, offset: 10 }))
+    expect(await screen.findByText('作品 10')).not.toBeNull()
+    expect(screen.getByText(pagerInfo(183, 2, 19))).not.toBeNull()
+  })
+
+  it('过期响应丢弃：慢的旧排序响应整体丢弃，不覆盖最新数据', async () => {
+    let resolveSecond: ((value: Record<string, unknown>) => void) | null = null
+    let worksCallCount = 0
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') {
+        worksCallCount += 1
+        if (worksCallCount === 2) {
+          return new Promise<Record<string, unknown>>(resolve => { resolveSecond = resolve })
+        }
+        return {
+          status: 'ready',
+          accountId: args.accountId,
+          works: [{ ...workRow, work_id: `w-${worksCallCount}`, title: worksCallCount >= 3 ? '收藏排序行' : '首发行' }],
+          total: 183, limit: 10, offset: 0, summary: summary183,
+        }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText('首发行')).not.toBeNull()
+    // 点播放表头（请求 2 挂起，旧行保留）→ 再点播放表头升序（请求 3 立即返回）。
+    fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
+    await waitFor(() => expect(worksCallCount).toBe(2))
+    fireEvent.click(screen.getByRole('button', { name: playAria('desc') }))
+    expect(await screen.findByText('收藏排序行')).not.toBeNull()
+    resolveSecond?.({ status: 'ready', accountId: 'acc-1', works: [{ ...workRow, work_id: 'w-stale', title: '过期播放行' }], total: 183, limit: 10, offset: 0, summary: summary183 })
+    await flush()
+    expect(screen.queryByText('过期播放行')).toBeNull()
+    expect(screen.getByText('收藏排序行')).not.toBeNull()
+  })
+
+  it('采集完成后刷新当前页（offset 不回 0）', async () => {
+    installWorksMock((action, args) => {
+      if (action === 'collect.start') return { status: 'ready', collect: { accountId: args.accountId, status: 'running', phase: 'work', progress: { phase: 'work', index: 1, total: 3 }, error: null, finishedAt: null } }
+      if (action === 'collect.status') return { status: 'ready', collect: { accountId: args.accountId, status: 'completed', phase: null, progress: {}, error: null, finishedAt: '2026-11-25T00:00:00Z' } }
+      return undefined
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(worksCalls.length).toBe(1))
+    fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
+    await waitFor(() => expect(worksCalls.at(-1)?.offset).toBe(10))
+    fireEvent.click(screen.getByRole('button', { name: en['works.collect'] }))
+    await waitFor(() => {
+      const last = worksCalls.at(-1)
+      expect(last?.offset).toBe(10)
+      expect(last?.accountId).toBe('acc-1')
+    })
+    // 采集完成后 works.list 恰好再发一次（当前页重拉，不清缓存外账号）。
+    expect(worksCalls.length).toBe(3)
+  })
+
+  it('KPI 五卡取值来自 summary；缺口作品 footnote 随 gapCount 切换；工具栏不再有全部时间作品数', async () => {
+    installWorksMock()
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText(en['works.kpi.worksTotal'])).not.toBeNull()
+    expect(screen.getByText(en['works.kpi.playTotal'])).not.toBeNull()
+    expect(screen.getByText(en['works.kpi.fansGainTotal'])).not.toBeNull()
+    // 完播率卡与表格列头同文案（≥ 2 处）；卡值由 formatPercent(38.27) 单独锚定。
+    expect(screen.getAllByText(en['works.kpi.completion']).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(en['works.kpi.gapWorks'])).not.toBeNull()
+    expect(screen.getByText(formatCount(183))).not.toBeNull()
+    expect(screen.getByText(formatCount(1250000))).not.toBeNull()
+    expect(screen.getByText(formatCount(4021))).not.toBeNull()
+    expect(screen.getByText(formatPercent(38.27))).not.toBeNull()
+    expect(screen.getByText(formatCount(4))).not.toBeNull()
+    expect(screen.getByText(en['works.kpi.gapHint'])).not.toBeNull()
+    expect(screen.queryByText(/Works \(all time\)/u)).toBeNull()
+  })
+
+  it('KPI：summary 聚合列缺失显示「—」不造 0；缺口 0 落「数据完整」', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') {
+        return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1, limit: 10, offset: 0, summary: { work_count: 1, play_count: null, fans_gain_count: null, completion_rate_pct: null, gap_count: 0 } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await screen.findByRole('table', { name: en['works.table.label'] })
+    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3)
+    expect(screen.getByText(en['works.kpi.gapComplete'])).not.toBeNull()
+  })
+
+  /** KPI 卡取值：标签所在卡片的第 2 个 span（值）。 */
+  const kpiValueOf = (label: string): string | null | undefined =>
+    screen.getByText(label).parentElement?.querySelector('span:nth-child(2)')?.textContent
+  const baseHandlers = (worksList: (args: Record<string, unknown>) => unknown): ((action: string, args: Record<string, unknown>) => Promise<unknown>) =>
+    async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return worksList(args)
+      throw new Error(`unexpected action ${action}`)
+    }
+  const worksRegion = (): HTMLElement => screen.getByRole('region', { name: en['works.table.scrollLabel'] })
+
+  it('作品加载失败：KPI 五卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
+    apiMock.hostAction.mockImplementation(baseHandlers(() => { throw new Error('DOUYIN_OPERATION_REQUEST_FAILED') }))
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    // 出错提示与重试只在列表区域出现一次；卡片不再逐个重复。
+    expect((await screen.findAllByText(kitEn['state.error'])).length).toBe(1)
+    expect(screen.getAllByRole('button', { name: kitEn['state.retry'] }).length).toBe(1)
+    expect(worksRegion().contains(screen.getByText(kitEn['state.error']))).toBe(true)
+    expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
+    expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
+    for (const key of ['works.kpi.worksTotal', 'works.kpi.playTotal', 'works.kpi.fansGainTotal', 'works.kpi.completion', 'works.kpi.gapWorks'] as const) {
+      expect(kpiValueOf(en[key])).toBe('—')
+    }
+    expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
+  })
+
+  it('部分失败（刷新时 works.list 失败）：保留已展示的行，不出现「部分数据」提示，工具栏提示刷新失败', async () => {
+    let failNext = false
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'works.list' && failNext) {
+        failNext = false
+        throw new Error('DOUYIN_OPERATION_REQUEST_FAILED')
+      }
+      return baseHandlers(() => ({ status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }))(action, args)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText('第一条作品')).not.toBeNull()
+    failNext = true
+    fireEvent.click(screen.getByRole('button', { name: en['works.refresh'] }))
+    // 行保留；卡片与列表区域都不再出现 partial 文案；失败由工具栏的一行提示负责。
+    await waitFor(() => expect(screen.getByText(en['works.refreshPartial'].replace('{parts}', en['works.refreshPart.works']))).not.toBeNull())
+    expect(screen.getByText('第一条作品')).not.toBeNull()
+    expect(screen.queryByText(kitEn['state.partial'])).toBeNull()
+    expect(screen.queryByText(kitEn['state.error'])).toBeNull()
+    expect(kpiValueOf(en['works.kpi.worksTotal'])).toBe(String(worksSummary.work_count))
+  })
+
+  it('加载中：列表区域显示骨架，不显示「暂无数据」', async () => {
+    apiMock.hostAction.mockImplementation(baseHandlers(() => new Promise(() => {})))
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(within(worksRegion()).getByText(kitEn['state.loading'])).not.toBeNull())
+    expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('loading')
+  })
+
+  it('无账号可选：KPI 五卡为「—」，列表区域显示「暂无数据」而不是一直加载', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [], remoteError: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText(kitEn['state.empty'])).not.toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('blank')
+    expect(within(worksRegion()).getByText(kitEn['state.empty'])).not.toBeNull()
+    expect(within(worksRegion()).queryByText(kitEn['state.loading'])).toBeNull()
+    expect(kpiValueOf(en['works.kpi.worksTotal'])).toBe('—')
+  })
+
+  it('Pager total 来自服务端：信息文案与下一页按钮可用', async () => {
+    installWorksMock()
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
+    expect(screen.getByRole('button', { name: kitEn['pager.next'] }).getAttribute('disabled')).toBeNull()
+    expect(screen.getByRole('button', { name: kitEn['pager.prev'] }).getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('total=0：导出按钮禁用且不渲染 Pager 按钮', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [], total: 0, limit: 10, offset: 0, summary: worksSummaryEmpty }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    const exportButton = await screen.findByRole('button', { name: en['works.exportExcel'] })
+    await waitFor(() => expect(exportButton.getAttribute('disabled')).not.toBeNull())
+    expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: kitEn['pager.prev'] })).toBeNull()
+    // 列表区域始终存在；空列表在区域正中显示「暂无数据」（en：No data），不出错、不加载。
+    expect(within(worksRegion()).getByText(kitEn['state.empty'])).not.toBeNull()
+    expect(worksRegion().getAttribute('data-state')).toBe('blank')
+    expect(screen.queryByText(kitEn['state.error'])).toBeNull()
   })
 })
 

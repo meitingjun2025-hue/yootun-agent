@@ -1,10 +1,10 @@
 /**
- * 作品页纯函数：加权完播率、缺口计数、表头排序状态机与客户端排序、最近采集
- * 时间、按日趋势行装配（发布日前补 0、发布日后缺失断线）。排序全部在客户端
- * 完成（列表已整表入库，排序不再触发服务端重新查询），缺失值恒沉底。
+ * 作品页纯函数：表头排序状态机与按日趋势行装配（发布日前补 0、发布日后缺失
+ * 断线）。排序与整账号聚合（加权完播率、缺口计数、最近采集时间）都在服务端
+ * 完成，页面只组装查询参数并渲染返回的当页行。
  * @module
  */
-import { CORE_GAP_FIELDS, type WorkDailyRow, type WorkRow } from './schema.ts'
+import { type WorkDailyRow } from './schema.ts'
 import { shanghaiCompletedDay } from './format.ts'
 
 /** 表头排序方向（默认态即发布时间降序，无独立 default 方向）。 */
@@ -13,7 +13,7 @@ export interface SortState {
   direction: 'desc' | 'asc'
 }
 
-/** 可排序列（与旧工作台列一致）。 */
+/** 可排序列（与服务端排序枚举一致）。 */
 export type SortKey =
   | 'publish_time'
   | 'completion_rate_pct'
@@ -29,26 +29,9 @@ export type SortKey =
 /** 默认排序态：发布时间降序（进入页面即最近发布在前）。 */
 export const DEFAULT_SORT_STATE: SortState = { key: 'publish_time', direction: 'desc' }
 
-/** 排序键 → WorkRow 可排序字段（客户端排序取值；均为 string | number | null）。 */
-type SortableField = 'publishTime' | 'completionRatePct' | 'avgPlayDurationS' | 'playCount' | 'likeCount'
-  | 'favoriteCount' | 'commentCount' | 'shareCount' | 'forwardCount' | 'followCount'
-
-const SORT_FIELD: Readonly<Record<SortKey, SortableField>> = {
-  publish_time: 'publishTime',
-  completion_rate_pct: 'completionRatePct',
-  avg_play_duration_s: 'avgPlayDurationS',
-  play_count: 'playCount',
-  like_count: 'likeCount',
-  favorite_count: 'favoriteCount',
-  comment_count: 'commentCount',
-  share_count: 'shareCount',
-  forward_count: 'forwardCount',
-  follow_count: 'followCount',
-}
-
 /**
  * 表头排序三态状态机：点击新列 → desc；同列 desc → asc；asc → 回默认态
- * （发布时间降序）。
+ * （发布时间降序）。每次变化都触发一次新的服务端查询并回到第 1 页。
  * @param currentState - 当前排序态。
  * @param columnKey - 被点击的列。
  * @returns 下一个排序态。
@@ -57,89 +40,6 @@ export function nextSortState(currentState: SortState, columnKey: SortKey): Sort
   if (currentState.key !== columnKey) return { key: columnKey, direction: 'desc' }
   if (currentState.direction === 'desc') return { key: columnKey, direction: 'asc' }
   return { ...DEFAULT_SORT_STATE }
-}
-
-/**
- * 客户端排序（本地、只基于已入库数据；表头排序不重新查询服务端）：缺失值恒
- * 沉底且不参与方向翻转；发布时间按时间戳比较（ISO 字符串字典序在不同精度下
- * 不可靠）；稳定排序保持接口原序。
- * @param rows - 已入库作品行。
- * @param sortState - 表头排序态。
- * @returns 排序后的行。
- */
-export function sortWorkRows(rows: readonly WorkRow[], sortState: SortState): WorkRow[] {
-  const field = SORT_FIELD[sortState.key]
-  const sign = sortState.direction === 'asc' ? 1 : -1
-  const timeOf = (value: string | number | null): number | null => {
-    if (value === null || typeof value === 'number') return value
-    const time = Date.parse(value)
-    return Number.isNaN(time) ? null : time
-  }
-  return rows
-    .map((row, index) => ({ row, index }))
-    .sort((left, right) => {
-      const av: number | string | null = left.row[field]
-      const bv: number | string | null = right.row[field]
-      const at = field === 'publishTime' ? timeOf(av) : av
-      const bt = field === 'publishTime' ? timeOf(bv) : bv
-      if (at === null && bt === null) return left.index - right.index
-      if (at === null) return 1
-      if (bt === null) return -1
-      if (typeof at === 'number' && typeof bt === 'number') {
-        if (at === bt) return left.index - right.index
-        return (at - bt) * sign
-      }
-      if (at === bt) return left.index - right.index
-      return String(at).localeCompare(String(bt)) * sign
-    })
-    .map(entry => entry.row)
-}
-
-/**
- * 播放量加权完播率：仅 completion 与 play 均非空的作品参与；分母 0 为 null。
- * @param rows - 已入库作品行。
- * @returns 加权完播率（两位小数）或 null。
- */
-export function weightedCompletionRate(rows: readonly WorkRow[]): number | null {
-  let numerator = 0
-  let denominator = 0
-  for (const row of rows) {
-    if (row.completionRatePct === null || row.playCount === null) continue
-    numerator += row.completionRatePct * row.playCount
-    denominator += row.playCount
-  }
-  return denominator > 0 ? Number((numerator / denominator).toFixed(2)) : null
-}
-
-/** 单行是否存在核心字段缺口（is_original 等非核心字段不计）。 */
-export function hasCoreGap(row: WorkRow): boolean {
-  return row.dataGap !== null && Object.keys(row.dataGap).some(field => CORE_GAP_FIELDS.has(field))
-}
-
-/** 缺口作品数：至少一个核心字段缺口的作品数。 */
-export function gapWorkCount(rows: readonly WorkRow[]): number {
-  return rows.filter(hasCoreGap).length
-}
-
-/**
- * 作品列表「最近采集时间」：取所有行 latest_collected_at 的最大值，无有效值
- * 返回 null。
- * @param rows - 已入库作品行。
- * @returns 最新采集时间 ISO 或 null。
- */
-export function latestCollectedAt(rows: readonly WorkRow[]): string | null {
-  let latest: number | null = null
-  let latestRaw: string | null = null
-  for (const row of rows) {
-    if (row.latestCollectedAt === null) continue
-    const time = Date.parse(row.latestCollectedAt)
-    if (Number.isNaN(time)) continue
-    if (latest === null || time > latest) {
-      latest = time
-      latestRaw = row.latestCollectedAt
-    }
-  }
-  return latestRaw
 }
 
 /** 来源分布行按播放量降序（最多的在最上方），缺失值沉底、不折算 0。 */
