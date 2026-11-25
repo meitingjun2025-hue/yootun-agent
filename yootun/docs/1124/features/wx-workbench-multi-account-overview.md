@@ -1,6 +1,6 @@
 # wx-workbench-多账号数据汇总总览 实施单
 
-状态：草案 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入并推送，待发版前真机验收 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -192,10 +192,10 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 11 册 §5） | 2026-11-25 | `feat/wx-multi-account-overview` | 阶段 1–3 验收通过；按用户要求全部完成后统一合入 |
-| tools 合入 `dev` | 2026-11-25 | `feat/wx-accounts-overview`（待合入 `dev`） | 阶段 1 验收通过：966 passed / 2 skipped，ruff 0 新增；待用户决定合入与推送 |
-| docker-helm 部署测试环境 | — | — | 不涉及 |
-| yootun-agent 合入 `main` | | `feat/wx-multi-account-overview`（待合入 `main`） | 待最终统一合入 |
+| 文档（本文 + 11 册 §5） | 2026-11-25 | `feat/wx-multi-account-overview` → `main` | 阶段 1–3 验收通过；本地联调结论见附录 G，随代码一并合入 |
+| tools 合入 `dev` | 2026-11-25 | `feat/wx-accounts-overview` → `dev`，合并提交 `4d14134`，已推送 | 阶段 1 验收通过：966 passed / 2 skipped，ruff 0 新增；本地联调数据层对账 22 个场景全部一致（附录 G.2） |
+| docker-helm 部署测试环境 | — | — | docker-helm 无改动；测试环境部署与服务端 `tools/list` 核对未做，`dev` 已推送不等于服务端已上线 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/wx-multi-account-overview` → `main`，合并提交 `c37b2ba287`，已推送 | 本地联调通过（附录 G）；真机验收待发版前 |
 | 发版 | | | 待填 |
 
 ## 5. 验收
@@ -211,8 +211,8 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 - [x] yootun-agent：`pnpm --filter @yootun/dsh-wx-channels-workbench test`（node --test 77 全过 + vitest 69 passed、1 项详情 Modal 用例为基线预存失败，独立 stash 核实）、`build` 通过；
 - [x] yootun-agent：`pnpm run lint` exit 0（tools 仓 ruff 39 条 = dev 基线 39，0 新增）；
 - [x] yootun-agent：wx 包 source-conventions 守护通过（无工具数量字面量、域门 whitelist 无工具名）；
-- [ ] 本地三仓 e2e（待联调）：全部账号模式汇总值 = 各账号单账号工具返回值之和（work_count 不适用——单账号工具不产出该字段）；单账号模式 10 卡 / 4 卡 / 趋势 = 单账号工具返回值；
-- [ ] 本地三仓 e2e（待联调）：页面选 `custom [Mon, Sun]` 的 10 卡 / 4 卡 / 趋势，与直接调用 `workbench_wx_accounts_overview(window='custom', fromDay=Mon, toDay=Sun)` 的返回逐字段一致（日报 / 周报对账基础）；
+- [x] 本地联调 e2e：全部账号模式汇总值 = 各账号单账号工具返回值之和（`work_count` 不适用——单账号工具不产出该字段；`followerTotalCount` 在账号窗口内无 fans 行时回退账号记录值而单账号工具为 `null`，属 2.3 规定的口径差）；单账号模式 10 卡 / 4 卡 / 趋势 = 单账号工具返回值——`yesterday` / `last_7d` / `last_30d` 三档差异 0（附录 G.3）；
+- [x] 本地联调 e2e：页面选 `custom [Mon, Sun]` 的 10 卡 / 4 卡 / 趋势 / 账号表现表，与直接调用 `workbench_wx_accounts_overview(window='custom', fromDay=Mon, toDay=Sun)` 的返回逐字段一致（日报 / 周报对账基础）——42 个比对点数值全部一致（附录 G.3）；
 - [ ] 真机（待发版前）：三入口、明暗主题、三档容器宽度（1120 / 880 / 640）；筛选 chips 可清除；表格行键盘 Enter 选中账号；画像在全部账号模式为空态、单账号模式为五维；`custom` 时起止日期输入出现、`max` 为昨日、起 > 止时另一端跟随、空值不触发请求（jsdom 页面测试已覆盖交互逻辑，视觉目检待真机）；
 - [x] 实施单第 4 节回填完整。
 
@@ -372,13 +372,13 @@ Host 不解析聚合结果，`structuredContent` 原样透出（与 `account.ove
 │ ⓘ 该时间窗内部分日期的数据尚未采集，已展示内容均为已采集的真实数据              │  partial 提示
 ├────────────────────────────────────────────────────────────────────────────────┤
 │ 账号表现                                                                       │  B.2 ②
-│ ┌──┬──────────────────┬─────────┬─────────┬─────────┬────────┬───────┬──────┬──────┬──────┬──────────┐ │
-│ │# │ 账号              │ 关注者   │ 净增     │ 播放     │ 喜欢   │ 评论  │ 分享 │ 作品 │采集  │          │ │
-│ ├──┼──────────────────┼─────────┼─────────┼─────────┼────────┼───────┼──────┼──────┼──────┼──────────┤ │
-│ │1 │ ● 昵称A  [正常]   │ 12.3w   │ +320    │ 30.1w   │ 1.5w   │ 8000  │ 2.1k │ 120  │ 11-23│          │ │
-│ │2 │ ● 昵称B  [已过期] │ 3.4w    │ —       │ 15.5w   │ 8000   │ 4000  │ 1.3k │ 80   │ 11-20│          │ │
-│ │3 │ ● 昵称C  [正常]   │ 1.2w    │ -12     │ —       │ —      │ —     │ —    │ 0    │  —   │ 暂无数据 │ │
-│ └──┴──────────────────┴─────────┴─────────┴─────────┴────────┴───────┴──────┴──────┴──────┴──────────┘ │
+│ ┌──┬──────────────────┬─────────┬─────────┬─────────┬────────┬───────┬──────┬──────┬──────────┐ │
+│ │# │ 账号              │ 关注者   │ 净增     │ 播放     │ 喜欢   │ 评论  │ 分享 │ 作品 │          │ │
+│ ├──┼──────────────────┼─────────┼─────────┼─────────┼────────┼───────┼──────┼──────┼──────────┤ │
+│ │1 │ ● 昵称A  [正常]   │ 12.3w   │ +320    │ 30.1w   │ 1.5w   │ 8000  │ 2.1k │ 120  │          │ │
+│ │2 │ ● 昵称B  [已过期] │ 3.4w    │ —       │ 15.5w   │ 8000   │ 4000  │ 1.3k │ 80   │          │ │
+│ │3 │ ● 昵称C  [正常]   │ 1.2w    │ -12     │ —       │ —      │ —     │ —    │ 0    │ 暂无数据 │ │
+│ └──┴──────────────────┴─────────┴─────────┴─────────┴────────┴───────┴──────┴──────┴──────────┘ │
 │ ⓘ 关注者总数为各账号最新关注者之和                                             │  footnote
 ├────────────────────────────────────────────────────────────────────────────────┤
 │ ┌───────────────────────────────────────┐ ┌─────────────────────────────┐     │  B.2 ③
@@ -431,9 +431,9 @@ Host 不解析聚合结果，`structuredContent` 原样透出（与 `account.ove
 | 区块 | 容器 | 内容 | 数据 |
 |---|---|---|---|
 | 筛选器 | kit `FilterBar`（`children` 放 4 个 `FilterMenu`，`chips` 放生效筛选） | 见 B.3 | `accounts`（账号选项）、`summary.accountTotal`（命中数） |
-| ① 全部视频指标 | `DataCard`，`title=overview.section.metrics`，`description=共 N 个账号 / 该账号 · 窗口`，`state='ready'`，`footnote=overview.dataSource` | `kpiGrid` 固定 10 张 `KpiCard`（`METRIC_CARDS` 不变） | `summary.totals`；单账号模式取 `rows.find(accountId).totals` |
+| ① 全部视频指标 | `DataCard`，`title=overview.section.metrics`，`description=共 N 个账号 / 该账号 · 窗口`，`state='ready'`，`footnote=overview.dataSource` | `kpiGrid` 固定 10 张 `KpiCard`，每张只有 `label` 与 `value`，不带逐卡 `footnote`（2026-11-25 调整：口径说明只在区块 `description` 与 `footnote` 各出现一次） | `summary.totals`；单账号模式取 `rows.find(accountId).totals` |
 | ② 账号表现 | `DataCard`，`title=overview.section.accounts`，`description=overview.section.accountsCount{count}`，`state='ready'`，`footnote=overview.followersSumNote` | `tableWrap > table.dataTable`，见 B.4 | `rows`（服务端已按 `sort` 排序） |
-| ③ 关注者增长 | `growthGrid`（≥1120 双列：趋势 1.4fr ｜ 指标 0.8fr） | 左：`ChartFrame + LineTrendChart`（单序列 `total`），标题带范围「关注者总数趋势（{trendWindow}）」；右：`DataCard` + `kpiGrid4` 4 张 `KpiCard` | 趋势：`summary.trendDaily` 按 `summary.trendWindow` 逐日对齐（7 / 30 / ≤92 行，缺日 null 断线；x 轴标签按行数稀疏：≤7 全显、≤31 首尾 + 中点、>31 首尾）；4 卡：`summary.fansTotals` + `summary.followerTotalCount`；单账号模式取该账号行 |
+| ③ 关注者增长 | `growthGrid`（≥1120 双列：趋势 1.4fr ｜ 指标 0.8fr） | 左：`ChartFrame + LineTrendChart`（单序列 `total`），标题为现有文案 `chart.fansTrend` 加范围「（{trendWindow}）」；该文案含固定的「近 7 天」字样，窗口为 30 天或自定义时与括号内范围不符（2026-11-25 联调发现，文案待调整）；右：`DataCard` + `kpiGrid4` 4 张 `KpiCard` | 趋势：`summary.trendDaily` 按 `summary.trendWindow` 逐日对齐（7 / 30 / ≤92 行，缺日 null 断线；x 轴标签按行数稀疏：≤7 全显、≤31 首尾 + 中点、>31 首尾）；4 卡：`summary.fansTotals` + `summary.followerTotalCount`；单账号模式取该账号行 |
 | ④ 关注者画像 | `DataCard`，`title=overview.section.portrait`，`description=截止 {day}` | 全部账号：`DataState state='empty'` 文案 `overview.portrait.pickAccount`；单账号：现有 `portraitGrid` + `portraitGrid2` 五维，代码不变 | `fans.profile.get`（单账号） |
 
 KPI 卡 `state` 推导沿用现有 `kpiState()`：`ready` / `partial` 下有值直排、无值 `empty`；`loading` / `error` 整卡对应态。「净增关注」卡在 `value > 0` 时红字 `+N`、`< 0` 时绿字 `-N`、`0` 与 `null` 无色（新增 `formatDelta`，色值复用 `--dsw-alias-state-error-primary` / `--dsw-alias-state-success-primary`）。
@@ -485,8 +485,8 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 评论 | `col.comment` | `totals.commentCount` | `formatCount` | 右 |
 | 分享 | `col.share` | `totals.shareCount` | `formatCount` | 右 |
 | 作品 | `overview.col.works` | `totals.workCount`，为空时回退 `feedCount` | `formatCount` | 右 |
-| 最近采集 | `overview.col.lastCollected` | `lastCollectedAt` | `formatDateTime`（现有 `format.ts`） | 右 |
 
+- 共 9 列（2026-11-25 调整：去掉「最近采集」列）；数字列的 `th` 直接挂 `.num`，与 `td.num` 同选择器右对齐，不包在 `span` 里；
 - `null` 一律显示「—」（现有 `formatCount` 行为），不显示 0；
 - 行可聚焦（`tabIndex=0`），`aria-selected` 标识当前选中账号；选中行 `aria-current='true'` + 背景色 `--dsw-alias-bg-layer-2`；
 - 表格外层 `tableWrap` 横向滚动，`max-height: 60vh`，与作品表一致；
@@ -570,7 +570,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | `overview.col.followers` | 关注者 | Followers |
 | `overview.col.netFans` | 净增关注 | Net followers |
 | `overview.col.works` | 作品数 | Works |
-| `overview.col.lastCollected` | 最近采集 | Last collected |
+| `overview.col.lastCollected` | 最近采集 | Last collected（2026-11-25 起账号表现表无此列，键保留在词典中，页面无引用） |
 | `overview.row.selectAria` | 选择账号 {name} | Select account {name} |
 | `overview.row.noData` | 暂无数据 | No data |
 | `overview.tag.sessionOk` | 正常 | OK |
@@ -744,3 +744,50 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 时间窗位置 | 顶部 `FilterBar` | 保留在 ① 标题行右侧 `SegmentedTabs` |
 | 会话状态筛选语义 | 传入服务端，影响汇总与表格 | 仅客户端过滤表格行，汇总不变 |
 | `FilterMenu` 归属 | 上移 kit，抖音同步迁移 | 视频号局部复制（违反三层创作模型「第二个消费者必须抽取」） |
+
+## 附录 G：本地联调记录（2026-11-25）
+
+联调在本机完成：tools 服务运行 `feat/wx-accounts-overview` 代码（FastMCP 端点 `/mcp/yootun-workbench`，本地直连不校验鉴权，鉴权由部署层网关承担）；yootun-agent 以源码方式启动 web（隔离的 `DSH_HOME`），激活门禁用本地 settings 写入绕过，未调用真实激活路由。联调脚本与证据存放在仓库外已忽略的 `.ui-review/` 目录，不入库；下表测试数据已在联调后删除。
+
+测试数据为 SQL 直接写入的 2 个账号（`delete_state='none'`），库内另有 1 个真实账号，全程未改动：
+
+| 账号 | 日表 | fans 日表 | 作品 | 画像 | 会话 |
+|---|---|---|---|---|---|
+| `e2e-test-a` | 7 天完整，其中 2 天 `daily_like_count` 为 NULL | 7 天，`follower_net_count=10`，第 4 天 `follower_total_count` 为 NULL | 2 条（1 条近 7 天、1 条 35 天前） | 1 份 | `ok` |
+| `e2e-test-b` | 3 天（7 天窗内为 `partial`） | 3 天，`follower_net_count=-1` | 无 | 无 | `expired` |
+
+### G.1 链路
+
+页面 → Host `overview.accounts` → MCP `workbench_wx_accounts_overview` → PG。Host 响应与 MCP 直调同参结果逐字段相等（`last_7d` 与 `custom` 周两个场景）；页面读取的键名与契约文档 §4.4.1 一致。
+
+### G.2 数据层对账
+
+MCP 返回与 SQL 独立聚合（不引用实现代码）逐字段比对，22 个场景全部一致：三档枚举窗口；`custom` 单日、周（周一至周日）、30 天；`sessionStatus` 过滤；5 种 `sort` 各一次（含缺失值排最后、同值按 `account_id`）；显式 `accountIds`；不存在的 `accountIds` 返回 `ACCOUNT_NOT_ACCESSIBLE`；`custom` 五种非法输入均返回 `INVALID_TIME_WINDOW`；过滤后空集返回 `accountCount=0` 与 `availability=no_data`；同参两次调用 `summary` 相等。
+
+### G.3 汇总口径与页面对账
+
+| 比对 | 结果 |
+|---|---|
+| 多账号汇总 vs 各账号单账号工具之和（`yesterday` / `last_7d` / `last_30d`）：`totals`（不含 `work_count`）、`fans_totals`、逐日关注者总数 | 差异 0；逐日趋势按两边共有的日期比对，三档分别为 2、10、28 个点 |
+| 单账号模式行 vs 该账号单账号工具：10 卡 `totals`、`fans_totals`、`followerTotalCount`、可用性、逐日趋势 | 差异 0 |
+| 页面 `custom` 2026-11-16 – 2026-11-22（周一至周日）的 10 卡、4 卡、趋势 7 列、账号表现表 3 行 vs 工具直调 | 42 个比对点数值全部一致；其中「新增关注」「取关」两点比对脚本按带符号格式取期望值，与页面的无符号显示不等，按数值核对一致 |
+
+两项口径差来自既定契约，对账时需要知道：`followerTotalCount` 行级值在账号窗口内无 fans 行时回退账号记录值（第 2.3 节），单账号工具在同一窗口返回 `null`，本次联调中 `yesterday` 档为 `e2e-test-b` 555 与真实账号 67，`last_7d` 档为真实账号 67；`yesterday` 档多账号工具按末日单日计 `daysObserved` / `daysExpected`，单账号工具为名义 2 天窗口。
+
+### G.4 页面目检（web，1280 宽）
+
+全部账号模式（筛选条 4 项、chips、10 卡、账号表现表、趋势、画像空态）；单账号模式（指标卡口径说明、画像五维、`1 account`、不显示关注者求和 footnote）；`custom` 日期输入（`max` 为昨日、初值昨日、起止互相约束、清空任一端不发请求且 chip 回退「自定义」）；会话状态筛选；小于 880 与不小于 1120 两档容器宽度；暗色主题。
+
+### G.5 本轮修复的问题
+
+| 问题 | 修复提交 |
+|---|---|
+| 作品详情 Modal 用例的按日趋势夹具日期写死，真实日期越过窗口后用例失败 | `79f252c` |
+| Host `overview.accounts` 把空 `sort` 原样传给 tools，被 `Literal` 校验拒绝为 `VALIDATION_ERROR` | `329badf` |
+| client 读取趋势用的键名是 `trend_daily`，与契约的 `trendDaily` 不一致，趋势图始终无数据；测试载荷与实现写成了同一个错误键名，未能发现 | `5304a4b`（并增加按契约键名构造载荷的用例） |
+| 单账号模式账号表标题显示复数；`custom` 任一端为空时 chip 文案尾部留下连接符 | `33b34d8` |
+| 账号表现表数字列表头包在 `span` 里，右对齐选择器不命中，与数据列错位 | `cacca9ea`（同次提交按用户裁定移除 10 卡逐卡口径注脚与「最近采集」列） |
+
+### G.6 未覆盖项
+
+激活路由未调用；桌面端真机未验收；「200 账号 × 30 天单次请求 < 2s」未计时；测试数据为 SQL 直接写入，写入链路（幂等键、批次账本、服务端复核）未经过；tools 服务首次启动时出现过一次排序未生效，进程内直调与重启后均正确，原因未定位。

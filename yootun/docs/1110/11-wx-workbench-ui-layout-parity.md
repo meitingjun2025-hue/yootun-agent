@@ -259,7 +259,7 @@ work.trend → { account_id, work_id, snapshots }
 
 ### 5.2 账号表现表
 
-10 列：排名 / 账号（头像 + 昵称 + 会话状态 Tag + 「暂无数据」Tag）/ 关注者 / 净增（带符号涨跌色）/ 播放 / 喜欢 / 评论 / 分享 / 作品（`work_count` 缺失回退 `feed_count`）/ 最近采集。行可聚焦（Enter / Space 选中账号，`aria-selected` + `aria-current`）；服务端按 `sort` 排序；`<880` 容器前两列 sticky。
+9 列：排名 / 账号（头像 + 昵称 + 会话状态 Tag + 「暂无数据」Tag）/ 关注者 / 净增（带符号涨跌色）/ 播放 / 喜欢 / 评论 / 分享 / 作品（`work_count` 缺失回退 `feed_count`）。数字列表头与数据同选择器右对齐。行可聚焦（Enter / Space 选中账号，`aria-selected` + `aria-current`）；服务端按 `sort` 排序；`<880` 容器前两列 sticky。
 
 ### 5.3 关注者增长
 
