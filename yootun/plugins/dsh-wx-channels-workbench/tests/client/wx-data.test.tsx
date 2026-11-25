@@ -5,9 +5,11 @@
  * 面板、无刷新排序、tab / 键盘 / aria）。
  */
 // @vitest-environment jsdom
+import { strict as assert } from 'node:assert'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
+import { readAccountsOverview, readOverview } from '../../src/client/schema.ts'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
 afterEach(() => {
@@ -51,6 +53,13 @@ function mockHost(handlers: Record<string, Handler>): { calls: RecordedCall[] } 
 }
 
 const OK = { status: 'ok' }
+
+/** 上海最近 N 个已完成日（测试夹具；与 works-format.recentDays 同口径）。 */
+function recentDaysForTest(count = 1): string {
+  const shifted = new Date(Date.now() + 8 * 3600 * 1000)
+  shifted.setUTCDate(shifted.getUTCDate() - count)
+  return shifted.toISOString().slice(0, 10)
+}
 
 const ACCOUNT = {
   accountId: 'finder-a',
@@ -110,9 +119,11 @@ function workGetPayload(workId: string): Payload {
       ],
     },
     retention_trend: { points: [{ second: 0, rate_pct: 100 }, { second: 3, rate_pct: 22.4 }, { second: 9, ratePct: 14 }] },
+    // 日期必须落在 recentDays(7) 窗口内（dailyTrendRows 按最近 7 个上海已完成日
+    // 对齐）：写死过去日期会随时间推移腐化为空态（本用例曾因此失败）。
     daily_metrics: [
-      { day: '2026-11-15', daily_play_count: 100, daily_like_count: 5 },
-      { day: '2026-11-17', daily_play_count: 140, daily_like_count: 9, daily_follow_count: 2 },
+      { day: recentDaysForTest(3), daily_play_count: 100, daily_like_count: 5 },
+      { day: recentDaysForTest(1), daily_play_count: 140, daily_like_count: 9, daily_follow_count: 2 },
     ],
     data_gap: { traffic_source: { reason: 'not_exposed' } },
   }
@@ -1046,8 +1057,8 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
   })
 })
 
-describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / 五维画像）', () => {
-  /** 画像五维 fixture：省市给 7 行验证 Top 5 截断。 */
+describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现表 / 趋势 / 画像）', () => {
+  /** 画像五维 fixture（单账号模式消费）：省市给 7 行验证 Top 5 截断。 */
   const PROFILE = {
     day: '2026-11-17',
     gender: [
@@ -1064,7 +1075,6 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
       { key: 'fage_18_24', label: null, count: 20 },
       { key: 'fage_50_+', label: null, count: 5 },
     ],
-    // 7 行总数 120、Top 5 合计 91：截断后占比分母必须是 120（广东 30 → 25%）。
     province: [
       { key: 'gd', label: '广东', count: 30 },
       { key: 'js', label: '江苏', count: 22 },
@@ -1077,131 +1087,307 @@ describe('账号总览页（全宽三段：10 指标 / 关注者增长 4 卡 / �
     city: [{ key: 'sz', label: '深圳', count: 20 }],
   }
 
-  function overviewHandlers(overrides: Record<string, Handler> = {}): Record<string, Handler> {
+  const ROW_A = {
+    account_id: 'finder-a', nickname: '演示账号', avatar: null, session_status: 'ok',
+    last_collected_at: '2026-11-23T10:00:00+08:00', feed_count: 12, follower_total_count: 66,
+    metrics: { totals: { daily_play_count: 100, daily_like_count: 10, work_count: 12 }, rowAvailability: 'ok' },
+    fans_trend: { totals: { follower_net_count: 6, follower_add_count: 7, follower_reduce_count: 1 }, rowAvailability: 'ok' },
+  }
+  const ROW_B = {
+    account_id: 'finder-b', nickname: '账号乙', avatar: null, session_status: 'expired',
+    last_collected_at: null, feed_count: 8, follower_total_count: 101,
+    metrics: { totals: { daily_play_count: 1134, work_count: 188 }, rowAvailability: 'ok' },
+    fans_trend: { totals: { follower_net_count: -3, follower_add_count: 0, follower_reduce_count: 3 }, rowAvailability: 'ok' },
+  }
+
+  /** 日期算术（fixture 专用）：ISO 日 + N 天。 */
+  function dayOffset(start: string, offset: number): string {
+    return new Date(Date.UTC(2026, 10, 17 + offset)).toISOString().slice(0, 10)
+  }
+
+  function accountsOverviewPayload(overrides: Record<string, unknown> = {}, trendDays = 7): Payload {
+    return {
+      status: 'ok',
+      window: 'last_7d',
+      summary: {
+        accountCount: 2, accountTotal: 3,
+        window: { startDay: '2026-11-17', endDay: '2026-11-23' },
+        totals: { daily_play_count: 1234, daily_like_count: 37, work_count: 200 },
+        fans_totals: { follower_net_count: 3, follower_add_count: 7, follower_reduce_count: 1 },
+        followerTotalCount: 167,
+        trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
+        trendDaily: Array.from({ length: trendDays }, (_, index) => ({
+          day: dayOffset('2026-11-17', index), follower_total_count: 160 + index,
+        })),
+        daysObserved: { account_metrics: 7, fans_trend: 7 },
+        availability: { account_metrics: 'ok', fans_trend: 'ok' },
+      },
+      accounts: [ROW_A, ROW_B],
+      availability: { account_metrics: 'ok', fans_trend: 'ok' },
+      ...overrides,
+    }
+  }
+
+  function overviewAccountsHandlers(overrides: Record<string, Handler> = {}): Record<string, Handler> {
     return baseHandlers({
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: {
-          daily_play_count: 1234, daily_like_count: 37, daily_favorite_count: 42, daily_comment_count: 2,
-          daily_share_count: 30, daily_forward_count: 30, daily_follow_count: 7,
-          daily_ringset_count: 0, daily_status_ref_count: 0, daily_status_cover_count: 0, work_count: 12,
-        } },
-        fans_trend: { totals: { follower_net_count: 6, follower_add_count: 7, follower_reduce_count: 1 }, followerTotalCount: 67, daily: [] },
-        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'ok' },
-      }),
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙', sessionStatus: 'expired' }], remoteOk: true }),
+      'overview.accounts': () => accountsOverviewPayload(),
       'fans.profile.get': () => ({ ...OK, fans_profile: PROFILE }),
       ...overrides,
     })
   }
 
-  it('全部视频指标固定 10 卡，按 metrics.totals.daily_* 消费', async () => {
-    await renderPage(overviewHandlers())
+  async function openOverview(handlers: Record<string, Handler>): Promise<{ calls: RecordedCall[] }> {
+    const page = await renderPage(handlers)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    expect(await screen.findByText(t('overview.section.metrics'))).not.toBeNull()
+    await screen.findByText(t('overview.section.accounts'))
+    return page
+  }
+
+  it('全部账号模式：筛选器 4 个、10 卡按 summary.totals、表格行数 = rows、画像空态', async () => {
+    await openOverview(overviewAccountsHandlers())
+    // 4 个 FilterMenu 触发按钮（aria-label 为筛选名）。
+    for (const name of ['Account', 'Window', 'Sort', 'Session']) {
+      expect(screen.getByRole('button', { name })).not.toBeNull()
+    }
+    // 10 卡：全部视频指标标签（10 个 labelKey 全部命中）。
     for (const key of ['col.play', 'col.like', 'col.favorite', 'col.comment', 'col.share', 'col.forward', 'col.follow', 'metric.ringset', 'metric.statusRef', 'metric.statusCover'] as const) {
       expect(screen.getAllByText(t(key)).length).toBeGreaterThanOrEqual(1)
     }
-    // 数量契约：全部视频指标固定 10 卡。
-    const metricsGrid = screen.getByText(t('metric.ringset')).closest('div')
-    expect(metricsGrid?.children.length).toBe(10)
-    // 关注量卡有口径提示（全部视频关注增量，非账号净关注）。
-    expect(screen.getByText(t('metric.followHint'))).not.toBeNull()
-    // 10 卡均有值：1234（播放）在总览页可见。
     expect(screen.getAllByText('1234').length).toBeGreaterThanOrEqual(1)
+    // 表格行数 = rows.length（2），表头与账号名可见。
+    const table = screen.getByRole('table', { name: t('overview.section.accounts') })
+    expect(table.querySelectorAll('tbody tr').length).toBe(2)
+    expect(screen.getByText('账号乙')).not.toBeNull()
+    // 画像：全部账号模式为选择提示空态，不发 fans.profile.get。
+    expect(screen.getByText(t('overview.portrait.pickAccount'))).not.toBeNull()
   })
 
-  it('availability.account_metrics=no_data 显示真实空态，缺失值不补 0', async () => {
-    await renderPage(overviewHandlers({
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: {} },
-        fans_trend: { totals: {} },
-        availability: { account_metrics: 'no_data', fans_trend: 'no_data', fans_profile: 'no_data' },
+  it('availability no_data → 真实空态文案；accountCount=0 → 无匹配账号', async () => {
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': () => accountsOverviewPayload({
+        summary: {
+          accountCount: 2, accountTotal: 3,
+          window: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          totals: {}, fans_totals: {}, followerTotalCount: null,
+          trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          trendDaily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
+          availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
+        },
+        accounts: [
+          { account_id: 'finder-a', metrics: { totals: {}, rowAvailability: 'no_data' }, fans_trend: { totals: {}, rowAvailability: 'no_data' } },
+          { account_id: 'finder-b', metrics: { totals: {}, rowAvailability: 'no_data' }, fans_trend: { totals: {}, rowAvailability: 'no_data' } },
+        ],
+        availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
       }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     expect(await screen.findByText(t('overview.metricsNoData'))).not.toBeNull()
   })
 
-  it('关注者增长指标固定 4 卡（净增 / 新增 / 取消 / 总数），关注者趋势固定近 7 天', async () => {
-    const { calls } = await renderPage(overviewHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    for (const key of ['fans.net', 'fans.add', 'fans.reduce', 'fans.total'] as const) {
-      // 关注者总数与趋势图例同名：多命中计数。
-      expect((await screen.findAllByText(t(key))).length).toBeGreaterThanOrEqual(1)
-    }
-    // 数量契约：关注者增长指标固定 4 卡。
-    const fansGrid = screen.getByText(t('fans.add')).closest('div')
-    expect(fansGrid?.children.length).toBe(4)
-    expect(screen.getAllByText('6').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('7').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('67').length).toBeGreaterThanOrEqual(1)
-    // 时间窗切到「昨日」：趋势线仍来自固定 last_7d 摘要（不随总览时间窗截断）。
-    fireEvent.click(screen.getByRole('tab', { name: t('overview.window.yesterday') }))
-    // 切「昨日」后：window 参数进入服务端；趋势数据源仍是固定 last_7d 摘要。
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'account.overview')
-      if (last?.args?.window !== 'yesterday') throw new Error('window not applied yet')
-    })
-    expect(screen.getAllByText(t('chart.fansSeries')).length).toBeGreaterThanOrEqual(1)
+  it('accountCount=0（筛选后空集）→ 无匹配账号文案', async () => {
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': () => accountsOverviewPayload({
+        summary: {
+          accountCount: 0, accountTotal: 3,
+          window: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          totals: {}, fans_totals: {}, followerTotalCount: null,
+          trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          trendDaily: [], daysObserved: { account_metrics: 0, fans_trend: 0 },
+          availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
+        },
+        accounts: [],
+        availability: { account_metrics: 'no_data', fans_trend: 'no_data' },
+      }),
+    }))
+    expect(await screen.findByText(t('overview.empty.noAccounts'))).not.toBeNull()
   })
 
-  it('画像五维同屏（无维度 tab）：环形 / 柱状 / 省市 Top 5；缺失维度给真实文案', async () => {
-    await renderPage(overviewHandlers({
-      'fans.profile.get': () => ({ ...OK, fans_profile: { ...PROFILE, city: null } }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    expect(await screen.findByText(t('overview.section.portrait'))).not.toBeNull()
-    // 五个维度标题同屏，且不存在任何维度切换 tab。
+  it('单账号模式：选账号后 4 卡为该账号值、画像五维渲染、fans.profile.get 发出', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args).toMatchObject({ accountId: 'finder-b' })
+    })
+    // 4 卡为该账号（finder-b）值：净增 -3、新增 0、取消 3、总数 101。
+    expect((await screen.findAllByText('-3')).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('101').length).toBeGreaterThanOrEqual(1)
+    // 画像五维同屏（fans.profile.get 已发出并渲染 PROFILE）。
+    expect(await screen.findByText(t('portrait.gender'))).not.toBeNull()
     for (const key of ['portrait.gender', 'portrait.device', 'portrait.age', 'portrait.province', 'portrait.city'] as const) {
       expect(screen.getByText(t(key))).not.toBeNull()
     }
-    const tablist = screen.queryByRole('tablist', { name: t('portrait.gender') })
-    expect(tablist).toBeNull()
-    // 性别环形图：编码映射为 locale 文案（男 / 女），图例带人数与占比。
     expect(screen.getByText(/Male 70 · 70%/u)).not.toBeNull()
-    expect(screen.getByText(/Female 30 · 30%/u)).not.toBeNull()
-    // 设备：iOS / 安卓 / 未知（unknow 编码不透出英文）。
-    expect(screen.getByText(/iOS 36/u)).not.toBeNull()
-    expect(screen.getByText(/Android 60/u)).not.toBeNull()
-    expect(screen.getByText(/Unknown 4 · 4%/u)).not.toBeNull()
-    // 年龄：fage_* 去前导零（en 词典无单位后缀：1-17 / 50+）。
-    expect(screen.getByText('1-17')).not.toBeNull()
-    expect(screen.getByText('50+')).not.toBeNull()
-    // 省份 Top 5：7 行输入只渲染 5 行且按人数降序；卡片明示 Top 5 / 7。
+    // 省份 Top 5 截断 + 明示 5 / 7。
     const provinceRows = screen.getAllByText(/广东|江苏|浙江|山东|四川|福建|河南/u)
     expect(provinceRows.length).toBe(5)
     expect(screen.getByText(t('portrait.topNote', { top: 5, total: 7 }))).not.toBeNull()
-    // 城市维度缺失 → 该画像维度本次未提供（不渲染空分布）。
-    expect(screen.getByText(t('portrait.dimMissing'))).not.toBeNull()
-    // 画像快照日徽标。
-    expect(screen.getByText(t('overview.portraitAsOf', { day: '2026-11-17' }))).not.toBeNull()
   })
 
-  it('画像行键盘可达：Top 5 条形行 tabIndex=0 且 aria 含人数与占比', async () => {
-    await renderPage(overviewHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    const row = await screen.findByText('广东')
-    const rowItem = row.closest('li')
-    expect(rowItem?.getAttribute('tabindex')).toBe('0')
-    // 占比分母是维度完整总数（30/120 → 25%），不随 Top 5 截断变小。
-    expect(rowItem?.getAttribute('aria-label')).toBe(t('portrait.barAria', { name: '广东', count: 30, share: 25 }))
+  it('表格行 Enter 选中账号：accountIds 进入请求（键盘等价路径）', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    const row = screen.getByText('账号乙').closest('tr') as HTMLElement
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args).toMatchObject({ accountId: 'finder-b' })
+    })
   })
 
-  it('整体无画像 → no_data 空态，不渲染空分布', async () => {
-    await renderPage(overviewHandlers({
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: { daily_play_count: 100 } },
-        fans_trend: { totals: {} },
-        availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' },
+  it('会话状态筛选与账号联动：expired 与选中账号不符 → 账号重置为全部（单次请求）', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    // 先选账号乙，再把会话状态切到 expired（与账号乙 expired 相符 → 不重置）。
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args).toMatchObject({ accountId: 'finder-b' })
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Session' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.tag.sessionOk') }))
+    // ok 与账号乙（expired）不符 → accountIds 撤下、状态保留。
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args).toMatchObject({ sessionStatus: 'ok' })
+      expect(last?.args.accountId).toBeUndefined()
+    })
+  })
+
+  it('时间窗切 custom：出现两个 date 输入、max 为昨日、初值为昨日；custom 参数透传', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    fireEvent.click(screen.getByRole('button', { name: 'Window' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.window.custom') }))
+    const inputs = document.querySelectorAll('input[type="date"]')
+    expect(inputs.length).toBe(2)
+    const yesterday = recentDaysForTest()
+    expect(inputs[0]?.getAttribute('max')).toBe(yesterday)
+    expect(inputs[1]?.getAttribute('max')).toBe(yesterday)
+    expect((inputs[0] as HTMLInputElement).value).toBe(yesterday)
+    expect((inputs[1] as HTMLInputElement).value).toBe(yesterday)
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args).toMatchObject({ window: 'custom', fromDay: yesterday, toDay: yesterday })
+    })
+  })
+
+  it('自定义越界纠偏：起始改到截止之后 → 截止跟随为同值（单次请求）；清空任一端 → 不发请求', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    fireEvent.click(screen.getByRole('button', { name: 'Window' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.window.custom') }))
+    const inputs = document.querySelectorAll('input[type="date"]')
+    const countAtCustom = calls.filter(call => call.action === 'overview.accounts').length
+    // 清空起始：不发请求（受控值保留为空串）。
+    fireEvent.change(inputs[0] as HTMLInputElement, { target: { value: '' } })
+    expect(calls.filter(call => call.action === 'overview.accounts').length).toBe(countAtCustom)
+    expect((inputs[0] as HTMLInputElement).value).toBe('')
+    // 起始晚于截止：截止跟随（同一次 change 只发一次请求）。
+    fireEvent.change(inputs[0] as HTMLInputElement, { target: { value: '2026-12-01' } })
+    expect((inputs[1] as HTMLInputElement).value).toBe('2026-12-01')
+    expect(calls.filter(call => call.action === 'overview.accounts').length).toBe(countAtCustom + 1)
+  })
+
+  it('清除时间窗 chip → 回 last_7d 且自定义日期清空；请求不再携带日期', async () => {
+    const { calls } = await openOverview(overviewAccountsHandlers())
+    fireEvent.click(screen.getByRole('button', { name: 'Window' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.window.custom') }))
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args.window).toBe('custom')
+    })
+    // 时间窗 chip 恒显示；点清除按钮。
+    const chipClear = screen.getAllByRole('button', { name: new RegExp(t('overview.chip.window', { value: '' }).split('{value}')[0] ?? 'Window:') }).at(-1)
+    if (chipClear === undefined) throw new Error('chip clear button missing')
+    fireEvent.click(chipClear)
+    await waitFor(() => {
+      const last = [...calls].reverse().find(call => call.action === 'overview.accounts')
+      expect(last?.args.window).toBe('last_7d')
+      expect(last?.args.fromDay).toBeUndefined()
+    })
+    expect(document.querySelectorAll('input[type="date"]').length).toBe(0)
+  })
+
+  it('趋势 x 轴点数 = trendWindow 天数（30 天载荷渲染 30 个日期标签）', async () => {
+    const start = '2026-10-25'
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': () => accountsOverviewPayload({
+        summary: {
+          accountCount: 2, accountTotal: 3,
+          window: { startDay: start, endDay: '2026-11-23' },
+          totals: { daily_play_count: 1234 }, fans_totals: {}, followerTotalCount: 167,
+          trendWindow: { startDay: start, endDay: '2026-11-23' },
+          trendDaily: Array.from({ length: 30 }, (_, index) => ({
+            day: new Date(Date.UTC(2026, 9, 25 + index)).toISOString().slice(0, 10),
+            follower_total_count: 160 + index,
+          })),
+          daysObserved: { account_metrics: 30, fans_trend: 30 },
+          availability: { account_metrics: 'ok', fans_trend: 'ok' },
+        },
       }),
     }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    expect(await screen.findByText('No data')).not.toBeNull()
-    expect(screen.queryByText(t('portrait.gender'))).toBeNull()
+    // x 轴日期标签（axisText 类）数量 = 30（LineTrendChart 渲染稀疏标签后仍 30 个数据列）。
+    // x 轴日期标签 y=202（height 210 - 8），稀疏规则（B.2 ③）：30 行 → 首 / 中点 / 尾 3 个。
+    const labels = document.querySelectorAll('svg text[y="202"]')
+    expect(labels.length).toBe(3)
+    expect([...labels].map(label => label.textContent)).toEqual(['10-25', '11-08', '11-23'])
+  })
+
+  it('筛选切换无缓存时旧值撤下：B 挂起期间不显示 A 的指标值，B 到达后显示 B 值', async () => {
+    const resolvers: Array<(payload: Payload) => void> = []
+    const { calls } = await openOverview(overviewAccountsHandlers({
+      'overview.accounts': args => {
+        if (args.window === 'last_30d') {
+          return new Promise<Payload>(resolve => { resolvers.push(resolve) })
+        }
+        return accountsOverviewPayload()
+      },
+    }))
+    expect(await screen.findByText('1234')).not.toBeNull()
+    // 切 last_30d（B 挂起）：A 的值立即撤下。
+    fireEvent.click(screen.getByRole('button', { name: 'Window' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.window.last_30d') }))
+    await waitFor(() => expect(screen.queryByText('1234')).toBeNull())
+    // B 到达后展示 B 值。
+    for (const resolve of resolvers) {
+      resolve(accountsOverviewPayload({ summary: {
+        ...accountsOverviewPayload().summary as Record<string, unknown>,
+        totals: { daily_play_count: 8888 },
+      } }))
+    }
+    expect(await screen.findByText('8888')).not.toBeNull()
+    void calls
+  })
+
+  it('缓存命中即时渲染 + refreshing 淡化：同筛选键二次进入渲染缓存值并挂 data-refreshing', async () => {
+    let finderBRequests = 0
+    let secondCallResolve: ((payload: Payload) => void) | undefined
+    await openOverview(overviewAccountsHandlers({
+      'overview.accounts': args => {
+        // 账号乙的第二次请求（缓存命中后的后台刷新）挂起，撑住 refreshing 窗口。
+        if (args.accountId === 'finder-b') {
+          finderBRequests += 1
+          if (finderBRequests >= 2) {
+            return new Promise<Payload>(resolve => { secondCallResolve = resolve })
+          }
+        }
+        return accountsOverviewPayload()
+      },
+    }))
+    // 第一段：选账号乙（首次请求，立即返回，写缓存）。
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    expect((await screen.findAllByText('1134')).length).toBeGreaterThanOrEqual(1)
+    // 第二段：切回全部再切回账号乙 → 缓存命中即时渲染 + refreshing 淡化。
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: t('overview.filter.account.all') }))
+    await waitFor(() => expect(screen.getByText('1234')).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Account' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
+    // 缓存值立即在屏（1134 是账号乙 totals 值，与全部账号的 1234 区分）。
+    expect((await screen.findAllByText('1134')).length).toBeGreaterThanOrEqual(1)
+    const dim = document.querySelector('[data-refreshing="true"]')
+    expect(dim).not.toBeNull()
+    secondCallResolve?.(accountsOverviewPayload())
   })
 })
 
@@ -1223,59 +1409,7 @@ describe('tab / keyboard / aria 基础', () => {
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
   })
 
-  it('账号总览页：账号选择器保留，切账号后三段数据源重新拉取', async () => {
-    const { calls } = await renderPage(baseHandlers({
-      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    // 当前账号选择器（官方 Menu）始终显示。
-    fireEvent.click(await screen.findByRole('button', { name: `${t('overview.accountSwitch')}: 演示账号` }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'account.overview')
-      expect(last?.args).toMatchObject({ accountId: 'finder-b' })
-    })
-  })
-
-  it('总览时间窗参数进入服务端', async () => {
-    const { calls } = await renderPage(baseHandlers())
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    await screen.findByText(t('col.play'))
-    fireEvent.click(screen.getByRole('tab', { name: t('overview.window.yesterday') }))
-    await waitFor(() => {
-      const last = [...calls].reverse().find(call => call.action === 'account.overview')
-      expect(last?.args).toMatchObject({ window: 'yesterday' })
-    })
-  })
-
-  it('总览页切账号不复用旧账号数据：B 响应到达前不显示 A 的指标值', async () => {
-    // 总览页 load 与页面级 last_7d 摘要都会请求 account.overview(B)：
-    // 收集全部挂起 resolver，最后统一放行同一 B 载荷。
-    const resolvers: Array<(payload: Payload) => void> = []
-    await renderPage(baseHandlers({
-      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT, { ...ACCOUNT, accountId: 'finder-b', nickname: '账号乙' }], remoteOk: true }),
-      'account.overview': args => {
-        if (args.accountId === 'finder-b') {
-          return new Promise<Payload>(resolve => { resolvers.push(resolve) })
-        }
-        return { ...OK, metrics: { totals: { daily_play_count: 1234 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } }
-      },
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
-    }))
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    expect(await screen.findByText('1234')).not.toBeNull()
-    // 切到账号乙（overview 挂起）：A 的指标值立即撤下，不挂在 B 名下。
-    fireEvent.click(screen.getByRole('button', { name: `${t('overview.accountSwitch')}: 演示账号` }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: '账号乙' }))
-    await waitFor(() => expect(screen.queryByText('1234')).toBeNull())
-    // B 响应到达后展示 B 的真实值。
-    for (const resolve of resolvers) {
-      resolve({ ...OK, metrics: { totals: { daily_play_count: 8888 } }, fans_trend: { totals: {} }, availability: { account_metrics: 'ok', fans_trend: 'ok', fans_profile: 'no_data' } })
-    }
-    expect(await screen.findByText('8888')).not.toBeNull()
-  })
 })
-
 
 describe('复审修复回归', () => {
   it('P1 跨账号 stale 隔离：切账号后旧账号行不复用，B 拉取失败呈现 error 不显示 A 作品', async () => {
@@ -1302,23 +1436,30 @@ describe('复审修复回归', () => {
     expect(screen.queryByText('Failed to load')).toBeNull()
   })
 
-  it('P1 关注者趋势卡消费 last_7d fans_trend availability：partial + 有数据 = 源级说明与数据同屏（不逐卡插警告条）', async () => {
-    // 趋势 x 轴按系统时间取上海最近 7 个已完成日（截至昨天）；固定系统时间，
-    // 使夹具日 2026-11-16 恒在窗口 2026-11-16..2026-11-22 内。
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-11-23T12:00:00+08:00'))
-    onTestFinished(() => { vi.useRealTimers() })
+  it('P1 趋势卡消费 summary.availability.fans_trend：partial + 有数据 = 源级说明与数据同屏（不逐卡插警告条）', async () => {
+    // 趋势窗口来自服务端 trendWindow（末日锚 7 天）；partial 说明走 footnote。
     await renderPage(baseHandlers({
-      'account.overview': () => ({
-        ...OK,
-        metrics: { totals: { daily_play_count: 100 } },
-        fans_trend: {
-          totals: { follower_net_count: 7 },
-          daily: [{ day: '2026-11-16', follower_total_count: 100, follower_net_count: 2 }],
+      'overview.accounts': () => ({
+        status: 'ok',
+        window: 'last_7d',
+        summary: {
+          accountCount: 1, accountTotal: 1,
+          window: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          totals: { daily_play_count: 100 },
+          fans_totals: { follower_net_count: 7 },
+          followerTotalCount: 160,
+          trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
+          trendDaily: [{ day: '2026-11-17', follower_total_count: 100 }],
+          daysObserved: { account_metrics: 1, fans_trend: 7 },
+          availability: { account_metrics: 'ok', fans_trend: 'partial' },
         },
-        availability: { account_metrics: 'ok', fans_trend: 'partial', fans_profile: 'no_data' },
+        accounts: [{
+          account_id: 'finder-a', nickname: '演示账号', metrics: { totals: { daily_play_count: 100 }, rowAvailability: 'ok' },
+          fans_trend: { totals: { follower_net_count: 7 }, rowAvailability: 'partial' },
+          availability: { accountMetrics: 'ok', fansTrend: 'partial' },
+        }],
+        availability: { account_metrics: 'ok', fans_trend: 'partial' },
       }),
-      'fans.profile.get': () => ({ ...OK, fans_profile: {} }),
     }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     // partial：数据不完整说明出现（趋势卡 footnote 通道，与数据来源拼接），不得隐藏。
@@ -1326,7 +1467,7 @@ describe('复审修复回归', () => {
     // 逐卡的 DataState 警告条不再出现（数值直排，说明收敛为区块级一次）。
     expect(screen.queryByText('Partial data shown; the rest failed to load')).toBeNull()
     // 数据同屏：趋势日点仍在（不得因 partial 清空数据）。
-    expect(screen.getByRole('button', { name: '2026-11-16 Total followers 100' })).not.toBeNull()
+    expect(screen.getByRole('button', { name: '2026-11-17 Total followers 100' })).not.toBeNull()
   })
 
   it('P1 chrome missing：删除可用，依赖 Chrome 的 probe / promote / 重新扫码禁用', async () => {
@@ -1418,5 +1559,152 @@ describe('复审修复回归', () => {
 describe('词典键集（增量同步防护）', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+})
+
+// ---------------------------------------------------------------------------
+// readAccountsOverview（overview.accounts 投影；E.2 wx-data 行）
+// ---------------------------------------------------------------------------
+
+const ACCOUNTS_OVERVIEW_FULL = {
+  window: 'last_7d',
+  summary: {
+    accountCount: 2,
+    accountTotal: 3,
+    window: { startDay: '2026-11-18', endDay: '2026-11-23' },
+    totals: {
+      daily_play_count: 456, daily_like_count: 23, work_count: 200,
+    },
+    fans_totals: { follower_net_count: 308, follower_add_count: 400 },
+    followerTotalCount: 169,
+    trendWindow: { startDay: '2026-11-17', endDay: '2026-11-23' },
+    trendDaily: [
+      { day: '2026-11-17', follower_total_count: 168 },
+      { day: '2026-11-18', follower_total_count: 169 },
+      { follower_total_count: 170 },
+    ],
+    daysObserved: { account_metrics: 3, fans_trend: 3 },
+    availability: { account_metrics: 'partial', fans_trend: 'ok' },
+  },
+  accounts: [
+    {
+      account_id: 'wx-a', nickname: '账号A', avatar: 'https://example.invalid/a.png',
+      session_status: 'ok', last_collected_at: '2026-11-23T10:00:00+08:00',
+      feed_count: 120, follower_total_count: 123,
+      metrics: { totals: { daily_play_count: 301, work_count: 100 }, rowAvailability: 'ok' },
+      fans_trend: { totals: { follower_net_count: 32 }, rowAvailability: 'ok' },
+    },
+    {
+      account_id: 'wx-b',
+      metrics: { totals: {}, rowAvailability: 'no_data' },
+      fans_trend: { totals: {}, rowAvailability: 'no_data' },
+    },
+  ],
+  availability: { account_metrics: 'partial', fans_trend: 'ok' },
+}
+
+describe('readAccountsOverview', () => {
+  it('完整载荷逐字段投影（snake_case → camelCase）', () => {
+    const data = readAccountsOverview(ACCOUNTS_OVERVIEW_FULL)
+    assert.equal(data.window, 'last_7d')
+    assert.equal(data.summary.accountCount, 2)
+    assert.equal(data.summary.accountTotal, 3)
+    assert.deepEqual(data.summary.window, { startDay: '2026-11-18', endDay: '2026-11-23' })
+    assert.equal(data.summary.totals.playCount, 456)
+    assert.equal(data.summary.totals.workCount, 200)
+    assert.equal(data.summary.fansTotals.netCount, 308)
+    assert.equal(data.summary.followerTotalCount, 169)
+    assert.deepEqual(data.summary.trendWindow, { startDay: '2026-11-17', endDay: '2026-11-23' })
+    assert.deepEqual(data.summary.daysObserved, { accountMetrics: 3, fansTrend: 3 })
+    assert.deepEqual(data.summary.availability, { accountMetrics: 'partial', fansTrend: 'ok' })
+    assert.equal(data.rows.length, 2)
+    const first = data.rows[0] ?? assert.fail('rows[0] missing')
+    assert.equal(first.accountId, 'wx-a')
+    assert.equal(first.nickname, '账号A')
+    assert.equal(first.totals.playCount, 301)
+    assert.equal(first.totals.workCount, 100)
+    assert.equal(first.fansTotals.netCount, 32)
+    assert.deepEqual(first.availability, { accountMetrics: 'ok', fansTrend: 'ok' })
+    // 缺失不补 0：wx-b 行的空 totals 全部为 null
+    const second = data.rows[1] ?? assert.fail('rows[1] missing')
+    assert.equal(second.totals.playCount, null)
+    assert.equal(second.totals.workCount, null)
+    assert.equal(second.followerTotalCount, null)
+  })
+
+  it('trendDaily 缺 day 的行丢弃；无 day 字段不崩', () => {
+    const data = readAccountsOverview(ACCOUNTS_OVERVIEW_FULL)
+    // 第三行无 day → 丢弃
+    assert.deepEqual(data.summary.trendDaily.map(row => row.day), ['2026-11-17', '2026-11-18'])
+    assert.equal(data.summary.trendDaily[0]?.followerTotalCount, 168)
+  })
+
+  it('缺失与非数值一律 null，不补 0', () => {
+    const data = readAccountsOverview({})
+    assert.equal(data.window, null)
+    assert.equal(data.summary.accountCount, null)
+    assert.equal(data.summary.totals.playCount, null)
+    assert.equal(data.summary.followerTotalCount, null)
+    assert.deepEqual(data.summary.window, { startDay: null, endDay: null })
+    assert.deepEqual(data.summary.trendDaily, [])
+    assert.deepEqual(data.rows, [])
+  })
+
+  it('readOverview 与 readAccountsOverview 对同一 totals 记录投影一致（共用映射）', () => {
+    const totalsRecord = {
+      daily_play_count: 10, daily_like_count: 2, daily_favorite_count: 3, daily_comment_count: 4,
+      daily_share_count: 5, daily_forward_count: 6, daily_follow_count: 7, daily_ringset_count: 8,
+      daily_status_ref_count: 9, daily_status_cover_count: 1, work_count: 99,
+    }
+    const viaOverview = readOverview({ metrics: { totals: totalsRecord }, fans_trend: {} })
+    const viaAccounts = readAccountsOverview({
+      summary: { totals: totalsRecord, fans_totals: {}, trendDaily: [] },
+      accounts: [{ account_id: 'x', metrics: { totals: totalsRecord }, fans_trend: {} }],
+    })
+    assert.deepEqual(viaOverview.totals, viaAccounts.summary.totals)
+    assert.deepEqual(viaAccounts.rows[0]?.totals, viaAccounts.summary.totals)
+  })
+})
+
+describe('readAccountsOverview 键名防线（fixture 按契约文档 §4.4.1 服务端真实形态）', () => {
+  it('trendDaily 键名漂移防护：camelCase trendDaily 读出非空且逐字段正确', () => {
+    // 服务端真实返回：summary.trendDaily 为 camelCase 键（契约文档 §4.4.1）。
+    // 曾因投影读 trend_daily（snake）整体漂移为空、趋势图永不渲染。
+    const payload = {
+      window: 'last_7d',
+      summary: {
+        accountCount: 1,
+        accountTotal: 1,
+        window: { startDay: '2026-11-18', endDay: '2026-11-24' },
+        totals: { daily_play_count: 100, work_count: 3 },
+        fans_totals: { follower_net_count: 4, follower_add_count: 5, follower_reduce_count: 1 },
+        followerTotalCount: 99,
+        trendWindow: { startDay: '2026-11-18', endDay: '2026-11-24' },
+        trendDaily: [
+          { day: '2026-11-18', follower_total_count: 97 },
+          { day: '2026-11-19', follower_total_count: 98 },
+          { day: '2026-11-20', follower_total_count: 99 },
+        ],
+        daysObserved: { account_metrics: 3, fans_trend: 3 },
+        availability: { account_metrics: 'ok', fans_trend: 'ok' },
+      },
+      accounts: [{
+        account_id: 'wx-guard', nickname: '防线账号', avatar: null, session_status: 'ok',
+        last_collected_at: null, feed_count: 3, follower_total_count: 99,
+        metrics: { totals: { daily_play_count: 100, work_count: 3 }, rowAvailability: 'ok' },
+        fans_trend: { totals: { follower_net_count: 4 }, rowAvailability: 'ok' },
+      }],
+      availability: { account_metrics: 'ok', fans_trend: 'ok' },
+    }
+    const data = readAccountsOverview(payload)
+    assert.equal(data.summary.trendDaily.length, 3)
+    assert.equal(data.summary.trendDaily[0]?.day, '2026-11-18')
+    assert.equal(data.summary.trendDaily[0]?.followerTotalCount, 97)
+    assert.equal(data.summary.trendDaily[2]?.followerTotalCount, 99)
+    assert.equal(data.summary.totals.playCount, 100)
+    assert.equal(data.summary.totals.workCount, 3)
+    assert.equal(data.summary.fansTotals.netCount, 4)
+    assert.equal(data.summary.daysObserved.accountMetrics, 3)
+    assert.equal(data.rows[0]?.followerTotalCount, 99)
   })
 })

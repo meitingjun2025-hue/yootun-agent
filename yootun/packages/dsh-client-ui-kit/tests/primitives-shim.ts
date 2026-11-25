@@ -7,6 +7,7 @@
 export { Button } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
 export type { ButtonVariant } from '@deepseek-ai/dsh-client-ui-primitives/src/Button.tsx'
 export { Input } from '@deepseek-ai/dsh-client-ui-primitives/src/Input.tsx'
+export { Menu } from '@deepseek-ai/dsh-client-ui-primitives/src/Menu.tsx'
 export { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
 export type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
 export { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
