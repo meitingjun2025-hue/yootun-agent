@@ -24,6 +24,7 @@ const REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
   auth_data_unavailable: 'collect.reason.auth_data_unavailable',
   partial: 'collect.reason.partial',
   ACCOUNT_NOT_FOUND: 'collect.reason.ACCOUNT_NOT_FOUND',
+  INVALID_TIME_WINDOW: 'collect.reason.INVALID_TIME_WINDOW',
   WX_SESSION_INVALID: 'error.WX_SESSION_INVALID',
   WX_TOOL_UNAVAILABLE: 'error.WX_TOOL_UNAVAILABLE',
   GOOGLE_CHROME_MISSING: 'error.CHROME',
@@ -113,4 +114,36 @@ export function shanghaiCompletedDay(offsetDays: number, now: () => number = Dat
   const shifted = new Date(now() + 8 * 3600 * 1000)
   shifted.setUTCDate(shifted.getUTCDate() - offsetDays)
   return shifted.toISOString().slice(0, 10)
+}
+
+/** 涨跌方向（净增卡与表格净增列共用）：up 红 / down 绿 / flat 无色。 */
+export type DeltaTone = 'up' | 'down' | 'flat'
+
+/**
+ * 带符号增量展示：正数 `+N`（红）、负数 `-N`（绿）、`0` 与缺失「—」无色
+ * （口径同抖音 fanDelta）。
+ * @param value - 增量数值或 null。
+ * @param localeTag - 展示 locale（wx 计数为整数直排，保留参数与抖音同形）。
+ * @returns 文本与方向。
+ */
+export function formatDelta(value: number | null, localeTag: string): { text: string; tone: DeltaTone } {
+  void localeTag
+  if (value === null || !Number.isFinite(value) || value === 0) return { text: '—', tone: 'flat' }
+  return value > 0
+    ? { text: `+${formatCount(value)}`, tone: 'up' }
+    : { text: `-${formatCount(Math.abs(value))}`, tone: 'down' }
+}
+
+/**
+ * 上海语义日位移（YYYY-MM-DD → ±N 天；非法输入原样返回）。用于趋势窗口逐日
+ * 枚举与自定义日期越界纠偏（原样迁自抖音工作台）。
+ * @param dayText - 起始日。
+ * @param deltaDays - 位移天数（可负）。
+ * @returns 位移后的日文本。
+ */
+export function shiftDay(dayText: string, deltaDays: number): string {
+  const date = new Date(`${dayText}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) return dayText
+  date.setUTCDate(date.getUTCDate() + deltaDays)
+  return date.toISOString().slice(0, 10)
 }
