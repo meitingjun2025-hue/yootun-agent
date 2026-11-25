@@ -16,7 +16,7 @@ import {
 } from '@yootun/dsh-client-ui-kit'
 import type { FilterChip } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { formatCount, formatDateTime, formatDelta, shiftDay, type Translate } from './format.ts'
+import { formatCount, formatDelta, shiftDay, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import {
   readAccountsOverview, readFansProfile,
@@ -524,7 +524,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                       key={card.labelKey}
                       label={t(card.labelKey)}
                       value={formatCount(value)}
-                      footnote={card.footnoteKey !== undefined ? t(card.footnoteKey) : metricsHeading}
                       state={kpiState(metricsState, value)}
                       onRetry={retry}
                     />
@@ -559,14 +558,13 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                 <tr>
                   <th scope='col' className={css.num}>{t('overview.col.rank')}</th>
                   <th scope='col'>{t('overview.col.account')}</th>
-                  <th scope='col'><span className={css.num}>{t('overview.col.followers')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('overview.col.netFans')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('col.play')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('col.like')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('col.comment')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('col.share')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('overview.col.works')}</span></th>
-                  <th scope='col'><span className={css.num}>{t('overview.col.lastCollected')}</span></th>
+                  <th scope='col' className={css.num}>{t('overview.col.followers')}</th>
+                  <th scope='col' className={css.num}>{t('overview.col.netFans')}</th>
+                  <th scope='col' className={css.num}>{t('col.play')}</th>
+                  <th scope='col' className={css.num}>{t('col.like')}</th>
+                  <th scope='col' className={css.num}>{t('col.comment')}</th>
+                  <th scope='col' className={css.num}>{t('col.share')}</th>
+                  <th scope='col' className={css.num}>{t('overview.col.works')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -610,7 +608,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                       <td className={css.num}>{formatCount(row.totals.commentCount)}</td>
                       <td className={css.num}>{formatCount(row.totals.shareCount)}</td>
                       <td className={css.num}>{formatCount(row.totals.workCount ?? row.feedCount)}</td>
-                      <td className={css.num}>{formatDateTime(row.lastCollectedAt) ?? '—'}</td>
                     </tr>
                   )
                 })}
