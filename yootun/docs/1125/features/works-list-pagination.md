@@ -192,10 +192,13 @@ export interface PagerProps {
 | 缓存 | 按账号 + 排序 + 页码缓存最近一次成功响应，切回时即时渲染后后台刷新；数据变更（采集完成）后清掉该账号的全部缓存 |
 | 竞态 | 序号守卫 + 账号守卫 + 查询键守卫，过期响应整体丢弃 |
 | 失败 | 同账号保留已渲染行进入 partial，跨账号直接 error；重试重拉当前页 |
+| 列表区域高度 | 与行数、数据有无无关：抖音在双列布局下填满作品面板剩余高度，容器宽度小于 880 px 时固定 60 vh；视频号固定 60 vh。分页页脚占位恒定 |
+| 列表区域四态 | 加载中显示骨架；没有行时在区域正中显示一行「暂无数据」（kit `DataState` 空态，不带采集按钮）；没有可保留的行而查询失败时，区域内显示一处「加载失败」与「重试」 |
+| 失败提示位置 | 列表请求的失败提示只出现在工具栏的刷新失败提示（刷新场景）或列表区域（整页失败）。KPI 卡不重复：加载中呈骨架，其余按值显示，缺失为「—」；缺口卡在聚合值缺失时不显示「数据完整」 |
 
 ### 2.7 抖音 KPI 行
 
-位置：作品面板工具栏下方、表格上方，与视频号 `summaryGrid` 同构（5 张 kit `KpiCard`，断点：宽容器 5 列，≤ 1119 px 3 列，更窄 2 列）。数据全部来自 `works.list` 的 `summary`，随 `worksState` 显示加载 / 错误 / 就绪。
+位置：作品面板工具栏下方、表格上方，与视频号 `summaryGrid` 同构（5 张 kit `KpiCard`，断点：宽容器 5 列，≤ 1119 px 3 列，更窄 2 列）。数据全部来自 `works.list` 的 `summary`。加载中呈骨架；就绪、部分失败、出错都按值显示，卡片上不出现失败提示。行高取最小值 120 px，缺口脚注换行时列表区域高度不变。
 
 | 卡 | 值 | footnote |
 |---|---|---|
@@ -203,7 +206,7 @@ export interface PagerProps {
 | 播放合计 | `summary.play_count` | 全部已入库作品 |
 | 吸粉合计 | `summary.fans_gain_count` | 全部已入库作品 |
 | 完播率 | `summary.completion_rate_pct` | 按播放加权 |
-| 缺口作品 | `summary.gap_count` | 大于 0：至少 1 项数据缺失；等于 0：数据完整 |
+| 缺口作品 | `summary.gap_count` | 大于 0：至少 1 项数据缺失；等于 0：数据完整；聚合值缺失时不显示 |
 
 `null` 按既有格式化函数显示「—」。工具栏的「全部时间作品数」提示与第一张卡同源同值，删除。
 
@@ -213,8 +216,8 @@ export interface PagerProps {
 |---|---|---|
 | 作品总数 | 账号 `feedCount` | 不变 |
 | 近 7 日播放 / 近 7 日关注量 | `account.overview(last_7d)` | 不变 |
-| 作品完播率 | 页面对全量行计算 | `works.list` 的 `completion_rate_pct`，状态随 `worksState` |
-| 缺口作品 | 页面对全量行计算 | `works.list` 的 `gap_count`，状态随 `worksState` |
+| 作品完播率 | 页面对全量行计算 | `works.list` 的 `completion_rate_pct`；加载中呈骨架，其余按值显示，不重复列表的失败提示 |
+| 缺口作品 | 页面对全量行计算 | `works.list` 的 `gap_count`；加载中呈骨架，其余按值显示，不重复列表的失败提示 |
 | 最近采集时间（工具栏） | 页面对全量行取最大值 | `works.list` 的 `latest_collected_at` |
 
 ## 3. 影响面
@@ -251,12 +254,13 @@ export interface PagerProps {
 | 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | 2026-11-25 | `main` | 已提交本地 `main`，推送待用户确认 |
 | tools 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（tools 仓，自 `dev`） | `pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 850 通过；16 项迁移 / PG 用例因本机无建库权限报错，改动前同样如此；ruff 在改动文件上无新增 |
 | tools 分支同步最新 `dev`（对方新增 `workbench_wx_accounts_overview`） | 2026-11-25 | `feat/works-list-pagination`（tools 仓） | 合并 `origin/dev`：`wx_channels_operation/queries.py` 的 import 与服务目录快照两处冲突已解决，快照按脚本重新生成；`pytest tests/douyin_operation tests/wx_channels_operation tests/yootun tests/mcp` 1373 通过，1 个失败与 53 个错误均为本机 PG 建库权限 |
-| tools 合入 `dev` | | `feat/works-list-pagination` → `dev` | 待用户确认后合入并推送 |
+| tools 合入 `dev` | 2026-11-25 | `feat/works-list-pagination` → `dev` | 已合并到本地 `dev`，推送待用户确认 |
 | docker-helm 部署测试环境 | | — | 待填：部署后 `curl tools/list` 核对，两工具带分页参数可调 |
 | yootun-agent 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（自 `main` 切出；kit `Pager`、抖音、视频号三个提交） | kit `test` 65、抖音 `test`（node --test 17 文件 + vitest 136）、视频号 `test`（node --test 76 + vitest 66），三包 `build`、oxlint 通过；真机验收见 5.2 |
 | yootun-agent 分支同步最新 `main`（视频号总览批次已先合入） | 2026-11-25 | `feat/works-list-pagination` | 合并 `origin/main`：抖音 `MaterialPage.tsx` 与视频号 `WorkbenchPage.tsx` 两处 import 冲突已解决，两边内容都保留；合并后 kit 70、抖音 191 + 136、视频号 77 + 74 全过，`build` 通过 |
 | 本地三仓联调（按落地顺序的本地临时预演分支） | 2026-11-25 | — | 通过，记录见 5.3；预演分支只在本地，不推送 |
-| yootun-agent 合入 `main` | | `feat/works-list-pagination` → `main` | 待真机验收通过后合入（以 tools 部署测试环境为前置） |
+| yootun-agent 真实 UI 反馈修复 | 2026-11-25 | `feat/works-list-pagination` | 列表区域固定高度、空列表「暂无数据」、KPI 卡不重复失败提示；两个插件 `test`、`build` 通过，并入预演分支复跑，记录见 5.3 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/works-list-pagination` → `main` | 按采集状态恢复 → 采集并发 → 分页的顺序合入本地 `main`；与前两单在 4 个文件的冲突按预演结果解决，代码与预演分支逐文件一致；推送待用户确认。部署时 tools 必须先于或同时于 yootun-agent 上线 |
 | 发版 | | | 待填 |
 
 顺序约束：tools 的 DTO 是 `extra="forbid"`，旧服务端会拒绝新参数，所以 yootun-agent 的两个插件必须在 tools 部署测试环境之后合入；kit `Pager` 不依赖 tools，在分支内先行完成。
@@ -285,12 +289,13 @@ export interface PagerProps {
 | R6 | 抖音：导出 Excel | 仍为全量，行数等于全部已入库作品数；账号有不在列表的作品时为 `total` 加不在列表数（本地样本 83 = 82 + 1，见 5.3） |
 | R7 | 抖音：R2 的首行与导出 Excel 对照；KPI 播放合计与 Excel 播放量列求和对照 | 降序首行等于 Excel 播放量列最大值；Excel 播放量列求和等于 KPI 播放合计加不在列表作品的播放量 |
 | R8 | 视频号：重复 R1–R4、R6 | 同抖音；完播率、缺口作品、最近采集时间与改动前显示一致 |
-| R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | KPI 行与分页控件完整可读；抖音表格在容器宽度小于 880 px 时不可见，属既有布局缺陷（见 5.3），不计入本单 |
+| R9 | 两个工作台：明暗主题、三档宽度（≥ 1120 / 880 / 640 px） | KPI 行与分页控件完整可读；列表区域高度固定（抖音双列布局随面板，窄容器 60 vh；视频号 60 vh），表格可见 |
+| R11 | 两个工作台：切到没有作品的账号、翻到末页、让 tools 不可用后点一次刷新 | 没有作品时列表区域正中只有一行「暂无数据」；末页与第 1 页的列表区域高度相同；刷新失败时 KPI 卡片和列表上方不出现「部分数据」提示，只有工具栏一行提示 |
 | R10 | 按 `record-browser-gif` 流程录制排序与翻页片段 | GIF 附在 PR |
 
 ### 5.3 本地三仓联调记录（2026-11-25）
 
-环境：本机以 `uv run app` 启动 tools.dofe.ai（读取其 `.env`，连接其 `DATABASE_URL` 指向的数据库），只起 Web 进程，不起 worker 与 beat；yootun-agent 用隔离 Web profile `douyind9`，Workbench 与 Agent 两个 MCP 覆盖指向本机 tools，抖音与视频号状态目录为全新空目录。三条特性分支（`feat/collect-state-restore`、`feat/douyin-collect-all-concurrency`、`feat/works-list-pagination`）与 tools 分支先各自合并目标分支的最新提交（`main` 与 `dev` 已含并行的视频号总览批次），再按落地顺序合入一条本地临时分支验证：kit 70、抖音 211 + 148、视频号 77 + 86 全过，三包 `build` 通过。驱动脚本与截图保存在仓库外。
+环境：本机以 `uv run app` 启动 tools.dofe.ai（读取其 `.env`，连接其 `DATABASE_URL` 指向的数据库），只起 Web 进程，不起 worker 与 beat；yootun-agent 用隔离 Web profile `douyind9`，Workbench 与 Agent 两个 MCP 覆盖指向本机 tools，抖音与视频号状态目录为全新空目录。三条特性分支（`feat/collect-state-restore`、`feat/douyin-collect-all-concurrency`、`feat/works-list-pagination`）与 tools 分支先各自合并目标分支的最新提交（`main` 与 `dev` 已含并行的视频号总览批次），再按落地顺序合入一条本地临时分支验证：kit 70、抖音 211 + 148、视频号 77 + 86 全过，三包 `build` 通过。真实 UI 反馈修复并入后复跑：kit 70、抖音 211 + 151、视频号 77 + 87 全过，三包 `build` 通过，仓库级 `lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch` 通过。驱动脚本与截图保存在仓库外。
 
 | 层 | 范围 | 结果 |
 |---|---|---|
@@ -299,12 +304,15 @@ export interface PagerProps {
 | 抖音作品页（无头 Chrome） | 5.2 的 R1、R2、R3 全部步骤；五卡 KPI 与服务端聚合一致；导出下载；三档宽度与明暗主题 | 37 项通过 |
 | 视频号作品页（无头 Chrome） | R1–R3；完播率、缺口作品、最近采集时间取自列表响应；切到其他 Tab 再切回仍停在原页码；三档宽度与明暗主题；视频号总览页（对方批次）合并后可用 | 28 项通过 |
 | 抖音素材看板 | kit `Pager` 显示「49 items · page 1 / 3」，下一页请求 `offset = 20` | 通过 |
+| 两个作品页的列表状态与高度（真实 UI 反馈修复后） | 第 1 页 10 行、末页 2–3 行、空账号、出错、点重试恢复五种状态下的列表区域高度；900 px 与 640 px 视口；「暂无数据」在区域正中；出错提示与「重试」各 1 处；部分失败不出现「部分数据」提示 | 13 项通过，1 项未达预期（刷新部分失败时矮 26 px，见下） |
 
 联调结论：
 
 - 导出含「不在列表」的作品：导出调用 `list_works(include_not_in_list=True)`，列表 `total` 不含这部分。样本账号导出 83 行，等于 `total` 82 加不在列表 1；播放量列求和 974453 等于 KPI 播放合计，列最大值 220039 等于降序首行（不在列表的作品播放量为 0）。这是既有口径，5.2 的 R6、R7 已按此修订。
 - 全量模式实测约 4.8 KB 一条，82 条即 392 KB，推算约 417 条触到 2,000,000 字节上限，早于 0.1 节约 650 条的估算。分页模式单页响应约 59 KB，与账号作品总数无关。
-- 抖音作品页在容器宽度小于 880 px（账号栏在上、作品面板在下）时，表格滚动容器高度为 0，表格不可见；KPI 行与分页控件可读。`main` 上同样复现，属既有布局缺陷，不在本单范围，需要另行立项。视频号作品页各宽度下表格容器均为 600 px，不受影响。
+- 抖音作品页在容器宽度小于 880 px（账号栏在上、作品面板在下）时，表格滚动容器高度原为 0，表格不可见（`main` 上同样复现）。真实 UI 反馈修复后该宽度下区域固定 60 vh，900 px 与 640 px 视口实测均为 600 px。
+- 列表区域高度实测（真实 UI 反馈修复后）：第 1 页 10 行、末页 2 行、空账号、出错、重试恢复五种状态下，抖音均为 596 px，视频号均为 600 px。唯一未达预期的状态是「刷新部分失败」：工具栏多出一行失败提示，抖音列表区域为 570 px。该提示行与采集进度共用同一位置，出现时都会让列表区域变矮，属面板既有行为，未改。
+- 视频号首次加载时 tools 不可用：账号列表请求失败被显示为「没有账号」，没有账号被选中，列表区域显示「暂无数据」，没有出错提示或重试入口。与抖音的账号列表失败是同一类既有缺陷，未改。
 - 并行批次与分支同步：视频号总览批次先合入 `main`（kit 新增 `FilterMenu`，tools 新增 `workbench_wx_accounts_overview`）。三条特性分支各自合并最新 `main`、tools 分支合并最新 `dev` 后都能干净并入目标分支；冲突只在 import 行与生成物，按合并后的实际使用点取并集，两边内容都保留。合并后视频号总览页可用：`overview.accounts` 与 `account.overview` 正常返回，页面渲染全视频指标与账号表现表；抖音素材看板同时使用对方的筛选下拉与 kit `Pager`。
 - 按落地顺序（采集状态恢复 → 采集全部并发 → 作品列表分页）依次合入时，最后合入的分支仍会与前面两条分支在 4 个文件冲突：抖音 `src/client/WorkbenchPage.tsx`、`tests/client/douyin-client.test.tsx`、`tests/client/douyin-parity.test.tsx` 与视频号 `tests/client/wx-data.test.tsx`。已在本地按该顺序预演，按两边逻辑与用例全部保留解决后测试全过；落地时需要带这份解决结果。
 - Web 应用的 Workbench 连接器在建立连接时读取一次 `tools/list`，tools 更新后要重启 Web 应用才能调用新工具，否则该工具显示为不可用。
@@ -347,6 +355,7 @@ export interface PagerProps {
 | D6 | 本地排序用例删除（`sortWorkRows` / `compareNullableNumbers` 及桶导出），PR 说明行为迁到服务端 | `tests/client/douyin-parity.test.tsx` |
 | D7 | 素材看板改用 kit `Pager` 后翻页行为不变 | `tests/client/douyin-d678.test.tsx` |
 | D8 | kit 样式表装载清单守护通过（`pager.module.css`） | `tests/client/douyin-parity.test.tsx` |
+| D9 | 列表区域四态：出错时出错提示与重试各 1 处、五卡为「—」；部分失败不出现 partial 文案、保留行、工具栏提示；加载中显示骨架且不显示「暂无数据」；无账号与 `total = 0` 时区域为空态并显示「No data」 | `tests/client/douyin-client.test.tsx` |
 
 ### A.4 视频号插件
 
@@ -357,22 +366,24 @@ export interface PagerProps {
 | W3 | 页面：排序改为重新查询并回第 1 页（替换现有「排序不重新查询服务端」用例）；翻页；过期响应丢弃；采集完成刷新当前页 | `tests/client/wx-data.test.tsx` |
 | W4 | 完播率、缺口作品、最近采集时间取自列表响应 | 同上 |
 | W5 | kit 样式表装载清单守护通过 | `tests/client/wx-bundle.test.ts` |
+| W6 | 部分失败不出现「部分数据」提示条；空列表时区域保留并居中显示「暂无数据」，不渲染 Pager 按钮 | `tests/client/wx-data.test.tsx` |
 
 ## 附录 B：逐文件要点
 
 | 文件 | 要点 |
 |---|---|
 | 抖音 `src/client/WorkbenchPage.tsx` | 新增 `worksPage` 状态；`loadWorks` 组装 `limit` / `offset` / `sort` / `order`；缓存键与查询键守卫；`refreshAfterDataChange` 清该账号缓存后重拉当前页 |
-| 抖音 `src/client/WorksPanel.tsx` | 删除本地排序；表格下方挂 `Pager`；工具栏下方挂 KPI 行；导出禁用态改用 `total` |
+| 抖音 `src/client/WorksPanel.tsx` | 删除本地排序；表格下方挂 `Pager`；工具栏下方挂 KPI 行；导出禁用态改用 `total`；列表区域四态，KPI 卡不重复失败提示 |
 | 抖音 `src/client/schema.ts` | `readWorksPage`：行 + `total` + `summary`，字段缺失按既有规则给 `null` |
 | 抖音 `src/client/format.ts` | 保留 `nextWorkSort` 与 `WorkSortState`；删除 `sortWorkRows`、`compareNullableNumbers` |
 | 抖音 `src/client/index.ts` | 桶导出同步删除两个排序函数 |
 | 抖音 `src/client/MaterialPage.tsx` | 分页区改用 kit `Pager`，删除 `mat.page.*` 文案 |
 | 抖音 `src/client/kit-styles.ts` | 追加 `pager.module.css` |
-| 抖音 `src/client/workbench.module.css` | 新增 KPI 行网格（断点同视频号 `summaryGrid`）与分页区样式 |
+| 抖音 `src/client/workbench.module.css` | 新增 KPI 行网格（断点同视频号 `summaryGrid`，行高取最小值）、分页页脚占位、列表区域居中样式；窄容器下作品面板与列表区域给定高度 |
 | 抖音 `src/client/locales.ts` | 2.7 节 KPI 文案；删除 `works.workCountAllTime`、`mat.page.*` |
 | 视频号 `src/client/WorkbenchPage.tsx` | 新增 `worksPage`；`loadWorks` 组装排序与分页参数；缓存与守卫同抖音 |
-| 视频号 `src/client/WorksPanel.tsx` | 删除本地排序；三处改读聚合值；表格下方挂 `Pager` |
+| 视频号 `src/client/WorksPanel.tsx` | 删除本地排序；三处改读聚合值；表格下方挂 `Pager`；列表区域四态与分页页脚占位 |
+| 视频号 `src/client/workbench.module.css` | 新增作品页列表区域固定高度、居中与分页页脚占位样式 |
 | 视频号 `src/client/schema.ts` | `readWorksPage`：行 + `total` + `gapCount` + `latestCollectedAt` + `completionRatePct` |
 | 视频号 `src/client/works-format.ts` | 删除 `sortWorkRows`、`weightedCompletionRate`、`gapWorkCount`、`latestCollectedAt`、`hasCoreGap`；保留 `SortKey`、`SortState`、`DEFAULT_SORT_STATE`、`nextSortState` |
 | 视频号 `src/client/kit-styles.ts` | 追加 `pager.module.css` |

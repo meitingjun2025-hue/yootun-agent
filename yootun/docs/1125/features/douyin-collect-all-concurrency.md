@@ -123,7 +123,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | 开发完成（自动验收通过） | 2026-11-25 | `feat/douyin-collect-all-concurrency`（基于 `feat/collect-state-restore`） | `test`（node --test 17 文件 + vitest 138）、`build`、oxlint 通过；真机验收见 5.2 |
 | 本地联调 | 2026-11-25 | — | 并发采集需要真实 Chrome，本地没有可覆盖项；与分页分支集成后全量测试通过，见 5.3 |
 | 分支同步最新 `main` | 2026-11-25 | `feat/douyin-collect-all-concurrency` | 合并 `origin/main`（含并行的视频号总览批次）无冲突；合并后 kit 64、抖音 207 + 138、视频号 75 + 83 全过 |
-| yootun-agent 合入 `main` | | `feat/douyin-collect-all-concurrency` → `main` | 待真机验收通过后合入 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/douyin-collect-all-concurrency` → `main` | 合入本地 `main`，无冲突；推送待用户确认 |
 | 发版 | | | 待填 |
 | 观察结论（视频号是否镜像） | | | 待填：观察窗口与指标见附录 C |
 

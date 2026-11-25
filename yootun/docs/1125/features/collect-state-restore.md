@@ -100,7 +100,7 @@ MCP 工具：无。
 | 开发完成（自动验收通过） | 2026-11-25 | `feat/collect-state-restore` | 两插件 `test`、`build`、oxlint 通过；真机验收见 5.2 |
 | 本地联调（空闲态挂载） | 2026-11-25 | — | 通过，记录见 5.3；运行中采集的恢复需要真实 Chrome，留在 5.2 |
 | 分支同步最新 `main` | 2026-11-25 | `feat/collect-state-restore` | 合并 `origin/main`（含并行的视频号总览批次）无冲突；合并后 kit 64、抖音 192 + 134、视频号 75 + 83 全过 |
-| yootun-agent 合入 `main` | | `feat/collect-state-restore` → `main` | 待真机验收通过后合入 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/collect-state-restore` → `main` | 三张单按采集状态恢复 → 采集并发 → 分页的顺序合入本地 `main`，本单无冲突；代码与本地预演分支逐文件一致；推送待用户确认 |
 | 发版 | | | 待填 |
 
 ## 5. 验收
