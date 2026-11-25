@@ -300,7 +300,10 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
   const retry = (): void => { void load(filters) }
   const yesterday = recentDays(1)[0] ?? ''
   const windowLabel = filters.window === 'custom'
-    ? t('overview.range.custom', { from: filters.customFrom ?? '', to: filters.customTo ?? '' })
+    ? (filters.customFrom ?? '') !== '' && (filters.customTo ?? '') !== ''
+      ? t('overview.range.custom', { from: filters.customFrom ?? '', to: filters.customTo ?? '' })
+      // 任一端为空（用户清空中）：chip 回退「自定义」，不显示悬空的半截区间。
+      : t('overview.window.custom')
     : t(`overview.window.${filters.window}` as 'overview.window.yesterday')
 
   const summary = data?.summary ?? null
@@ -419,9 +422,12 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
     { id: 'expired', label: t('overview.tag.sessionExpired') },
   ]
   const locale = props.localeTag
+  const accountsTotal = summary?.accountTotal ?? data?.rows.length ?? 0
   const metricsHeading = singleRow !== null
     ? t('overview.section.singleAccount', { window: windowLabel })
-    : t('overview.section.accountsCount', { count: summary?.accountTotal ?? data?.rows.length ?? 0 })
+    : accountsTotal === 1
+      ? t('overview.section.accountsCountOne')
+      : t('overview.section.accountsCount', { count: accountsTotal })
   const rows = data?.rows ?? []
   const noDataRowTag = (row: AccountsOverviewRow): boolean =>
     row.availability.accountMetrics === 'no_data' && row.availability.fansTrend === 'no_data'
@@ -538,9 +544,11 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
       {/* ② 账号表现表（服务端已按 sort 排序；行点击 / Enter 选中账号）。 */}
       <DataCard
         title={t('overview.section.accounts')}
-        description={t('overview.section.accountsCount', { count: summary?.accountCount ?? rows.length })}
+        description={singleRow !== null
+          ? t('overview.section.accountsCountOne')
+          : t('overview.section.accountsCount', { count: summary?.accountCount ?? rows.length })}
         state='ready'
-        footnote={t('overview.followersSumNote')}
+        {...(singleRow !== null ? {} : { footnote: t('overview.followersSumNote') })}
       >
         {rows.length === 0 ? (
           <p className={css.sidebarHint}>{overviewState === 'loading' ? t('state.loading') : t('overview.empty.noAccounts')}</p>
