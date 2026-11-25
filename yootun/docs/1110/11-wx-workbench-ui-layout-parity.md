@@ -316,6 +316,7 @@ work.trend → { account_id, work_id, snapshots }
 - 工具栏下方显示阶段进度；
 - `collect.start` 返回 `started:false` 时清除乐观态并显示稳定 reason；
 - 运行中提供取消；
+- 页面重新挂载时恢复运行中的采集并续上进度；
 - 终态保留真实 completed / partial / failed / cancelled / interrupted；
 - 不把失败伪装成空数据。
 
@@ -334,7 +335,8 @@ work.trend → { account_id, work_id, snapshots }
 - 批量面板显示总进度和当前账号；
 - 终态四类计数完整；
 - 失败 / 跳过 / 部分完成账号逐行显示稳定原因；
-- 批量取消在批量面板内。
+- 批量取消在批量面板内；
+- 页面重新挂载时恢复批量面板并续上进度；批量运行中的账号在账号卡片显示「采集中」状态点。
 
 ### 6.3 run 查询（已移除）
 

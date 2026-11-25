@@ -1,6 +1,6 @@
 # douyin-wx-workbench-采集状态恢复 实施单
 
-状态：草案 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已实施，待真机验收 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -97,7 +97,8 @@ MCP 工具：无。
 | 文档（本文 + 15 册 §3/§11 + 14 册 §5 + 11 册 §6） | | `main` | 待填 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| yootun-agent 合入 `main` | | `feat/collect-state-restore` → `main` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-25 | `feat/collect-state-restore` | 两插件 `test`、`build`、oxlint 通过；真机验收见 5.2 |
+| yootun-agent 合入 `main` | | `feat/collect-state-restore` → `main` | 待真机验收通过后合入 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

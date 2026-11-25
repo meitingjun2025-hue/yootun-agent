@@ -299,6 +299,7 @@ UI 文案映射沿用旧插件各模块的 reason→文案字典（schedule 的 
 - **G-2 run 恢复**：旧插件采集控制器状态是 Host 进程内存（runs Map / batch 单飞 / loginRuns），进程重启后在途 run 的本地状态丢失；远端 run 仅可经 collect_run_get 查询。09 册 §12.4 要求「崩溃或重启后 run 恢复」，旧基线没有该能力——新实现的状态恢复设计是 D1 交付物。
 - **G-3 折叠态持久化**：已发布折叠状态旧基线是会话内内存态；新宿主是否跨会话保留由 D1/UI 决定。
 - **G-4 排期分页**：单账号 >200 行的游标分页服务端未提供（产品边界内不裁剪）；若未来突破 500 行需先补 tools 契约再进桌面。
+- **采集状态恢复（2026-11-25）**：新 Host 新增本地只读 action `collect.running`（action 56 → 57），抖音与视频号页面重新挂载时向 Host 查询并恢复运行中的采集与最近一次终态；旧基线的页面状态随卸载丢失，无此能力。实施单 [1125/features/collect-state-restore.md](../1125/features/collect-state-restore.md)；已实施（分支 `feat/collect-state-restore`），待真机验收与发版。
 - **观察**：确认冻结后旧客户端新增功能一律登记本节并标注「是否迁入」，不提前实现；旧 route 与 yootun Workbench 是两套独立 registry，旧 route 新增工具不自动进 Workbench 94。
 
 ## 12. 验收记录要求
