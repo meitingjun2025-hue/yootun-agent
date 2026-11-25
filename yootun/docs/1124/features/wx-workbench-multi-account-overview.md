@@ -207,7 +207,7 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 - [ ] tools：`custom` 缺 `fromDay` / 非 `custom` 带 `toDay` / `fromDay > toDay` / `toDay` 为今天 / 区间 93 天 → 均返回 `INVALID_TIME_WINDOW`；
 - [ ] tools：显式传入不存在的 `accountIds` 返回 `ACCOUNT_NOT_ACCESSIBLE`；`sessionStatus` 过滤后空集返回 `accountCount=0`、`availability=no_data`；
 - [ ] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build` 通过；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过（FilterMenu 迁移无回归）；
+- [ ] yootun-agent：`pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过（FilterMenu 迁移无回归）；前置：先 `pnpm --filter @yootun/dsh-workbench-mcp build`（`tests/host.test.ts` 依赖其 lib 产物，lib 不入库）；
 - [ ] yootun-agent：`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
 - [ ] yootun-agent：`pnpm run lint` 对改动文件无新告警；
 - [ ] yootun-agent：分区代码、注释、测试中无 Workbench 工具数量字面量；
@@ -627,8 +627,8 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 文件 | 改动 |
 |---|---|
 | `src/filter-menu.tsx`（新增） | 从抖音 `plugins/dsh-douyin-workbench/src/client/FilterMenu.tsx` 原样迁入：props `label / visibleLabel? / currentLabel / items / selectedId / disabled? / triggerClassName? / onSelect`；内部 `useState(open)` + 官方 `Button outline sm` + `Menu`；无 kit locale 依赖（文案全部由调用方传入）；JSDoc 含 `@param` / `@returns` |
-| `src/filter-menu.module.css`（新增） | `.filterGroup { display: inline-flex; align-items: center; gap: 6px; min-width: 0 }` `.filterGroupLabel { font-size: var(--dsw-font-size-sm); color: var(--dsw-alias-text-secondary); white-space: nowrap }`；色值全部 token，无字面色 |
-| `src/index.ts` | `export { FilterMenu } from './filter-menu.tsx'`（无新增类型导出） |
+| `src/filter-menu.module.css`（新增） | `.filterGroup { display: inline-flex; align-items: center; gap: 6px; min-width: 0 }` `.filterGroupLabel { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); white-space: nowrap }`（2026-11-25 阶段 2 修正：`--dsw-font-size-sm` / `--dsw-alias-text-secondary` 不在官方主题，按 kit 惯例用 px 字面量 + `--dsw-alias-label-secondary`，视觉与抖音原版一致；色值全部 token，无字面色） |
+| `src/index.ts` | `export { FilterMenu } from './filter-menu.tsx'` 及类型 `FilterMenuItem` / `FilterMenuProps`（kit 组件随组件导出类型的惯例） |
 | `packages/dsh-client-ui-kit/tests/*` | 若 kit 有组件测试：新增 `FilterMenu` 渲染 / 选中 / 禁用用例 |
 
 ### C.3 yootun-agent：Host（`plugins/dsh-wx-channels-workbench/src`）
@@ -656,7 +656,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 文件 | 改动 |
 |---|---|
 | `FilterMenu.tsx` | 删除 |
-| `OverviewPage.tsx`、`MaterialPage.tsx`、`GenePage.tsx`、`BreakdownPage.tsx` 等消费点 | `import { FilterMenu } from '@yootun/dsh-client-ui-kit'`，删除本地 import；props 不变 |
+| `OverviewPage.tsx`（内嵌复制体与死参数 `t={t}` 一并删除）、`MaterialPage.tsx`、`GenePage.tsx`、`BreakdownPage.tsx`、`AnalysisPage.tsx`（`MetricMenu` 为第三份内嵌复制，改 kit 薄包装、签名不变；2026-11-25 阶段 2 实现发现）等消费点 | `import { FilterMenu } from '@yootun/dsh-client-ui-kit'`，删除本地 import；业务 props 不变 |
 | `kit-styles.ts` | 追加 `filter-menu.module.css` |
 | `workbench.module.css` | 删除 `.filterGroup` / `.filterGroupLabel`（迁入 kit）；若 `triggerClassName` 消费 `.xxxTrigger` 则保留 |
 | `tests/client/douyin-parity.test.tsx` | kit 导入集合守护推导自动更新；若有对本地 `FilterMenu.tsx` 文件存在的断言则删除 |
