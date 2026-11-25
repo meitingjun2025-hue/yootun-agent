@@ -99,6 +99,7 @@ MCP 工具：无。
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-25 | `feat/collect-state-restore` | 两插件 `test`、`build`、oxlint 通过；真机验收见 5.2 |
 | 本地联调（空闲态挂载） | 2026-11-25 | — | 通过，记录见 5.3；运行中采集的恢复需要真实 Chrome，留在 5.2 |
+| 分支同步最新 `main` | 2026-11-25 | `feat/collect-state-restore` | 合并 `origin/main`（含并行的视频号总览批次）无冲突；合并后 kit 64、抖音 192 + 134、视频号 75 + 83 全过 |
 | yootun-agent 合入 `main` | | `feat/collect-state-restore` → `main` | 待真机验收通过后合入 |
 | 发版 | | | 待填 |
 
@@ -136,7 +137,7 @@ MCP 工具：无。
 - 抖音工作台挂载时发出 `collect.running`、`collect.status`、`collectAll.status`，视频号工作台挂载时发出 `collect.status`、`collectAll.status`，与附录 A 一致。
 - 空闲态不出现「采集中」标记，账号栏没有批量面板，不启动轮询。Host 空闲时 `collectAll.status` 返回字段全为空的 `batch` 对象（`status` 为 `null`）而不是 `null`：`readBatchStatus` 读出空闲，`BatchPanel` 对 `status` 为 `null` 不渲染。单测的 mock 用 `batch: null`，真实 Host 的空闲应答是全空对象，两条路径在本地联调中都确认不渲染面板。
 - 运行中采集的恢复（5.2 的 R1–R8）需要真实 Chrome 与已登录账号，本地未覆盖。
-- 与分页分支的冲突文件及解决方式见 [works-list-pagination.md](works-list-pagination.md) 5.3。
+- 分支已合并最新 `main`（含并行的视频号总览批次），无冲突。按落地顺序的预演、与分页分支的 4 个冲突文件及解决方式见 [works-list-pagination.md](works-list-pagination.md) 5.3。
 
 实施单第 4 节在本单合入后回填完整。
 
