@@ -1,6 +1,6 @@
 /**
  * yootun 插件 UI 复合组件库（纯 client 库，非插件）：所有业务工作台 client 半
- * 共用的复合形态（分册规范 §8.1）。原子控件一律来自官方
+ * 共用的复合形态（分册规范 §8.1，含分页控件）。原子控件一律来自官方
  * `@deepseek-ai/dsh-client-ui-primitives`；颜色、间距、圆角、阴影、动效只映射
  * 官方 `--dsw-*` token 或本包集中定义的 `--yt-*` 语义变量；词典 zh 为键集
  * 事实源，en 全量同步。无 Tailwind、无全局 CSS、无 `!important`、无 body 选择器。
@@ -12,6 +12,7 @@ export { PluginHeader, type PluginHeaderProps } from './plugin-header.tsx'
 export { FilterBar, type FilterBarProps, type FilterChip } from './filter-bar.tsx'
 export { DataCard, type DataCardProps } from './data-card.tsx'
 export { KpiCard, type KpiCardProps, type KpiDeltaDirection } from './kpi-card.tsx'
+export { Pager, type PagerProps } from './pager.tsx'
 export { ChartFrame, type ChartFrameProps } from './chart-frame.tsx'
 export { ChartLegend, type ChartLegendItem, type ChartLegendProps } from './chart-legend.tsx'
 export { ChartTooltip, type ChartTooltipProps, type ChartTooltipRow } from './chart-tooltip.tsx'

@@ -13,6 +13,7 @@ import { DataState } from '../src/data-state.tsx'
 import { FilterBar } from '../src/filter-bar.tsx'
 import { KpiCard } from '../src/kpi-card.tsx'
 import { OperationReceipts } from '../src/operation-receipts.tsx'
+import { Pager } from '../src/pager.tsx'
 import { PluginHeader } from '../src/plugin-header.tsx'
 import { PluginPageShell } from '../src/page-shell.tsx'
 
@@ -345,6 +346,67 @@ describe('OperationReceipts', () => {
     renderLocalized(<OperationReceipts receipts={[{ id: 'r1', kind: 'undone', text: '已恢复原设置' }]} />)
     expect(screen.getByText('Undone')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
+  })
+})
+
+describe('Pager', () => {
+  it('信息文案按 total/pageSize 计算页数，末页禁用下一页', () => {
+    const onPage = vi.fn()
+    const { rerender } = renderLocalized(<Pager page={1} pageSize={20} total={40} onPage={onPage} />)
+    expect(screen.getByText('40 items · page 1 / 2')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Previous page' }).getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('disabled')).toBeNull()
+    rerender(
+      <KitLocaleProvider value={t}>
+        <Pager page={2} pageSize={20} total={40} onPage={onPage} />
+      </KitLocaleProvider>,
+    )
+    expect(screen.getByText('40 items · page 2 / 2')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Previous page' }).getAttribute('disabled')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('pages ≤ 1 只渲染信息文案，不渲染按钮', () => {
+    renderLocalized(<Pager page={1} pageSize={20} total={5} onPage={() => {}} />)
+    expect(screen.getByText('5 items · page 1 / 1')).not.toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  it('total=null 显示统计加载中文案并禁用两枚按钮', () => {
+    const onPage = vi.fn()
+    renderLocalized(<Pager page={1} pageSize={20} total={null} onPage={onPage} />)
+    expect(screen.getByText('Loading totals…')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Previous page' }).getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('busy 禁用两枚按钮', () => {
+    renderLocalized(<Pager page={2} pageSize={20} total={60} busy onPage={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Previous page' }).getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Next page' }).getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('点击回调只在有效翻页时触发', () => {
+    const onPage = vi.fn()
+    const { rerender } = renderLocalized(<Pager page={1} pageSize={20} total={40} onPage={onPage} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+    expect(onPage).toHaveBeenCalledOnce()
+    expect(onPage).toHaveBeenCalledWith(2)
+    rerender(
+      <KitLocaleProvider value={t}>
+        <Pager page={2} pageSize={20} total={40} onPage={onPage} />
+      </KitLocaleProvider>,
+    )
+    onPage.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Previous page' }))
+    expect(onPage).toHaveBeenCalledWith(1)
+  })
+
+  it('按钮是原生 button，可键盘到达', () => {
+    renderLocalized(<Pager page={1} pageSize={20} total={40} onPage={() => {}} />)
+    const next = screen.getByRole('button', { name: 'Next page' })
+    next.focus()
+    expect(document.activeElement).toBe(next)
   })
 })
 

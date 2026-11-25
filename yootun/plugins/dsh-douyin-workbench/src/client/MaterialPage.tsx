@@ -14,7 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, SegmentedControl, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState } from '@yootun/dsh-client-ui-kit'
+import { DataCard, DataState, Pager } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
 import css from './workbench.module.css'
@@ -497,17 +497,13 @@ export function MaterialPage(props: MaterialPageProps): ReactNode {
               </div>
             )}
             <div className={css.matMeta}>
-              <span>{board.total !== null
-                ? t('mat.page.info', { total: formatCount(board.total), page: Math.floor(board.offset / board.limit) + 1, pages: Math.max(1, Math.ceil(board.total / board.limit)) })
-                : t('mat.page.loading')}</span>
-              <span className={css.workToolbarRow}>
-                <Button variant='ghost' size='sm' disabled={board.rows.length === 0 || board.offset <= 0} onClick={() => { changePage(Math.max(0, board.offset - board.limit)) }}>
-                  {t('mat.page.prev')}
-                </Button>
-                <Button variant='ghost' size='sm' disabled={board.total === null || board.offset + board.limit >= board.total} onClick={() => { changePage(board.offset + board.limit) }}>
-                  {t('mat.page.next')}
-                </Button>
-              </span>
+              <Pager
+                page={Math.floor(board.offset / board.limit) + 1}
+                pageSize={board.limit}
+                total={board.total}
+                onPage={page => { changePage((page - 1) * board.limit) }}
+                busy={board.loading}
+              />
             </div>
           </DataState>
         </>
