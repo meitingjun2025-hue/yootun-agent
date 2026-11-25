@@ -301,6 +301,7 @@ UI 文案映射沿用旧插件各模块的 reason→文案字典（schedule 的 
 - **G-4 排期分页**：单账号 >200 行的游标分页服务端未提供（产品边界内不裁剪）；若未来突破 500 行需先补 tools 契约再进桌面。
 - **采集状态恢复（2026-11-25）**：新 Host 新增本地只读 action `collect.running`（action 56 → 57），抖音与视频号页面重新挂载时向 Host 查询并恢复运行中的采集与最近一次终态；旧基线的页面状态随卸载丢失，无此能力。实施单 [1125/features/collect-state-restore.md](../1125/features/collect-state-restore.md)；已实施（分支 `feat/collect-state-restore`），待真机验收与发版。
 - **采集全部受控并发（2026-11-25）**：#10 `collectAll.start` 由逐账号串行改为阶段 2 worker 队列（插件 Config `batchConcurrency` 1..5，缺省 3），阶段 1 探测与单账号流程不变；worker 启动错峰与批内熔断（`risk_paused`）。实施单 [1125/features/douyin-collect-all-concurrency.md](../1125/features/douyin-collect-all-concurrency.md)；已实施（分支 `feat/douyin-collect-all-concurrency`），待真机验收、发版后观察。
+- **作品列表服务端分页（2026-11-25）**：#12 `works.list` 入参扩展 `sort` / `order` / `limit` / `offset`，出参随带 `total` 与整账号 `summary`；作品页固定 10 条/页、表头排序改服务端查询，新增 5 卡 KPI 行。实施单 [1125/features/works-list-pagination.md](../1125/features/works-list-pagination.md)；已实施（分支 `feat/works-list-pagination`），待 tools 部署测试环境与真机验收。
 - **观察**：确认冻结后旧客户端新增功能一律登记本节并标注「是否迁入」，不提前实现；旧 route 与 yootun Workbench 是两套独立 registry，旧 route 新增工具不自动进 Workbench 94。
 
 ## 12. 验收记录要求

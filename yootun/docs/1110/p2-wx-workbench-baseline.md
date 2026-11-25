@@ -24,7 +24,7 @@
 | collectAll.start | batchReserved 同步预留防 TOCTOU（P2-6）；非 pending 账号列表串行采集 | 同 |
 | collectAll.status | batchController.status 投影；重启后回 ready | 同 |
 | run.get | 远端 collect_run_get 透传 | 经 workbench |
-| works.list / work.get / work.trend | 远端透传（sort/order 长度截断） | 经 workbench；参数 schema 化 |
+| works.list / work.get / work.trend | 远端透传（sort/order 长度截断） | 经 workbench；参数 schema 化。2026-11-25 起 `works.list` 另收 `limit` / `offset`（整数 1..100 / 0..1,000,000），`sort` / `order` 为封闭枚举，路由 schema 新增 integer 字段类型 |
 | account.overview | window 参数透传 | 经 workbench |
 | fans.profile.get | 远端透传 | 经 workbench |
 

@@ -136,14 +136,16 @@ PluginPageShell
 | 作品总数 | 账号 `feedCount` |
 | 近 7 日播放 | `summaryOverview.metrics.totals.daily_play_count` |
 | 近 7 日关注量 | `summaryOverview.metrics.totals.daily_follow_count` |
-| 作品完播率 | 按播放加权计算 |
-| 缺口作品 | 核心字段缺失的作品数 |
+| 作品完播率 | 按播放加权计算，取自作品列表接口随带的整账号聚合值 |
+| 缺口作品 | 核心字段缺失的作品数，取自作品列表接口随带的整账号聚合值 |
 
 `summaryOverview` 必须固定使用 `last_7d`，不随账号总览页时间窗变化。
 
 ## 4. 作品表格与详情
 
 ### 4.1 表格列
+
+表格固定 10 条/页服务端分页（表格下方 kit `Pager`）；表头排序为服务端排序（点击发起新查询并回第 1 页）；最近采集时间取作品列表接口随带的整账号最大值。
 
 作品表格保留旧插件的高密度列：
 

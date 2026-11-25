@@ -1,6 +1,6 @@
 # douyin-wx-workbench-作品列表分页 实施单
 
-状态：草案 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已实施，待真机验收（tools 待合入 `dev` 并部署测试环境） ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -55,7 +55,7 @@
 
 无新增工具。两个既有工具的入参与出参按 2.2、2.3 扩展，均为可选字段，不传时行为与现状一致。
 
-tools 契约文档对齐：`docs/1116/yootun-mcp.md` §4.2 与 §4.4 的工具清单和计数不变；参数以 DTO 为准。待同步（日期随状态回填）。
+tools 契约文档对齐：`docs/1116/yootun-mcp.md` §4.2 与 §4.4 的工具清单和计数不变；参数以 DTO 为准，契约文档不改。tools 的 schema 对齐门要求 Workbench 面、Agent 面与源工具的入参逐字段一致，所以裸工具 `douyin_work_list` / `wx_channels_work_list` 与 Agent 面 `yootun_douyin_works_list` / `yootun_wx_works_list` 的签名同步扩展同一组可选参数；Agent 面调用方不传新参数，行为不变。
 
 ### 2.2 `workbench_douyin_work_list`
 
@@ -102,7 +102,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §4.2 与 §4.4 的工具�
 | 分页模式 | 排序后跳过 `offset` 行取 `limit` 行；`offset ≥ total` 时 `works: []` |
 | `promoted` | 逐行布尔，取该账号全部投流 work_id 集合，与现状相同 |
 | `summary.work_count` | 等于 `total` |
-| `summary.play_count` / `summary.fans_gain_count` | F 内该列求和；F 内全为 NULL 时为 `null`，不写 0 |
+| `summary.play_count` / `summary.fans_gain_count` | F 内该列求和，服务端收敛为整数（PostgreSQL 对 bigint 求和返回 numeric，MCP 投影会把 Decimal 序列化成字符串）；F 内全为 NULL 时为 `null`，不写 0 |
 | `summary.completion_rate_pct` | `SUM(completion_rate_pct × play_count) / SUM(play_count)`，只计两列都非 NULL 的行；分母为 0 时 `null`；保留两位小数 |
 | `summary.gap_count` | F 内 `data_gap` 非 NULL 且非空的作品数 |
 | 响应体积 | `limit ≤ 100` 时单页上限约 350 KB，低于 2,000,000 字节硬上限；全量模式的上限与现状相同 |
@@ -226,6 +226,9 @@ export interface PagerProps {
 | tools.dofe.ai | `src/tools_dofe/mcp/domains/yootun/workbench/server.py` | `workbench_douyin_work_list` / `workbench_wx_work_list` 透传新字段 | 是 | 工具实现 |
 | tools.dofe.ai | `src/tools_dofe/services/wx_channels_operation/schemas.py`、`constants.py`、`queries.py` | `WxWorkListInput` 追加字段与枚举；`SORTABLE_FIELDS` 加两列；新增 `CORE_GAP_FIELDS`；`work_list` 分页与聚合 | 是 | 服务层 |
 | tools.dofe.ai | `docs/1116/yootun-mcp.md` | 清单与计数不变；参数说明以 DTO 为准 | 否 | 无新工具 |
+| tools.dofe.ai | `src/tools_dofe/mcp/domains/douyin_operation/server.py`、`wx_channels_operation/server.py`、`yootun/agent/server.py` | 裸工具与 Agent 面签名同步扩展同一组可选参数 | 是 | schema 对齐门要求各面与源工具入参一致 |
+| tools.dofe.ai | `tests/yootun/test_dev_baseline_parity.py` | `OPTIONAL_SCHEMA_EXTENSIONS` 登记两工具新增入参；新增 `OPTIONAL_ENUM_EXTENSIONS` 登记视频号 `sort` 枚举追加（既有枚举值必须保留、新增集合钉死） | 是 | dev 基线门 |
+| tools.dofe.ai | `docs/superpowers/catalogs/yootun-service-catalog-snapshot.json` | 按既定脚本再生成，仅 `catalogVersion` 变化 | 是 | 目录快照是入参 schema 的内容哈希 |
 | tools.dofe.ai | `tests/douyin_operation/test_tools.py`、`test_server_contract.py`、`tests/wx_channels_operation/test_queries.py`、`test_wx_channels_server_contract.py`、`tests/yootun/test_workbench_coverage.py` | 分页、排序、聚合、拒绝用例 | 是 | 行为随实现变更 |
 | docker-helm.dofe.ai | — | 无 | 否 | 无新路由 / 队列 / env / URL |
 | yootun-agent | `yootun/packages/dsh-client-ui-kit/src/{pager.tsx,pager.module.css,index.ts,locales.ts}`、`tests/kit.test.tsx` | 新增 `Pager` 与用例 | 是 | 第二个消费者出现时上移 |
@@ -246,9 +249,11 @@ export interface PagerProps {
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
 | 文档（本文 + 14 册 §5 + 11 册 §3.2/§4.1 + 15 册 §11 + p2 册 §3） | | `main` | 待填 |
-| tools 合入 `dev` | | `feat/works-list-pagination` → `dev` | 待填 |
+| tools 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（tools 仓，自 `dev`） | `pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 850 通过；16 项迁移 / PG 用例因本机无建库权限报错，改动前同样如此；ruff 在改动文件上无新增 |
+| tools 合入 `dev` | | `feat/works-list-pagination` → `dev` | 待用户确认后合入并推送 |
 | docker-helm 部署测试环境 | | — | 待填：部署后 `curl tools/list` 核对，两工具带分页参数可调 |
-| yootun-agent 合入 `main` | | `feat/works-list-pagination` → `main` | 待填：kit `Pager` 与两个插件同一分支，从 `main` 切出；两个插件在 tools 部署测试环境之后合入 |
+| yootun-agent 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（自 `main` 切出；kit `Pager`、抖音、视频号三个提交） | kit `test` 65、抖音 `test`（node --test 17 文件 + vitest 136）、视频号 `test`（node --test 76 + vitest 66），三包 `build`、oxlint 通过；真机验收见 5.2 |
+| yootun-agent 合入 `main` | | `feat/works-list-pagination` → `main` | 待真机验收通过后合入（以 tools 部署测试环境为前置） |
 | 发版 | | | 待填 |
 
 顺序约束：tools 的 DTO 是 `extra="forbid"`，旧服务端会拒绝新参数，所以 yootun-agent 的两个插件必须在 tools 部署测试环境之后合入；kit `Pager` 不依赖 tools，在分支内先行完成。
