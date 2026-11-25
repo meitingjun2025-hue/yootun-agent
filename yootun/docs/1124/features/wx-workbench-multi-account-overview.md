@@ -131,13 +131,15 @@ Pydantic DTO：`WxAccountsOverviewInput(CamelModel)`，字段 `account_ids / win
 |---|---|
 | 账号集合 | `accountIds` 缺省或空 → 全部 `delete_state='none'`；显式传入 → 去重、校验每个都存在且 `delete_state='none'`，任一失败抛 `ACCOUNT_NOT_ACCESSIBLE`；再按 `sessionStatus` 过滤（空集是合法结果，`summary.accountCount=0`） |
 | 枚举窗口 | 与 `queries.account_overview` 完全相同：`end_day = latestCompletedDay()`，`start_day = end_day - (size-1)`；`yesterday` 的 `size=2`，totals 只取末日 |
+| yesterday 窗口 | 新工具按末日单日 `[D, D]` 处理：`totals` / `work_count` / `daysObserved` / `availability` / `summary.window` 全部单日口径；不返回 `previousTotals`；名义 2 天窗口只服务单账号工具的环比（2026-11-25 验收修正） |
 | 自定义窗口 | `from_day = _parse_day(fromDay)`、`to_day = _parse_day(toDay)`；校验顺序：格式（`INVALID_TIME_WINDOW`）→ `from_day <= to_day`（`INVALID_TIME_WINDOW`）→ `to_day <= latestCompletedDay()`（`INVALID_TIME_WINDOW`，当天未收盘不入日表）→ `(to_day - from_day).days + 1 <= MAX_OVERVIEW_CUSTOM_DAYS`（`INVALID_TIME_WINDOW`）。单日区间合法（日报对账用）。`summary.window` 回传实际 `{startDay, endDay}` 供调用方核对 |
-| 汇总求和 | `summary.totals` 与 `summary.fans_totals` = 各账号同行字段求和；某字段在所有账号都缺失时该字段**不出现**（不写 0）；某账号缺失该字段则不计入 |
+| 汇总求和 | `summary.totals` 与 `summary.fans_totals` = 各账号同行字段求和；某字段在所有账号都缺失时该字段**不出现**（不写 0）；某账号缺失该字段则不计入。`summary.totals.work_count` 为各账号窗口内发布作品数（`wx_channels_work.publish_time` 落窗）之和；账号无 work 记录时该键不出现，有记录而窗口内为 0 返回 0 |
 | 汇总关注者总数 | `summary.followerTotalCount` = 各账号 `follower_total_count` 非空值之和；全部缺失时为 `null` |
 | 合计趋势 | `summary.trendWindow` 跟随窗口：`trend_end = window_end`，`trend_start = trend_end - (max(window_days, 7) - 1)`，即窗口不足 7 天时以末日为锚补足 7 天、等于或超过 7 天时与窗口重合；`yesterday` → 7 天（与现状一致），`last_7d` → 7 天，`last_30d` → 30 天，`custom [Mon, Sun]` → 7 天（周报范围），`custom [D, D]` → 7 天（含 D 的近一周），`custom [11-01, 11-30]` → 30 天（月报范围）。`trendDaily[i].follower_total_count` = 该日各账号 `follower_total_count` 非空值之和，该日全部缺失为 `null`；行数 = 趋势天数，缺失日不省略。趋势查询范围与窗口查询范围合并为一次 `IN` 查询（`min(window_start, trend_start) .. window_end`），内存分别聚合 |
 | 对账契约 | 日报 / 周报等报告生成方调用本工具时，与页面使用同一入参得到同一结果：同一 `[fromDay, toDay]` 的 `summary.totals` / `fans_totals` / `followerTotalCount` / `trendDaily` 完全确定（日表是已完成日的快照，采集补录历史日会改变结果，报告应记录生成时刻）。数据完整性由 `daysObserved` / `daysExpected` / `availability` 三项表达，报告方据此判定 `ok` / `partial` / `no_data`，不得把缺失日当 0 |
 | 汇总 availability | 每账号 `metrics.rowAvailability` / `fans_trend.rowAvailability` 聚合：全部 `no_data` → `no_data`；全部 `ok` → `ok`；其余 → `partial`；账号集合为空 → `no_data` |
 | `summary.accountCount` | 过滤后的账号数；`summary.accountTotal` = 过滤前 `delete_state='none'` 的账号数（供 UI 显示「共 N 个账号」与筛选命中率） |
+| `summary.daysObserved` | 汇总窗口内有日表行的去重日历天数（`account_metrics` / `fans_trend` 分源），供报告方判断窗口覆盖（2026-11-25 验收确认口径） |
 | 排序 | `play` → `metrics.totals.daily_play_count`；`like` → `daily_like_count`；`net_fans` → `fans_trend.totals.follower_net_count`；`followers` → `follower_total_count`；`works` → `metrics.totals.work_count`。均降序，缺失值排最后，同值按 `account_id` 升序保证稳定 |
 | 性能 | 服务端用一次 `account_id IN (...)` 查询取 `min(window_start, trend_start) .. window_end` 内全部账号日行，内存按 `account_id` 分组，不逐账号循环查询；200 账号 × 92 天 = 18400 行 / 表为上限，可接受 |
 
@@ -145,12 +147,13 @@ Pydantic DTO：`WxAccountsOverviewInput(CamelModel)`，字段 `account_ids / win
 
 | 错误码 | 触发 | HTTP 语义 |
 |---|---|---|
-| `INVALID_TIME_WINDOW` | `window` 不在枚举内（DTO 层）；`custom` 缺 `fromDay` / `toDay` 或非 `custom` 带日期（DTO validator）；日期格式非法、`fromDay > toDay`、`toDay` 晚于 `latestCompletedDay`、区间超过 92 天（服务层） | 400 |
+| `INVALID_TIME_WINDOW` | `custom` 缺 `fromDay` / `toDay` 或非 `custom` 带日期（DTO validator 配对校验）；日期格式非法、`fromDay > toDay`、`toDay` 晚于 `latestCompletedDay`、区间超过 92 天（服务层四项校验）（2026-11-25 修正：枚举非法实际由签名 Literal 前置拦截，见下） | 400 |
+| `VALIDATION_ERROR` | `window` / `sort` / `sessionStatus` 不在枚举内（MCP 签名 Literal 前置拦截） | 400 |
 | `INVALID_SORT` | `sort` 不在枚举内 | 400 |
 | `TOO_MANY_ACCOUNTS` | 去重后 `accountIds` 超过 200 | 400 |
 | `ACCOUNT_NOT_ACCESSIBLE` | 显式传入的任一 `accountIds` 不存在或已删除 | 400 |
 
-四个码都已在 yootun-agent `errors.ts` 的 `SERVER_ERROR_CODES` 白名单内，本仓不新增错误码。
+`INVALID_TIME_WINDOW` / `INVALID_SORT` / `ACCOUNT_NOT_ACCESSIBLE` 已在 yootun-agent `errors.ts` 的 `SERVER_ERROR_CODES` 白名单内；`TOO_MANY_ACCOUNTS` 不在（2026-11-25 阶段 3 实现发现，实施单原表述「四个码都已在白名单」不准确），已追加——不加则该码被 `safeCode` 收敛为 `WX_TOOL_UNAVAILABLE`，UI 显示误导性文案。
 
 ### 2.6 与单账号工具的关系
 
@@ -189,29 +192,29 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文 + 11 册 §5） | | `main` | 待填 |
-| tools 合入 `dev` | | `feat/wx-accounts-overview` → `dev` | 待填 |
+| 文档（本文 + 11 册 §5） | 2026-11-25 | `feat/wx-multi-account-overview` | 阶段 1–3 验收通过；按用户要求全部完成后统一合入 |
+| tools 合入 `dev` | 2026-11-25 | `feat/wx-accounts-overview`（待合入 `dev`） | 阶段 1 验收通过：966 passed / 2 skipped，ruff 0 新增；待用户决定合入与推送 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| yootun-agent 合入 `main` | | `feat/wx-multi-account-overview` → `main` | 待填 |
+| yootun-agent 合入 `main` | | `feat/wx-multi-account-overview`（待合入 `main`） | 待最终统一合入 |
 | 发版 | | | 待填 |
 
 ## 5. 验收
 
-- [ ] tools：`pytest tests/yootun/test_workbench_wx_tos.py` 全过；`tools/list` 含 `workbench_wx_accounts_overview` 且 `readOnly=true`；
-- [ ] tools：本地 `curl tools/list` 与 `docs/1116/yootun-mcp.md` §4.4 清单一致；
-- [ ] tools：`window='yesterday'` 时 `summary.totals` 等于各账号末日单日值之和；`trendWindow` 为末日锚定的 7 天；
-- [ ] tools：`window='custom'` 单日区间 `[D, D]` 的 `totals` 等于该日单日值；`[Mon, Sun]` 区间 `trendWindow` 恰为 7 天；`[11-01, 11-30]` 区间 `trendWindow` 为 30 天；`summary.window` 回传与入参一致；
-- [ ] tools：`custom` 缺 `fromDay` / 非 `custom` 带 `toDay` / `fromDay > toDay` / `toDay` 为今天 / 区间 93 天 → 均返回 `INVALID_TIME_WINDOW`；
-- [ ] tools：显式传入不存在的 `accountIds` 返回 `ACCOUNT_NOT_ACCESSIBLE`；`sessionStatus` 过滤后空集返回 `accountCount=0`、`availability=no_data`；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`、`build` 通过；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过（FilterMenu 迁移无回归）；
-- [ ] yootun-agent：`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
-- [ ] yootun-agent：`pnpm run lint` 对改动文件无新告警；
-- [ ] yootun-agent：分区代码、注释、测试中无 Workbench 工具数量字面量；
-- [ ] 本地三仓 e2e：全部账号模式汇总值 = 各账号单账号工具返回值之和；单账号模式 10 卡 / 4 卡 / 趋势 = 单账号工具返回值；
-- [ ] 本地三仓 e2e：页面选 `custom [Mon, Sun]` 的 10 卡 / 4 卡 / 趋势，与直接调用 `workbench_wx_accounts_overview(window='custom', fromDay=Mon, toDay=Sun)` 的返回逐字段一致（日报 / 周报对账基础）；
-- [ ] 真机：三入口、明暗主题、三档容器宽度（1120 / 880 / 640）；筛选 chips 可清除；表格行键盘 Enter 选中账号；画像在全部账号模式为空态、单账号模式为五维；`custom` 时起止日期输入出现、`max` 为昨日、起 > 止时另一端跟随、空值不触发请求；
-- [ ] 实施单第 4 节回填完整。
+- [x] tools：`pytest tests/yootun/test_workbench_wx_tos.py` 全过；`tools/list` 含 `workbench_wx_accounts_overview` 且 manifest read 标记（`readOnly=true` 指 `YOOTUN_TOOL_MANIFEST` effect=read，协议层无 readOnlyHint 字段）；
+- [x] tools：tools/list 与 `docs/1116/yootun-mcp.md` §4.4 清单逐名一致（核对脚本通过；curl 需部署环境，联调时复核）；
+- [x] tools：`window='yesterday'` 时 `summary.totals` 等于各账号末日单日值之和；`trendWindow` 为末日锚定的 7 天；
+- [x] tools：`window='custom'` 单日区间 `[D, D]` 的 `totals` 等于该日单日值；7 天区间 `trendWindow` 恰为窗口；30 天区间 `trendWindow` 为 30 天；`summary.window` 回传与入参一致；
+- [x] tools：`custom` 缺 `fromDay` / 非 `custom` 带 `toDay` / `fromDay > toDay` / `toDay` 为今天 / 区间 93 天 → 均返回 `INVALID_TIME_WINDOW`（枚举非法由签名 Literal 前置拦截为 `VALIDATION_ERROR`）；
+- [x] tools：显式传入不存在的 `accountIds` 返回 `ACCOUNT_NOT_ACCESSIBLE`；`sessionStatus` 过滤后空集返回 `accountCount=0`、`availability=no_data`；
+- [x] yootun-agent：`pnpm --filter @yootun/dsh-client-ui-kit test`（64 passed）、`build` 通过；
+- [x] yootun-agent：`pnpm --filter @yootun/dsh-douyin-workbench test`（node --test 全过 + vitest 126 passed）、`build` 通过（FilterMenu 迁移无回归）；前置 `pnpm --filter @yootun/dsh-workbench-mcp build`；
+- [x] yootun-agent：`pnpm --filter @yootun/dsh-wx-channels-workbench test`（node --test 77 全过 + vitest 69 passed、1 项详情 Modal 用例为基线预存失败，独立 stash 核实）、`build` 通过；
+- [x] yootun-agent：`pnpm run lint` exit 0（tools 仓 ruff 39 条 = dev 基线 39，0 新增）；
+- [x] yootun-agent：wx 包 source-conventions 守护通过（无工具数量字面量、域门 whitelist 无工具名）；
+- [ ] 本地三仓 e2e（待联调）：全部账号模式汇总值 = 各账号单账号工具返回值之和（work_count 不适用——单账号工具不产出该字段）；单账号模式 10 卡 / 4 卡 / 趋势 = 单账号工具返回值；
+- [ ] 本地三仓 e2e（待联调）：页面选 `custom [Mon, Sun]` 的 10 卡 / 4 卡 / 趋势，与直接调用 `workbench_wx_accounts_overview(window='custom', fromDay=Mon, toDay=Sun)` 的返回逐字段一致（日报 / 周报对账基础）；
+- [ ] 真机（待发版前）：三入口、明暗主题、三档容器宽度（1120 / 880 / 640）；筛选 chips 可清除；表格行键盘 Enter 选中账号；画像在全部账号模式为空态、单账号模式为五维；`custom` 时起止日期输入出现、`max` 为昨日、起 > 止时另一端跟随、空值不触发请求（jsdom 页面测试已覆盖交互逻辑，视觉目检待真机）；
+- [x] 实施单第 4 节回填完整。
 
 ## 附录 A：数据读取方式
 
@@ -412,8 +415,8 @@ Host 不解析聚合结果，`structuredContent` 原样透出（与 `account.ove
 │ 全部视频指标                                                      该账号 · 近 7 天│
 │ （10 卡 = 昵称A 的值）                                                          │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│ 账号表现                                                      共 3 个账号        │
-│ │1 │ ● 昵称A  [正常] ◀选中  │ …  │  行高亮，其余行仍可点击切换                    │
+│ 账号表现                                                      共 1 个账号        │
+│ │1 │ ● 昵称A  [正常] ◀选中  │  仅该账号一行；切换账号经筛选器或清除 chip（2026-11-25 修正）│
 ├────────────────────────────────────────────────────────────────────────────────┤
 │ 关注者总数趋势（近 7 天）        │ 关注者增长指标                                 │
 │ （折线 = 昵称A）                 │ （4 卡 = 昵称A）                               │
@@ -587,25 +590,45 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 
 ### C.1 tools.dofe.ai
 
-| 文件 | 改动 |
-|---|---|
-| `src/tools_dofe/services/wx_channels_operation/constants.py` | 新增 `MAX_OVERVIEW_CUSTOM_DAYS: Final = 92`（放在 `WINDOW_*` 常量之后，注释说明：总览自定义区间上限，日报 1 天 / 周报 7 天 / 月报 30 天留余量；与 `MAX_DAILY_WINDOW_DAYS`（采集入库业务上限）无关） |
-| `src/tools_dofe/services/wx_channels_operation/schemas.py` | 新增 `class WxAccountsOverviewInput(CamelModel)`：`account_ids: list[WxAccountId] \| None = None`（`Field(max_length=200)` 在 server 层参数上）、`window: Literal['yesterday','last_7d','last_30d','custom'] = 'last_7d'`、`from_day: DayStr \| None = None`、`to_day: DayStr \| None = None`、`sort: Literal['play','like','net_fans','followers','works'] = 'play'`、`session_status: Literal['ok','expired','unknown'] \| None = None`；`@model_validator(mode="after")`：`window == 'custom'` 要求 `from_day` 与 `to_day` 均非 `None`，否则抛 `BusinessError(..., error_code="INVALID_TIME_WINDOW")`；`window != 'custom'` 要求二者均 `None`，否则同码拒绝 |
-| `src/tools_dofe/services/wx_channels_operation/queries.py` | 新增 `_resolve_window(window, from_day, to_day) -> tuple[date, date]`：枚举走 `_WINDOW_SIZES` + `latest_completed_day`；`custom` 走 `_parse_day` 后按 2.4 顺序校验（顺序 / 上界 / 长度 ≤ `MAX_OVERVIEW_CUSTOM_DAYS`），失败抛 `BusinessError(..., error_code="INVALID_TIME_WINDOW")`。新增 `_trend_window(window_start, window_end) -> tuple[date, date]`：`end = window_end`，`start = end - (max(days, 7) - 1)`。新增 `accounts_overview(db, *, account_ids, window, from_day, to_day, sort, session_status) -> dict`：复用 `_sum_metric_daily` / `_sum_fans_daily` 的逐行累加口径；**新增一次 `IN` 查询的批量实现** `_sum_metric_daily_many(db, account_ids, start, end) -> dict[str, dict]` 与 `_sum_fans_daily_many`（与单账号版本共用同一个逐行累加函数，避免两份口径），查询范围取 `min(window_start, trend_start) .. window_end`，窗口求和与趋势求和在同一批行上分别聚合；`yesterday` 窗口的末日单日处理与单账号一致但 **不返回 `previousTotals`**；新增 `_aggregate_availability(values)`；新增 `_ACCOUNT_SORT_KEYS`；返回 `summary.window` 与 `summary.trendWindow` 两个范围对象 |
-| `src/tools_dofe/mcp/domains/yootun/workbench/server.py` | 新增 `def workbench_wx_accounts_overview(accountIds: Annotated[list[WxAccountId], Field(max_length=200)] \| None = None, window: Literal['yesterday','last_7d','last_30d','custom'] = 'last_7d', fromDay: DayStr \| None = None, toDay: DayStr \| None = None, sort: Literal[...] = 'play', sessionStatus: Literal['ok','expired','unknown'] \| None = None) -> dict`，`model_validate` 经 DTO validator 校验配对，校验 `TOO_MANY_ACCOUNTS` 后调 `wx_query_service.accounts_overview`；`_IMPLEMENTED_TOOLS` 追加；分发表追加 |
-| `src/tools_dofe/mcp/domains/yootun/registry.py` | 视频号域工具名元组追加；`YOOTUN_TOOL_MANIFEST` 追加 `_read('workbench_wx_accounts_overview')`；`WORKBENCH_TOOLS` 追加 `"workbench_wx_accounts_overview": "wx_channels_accounts_overview"`；`assert len(WORKBENCH_TOOLS) == 94` 改为 95 |
-| `src/tools_dofe/mcp/capabilities.py` | `wx_channels_operation` 域能力元组追加 `"wx_channels_accounts_overview"`；read 标记集合追加 `_read("wx_channels_accounts_overview")` |
-| `src/tools_dofe/mcp/service_policies.py` | 能力列表追加 `"wx_channels_accounts_overview"` |
-| `docs/1116/yootun-mcp.md` | §4.4 标题「19 个」→「20 个」，清单追加一行 |
-| `tests/yootun/test_workbench_wx_tos.py` | `test_tools_list_has_exactly_90_workbench_tools` 计数加一；新增用例见附录 E |
+2026-11-25 阶段 1 实现后补全：原 9 处 + 实现时由仓库守护测试强制确认的 14 处连锁登记点（实现记录见 tools 仓 `feat/wx-accounts-overview` 提交说明）。
+
+| 文件 | 改动 | 守护机制 |
+|---|---|---|
+| `src/tools_dofe/services/wx_channels_operation/constants.py` | 新增 `MAX_OVERVIEW_CUSTOM_DAYS: Final = 92`（放在 `WINDOW_*` 常量之后，注释说明：总览自定义区间上限，日报 1 天 / 周报 7 天 / 月报 30 天留余量；与 `MAX_DAILY_WINDOW_DAYS`（采集入库业务上限）无关）；另加同风格 `WINDOW_CUSTOM` 常量（queries 以 `c.WINDOW_*` 比较） | — |
+| `src/tools_dofe/services/wx_channels_operation/schemas.py` | 新增 `class WxAccountsOverviewInput(CamelModel)`：`account_ids: list[WxAccountId] \| None = None`（`Field(max_length=200)` 在 server 层参数上）、`window: Literal['yesterday','last_7d','last_30d','custom'] = 'last_7d'`、`from_day: DayStr \| None = None`、`to_day: DayStr \| None = None`、`sort: Literal['play','like','net_fans','followers','works'] = 'play'`、`session_status: Literal['ok','expired','unknown'] \| None = None`；`@model_validator(mode="after")`：`window == 'custom'` 要求 `from_day` 与 `to_day` 均非 `None`，否则抛 `BusinessError(..., error_code="INVALID_TIME_WINDOW")`；`window != 'custom'` 要求二者均 `None`，否则同码拒绝。另加服务层 `DayStr` 类型别名（两面 server 收敛为单一来源） | — |
+| `src/tools_dofe/services/wx_channels_operation/queries.py` | 新增 `_resolve_window(window, from_day, to_day) -> tuple[date, date]`：枚举走 `_WINDOW_SIZES` + `latest_completed_day`；`custom` 走 `_parse_day` 后按 2.4 顺序校验（顺序 / 上界 / 长度 ≤ `MAX_OVERVIEW_CUSTOM_DAYS`），失败抛 `BusinessError(..., error_code="INVALID_TIME_WINDOW")`。新增 `_trend_window(window_start, window_end) -> tuple[date, date]`：`end = window_end`，`start = end - (max(days, 7) - 1)`。新增 `accounts_overview(db, *, account_ids, window, from_day, to_day, sort, session_status) -> dict`：复用 `_sum_metric_daily` / `_sum_fans_daily` 的逐行累加口径；**新增一次 `IN` 查询的批量实现** `_account_metric_rows` / `_account_fans_rows`（与单账号版本共用同一个逐行累加函数，避免两份口径），查询范围取 `min(window_start, trend_start) .. window_end`，窗口求和与趋势求和在同一批行上分别聚合；`yesterday` 在 `_resolve_window` 返回后收缩为末日单日窗口（2.4「yesterday 窗口」行）；新增 `_aggregate_availability(values)`、`_ACCOUNT_SORT_KEYS`、`_resolve_overview_accounts`、`_count_works_in_window`（work_count 口径）、`_trend_daily`、`_observed_days`；返回 `summary.window` 与 `summary.trendWindow` 两个范围对象 | — |
+| `src/tools_dofe/mcp/domains/yootun/workbench/server.py` | 新增 `def workbench_wx_accounts_overview(accountIds: Annotated[list[WxAccountId], Field(max_length=200)] \| None = None, window: Literal[...] = 'last_7d', fromDay: DayStr \| None = None, toDay: DayStr \| None = None, sort: Literal[...] = 'play', sessionStatus: Literal[...] \| None = None) -> dict`，`model_validate` 置于 `with_db` 的 `_op` 闭包内（DTO validator 的 BusinessError 收敛为稳定码信封），服务层兜底 `TOO_MANY_ACCOUNTS` 后调 `wx_query_service.accounts_overview`；`_IMPLEMENTED_TOOLS` 追加；分发表追加；头注释计数同步 | tools/list 精确计数（`test_workbench_wx_tos.py`） |
+| `src/tools_dofe/mcp/domains/yootun/registry.py` | 视频号域工具名元组追加；`YOOTUN_TOOL_MANIFEST` 追加 `_read('workbench_wx_accounts_overview')`；`WORKBENCH_TOOLS` 追加 `"workbench_wx_accounts_overview": "wx_channels_accounts_overview"`；`assert len(WORKBENCH_TOOLS) == 94` 改为 95；头注释 133→134 | registry 断言 + `test_contract.py` 计数锁定 |
+| `src/tools_dofe/mcp/capabilities.py` | `wx_channels_operation` 域能力元组追加 `"wx_channels_accounts_overview"`；read 标记集合追加 `_read("wx_channels_accounts_overview")` | `test_contract.py:197` 源能力必须在 legacy 目录 + `test_capability_manifest.py` 目录↔gateway 双向一致 |
+| `src/tools_dofe/mcp/service_policies.py` | 能力列表追加 `"wx_channels_accounts_overview"` | `test_policy_snapshot.py` reviewed↔golden 快照双向精确覆盖 |
+| `docs/1116/yootun-mcp.md` | §4.4 标题「19 个」→「20 个」，清单追加一行；新增 §4.4.1 契约小节（入参/出参/口径/错误码）；全文现状计数同步（Workbench 95、yootun 业务 134、legacy 272 等） | 契约唯一来源；tools/list 与文档逐名一致（验收核对项） |
+| `tests/yootun/test_workbench_wx_tos.py` | `test_tools_list_has_exactly_90_workbench_tools` 改名 `…_95_…` 并计数加一；新增用例见附录 E | — |
+| `src/tools_dofe/mcp/domains/wx_channels_operation/server.py`（旧 legacy route） | 源域同签名 `wx_channels_accounts_overview` + `add_tool`（schema parity 等价迁移，公共入口工具面 19→20，RQ-2026-013 同款流程） | `test_contract.py:197` 源能力映射 + `test_capability_manifest.py:59` 双向一致 + `test_schema_parity.py` schema 逐字段一致 + `test_dev_baseline_parity.py` 精确 diff 名单 |
+| `src/tools_dofe/mcp/service_taxonomy.json`（legacy） | `content.wx-channels-analytics` service 工具 +1 | `ServiceCatalog._snapshot` 由 taxonomy 驱动（不加则快照与目录不一致） |
+| `tests/mcp/data/legacy_policy_snapshot.json` | golden 快照 +1 条（query/database/reviewed，与 `wx_channels_account_overview` 同组） | `test_policy_snapshot.py` reviewed↔golden 双向精确覆盖 |
+| `src/tools_dofe/mcp/domains/yootun/policies.py` | `_YOOTUN_DATABASE` 组追加 `workbench_wx_accounts_overview` | registry 头注释不变式；不加则 yootun discovery fail-closed 为 unknown |
+| `src/tools_dofe/mcp/domains/yootun/service_taxonomy.json` | workbench-face tools +1（保持字母序）；description 133→134 | `test_contract.py` taxonomy↔manifest 双向一致 |
+| `docs/superpowers/catalogs/yootun-service-catalog-snapshot.json` | `--scope yootun` 重生成 | `test_service_catalog_snapshot.py` 快照↔运行时一致 |
+| `docs/superpowers/catalogs/service-catalog-snapshot.json` | `--generate-legacy` 候选覆盖；old SHA `7eebee98…30de3` → new SHA `2a4f9f8c…2b23`（结构化 diff 仅含新工具条目与 facet 计数派生量） | 内容 SHA-256 基线锁定测试 + `--check` |
+| `scripts/export_service_catalog_snapshot.py` | `LEGACY_SNAPSHOT_BASELINE_SHA256` 常量更新 + 注释追加变更记录 | 同上 |
+| `tests/yootun/test_dev_baseline_parity.py` | `ALLOWED_NEW_TOOLS` 追加 `wx_channels_accounts_overview` | dev 基线 diff 必须精确等于名单 |
+| `tests/yootun/test_contract.py` | 计数 133→134×2、94→95、`wx_channels_operation` 19→20、gateway 272+134+5、read 34+47、docstring | 测试自身 |
+| `tests/yootun/test_catalog_face.py` | 133→134×3、94→95 | 测试自身 |
+| `tests/yootun/test_provider_isolation.py` | legacy toolCount 271→272×3 | 测试自身 |
+| `tests/yootun/test_schema_parity.py` | 133→134×2、用例名、docstring | 测试自身 |
+| `tests/mcp/test_douyin_publish_schedule_tools.py` | 94→95、133→134、legacy 总量 271→272 | 测试自身 |
+| `tests/mcp/test_yootun_sdk_probe.py` | 133→134×2 | 测试自身 |
+| `tests/mcp/test_service_catalog_snapshot.py` | 133→134×3 | 测试自身 |
+| `tests/mcp/test_service_discovery.py` | docstring 271→272 | 测试自身 |
+| `tests/wx_channels_operation/test_wx_channels_server_contract.py` | 旧 route `EXPECTED_TOOLS` 集合 +1 | 测试自身 |
 
 ### C.2 yootun-agent：`@yootun/dsh-client-ui-kit`
 
 | 文件 | 改动 |
 |---|---|
 | `src/filter-menu.tsx`（新增） | 从抖音 `plugins/dsh-douyin-workbench/src/client/FilterMenu.tsx` 原样迁入：props `label / visibleLabel? / currentLabel / items / selectedId / disabled? / triggerClassName? / onSelect`；内部 `useState(open)` + 官方 `Button outline sm` + `Menu`；无 kit locale 依赖（文案全部由调用方传入）；JSDoc 含 `@param` / `@returns` |
-| `src/filter-menu.module.css`（新增） | `.filterGroup { display: inline-flex; align-items: center; gap: 6px; min-width: 0 }` `.filterGroupLabel { font-size: var(--dsw-font-size-sm); color: var(--dsw-alias-text-secondary); white-space: nowrap }`；色值全部 token，无字面色 |
-| `src/index.ts` | `export { FilterMenu } from './filter-menu.tsx'`（无新增类型导出） |
+| `src/filter-menu.module.css`（新增） | `.filterGroup { display: inline-flex; align-items: center; gap: 6px; min-width: 0 }` `.filterGroupLabel { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); white-space: nowrap }`（2026-11-25 阶段 2 修正：`--dsw-font-size-sm` / `--dsw-alias-text-secondary` 不在官方主题，按 kit 惯例用 px 字面量 + `--dsw-alias-label-secondary`，视觉与抖音原版一致；色值全部 token，无字面色） |
+| `src/index.ts` | `export { FilterMenu } from './filter-menu.tsx'` 及类型 `FilterMenuItem` / `FilterMenuProps`（kit 组件随组件导出类型的惯例） |
 | `packages/dsh-client-ui-kit/tests/*` | 若 kit 有组件测试：新增 `FilterMenu` 渲染 / 选中 / 禁用用例 |
 
 ### C.3 yootun-agent：Host（`plugins/dsh-wx-channels-workbench/src`）
@@ -633,7 +656,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | 文件 | 改动 |
 |---|---|
 | `FilterMenu.tsx` | 删除 |
-| `OverviewPage.tsx`、`MaterialPage.tsx`、`GenePage.tsx`、`BreakdownPage.tsx` 等消费点 | `import { FilterMenu } from '@yootun/dsh-client-ui-kit'`，删除本地 import；props 不变 |
+| `OverviewPage.tsx`（内嵌复制体与死参数 `t={t}` 一并删除）、`MaterialPage.tsx`、`GenePage.tsx`、`BreakdownPage.tsx`、`AnalysisPage.tsx`（`MetricMenu` 为第三份内嵌复制，改 kit 薄包装、签名不变；2026-11-25 阶段 2 实现发现）等消费点 | `import { FilterMenu } from '@yootun/dsh-client-ui-kit'`，删除本地 import；业务 props 不变 |
 | `kit-styles.ts` | 追加 `filter-menu.module.css` |
 | `workbench.module.css` | 删除 `.filterGroup` / `.filterGroupLabel`（迁入 kit）；若 `triggerClassName` 消费 `.xxxTrigger` 则保留 |
 | `tests/client/douyin-parity.test.tsx` | kit 导入集合守护推导自动更新；若有对本地 `FilterMenu.tsx` 文件存在的断言则删除 |
@@ -676,8 +699,8 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | `test_wx_accounts_overview_aggregates_all_accounts` | 三个账号各有 7 天 metrics 与 fans 日行；`summary.accountCount=3`；`totals.daily_play_count` 等于三账号之和；`followerTotalCount` 等于三账号最新值之和 |
 | `test_wx_accounts_overview_partial_availability` | 一账号只送 3 天 → 该行 `rowAvailability='partial'`；`availability.account_metrics='partial'` |
 | `test_wx_accounts_overview_skips_null_not_zero` | 一账号某日 `daily_play_count=NULL` → 求和不含它；全 NULL 字段不出现在 `totals` |
-| `test_wx_accounts_overview_yesterday_uses_single_day` | `window='yesterday'` → `totals` 等于各账号末日值之和；`trendDaily` 仍 7 行 |
-| `test_wx_accounts_overview_trend_fixed_seven_days` | `window='last_30d'` 时 `trendWindow` 仍为 7 天；`trendDaily` 长度 7；某日全缺为 `null` |
+| `test_wx_accounts_overview_yesterday_single_day` | `window='yesterday'` 全口径单日：`summary.window = [D, D]`；`totals` 与 `work_count` 只含末日；`daysObserved = 1`；`trendWindow` 仍末日锚定 7 天（2026-11-25 验收修复项，替代原 `yesterday_uses_single_day`） |
+| `test_wx_accounts_overview_trend_min_seven_days` | `window='yesterday'`（窗口不足 7 天）时 `trendWindow` 以末日为锚补足 7 天；`trendDaily` 长度 7；某日全缺为 `null`（2026-11-25 修正：原 `trend_fixed_seven_days` 断言 last_30d→7 天与契约 2.4「last_30d → 30 天」及 `enumerated_trend_follows` 矛盾，按 2.4 实现） |
 | `test_wx_accounts_overview_sort_orders` | 五种 `sort` 各一；缺失值排最后；同值按 `account_id` |
 | `test_wx_accounts_overview_session_status_filter` | `sessionStatus='expired'` → 只含过期账号；与 `accountIds` 叠加为空时 `accountCount=0`、`availability=no_data` |
 | `test_wx_accounts_overview_rejects_unknown_account` | `accountIds=['missing']` → `ACCOUNT_NOT_ACCESSIBLE` |
@@ -702,7 +725,7 @@ export const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = { accountId: '', window
 | douyin | `tests/client/*` | 现有筛选用例全部通过（迁移无回归） |
 | wx | `tests/host.test.ts` | `ACTION_SCHEMAS` 键集断言追加 `overview.accounts`；`handlers['overview.accounts']({})` 调用 `workbench_wx_accounts_overview` 且参数 `{window, sort}`；传 `accountId` 时 `accountIds=[id]`；传 `sessionStatus` 时透传；`window='custom'` + `fromDay` / `toDay` 时透传；`window='last_7d'` + `fromDay` 时 `fromDay` 被丢弃 |
 | wx | `tests/client/wx-data.test.tsx` | `readAccountsOverview`：完整载荷；缺字段 → `null`；`trendDaily` 缺 `day` 行丢弃；`readOverview` 与 `readAccountsOverview` 对同一 `totals` 投影一致 |
-| wx | `tests/client/wx-page.test.tsx` | 全部账号模式：筛选器 4 个、10 卡、表格行数 = `rows.length`、画像空态文案；单账号模式：4 卡为该账号值、画像五维渲染；chips 清除回缺省；会话状态与账号联动重置；表格行 Enter 选中；`refreshing` 淡化属性；时间窗切 `custom` 后出现两个 `type=date` 输入且 `max` 为昨日、初值昨日；起始改到截止之后 → 截止跟随；清空任一端 → `hostAction` 不被调用；清除时间窗 chip → 回 `last_7d` 且日期清空；趋势 x 轴点数 = `trendWindow` 天数（30 天载荷渲染 30 点） |
+| wx | `tests/client/wx-data.test.tsx`（2026-11-25 修正：页面行为用例承载在 wx-data——mockHost / renderPage 基建所在；原列 `wx-page.test.tsx`） | 全部账号模式：筛选器 4 个、10 卡、表格行数 = `rows.length`、画像空态文案；单账号模式：4 卡为该账号值、画像五维渲染；chips 清除回缺省；会话状态与账号联动重置；表格行 Enter 选中；`refreshing` 淡化属性；时间窗切 `custom` 后出现两个 `type=date` 输入且 `max` 为昨日、初值昨日；起始改到截止之后 → 截止跟随；清空任一端 → `hostAction` 不被调用；清除时间窗 chip → 回 `last_7d` 且日期清空；趋势 x 轴数据列 = `trendWindow` 天数、标签稀疏（30 行 → 首 / 中点 / 尾 3 个） |
 | wx | `tests/client/wx-bundle.test.ts` | 样式表清单含 `filter-bar` / `filter-menu`；容器名守护不变 |
 | wx | `tests/source-conventions.test.ts`（若存在）或新增 | 源码无 Workbench 工具数量字面量；`whitelist.ts` 无 `workbench_wx_accounts_overview` 字面量 |
 

@@ -59,6 +59,26 @@ function axisLabel(value: number, span: number, locale: string): string {
  * @param props.trendEmpty - 无任何有效值时的空态文案。
  * @returns 绘图层元素（配合绝对定位容器）。
  */
+/** x 轴日期标签稀疏规则（B.2 ③）：≤7 全显；8–31 首、尾、中点；>31 首尾。 */
+function isLabeledIndex(count: number, index: number): boolean {
+  if (count <= 7) return true
+  if (count <= 31) return index === 0 || index === count - 1 || index === Math.floor((count - 1) / 2)
+  return index === 0 || index === count - 1
+}
+
+/** x 轴日期标签：稀疏规则外的行渲染 null（数据列热区不受影响）。 */
+function LabeledAxisText(props: { x: string; y: number; labeled: boolean; children: ReactNode }): ReactNode {
+  if (!props.labeled) return null
+  return (
+    <text
+      x={props.x} y={props.y}
+      textAnchor="middle" className={css.axisText}
+    >
+      {props.children}
+    </text>
+  )
+}
+
 export function LineTrendChart(props: {
   rows: readonly TrendRow[]
   series: readonly TrendSeries[]
@@ -178,13 +198,13 @@ export function LineTrendChart(props: {
           className={css.plotGrid}
         />
         {rows.map((row, index) => (
-          <text
+          <LabeledAxisText
             key={row.day}
             x={xAt(index).toFixed(1)} y={height - 8}
-            textAnchor="middle" className={css.axisText}
+            labeled={isLabeledIndex(rows.length, index)}
           >
             {row.day.slice(5)}
-          </text>
+          </LabeledAxisText>
         ))}
       </svg>
       {activeRow !== undefined && (

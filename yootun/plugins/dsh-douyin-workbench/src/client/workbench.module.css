@@ -1332,22 +1332,6 @@
   border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
 }
 
-/* 筛选组：可见文字标签 + 控件水平排（旧插件「账号: [▾]」形态）。 */
-.filterGroup {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.filterGroupLabel {
-  flex: none;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-  white-space: nowrap;
-}
-
 
 .barRank {
   min-width: 12px;

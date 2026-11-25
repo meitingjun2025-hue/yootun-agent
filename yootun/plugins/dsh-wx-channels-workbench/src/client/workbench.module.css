@@ -620,15 +620,6 @@
   min-width: 0;
 }
 
-.toolbar {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
 /* 数据刷新淡化：同账号 / 同窗口的后台刷新只淡化数据区，固定文字不动。
    纯透明度类、不携带布局——可与 grid 容器（如摘要卡 summaryGrid）复用。 */
 .refreshDim {
@@ -688,6 +679,92 @@
   gap: 16px;
   align-items: start;
   min-width: 0;
+}
+
+/* 账号表现表（B.4）：列宽与单元格布局；横向滚动复用 .tableWrap。 */
+.accountTable {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.accountTable th,
+.accountTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  white-space: nowrap;
+}
+
+.accountTable th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-secondary);
+  text-align: left;
+}
+
+.accountTable th.num,
+.accountTable td.num {
+  text-align: right;
+}
+
+/* 行可聚焦：键盘 Enter/Space 选中账号；选中行背景层 2（aria-current 同步）。 */
+.accountTable tbody tr {
+  cursor: pointer;
+}
+
+.accountTable tbody tr:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: -2px;
+}
+
+.rowSelected {
+  background: var(--dsw-alias-bg-layer-2);
+}
+
+/* 账号列：头像 + 昵称 + 会话状态 Tag + 暂无数据 Tag。 */
+.accountCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* 净增涨跌色（B.2）：红涨 / 绿跌，token 直取；flat 无色由默认文本承担。 */
+.deltaUp {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deltaDown {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+/* 自定义起止日期（原样迁自抖音工作台）。 */
+.customRange {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.customRangeDash {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dateInput {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.dateInput:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
 }
 
 .portraitGrid {
@@ -1058,6 +1135,23 @@
   .detailGrid {
     grid-template-columns: minmax(0, 1fr);
   }
+  .stickyFirstCols .accountTable th:nth-child(1),
+  .stickyFirstCols .accountTable td:nth-child(1),
+  .stickyFirstCols .accountTable th:nth-child(2),
+  .stickyFirstCols .accountTable td:nth-child(2) {
+    position: sticky;
+    background: var(--dsw-alias-bg-layer-1);
+  }
+
+  .stickyFirstCols .accountTable th:nth-child(1),
+  .stickyFirstCols .accountTable td:nth-child(1) {
+    left: 0;
+  }
+
+  .stickyFirstCols .accountTable th:nth-child(2),
+  .stickyFirstCols .accountTable td:nth-child(2) {
+    left: 44px;
+  }
 }
 
 @container yootun-kit-page (max-width: 639px) {
@@ -1085,6 +1179,13 @@
     align-items: stretch;
   }
 
+  .kpiGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dateInput {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
