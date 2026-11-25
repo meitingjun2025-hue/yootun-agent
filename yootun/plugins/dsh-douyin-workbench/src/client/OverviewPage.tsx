@@ -10,8 +10,8 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Menu, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartFrame, DataCard, DataState, FilterBar, type FilterChip } from '@yootun/dsh-client-ui-kit'
+import { Button, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ChartFrame, DataCard, DataState, FilterBar, FilterMenu, type FilterChip } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import {
   basisLines, fanDelta, formatCount, formatDateTime, formatPercent, hotLabelText,
@@ -198,7 +198,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
             ...scopedCatalog.map(item => ({ id: item.accountId, label: item.workCount === 0 ? `${item.nickname ?? item.accountId}${t('overview.noWorks')}` : item.nickname ?? item.accountId }))]}
           selectedId={filters.accountIds[0] ?? ''}
           onSelect={id => { props.onFiltersChange({ ...filters, accountIds: id === '' ? [] : [id] }) }}
-          t={t}
         />
         <FilterMenu
           label={t('overview.filter.window')}
@@ -212,7 +211,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
           ]}
           selectedId={filters.window}
           onSelect={id => { props.onFiltersChange({ ...filters, window: id as OverviewFilters['window'] }) }}
-          t={t}
         />
         {filters.window === 'custom' && (
           <span className={css.customRange}>
@@ -248,7 +246,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
           ]}
           selectedId={filters.sort}
           onSelect={id => { props.onFiltersChange({ ...filters, sort: id as OverviewFilters['sort'] }) }}
-          t={t}
         />
         <FilterMenu
           label={t('overview.filter.owner')}
@@ -265,7 +262,6 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
               && (id === '' || (data?.catalog ?? []).some(item => item.accountId === picked && item.ownerName?.trim() === id))
             props.onFiltersChange({ ...filters, ownerName: id, accountIds: keep ? filters.accountIds : [] })
           }}
-          t={t}
         />
         <Button variant='ghost' size='sm' icon={<ExportIcon />} disabled={exporting} aria-busy={exporting || undefined} onClick={exportOverview}>
           {exporting ? t('report.exporting') : t('overview.export')}
@@ -483,49 +479,6 @@ function BasisCell(props: { lines: string[]; fallback: string }): ReactNode {
     )
   }
   return <span className={css.basisCell}><span className={css.basisLine}>{props.fallback}</span></span>
-}
-
-/** 筛选下拉（官方 Menu 单选；当前项 check；visibleLabel 为可见文字标签）。 */
-function FilterMenu(props: {
-  label: string
-  /** 可见文字标签（对齐旧插件「账号: / 发布时间:」前置描述）。 */
-  visibleLabel?: string
-  currentLabel: string
-  items: readonly { id: string; label: string }[]
-  selectedId: string
-  disabled?: boolean
-  onSelect: (id: string) => void
-  t: Translate
-}): ReactNode {
-  const [open, setOpen] = useState(false)
-  return (
-    <span className={css.filterGroup}>
-      {props.visibleLabel !== undefined && <span className={css.filterGroupLabel}>{props.visibleLabel}</span>}
-      <Menu
-        open={open}
-        anchor={(
-          <Button
-            variant='outline'
-            size='sm'
-            disabled={props.disabled}
-            aria-haspopup='menu'
-            aria-expanded={open}
-            aria-label={props.label}
-            onClick={() => { setOpen(value => !value) }}
-          >
-            {props.currentLabel}
-          </Button>
-        )}
-        items={props.items.map(item => ({ id: item.id, label: item.label }))}
-        selectedId={props.selectedId}
-        onSelect={id => {
-          setOpen(false)
-          props.onSelect(id)
-        }}
-        onClose={() => { setOpen(false) }}
-      />
-    </span>
-  )
 }
 
 /** KPI 瓦片（插件局部；kit KpiCard 的紧凑变体不满足 6 卡行时用局部网格）。 */
