@@ -26,6 +26,29 @@
 
 前置单：[wx-report-server.md](wx-report-server.md)（工具契约与部署）、[douyin-report-remove-pdf.md](douyin-report-remove-pdf.md)（上移前先去掉 PDF）。
 
+### 0.3 动代码前先核对最新代码
+
+本单对客户端形态的描述依据的是 1126 各单的条款，不是它们合入之后的代码：0.1 的五处变化，以及 2.1 到 2.7 里对组件接口、请求注入、词典接入、样式装载、路由能力、Tab 接入点的写法，都是按条款推断的。各单在实施中可能与条款有出入，0.1 里的行数与词条数也只是 2026-11-26 当前代码的规模参考。所以本单在动代码之前必须做一次基线核对，在合入后的最新代码上开发，不在当前代码、也不在本文的推断上开发。
+
+核对步骤：
+
+1. 确认 1126 的 P0、P1 各单与 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已合入 `main`，从 `main` 切出本单的特性分支；
+2. 重新调查下表列出的文件的实际实现，逐项对照本文；
+3. 发现与本文不一致的地方，以代码为准：先修订本单（0.1 的变化表与对应的第 2 节小节），再开始开发；
+4. 把逐项结论（一致，或已修订及修订内容）记入 5.3，之后才进入附录 A1 的第一步。
+
+| 核对项 | 重新调查的文件 | 对照本文 |
+|---|---|---|
+| 页面组合层 | 抖音、视频号的 `src/client/WorkbenchPage.tsx`，以及 1126 新增的 `src/client/flows.ts` 与 machine 包（如果已建） | 0.1 第一行、2.6 |
+| 请求函数 | kit 的 `host-action.ts`，两个插件 `src/client/api.ts` 的构造方式与超时配置 | 2.2 |
+| 抖音报表页现状 | `ReportPage.tsx`、`charts.tsx`、`schema.ts`、`format.ts`、`locales.ts` 里报表相关代码的当前位置与导出名；PDF 相关代码是否已移除；`attemptId` 现在在哪里 | 2.1、附录 A2 |
+| 错误码映射 | 两个插件里错误码映射表的位置、类型写法与当前覆盖的码 | 2.3、附录 A3 |
+| 样式装载 | 两个插件的样式装载声明、`verify-bundle-stylesheets.mjs` 与源码层守护用例的现有清单 | 2.4 |
+| 可达性基线 | kit 里带原因的按钮与行手势守卫的实际导出名；报表页现有的置灰按钮与 `title` 用法 | 0.1 最后一行 |
+| 视频号路由 | `src/route.ts` 的 schema 类型与校验函数：action 清单的当前项数，是否已经有必填、日期、幂等键能力 | 2.5 |
+| 视频号稳定码 | `src/errors.ts` 两个白名单的当前内容 | 2.5、附录 A3 |
+| Agent 面策略表 | `dsh-managed-mcp/src/guard.ts` 三张表的当前内容与对应测试 | 2.7 |
+
 ## 1. 范围
 
 做：
@@ -171,6 +194,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | 文档（本文、1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及，契约已在 [wx-report-server.md](wx-report-server.md) 落地 |
 | docker-helm 部署测试环境 | — | — | 不涉及；前置是 [wx-report-server.md](wx-report-server.md) 已部署 |
+| 动代码前基线核对 | | `main` | 前置：1126 各单与 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已合入；按 0.3 核对，结论记入 5.3 |
 | yootun-agent 合入 `main` | | `feat/wx-report-client` | 前置：1126 各单与 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已合入 |
 | 发版 | | | 待填 |
 
@@ -178,6 +202,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
+- [ ] 0.3 的基线核对已完成，逐项结论记入 5.3；
 - [ ] `pnpm --filter @yootun/dsh-client-report test`、`build` 通过；
 - [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build`；`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；抖音既有 client 用例只改了 import 路径；
 - [ ] `pnpm --filter @yootun/dsh-managed-mcp test`、`build` 通过；
@@ -201,7 +226,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：样式安装元数据的核对结果、错误码穷尽检查的验证记录）。
+待填。先回填 0.3 基线核对的逐项结论（动代码前），再回填合入前的样式安装元数据核对结果与错误码穷尽检查的验证记录。
 
 ## 附录 A：逐文件要点
 
