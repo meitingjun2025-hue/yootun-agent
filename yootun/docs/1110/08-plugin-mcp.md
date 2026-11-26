@@ -285,6 +285,8 @@ client 半（`exports["./client"]`）在 `shell.overlay` 注册「上传请求�
 workbench_tos_upload_authorize
 ```
 
+会话保留（2026-11-27 起，[upload-experience-fixes.md](../1126/features/upload-experience-fixes.md) 2.1）：`done`/`failed` 终态保留 10 分钟（原 `done` 60 秒），`awaiting` 与孤儿（未绑定字节的旧会话，30 分钟）不变。暂存目录名带进程号（`yootun-media-<pid>-<随机>`）；启动时清理异常退出遗留的目录——带 pid 段且进程已不存在的删除、进程仍在的保留，旧命名（无 pid 段）修改时间超过 24 小时的删除、之内的保留，只处理系统临时目录下 `yootun-media-` 前缀目录，尽力而为不阻断启动。
+
 安全不变：
 
 - 用户通过原生文件选择器亲自选文件；

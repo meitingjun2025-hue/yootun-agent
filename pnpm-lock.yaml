@@ -21095,6 +21095,9 @@ importers:
       '@testing-library/react':
         specifier: ^16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@yootun/dsh-client-ui-kit':
+        specifier: workspace:*
+        version: link:../../packages/dsh-client-ui-kit
       '@yootun/dsh-workbench-host-kit':
         specifier: workspace:*
         version: link:../../packages/dsh-workbench-host-kit

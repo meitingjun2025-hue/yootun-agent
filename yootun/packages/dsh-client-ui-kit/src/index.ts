@@ -36,3 +36,4 @@ export {
   type ComposerKeyAction,
 } from './composer-logic.ts'
 export { HostActionError, createHostAction, type HostActionOptions, type HostResponse } from './host-action.ts'
+export { createUploadTransport, type UploadTransportPaths, type UploadSessionInfo, type UploadStatusSnapshot } from './upload-transport.ts'

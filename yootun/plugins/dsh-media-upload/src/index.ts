@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-tools'
-import { StagingArea } from './staging.ts'
+import { StagingArea, sweepStaleStagingDirs } from './staging.ts'
 import { UploadSessionRegistry } from './sessions.ts'
 import { uploaderRoutes } from './routes.ts'
 import { registerMediaUploadTool } from './tool.ts'
@@ -32,7 +32,7 @@ export {
   type UploadSessionContext,
   type PendingToolSession,
 } from './sessions.ts'
-export { StagingArea, type StagedFile } from './staging.ts'
+export { StagingArea, sweepStaleStagingDirs, type StagedFile, type SweepStaleStagingOptions, type SweepStaleStagingResult } from './staging.ts'
 export { uploaderRoutes, type UploadRoute, type UploadRouteHandler } from './routes.ts'
 export type { UploaderDeps } from './deps.ts'
 
@@ -111,13 +111,17 @@ export function apply(ctx: Context, config: Config): void {
     { warn: (message: string) => { ctx.logger.warn(message) } },
   )
   applyUploaderWiring(ctx, deps, config.toolTimeoutMs)
+  // 启动清理：异常退出遗留的暂存目录（2.3，尽力而为不阻断路由注册）；
+  // 清理 promise 由卸载路径等待结束。
+  const stagingSweep = sweepStaleStagingDirs({ warn: (message: string) => { ctx.logger.warn(message) } })
   // 卸载：await registry.destroy（abort 全部会话并等在途管线 settle、
   // 暂存文件落盘删除完成），再 await staging.destroy 删除目录——返回
   // Promise 让 fiber 卸载 await 它（异步 cleanup 等待语义），rm -rf 不与
-  // 在途 discard 竞态。
+  // 在途 discard 竞态；卸载同时等待启动清理结束。
   ctx.effect(() => async () => {
     await registry.destroy()
     await staging.destroy()
+    await stagingSweep.catch(() => undefined)
   }, 'yootun-media-upload: disposal')
 }
 

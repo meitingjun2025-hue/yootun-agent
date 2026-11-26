@@ -1,6 +1,6 @@
 # media-upload-上传体验与边界修复 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [media-upload-tool-handoff.md](media-upload-tool-handoff.md) 已合入（media-upload 已有 client 半）。
 
@@ -126,7 +126,7 @@ MCP 工具：无。
 | 文档（本文 + 08 册 §6 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/upload-experience-fixes` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/upload-experience-fixes`（基于 `feat/mount-restore-login-alignment`） | media-upload / client-ui-kit / xhs 三包 test 与 build、`lint`、`typecheck`、verify 脚本、`test:docs` 全过；附录 B D1/D2、E1/E2、T1–T5、F1–F5、K1 全部落地 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -152,7 +152,19 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填）。
+与实施单的出入及处理（单上文字随实现修订）：
+
+- 2.4 的地址块判定按协议族分表：node BlockList 混入 IPv4 与 IPv6 子网时，IPv4 查询会被归一进 `::ffff:0:0/96`（该段覆盖全部映射 IPv4），公网 IPv4（如 8.8.8.8）会被误拒（F2 用例实证）；实现为 `BLOCKED_V4` / `BLOCKED_V6` 两张表，按主机名是否含 `:` 走对应表（mapped 主机名含 `:`，`::ffff:0:0/96` 整段拒绝语义不变）；
+- 2.5 kit `sendBytes` 返回 `{ ok, error? }` 超集而非布尔：media-upload 承接卡片需要从 uploadStart 拒绝响应提取稳定错误码（`reason.uploader_not_configured` 文案的来源）；小红书 `api.ts` 以布尔包装保持调用方签名不变（A5 原文「返回值与小红书现有函数一致」按此修订）；
+- T1 用例以 pngBytes + image/png 驱动 stage（'abc' 字面量不满足 MIME 魔数与 text/plain 的校验面）；T2 的 kept 计数不含非 `yootun-media-` 前缀目录（前缀外的条目不进 sweep 循环）。
+
+改动过的既有用例（单上写明的行为变化所致）：mapServerErrorCode 旧映射断言（UNAUTHORIZED → uploader_not_configured，嵌套与顶层两种形态 + 集成用例的 snapshot.error）。
+
+验收轮 1（独立子代理）发现并已处理：D1/D2 去掉显式 `doneTtlMs`（原写法掩盖缺省常量回退——改回 60s 时全套测试仍绿），断言作用于缺省值；T5 按矩阵原文补「逐项删除失败」路径（r-x 目录 chmod 触发 EACCES，每项告警、继续处理、失败项计 kept），替换原 tmpDir 读失败形态（实现行为正确，原用例未覆盖矩阵原文且未按惯例声明，已补记）；media-upload client `upload-api.ts` 三条路由路径改从 `constants.ts` 导入（原字面量与既有常量并存会静默漂移）；sessions.ts JSDoc 出处由 mount-restore 2.1 改正为本单 2.1。记录项：kit `pollStatus` 投影比小红书原实现多 `error` 字段（media-upload 卡片确需；xhs `upload-machine` 不读该字段，惰性兼容）；xhs `sendUploadBytes` 布尔包装行无直测（kit 契约由 K1 护住）。
+
+未核对项：真机验收 E1–E6。
+
+未核对项：真机验收 E1–E6。
 
 ## 附录 A：逐文件规格
 

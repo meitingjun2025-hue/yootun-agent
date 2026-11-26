@@ -9,6 +9,7 @@
 // 从 kit 叶子模块源码路径导入（非桶）：本文件同时被 xhs Host 侧图（accounts-machine）
 // 引用，桶导出会把组件与其样式表拖进宿主 bundle。
 import { createHostAction, type HostResponse } from '@yootun/dsh-client-ui-kit/src/host-action.ts'
+import { createUploadTransport } from '@yootun/dsh-client-ui-kit/src/upload-transport.ts'
 import type { UploadStatusSnapshot } from '../upload-machine.ts'
 
 export const HOST_PATH = '/api/desktop/yootun/xhs-workbench'
@@ -33,23 +34,8 @@ const SYNC_PROBE_ACTION_TIMEOUTS_MS: Readonly<Record<string, number>> = Object.f
 /** 绑定到本工作台同源路由的 Host action 调用器（kit 统一实现）。 */
 export const hostAction = createHostAction(HOST_PATH, { actionTimeouts: SYNC_PROBE_ACTION_TIMEOUTS_MS })
 
-/** uploadStart 头（media-upload routes.ts 契约）。 */
-const UPLOAD_ID_HEADER = 'x-yootun-upload-id'
-const FILENAME_HEADER = 'x-yootun-filename'
-const CONTENT_TYPE_HEADER = 'x-yootun-content-type'
-const SIZE_HEADER = 'x-yootun-size'
-
-/** uploadFetch：非 2xx/解析失败返回 null（machine 归一为稳定失败）。 */
-async function uploadFetch(path: string, init: RequestInit): Promise<Record<string, unknown> | null> {
-  try {
-    const response = await fetch(path, { credentials: 'same-origin', redirect: 'error', ...init })
-    if (!response.ok) return null
-    const payload: unknown = await response.json()
-    return payload !== null && typeof payload === 'object' ? payload as Record<string, unknown> : null
-  } catch {
-    return null
-  }
-}
+// 上传传输统一走 kit（2.5：小红书与承接卡片唯一实现）；路由路径注入。
+const transport = createUploadTransport({ pick: UPLOAD_PICK_PATH, start: UPLOAD_START_PATH, status: UPLOAD_STATUS_PATH })
 
 /**
  * pick-file：创建上传会话（uploadId/accept/maxBytes）。
@@ -57,40 +43,18 @@ async function uploadFetch(path: string, init: RequestInit): Promise<Record<stri
  * @returns the session info, or null on any failure (machine 归一).
  */
 export async function startUploadSession(kind: 'image' | 'video'): Promise<{ uploadId: string; accept: string[]; maxBytes: number } | null> {
-  const payload = await uploadFetch(UPLOAD_PICK_PATH, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind }),
-  })
-  if (payload === null || typeof payload.uploadId !== 'string' || payload.uploadId === '') return null
-  const maxBytes = Number(payload.maxBytes)
-  return {
-    uploadId: payload.uploadId,
-    accept: Array.isArray(payload.accept) ? payload.accept.map(String) : [],
-    maxBytes: Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : Number.POSITIVE_INFINITY,
-  }
+  return transport.startSession(kind)
 }
 
 /**
- * uploadStart：把浏览器 File 的字节流推给宿主暂存（头携带元信息，本地路径不存在）。
+ * uploadStart：把浏览器 File 的字节流推给宿主暂存（kit sendBytes 的布尔包装，
+ * 调用方签名不变；稳定错误码由承接卡片路径经 `{ ok, error }` 超集获取）。
  * @param input - 会话 uploadId 与调用方持有的 File。
  * @returns true when accepted.
  */
 export async function sendUploadBytes(input: { uploadId: string; file: unknown }): Promise<boolean> {
-  if (!(typeof File === 'function' && input.file instanceof File)) return false
-  const response = await fetch(UPLOAD_START_PATH, {
-    method: 'POST',
-    credentials: 'same-origin',
-    redirect: 'error',
-    headers: {
-      [UPLOAD_ID_HEADER]: input.uploadId,
-      [FILENAME_HEADER]: input.file.name,
-      [CONTENT_TYPE_HEADER]: input.file.type || 'application/octet-stream',
-      [SIZE_HEADER]: String(input.file.size),
-    },
-    body: input.file,
-  })
-  return response.ok
+  const result = await transport.sendBytes(input)
+  return result.ok
 }
 
 /**
@@ -99,20 +63,5 @@ export async function sendUploadBytes(input: { uploadId: string; file: unknown }
  * @returns the snapshot, or null on transport/HTTP failure (machine 计暂态失败).
  */
 export async function pollUploadStatus(uploadId: string): Promise<UploadStatusSnapshot | null> {
-  const payload = await uploadFetch(UPLOAD_STATUS_PATH, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ uploadId }),
-  })
-  if (payload === null) return null
-  const status = payload.status
-  if (status !== 'waiting' && status !== 'uploading' && status !== 'done' && status !== 'failed' && status !== 'not_found') return null
-  return {
-    status,
-    ...(Number.isFinite(Number(payload.progress)) ? { progress: Number(payload.progress) } : {}),
-    ...(Number.isFinite(Number(payload.bytesSent)) ? { bytesSent: Number(payload.bytesSent) } : {}),
-    ...(Number.isFinite(Number(payload.bytesTotal)) ? { bytesTotal: Number(payload.bytesTotal) } : {}),
-    ...(Number.isFinite(Number(payload.attempt)) ? { attempt: Number(payload.attempt) } : {}),
-    ...(typeof payload.url === 'string' ? { url: payload.url } : {}),
-  }
+  return transport.pollStatus(uploadId)
 }

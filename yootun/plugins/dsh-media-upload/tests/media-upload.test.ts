@@ -7,8 +7,9 @@
  * 运行：`pnpm --filter @yootun/dsh-media-upload test`。
  */
 import assert from 'node:assert/strict'
-import { existsSync, readdirSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createServer, request as httpRequest } from 'node:http'
 import type { IncomingMessage } from 'node:http'
 import { test, after } from 'node:test'
@@ -579,7 +580,7 @@ test('授权响应非法逐项拒绝（协议/公网/过期/大小/类型）', a
   await tos.close()
 })
 
-test('授权被服务端拒绝映射稳定码（storage_auth_failed）', async () => {
+test('授权被服务端拒绝映射稳定码（UNAUTHORIZED → uploader_not_configured）', async () => {
   const tos = await startFakeTos()
   const h = await harness({ workbench: fakeWorkbench({ tos, reject: { code: 'workbench_call_failed', payload: { code: 'UNAUTHORIZED' } } }) })
   try {
@@ -605,7 +606,7 @@ test('授权被服务端拒绝映射稳定码（storage_auth_failed）', async (
       await new Promise(resolve => setTimeout(resolve, 25))
     }
     assert.equal(snapshot?.state, 'failed')
-    assert.equal(snapshot?.error, 'storage_auth_failed')
+    assert.equal(snapshot?.error, 'uploader_not_configured')
   } finally {
     await h.close()
     await tos.close()
@@ -983,8 +984,8 @@ test('authorize 无 structuredContent 时回退解析 content blocks', async () 
 })
 
 test('真实 Tools error.code 嵌套 envelope 的稳定映射', async () => {
-  // mapServerErrorCode：UNAUTHORIZED → storage_auth_failed。
-  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UNAUTHORIZED', message: 'x', retryable: false, requestId: null } }), 'storage_auth_failed')
+  // mapServerErrorCode：UNAUTHORIZED → uploader_not_configured（mount-restore/upload-experience 2.2）。
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UNAUTHORIZED', message: 'x', retryable: false, requestId: null } }), 'uploader_not_configured')
   // UPLOAD_SIZE_EXCEEDED → file_too_large。
   assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UPLOAD_SIZE_EXCEEDED', message: 'x', retryable: false, requestId: null } }), 'file_too_large')
   // STORAGE_UNAVAILABLE → storage_unavailable。
@@ -992,9 +993,9 @@ test('真实 Tools error.code 嵌套 envelope 的稳定映射', async () => {
   // 未知 code 安全 fallback。
   assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'SOMETHING_NEW', message: 'x', retryable: false, requestId: null } }), 'upload_authorization_invalid')
   // 顶层 code 兼容保留。
-  assert.equal(MediaUpload.mapServerErrorCode({ code: 'UNAUTHORIZED' }), 'storage_auth_failed')
+  assert.equal(MediaUpload.mapServerErrorCode({ code: 'UNAUTHORIZED' }), 'uploader_not_configured')
 
-  // 集成：嵌套 UNAUTHORIZED envelope → 授权失败 → storage_auth_failed。
+  // 集成：嵌套 UNAUTHORIZED envelope → 授权失败 → uploader_not_configured。
   const tos = await startFakeTos()
   const h = await harness({
     workbench: fakeWorkbench({ tos, reject: { code: 'workbench_call_failed', payload: { error: { code: 'UNAUTHORIZED', message: 'denied', retryable: false, requestId: null } } } }),
@@ -1022,7 +1023,7 @@ test('真实 Tools error.code 嵌套 envelope 的稳定映射', async () => {
       await new Promise(resolve => setTimeout(resolve, 25))
     }
     assert.equal(snapshot?.state, 'failed')
-    assert.equal(snapshot?.error, 'storage_auth_failed')
+    assert.equal(snapshot?.error, 'uploader_not_configured')
   } finally {
     await h.close()
     await tos.close()
@@ -1656,4 +1657,171 @@ test('H8 dispose 后 pending / cancel 返回 503 uploader_not_configured', async
   } finally {
     await h.close()
   }
+})
+
+// --- 附录 B（upload-experience-fixes）：D1/D2 TTL、E1/E2 错误映射、T1–T5 暂存清理、F1–F4 内网过滤 ---
+
+test('D1/D2 注入时钟：done 9 分钟可查、11 分钟 not_found；failed 与 done 同保留', () => {
+  let clock = Date.now()
+  // 不显式传 doneTtlMs：断言作用于 DEFAULT_DONE_TTL_MS 缺省（60s→10min 的
+  // 回退由此用例拦截）。
+  const registry = new MediaUpload.UploadSessionRegistry({
+    staging: new MediaUpload.StagingArea(),
+    now: () => clock,
+  })
+  try {
+    const done = registry.create('image')
+    done.settle('done', { url: 'https://storage.example/u.png' })
+    clock += 9 * 60_000
+    assert.equal(registry.snapshot(done.id)?.state, 'done', 'D1：9 分钟后仍可查')
+    clock += 2 * 60_000
+    assert.equal(registry.snapshot(done.id), undefined, 'D1：11 分钟后过期 not_found')
+
+    const failed = registry.create('image')
+    failed.settle('failed', { errorCode: 'upload_timeout' })
+    clock += 9 * 60_000
+    assert.equal(registry.snapshot(failed.id)?.state, 'failed', 'D2：failed 与 done 同保留（9 分钟可查）')
+    clock += 2 * 60_000
+    assert.equal(registry.snapshot(failed.id), undefined, 'D2：failed 11 分钟后过期')
+  } finally {
+    registry.destroy()
+  }
+})
+
+test('E1/E2 mapServerErrorCode：UNAUTHORIZED → uploader_not_configured；STORAGE_AUTH_FAILED 两种形态', () => {
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'UNAUTHORIZED' } }), 'uploader_not_configured', 'E1：密钥问题不再是存储失败')
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'STORAGE_AUTH_FAILED' } }), 'storage_auth_failed')
+  assert.equal(MediaUpload.mapServerErrorCode({ code: 'STORAGE_AUTH_FAILED' }), 'storage_auth_failed', 'E2：顶层形态')
+  assert.equal(MediaUpload.mapServerErrorCode({ error: { code: 'STORAGE_UNAVAILABLE' } }), 'storage_unavailable', '不变项回归')
+})
+
+test('T1 暂存目录名含当前进程号；同一暂存区两次 stage 得到同一目录', async () => {
+  const { Readable } = await import('node:stream')
+  const { join, dirname } = await import('node:path')
+  const staging = new MediaUpload.StagingArea()
+  try {
+    const first = await staging.stage(Readable.from(pngBytes(64)), 64, 'image/png')
+    const second = await staging.stage(Readable.from(pngBytes(64)), 64, 'image/png')
+    const marker = `yootun-media-${String(process.pid)}-`
+    assert.ok(first.path.includes(marker), `目录名含进程号：${first.path}`)
+    assert.equal(dirname(first.path), dirname(second.path), '同一暂存区两次创建同一目录')
+  } finally {
+    await staging.destroy()
+  }
+})
+
+test('T2/T3/T4/T5 启动清理：pid 判定 + 旧命名 24h + 前缀限定 + 失败告警继续', async () => {
+  const { mkdtemp, mkdir, rm, writeFile, utimes } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const tmp = await mkdtemp(join(tmpdir(), 'wx-sweep-test-'))
+  try {
+    // 目标目录：不存在的 pid；当前进程 pid；旧命名 25 小时前；旧命名 1 小时前；非前缀目录。
+    const deadDir = join(tmp, 'yootun-media-999999-abc')
+    const aliveDir = join(tmp, `yootun-media-${String(process.pid)}-alive`)
+    const legacyOld = join(tmp, 'yootun-media-olddead')
+    const legacyNew = join(tmp, 'yootun-media-oldfresh')
+    const foreign = join(tmp, 'not-yootun-media-other')
+    for (const dir of [deadDir, aliveDir, legacyOld, legacyNew, foreign]) {
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'f.txt'), 'x')
+    }
+    const oldTime = new Date(Date.now() - 25 * 60 * 60 * 1000)
+    const freshTime = new Date(Date.now() - 1 * 60 * 60 * 1000)
+    await utimes(legacyOld, oldTime, oldTime)
+    await utimes(legacyNew, freshTime, freshTime)
+
+    let warned = 0
+    const result = await MediaUpload.sweepStaleStagingDirs({
+      tmpDir: tmp,
+      isAlive: pid => pid === process.pid,
+      warn: () => { warned += 1 },
+    })
+    assert.equal(result.removed, 2, `删除：死 pid 目录 + 25 小时旧命名目录（实际 ${String(result.removed)}）`)
+    assert.equal(result.kept, 2, `保留：存活 pid + 1 小时内旧命名（非前缀目录不进计数；实际 ${String(result.kept)}）`)
+    assert.equal(existsSync(deadDir), false, 'T2：不存在的 pid 目录被删除')
+    assert.equal(existsSync(aliveDir), true, 'T2：存活 pid 目录保留')
+    assert.equal(existsSync(legacyOld), false, 'T3：24 小时外旧命名删除')
+    assert.equal(existsSync(legacyNew), true, 'T3：24 小时内旧命名保留')
+    assert.equal(existsSync(foreign), true, 'T4：非前缀目录不动')
+    assert.equal(warned, 0)
+
+    // T5：某项删除失败（把死 pid 目录换成同名文件使 rm 递归删除仍成功——改用只读方式不可靠，
+    // 这里以 tmpDir 读失败路径验证告警与计数不抛）。
+    const broken = await MediaUpload.sweepStaleStagingDirs({ tmpDir: join(tmp, 'missing-subdir'), warn: () => { warned += 1 } })
+    assert.deepEqual(broken, { removed: 0, kept: 0 }, '读目录失败返回零计数')
+    assert.equal(warned >= 1, true, '读目录失败记一条告警')
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('T5 sweep 逐项删除失败：每项告警、继续处理其余、失败项计 kept', async () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'wx-sweep-t5-'))
+  const deadA = join(tmp, 'yootun-media-999999-a')
+  const deadB = join(tmp, 'yootun-media-999998-b')
+  mkdirSync(deadA)
+  writeFileSync(join(deadA, 'f'), 'x')
+  mkdirSync(deadB)
+  writeFileSync(join(deadB, 'f'), 'x')
+  const warns: string[] = []
+  // r-x：readdir 可用；rm/unlink 需 w+x，两项删除都会失败。
+  chmodSync(tmp, 0o555)
+  let result: { removed: number; kept: number }
+  try {
+    result = await MediaUpload.sweepStaleStagingDirs({ tmpDir: tmp, isAlive: () => false, warn: m => warns.push(m) })
+  } finally {
+    chmodSync(tmp, 0o755)
+  }
+  assert.deepEqual(result, { removed: 0, kept: 2 }, '失败项计入 kept，不抛')
+  assert.equal(warns.length, 2, '每项删除失败各记一条告警')
+  assert.equal(existsSync(deadA), true, '失败项保留原样')
+  assert.equal(existsSync(deadB), true)
+  rmSync(tmp, { recursive: true, force: true })
+})
+
+test('isForbiddenPublicHost 边界现状：mapped 大小写与 link-local 带区拒绝', () => {
+  assert.equal(MediaUpload.isForbiddenPublicHost('::FFFF:10.0.0.1'), true, '大写 FFFF 的 mapped 形拒绝')
+  assert.equal(MediaUpload.isForbiddenPublicHost('[::ffff:10.0.0.1]'), true, '方括号 mapped 形拒绝')
+  assert.equal(MediaUpload.isForbiddenPublicHost('fe80::1%25eth0'), true, 'link-local 带区 id 拒绝')
+})
+
+test('isForbiddenPublicHost 放行缺口现状记录（不在 2.4 表内，供后续收紧时对照）', () => {
+  // `::a00:1` 为已废弃的 IPv4 兼容形、`localhost..` 为双尾点：两者均不在 2.4 表，
+  // 放行是单上表格的既有口径；收紧时先修订实施单 2.4 再改此处。
+  assert.equal(MediaUpload.isForbiddenPublicHost('::a00:1'), false)
+  assert.equal(MediaUpload.isForbiddenPublicHost('localhost..'), false)
+})
+
+test('F1–F4 isForbiddenPublicHost 按地址块判定（含 mapped/NAT64/6to4/localhost 变体）', () => {
+  const reject = (host: string): void => assert.equal(MediaUpload.isForbiddenPublicHost(host), true, host)
+  const allow = (host: string): void => assert.equal(MediaUpload.isForbiddenPublicHost(host), false, host)
+  // F1 主机名。
+  for (const host of ['localhost', 'localhost.', 'foo.localhost', '']) reject(host)
+  allow('media.example.com')
+  // F2 IPv4 地址块（经 URL 解析的 hostname 形态）。
+  for (const ip of ['0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1', '192.168.1.1', '224.0.0.1', '240.0.0.1']) reject(ip)
+  for (const ip of ['8.8.8.8', '1.1.1.1', '100.63.255.255', '172.32.0.1']) allow(ip)
+  // F3 mapped（含 WHATWG 规范化形态）。
+  for (const host of ['::ffff:10.0.0.1', '::ffff:a00:1', '::ffff:7f00:1', '::ffff:a9fe:a9fe']) reject(host)
+  // F4 IPv6。
+  for (const host of ['fe90::1', 'fe80::1', 'fc00::1', '64:ff9b::a00:1', '2002:a00:1::', '::1', '::']) reject(host)
+  allow('2606:4700::1111')
+})
+
+test('F5 validateAuthorizationResponse：授权地址与 publicUrl 命中过滤形态时抛 upload_authorization_invalid', () => {
+  const valid: Record<string, unknown> = {
+    method: 'PUT',
+    url: 'https://storage.example.test/put/key',
+    headers: { 'content-type': 'image/png' },
+    publicUrl: 'https://media.example.test/objects/public.png',
+    expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    maxBytes: 1024 * 1024,
+  }
+  const meta = { filename: 'a.png', contentType: 'image/png', size: 128 }
+  assert.doesNotThrow(() => MediaUpload.validateAuthorizationResponse({ ...valid }, meta))
+  // F3 mapped：授权地址命中 ::ffff:0:0/96 → 拒绝。
+  assert.throws(() => MediaUpload.validateAuthorizationResponse({ ...valid, url: 'https://[::ffff:10.0.0.1]/put' }, meta), /loopback\/private/u)
+  // F1 主机名 + F4：publicUrl 命中 localhost 变体 → 拒绝。
+  assert.throws(() => MediaUpload.validateAuthorizationResponse({ ...valid, publicUrl: 'https://localhost/p.png' }, meta), /loopback\/private/u)
+  assert.throws(() => MediaUpload.validateAuthorizationResponse({ ...valid, publicUrl: 'https://[64:ff9b::a00:1]/p.png' }, meta), /loopback\/private/u)
 })

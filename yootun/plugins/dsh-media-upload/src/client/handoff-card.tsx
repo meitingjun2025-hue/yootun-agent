@@ -72,6 +72,8 @@ function reasonKey(code: string | undefined): HandoffLocaleKey {
   if (code === 'file_too_large') return 'handoff.reason.file_too_large'
   if (code === 'extension_not_allowed') return 'handoff.reason.extension_not_allowed'
   if (code === 'upload_timeout') return 'handoff.reason.upload_timeout'
+  if (code === 'uploader_not_configured') return 'reason.uploader_not_configured'
+  if (code === 'storage_auth_failed') return 'reason.storage_auth_failed'
   return 'handoff.reason.default'
 }
 
