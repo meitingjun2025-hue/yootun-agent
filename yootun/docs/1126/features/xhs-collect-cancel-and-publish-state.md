@@ -1,6 +1,6 @@
 # xhs-workbench-采集取消与发布窗口状态 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -89,7 +89,7 @@ MCP 工具：无。
 | 文档（本文 + 12 册 §4 + 09 册 §5.3 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/xhs-collect-cancel-and-publish-state` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/xhs-collect-cancel-and-publish-state`（基于 `feat/host-lifecycle-budget`） | 包内 `test`（node --test 七文件 121 用例、vitest 33 用例）、`build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -113,14 +113,17 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（含与生命周期单的冲突预演）。
+- 开发完成：2026-11-26，分支 `feat/xhs-collect-cancel-and-publish-state`（自生命周期单分支切出，两单改动点不重叠，无文本冲突）。
+- 与 [host-lifecycle-budget.md](host-lifecycle-budget.md) 的叠加：本单在其之后实施，`collect.start` 的取消判定加在该单建立的 `deps.taskRegistry.track(...)` 登记与 `launchTimeoutMs` / `browserCloseTimeoutMs` / `trackCleanup` 透传之后（`then`/`catch`/`finally` 链原样保留）；登记与预算透传未动。
+- 行为叠加说明：dispose 与 `collect.cancel` 共用同一取消判定口径（`controller.signal.aborted === true` → `cancelled / collect_cancelled`），dispose 中途 abort 的采集 run 由旧 `failed(collect_aborted)` 变为 `cancelled(collect_cancelled)`，`tests/dispose.test.ts` 对应用例已随行为更新。
+- 自动验收（2026-11-26）：`pnpm --filter @yootun/dsh-xhs-workbench test` 通过（node --test 七个文件 45/13/22/3/7/16/15 全绿 + vitest 4 文件 33 用例）、`build` 通过；仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs`、`git diff --check` 全部通过。附录 B 用例对照：XH1→host.test.ts「action allowlist：白名单 30 项…（XH1）」；XH2→host.test.ts「collect.cancel：运行中取消落 cancelled/collect_cancelled…（XH2）」与「collect.cancel：取消时不写本次快照…（XH2）」；XH3→host.test.ts「collect.cancel：终态后取消不改写…（XH3）」；XH4→host.test.ts「collect.start：会话失效收敛 SESSION_EXPIRED…（XH4…）」；XH5→host.test.ts「accounts.list：running 发布 run 投影 publishWindowOpen…（XH5）」；XC1→xhs-accounts.test.tsx「采集运行中按钮变「取消采集」…（XC1）」与「采集自然结束后按钮回「采集」…（XC1/X2）」；XC2→xhs-accounts.test.tsx「publishWindowOpen 账号卡显示…（XC2）」；XC3→xhs-page.test.tsx「en 与 zh 键集完全一致」+ xhs-bundle.test.ts「REASON_KEYS 覆盖 Host STABLE_ERROR_CODES 全集」。
 
 ## 附录 A：逐文件规格
 
 ### A1 `src/handlers.ts`
 
 - `CollectRun.status: 'running' | 'completed' | 'failed' | 'cancelled'`；
-- `collect.start` 的 `.catch`：`controller.signal.aborted === true` → `run.status = 'cancelled'`、`run.error = 'collect_cancelled'`；其余分支不变；`.finally` 不变（释放锁、清理 signal）；
+- `collect.start` 的 `.catch`：`controller.signal.aborted === true` → `run.status = 'cancelled'`、`run.error = 'collect_cancelled'`；其余分支不变；`.finally` 不变（释放锁、清理 signal）；成功分支同样先判 abort（快照检查点之后的极小窗口内取消时投影保持 `cancelled`）；插件卸载时的 abort 采集 run 随之落 `cancelled / collect_cancelled`（原为 `failed / collect_aborted`，与抖音、视频号同口径）；`collectNotes` 在快照落盘前增加一处 abort 复查点；
 - 新增 `'collect.cancel'`：按 `collectId` 取 run；不存在 → `{ status: 'error', reason: 'collect_id_required' }`；`running` → `controller.abort()`，返回 `{ status: 'ready', collect: projectCollect(run) }`（投影时 `collectStatus` 已是 `cancelled`，abort 后的 catch 同步执行前可能仍为 `running`：handler 在 abort 后直接置 `cancelled` / `collect_cancelled`，catch 分支对已是 `cancelled` 的记录不再改写）；终态 → 原样返回；
 - `accounts.list`：`const openAccounts = new Set([...deps.publishRuns.values()].filter(run => run.status === 'running').map(run => run.accountId))`；每条账号 `publishWindowOpen: openAccounts.has(record.accountId)`。
 
@@ -134,7 +137,7 @@ MCP 工具：无。
 - 端口 `cancelCollect: (collectId) => hostAction('collect.cancel', { collectId })`；
 - `collectStatus === 'cancelled'` 为终态：停止轮询、toast `collect.cancelled`、刷新账号摘要（快照未变）；
 - 账号卡：`publishWindowOpen === true` 时在会话徽标旁显示 `StateDot state="warning"` + `account.publishWindowOpen`，`title` 走词典 `account.publishWindowHint`（本单先用 `title`，统一改 Tooltip 见 P1 可达性单）；
-- 采集按钮：运行中显示「取消采集」。
+- 采集按钮：运行中显示「取消采集」；原先显示在按钮上的页数与笔记进度改在工具栏内与按钮并排显示。
 
 ## 附录 B：测试矩阵
 
