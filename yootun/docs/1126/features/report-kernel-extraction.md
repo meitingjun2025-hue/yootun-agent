@@ -1,6 +1,6 @@
 # infra-report-服务端报表通用内核抽取 实施单
 
-状态：实施中（2026-11-26 开始，特性分支 `feat/report-kernel-extraction`） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（自动验收通过），待合入 `dev`；真机验收待执行 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -61,10 +61,17 @@ MCP 工具：无。
 | `prompt_rel_path` | 提示词文件相对路径 | `config/modules/douyin_operation_report_prompt.md` |
 | `config` | 配置对象，字段见 2.3 | `report_config()` |
 | `effective_accounts` | 账号范围 | 现有同名函数 |
-| `signals` | 四信号计数 | 现有 `insufficient_signals` |
+| `signals` | 四信号计数；内核当前的数据不足判定读取 `coverage` 返回值里的 `signals`，避免同一周期重复计数查询，本字段保留为接口的固定组成 | 现有 `insufficient_signals` |
 | `coverage` | 覆盖摘要 | 现有 `build_coverage` |
 | `build_data` | 组装 `result_json.data` | 现有 `build_report_data` |
 | `build_ai_input` | 组装模型输入 | 现有同名函数 |
+| `models_client` | 模型网关客户端工厂，测试可替换的接缝 | 抖音侧现有的同名接缝函数 |
+| `api_key_available` | worker 进程是否配置了模型调用密钥 | 读部署配置的密钥可用性判定 |
+| `schedule_entries` | 各报表类型的调度时刻守卫与周期函数；调度时刻是平台私有配置，不在 2.3 的内核配置字段里 | 日报、周报两条 |
+| `placeholder_input_hash` | 建行时的输入占位哈希（2.4） | 64 个 0，与抽取前相同 |
+| `prompt_error_subject` | 提示词加载失败时错误消息里对本平台报表的称呼；内核不写死平台名 | `douyin operation report`，两条消息与抽取前逐字相同 |
+
+实施后比本表最初列出的字段多出五项（2026-11-26 回填）。前四项是实施所需：`models_client` 与 `api_key_available` 不从平台注入，内核就得 import 抖音的模型接缝与密钥判定；`schedule_entries` 把调度时刻与周期函数留在平台；`placeholder_input_hash` 是 2.4 的要求。第五项 `prompt_error_subject` 是验收时补的：内核里两条提示词加载的错误消息原先写死了抖音名，视频号接入后会报成「抖音报表提示词缺失」。
 
 ### 2.3 配置对象
 
@@ -113,7 +120,8 @@ MCP 工具：无。
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文、1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
+| 文档（本文、1126 索引） | 2026-11-26 | `main` | 已确认 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/report-kernel-extraction` | 5.1 通过，`make lint` 的情况见该项；已本地提交，未合入 `dev`、未推送 |
 | tools 合入 `dev` | | `feat/report-kernel-extraction` | 待填 |
 | docker-helm 部署测试环境 | — | — | 本单无部署变化；随 [wx-report-server.md](wx-report-server.md) 一并部署 |
 | yootun-agent 合入 `main` | — | — | 不涉及 |
@@ -123,11 +131,11 @@ MCP 工具：无。
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
-- [ ] 既有测试零改动：`git diff --stat -- tests/douyin_operation/test_reports.py tests/douyin_operation/test_report_server_contract.py tests/douyin_operation/test_report_owner_snapshot.py` 无输出；`uv run pytest tests/douyin_operation tests/yootun tests/mcp -q` 通过；
-- [ ] `uv run pytest tests/reporting -q` 通过；
-- [ ] 附录 B 的对比脚本在备份库上的结果：读取结果差异 0，数据层重算差异 0；
-- [ ] `make lint` 通过；
-- [ ] `grep -n "DouyinOperationReportRecord" src/tools_dofe/services/reporting/*.py` 无输出：内核不认识任何平台的实体。
+- [x] 既有测试零改动：`git diff --stat -- tests/douyin_operation/test_reports.py tests/douyin_operation/test_report_server_contract.py tests/douyin_operation/test_report_owner_snapshot.py` 无输出；`uv run pytest tests/douyin_operation tests/yootun tests/mcp -q` 通过；
+- [x] `uv run pytest tests/reporting -q` 通过；
+- [x] 附录 B 的对比脚本在备份库上的结果：读取结果差异 0，数据层重算差异 0；
+- [x] `make lint`：本单改动的文件 0 错误。全仓退出码非 0 的 39 个错误与 `dev` 基线逐条相同（文件、行号、规则一致），是既有问题，分布在 alembic 0088 与 0089、爆款视频的服务与测试、视频号契约测试、能力清单，不在本单范围；
+- [x] `grep -n "DouyinOperationReportRecord" src/tools_dofe/services/reporting/*.py` 无输出：内核不认识任何平台的实体。
 
 ### 5.2 真机验收（用户执行）
 
@@ -142,7 +150,25 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：对比脚本的输出摘要、备份库里的报表条数）。
+2026-11-26 在 CI 备份库上只读执行：会话设为只读，实测更新与建表语句都被数据库拒绝，报表条数执行前后均为 93。切换前基线用 `git worktree` 检出 `dev`，切换后用特性分支工作区；两边的导入路径经脚本的参数校验，分别落在各自的代码树。
+
+| 对比项 | 范围 | 结果 |
+|---|---|---|
+| 读取结果 | 93 条报表（82 条已生成、10 条数据不足、1 条失败）逐条详情；5 组列表每页 20 条翻到底 | 两份快照各 1,603,052 字节，`cmp` 逐字节一致 |
+| 数据层重算 | 最近 14 个日报周期、最近 4 个周报周期，剔除 `generatedAt` 与 `checkedAt` | 与读取结果在同一份快照内，逐字节一致 |
+| 表结构 | 两套代码各自编译的建表语句（27 列与约束）及 3 个索引，共 40 行 | `cmp` 逐字节一致 |
+| 公开符号 | 7 个文件对报表模块的 145 处引用逐一核对 | 没有引用已不存在的名字；被移走的只有 import 名与迁入内核的私有函数 |
+
+自动验收：`tests/douyin_operation`、`tests/yootun`、`tests/mcp` 共 1321 通过，`tests/reporting` 45 通过；下述修正之后各重跑一次，结果相同。
+
+验收时修正一处：内核提示词加载的两条错误消息写死了抖音名，改为由平台适配提供称呼（2.2 的 `prompt_error_subject`）；修正后上表三项对比重跑，结果不变。
+
+遗留：
+
+- `signals` 适配字段内核当前不消费（见 2.2），留给后续内核入口；
+- 内核两条投递失败日志的文案由固定串改为按命名空间拼接，属内部日志，不是对外契约；有按旧文案匹配的告警规则时需要知悉；
+- 委托模式列仍未落到报表实体，2.4 的现状原样保留；
+- 5.2 的真机验收 K1 到 K4 待用户执行。
 
 ## 附录 A：抖音 `reports.py` 的符号去向
 
