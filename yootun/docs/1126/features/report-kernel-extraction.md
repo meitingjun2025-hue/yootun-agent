@@ -1,6 +1,6 @@
 # infra-report-服务端报表通用内核抽取 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：实施中（2026-11-26 开始，特性分支 `feat/report-kernel-extraction`） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
