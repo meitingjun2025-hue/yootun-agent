@@ -1,6 +1,6 @@
 # workbench-采集前会话探测结果复用 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [wx-collect-all-concurrency.md](wx-collect-all-concurrency.md) 与 [douyin-batch-candidates-live-probe.md](douyin-batch-candidates-live-probe.md) 已合入。
 
@@ -68,12 +68,12 @@ interface ProbedSession<S> {
 
 | 场景 | 现状 | 变更 |
 |---|---|---|
-| 视频号单账号采集，探测与采集间隔 < 5 分钟 | 3 次启动、2 次上报、`sessionSeq` +2 | 2 次启动、1 次上报、`sessionSeq` +1 |
+| 视频号单账号采集，探测与采集间隔 < 5 分钟 | 3 次启动、3 次上报（前置 1 + 流程内 1 + 终态 ok 1）、`sessionSeq` +2 | 2 次启动、2 次上报（前置 1 + 终态 ok 1）、`sessionSeq` +1 |
 | 视频号「采集全部」，账号在取号后 5 分钟内开始采集 | 同上 | 同上 |
 | 同上，账号超过 5 分钟才开始 | 3 次启动 | 3 次启动（回落，不变） |
 | 抖音「采集全部」 | 同上两行 | 同上两行 |
 | 抖音单账号采集 | 2 次启动 | 不变 |
-| 探测有效、采集启动后身份复核失败 | `session_expired` 收尾，部分成果保留 | 不变（身份复核仍在采集主流程里） |
+| 探测有效、采集启动后身份复核失败 | `account_mismatch` 收尾（身份复核的细分原因），部分成果保留 | 不变（身份复核仍在采集主流程里） |
 | 探测为 `expired` / `unknown` | 不启动采集 | 不变（只有 `ok` 的结果会被复用） |
 
 ## 3. 影响面
@@ -98,7 +98,7 @@ interface ProbedSession<S> {
 | 文档（本文 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/collect-probe-reuse` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/collect-probe-reuse`（基于 `feat/workbench-host-kit`） | 两包 test 与 build、`lint`、`typecheck`、四个 verify 脚本、`test:docs` 全过；附录 B U1–U9 全部落地 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -122,7 +122,29 @@ interface ProbedSession<S> {
 
 ### 5.3 本地联调记录
 
-待填（合入前回填；记录单账号采集改动前后的耗时各 3 次）。
+自动验收（独立子代理）通过，无必须修项。与实施单的出入及处理（单上文字随实现修订）：
+
+- 附录 B U6「session_expired 收尾」：身份复核失败的实际细分原因是 `account_mismatch`（串号防线的可行动文案），U6 用例按实际断言，单上文字已修订；
+- 附录 B U4「探测结果为 expired → 不启动采集，session_required」：该语义发生在页面路径（前置就绪检查先行拒绝，细分原因 `storage_state_missing`）；runCollection 层收到 expired 的 probed 会回落重新探测（实测可能恢复），用例改走页面路径断言拒绝与零启动；
+- U2/U3 的上报计数含采集终态的 ok 上报（每账号 3 次：前置 1 + 重探测 1 + 终态 1），矩阵原文未计终态上报，用例按实际口径断言；
+- U8 的「注入时钟」以构造即超 TTL 的 `probedAt` 等价实现（不引入批量控制器的时钟布线）；
+- U9 以控制器层断言（douyin 包测试禁类型断言，无完整 body 假件）：批量阶段 2 启动携带 TTL 内的 `probed`；单账号页面路径不携带 `probed` 由 handlers 代码保证（不另设用例），启动次数行为由 wx 侧 U1–U3 的同类断言覆盖。
+- 抖音「复用且 reported=false 时流程内补报」分支未单独立 douyin 用例（验收轮 2 建议项，部分采纳）：douyin runner 的该分支与 wx 逐字节平行（wx U5 覆盖且变异检查证实 wx 分支有守卫）；douyin 包测试禁类型断言使完整链路 Chrome 假件不可行，残留风险在此记录。
+
+验收轮 1（独立子代理）发现并已修复：
+
+- 视频号「采集全部」生产门面（index.ts）丢 `probed`——批量场景零复用，测试通过系测试基建 wireHost 自补透传行所致；已补透传行，探针转正为「U7b 生产接线」回归用例（门面与生产逐行同构）；
+- 三处悬空类型引用（wx runs.test 的 ProbedSession 导入源与 CollectResult 缺失、douyin batch-concurrency 的 RunnerDeps 导入被删）已修正；
+- 补 U4b（runCollection 层 expired probed 回落重探测，3 次启动）覆盖复用条件要求 ok 的分支；
+- 删除恒真的 U9b；2.4 与附录 B 的上报计数与身份复核措辞按实际行为修订；U8 冗余等待清理。
+
+改动过的既有用例（均为单上写明的行为变化所致）：
+
+- 视频号 dispose / batch-concurrency / profile-lock / runs 四文件的 Chrome factory 调用序：采集本体由「第 3 次启动」变为「第 2 次启动」（复用跳过流程内探测）；
+- 视频号 runs.test「collect.status 合并内存与持久化」：探测复用后启动节奏加快，probing 进度的 runs.json 落盘改为显式等待后再断言；
+- wireHost（batch-concurrency 测试基建）默认批量探测补传漏掉的 `locks` 位置参数（阶段 1 迁移遗留，默认路径未被既有用例触达）。
+
+未核对项：真机验收 Q1–Q5；5.3 的「改动前后耗时各 3 次」实测（真机执行）。
 
 ## 附录 A：逐文件规格
 
@@ -161,12 +183,12 @@ if (!reusable || options.probed.reported !== true) await reportSessionStatus(opt
 
 | ID | 断言 |
 |---|---|
-| U1 | 单账号：传入了 5 分钟内的 `ok` 探测结果 → `chromeFactory` 调用 2 次（探测 1 + 采集 1）；`workbench_wx_session_status_report` 只被前置探测调用 1 次 |
+| U1 | 单账号：传入了 5 分钟内的 `ok` 探测结果 → `chromeFactory` 调用 2 次（探测 1 + 采集 1）；本体启动时刻的上报计数为 1（只有前置探测；终态 ok 上报不在该快照内） |
 | U2 | 单账号：不传 `probed` → `chromeFactory` 调用 3 次（现状回归） |
 | U3 | 探测结果超过 5 分钟（注入时钟）→ 重新探测，`chromeFactory` 调用 3 次 |
-| U4 | 探测结果为 `expired` → 不启动采集，`session_required`（现状回归） |
+| U4 | 前置探测为 `expired` → 页面路径拒绝启动采集（就绪检查先行，细分 `storage_state_missing`）；runCollection 层收到 expired 的 probed 回落重新探测（实测可能恢复） |
 | U5 | 复用且 `reported === false` → 采集流程内补一次上报 |
-| U6 | 复用后采集主流程身份复核失败 → `session_expired` 收尾，部分成果保留 |
+| U6 | 复用后采集主流程身份复核失败 → 以 `account_mismatch` 收尾（身份复核的细分原因），部分成果保留 |
 | U7 | 批量：阶段 1 的每个 `ok` 账号在阶段 2 只再启动 1 次 Chrome；阶段 1 的上报次数等于账号数 |
 | U8 | 批量：注入时钟使靠后的账号超过有效期 → 该账号回落为重新探测，其余仍复用 |
-| U9 | 抖音单账号路径（不传 `probed`）启动次数不变 |
+| U9 | 抖音批量：阶段 1 的探测结果随阶段 2 启动传入（`options.probed`，TTL 内新鲜）；单账号页面路径不传 `probed` 由 handlers 代码保证（不另设用例） |

@@ -99,7 +99,8 @@ function makeAbortAwareFactory(scripts: Record<string, AccountScript>, signalOf:
     const script = scripts[accountId] ?? {}
     const callNo = (calls.get(accountId) ?? 0) + 1
     calls.set(accountId, callNo)
-    const isCollectBody = callNo === 3
+    // 采集本体 = 第 2 次启动：前置探测（probeAndReport）的结果在有效期内被采集复用（collect-probe-reuse）。
+    const isCollectBody = callNo === 2
     const page = {
       goto: async () => {
         if (isCollectBody && script.collectGoto !== undefined) {

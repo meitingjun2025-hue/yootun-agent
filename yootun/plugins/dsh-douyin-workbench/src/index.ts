@@ -108,9 +108,10 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
         onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
       })
+      // 上报结果写进 probe.reported（实施单 A4）：阶段 2 复用且 reported 为真时
+      // 跳过采集流程内的重复上报。
       const report = await reportSessionStatus(runnerDeps, accountId, session, signal)
-      void report
-      return { sessionStatus: session.sessionStatus, reason: session.reason }
+      return { sessionStatus: session.sessionStatus, reason: session.reason, probe: { state: session, reported: report.ok, probedAt: Date.now() } }
     },
     concurrency: deps.batchConcurrency,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
@@ -234,7 +235,7 @@ export { normalizeAvatarUrl, MAX_AVATAR_URL_LENGTH } from './avatar.ts'
 export { attemptUuid, sessionIdempotencyKey, accountSaveIdempotencyKey, accountRemoveIdempotencyKey, runStartIdempotencyKey, listMetaIdempotencyKey, heartbeatIdempotencyKey, ingestBatchIdempotencyKey, ingestDailyIdempotencyKey, runFinishIdempotencyKey } from './idempotency.ts'
 export { CREATOR_ORIGIN, USER_INFO_PATH, SESSION_COOKIE_NAMES, PENDING_ACCOUNT_PREFIX, isPendingAccountId, launchChromeSession, loginWithQrCode, probeSession, promotePendingAccount, refreshSessionState, removeLocalAccount, commitLoginIdentity, waitForSessionCookie, readAccountProfile, type ChromeFactory, type DouyinProfile, type LoginResult, type ProbeResult, type PromoteResult, type RefreshedSession, type BrowserCloseBudget } from './session.ts'
 export { runsFilePath, createAttemptId, readRuns, updateRun, recoverInterruptedRuns, removeAccountRuns, runInRootQueue, type RunRecord } from './runs.ts'
-export { createCollectController, createBatchCollectController, batchCandidates, checkCollectionReadiness, ensureRemoteAccount, reportSessionStatus, markSessionOk, markSessionExpired, reportSessionOkAfterCollect, saveDiscoveredAvatar, runCollection, finishExpiredSession, progressFromEvent, lastProgress, type CollectResult, type BatchStatus, type BatchItem, type RunnerDeps } from './runner.ts'
+export { createCollectController, createBatchCollectController, batchCandidates, checkCollectionReadiness, ensureRemoteAccount, reportSessionStatus, markSessionOk, markSessionExpired, reportSessionOkAfterCollect, saveDiscoveredAvatar, runCollection, finishExpiredSession, progressFromEvent, lastProgress, PROBE_REUSE_TTL_MS, type CollectResult, type BatchStatus, type BatchItem, type RunnerDeps, type ProbedSession } from './runner.ts'
 export { createIngestClient, ingestCollectedWorks, BATCH_SIZE, DETERMINISTIC_ERRORS, RECOVERABLE_ERRORS, type IngestClient, type IngestOutcome } from './ingest.ts'
 export * as collector from './collector.ts'
 export * as parse from './parse.ts'

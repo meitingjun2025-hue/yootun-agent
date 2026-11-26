@@ -111,8 +111,9 @@ function makeFactory(scripts: Record<string, AccountScript>): ChromeFactory {
     if (script.failFromCall !== undefined && callNo >= script.failFromCall) {
       throw Object.assign(new Error('chrome missing'), { code: 'GOOGLE_CHROME_MISSING' })
     }
-    // 调用序：handler probe(1) → runCollection 内 probe(2) → collect 本体(3)。
-    const isCollectBody = callNo === 3
+    // 调用序：前置探测 probeAndReport(1) → collect 本体(2)（探测结果在有效期内
+    // 被采集复用，collect-probe-reuse；超过 TTL 的回落场景见 U8）。
+    const isCollectBody = callNo === 2
     const page = {
       goto: async () => {
         if (isCollectBody && script.collectGoto !== undefined) {
@@ -463,12 +464,12 @@ test('loginWithQrCode 生产路径经 commitLoginIdentity 迁移（身份稳定�
 
 test('profile 锁：collect.start 经 buildRouteHandlers 失败路径不挂起且锁可重入', async () => {
   const root = makeEnv('wx-pl-integ', [{ id: 'acc1' }])
-  const factory = makeFactory({ acc1: { failFromCall: 3 } })
+  const factory = makeFactory({ acc1: { failFromCall: 2 } })
   const { handlers, locks } = buildHandlers(root, factory)
   const { isProfileLocked } = locks
 
-  // handler probe(1) 成功 → collect.start 返回 started（runCollection 已进入全程锁）；
-  // runCollection 内 probe(2) 成功 → collect 本体(3) Chrome 失败 → 后台 failed 收尾、锁释放。
+  // 前置探测 probeAndReport(1) 成功 → collect.start 返回 started（runCollection 已进入全程锁）；
+  // 探测结果复用 → collect 本体(2) Chrome 失败 → 后台 failed 收尾、锁释放。
   // 全程 handler 层与 runner 层各自独立获取锁，无嵌套挂起。
   const first = await Promise.race([callHandler(handlers, 'collect.start', { accountId: 'acc1' }), timeoutReject(3000, 'collect.start 挂起')])
   assert.equal(first.status, 'ok')

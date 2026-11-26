@@ -470,7 +470,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
             trackCleanup: promise => { deps.taskRegistry.track(promise) },
           })
           return session.sessionStatus === 'ok'
-            ? { ok: true, reason: null }
+            ? { ok: true, reason: null, probe: session.probe }
             : { ok: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
         },
         beforeLaunch: () => (deps.disposing ? 'plugin_disposing' : null),

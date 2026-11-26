@@ -111,6 +111,7 @@ export function apply(ctx: Context, config: Config): void {
         accountId: input.accountId,
         fromBatch: true,
         ...(input.signal !== undefined ? { signal: input.signal } : {}),
+        ...(input.probed !== undefined ? { probed: input.probed } : {}),
       }),
       wait: accountId => collect.wait(accountId),
       hasRunning: () => collect.hasRunning(),
@@ -123,6 +124,8 @@ export function apply(ctx: Context, config: Config): void {
         onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         trackCleanup: promise => { registry.track(promise) },
       }))
+        // 探测结果（含 probe）原样交给批量控制器暂存复用。
+        .then(result => ({ sessionStatus: result.sessionStatus, reason: result.reason, probe: result.probe }))
     },
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
@@ -158,7 +161,7 @@ export { createIngestClient, ingestCollectedData, resolveClientStatus, type Inge
 export { createBatchCollectController, type BatchStatus, type BatchItem, type BatchController } from './collect-all.ts'
 export { createTaskRegistry, disposeHostTasks, DEFAULT_DISPOSE_BUDGET_MS, type TaskRegistry, type AwaitSettledOutcome } from './lifecycle.ts'
 export { loginWithQrCode, waitForSessionCookie, waitStableIdentity, probeSession, refreshSessionState, promotePendingAccount, commitLoginIdentity, removeLocalAccount, isPendingAccountId, PENDING_ACCOUNT_PREFIX, launchChrome, SESSION_COOKIE_NAMES, type LoginResult, type ProbeResult, type RefreshedSession, type PromoteResult, type BrowserCloseBudget } from './session.ts'
-export { reportSessionStatus, markSessionOk, markSessionExpired } from './probe.ts'
+export { reportSessionStatus, markSessionOk, markSessionExpired, PROBE_REUSE_TTL_MS, type ProbedSession } from './probe.ts'
 export { COLLECT_SINCE_DAY, PAGE_SIZE, MAX_PAGES, splitIngestBatches, planFansTrendWindow, collectWorkList, collectWorkDetail, collectAccountMetrics, collectFansTrend, collectFansPortrait, fetchAuthData } from './collector.ts'
 export { parseAuthData, parsePostListPage, parseDailySeries, parseFansTrend, parseFansPortrait, parseJsonPreservingIds, latestCompletedDay, SessionInvalidError, type WorkItem } from './parse.ts'
 export { createAttemptId, readRuns, updateRun, removeAccountRuns, recoverInterruptedRuns, type RunRecord } from './runs.ts'

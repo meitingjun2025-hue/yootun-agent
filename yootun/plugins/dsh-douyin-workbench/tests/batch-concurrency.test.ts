@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRouteHandlers, createDouyinHostDeps, Config } from '../src/index.ts'
 import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
-import { batchCandidates, createBatchCollectController, createCollectController, type CollectResult, type RunOptions, type RunnerDeps } from '../src/runner.ts'
+import { batchCandidates, createBatchCollectController, createCollectController, PROBE_REUSE_TTL_MS, type CollectResult, type RunOptions, type RunnerDeps } from '../src/runner.ts'
 import { createAttemptId, readRuns, updateRun } from '../src/runs.ts'
 import { paths, updateAccount } from '../src/state.ts'
 import { createFakeWorkbench, tempRoot } from './fakes.ts'
@@ -90,6 +90,49 @@ async function seedAccount(root: string, accountId: string, sessionStatus: strin
   await mkdir(join(root, 'storage-state'), { recursive: true })
   await writeFile(paths(root).storageStatePath(accountId), '{"cookies":[]}')
 }
+
+// --- U9 抖音探测复用接线（collect-probe-reuse；控制器层，无 Chrome 假件） ---
+
+/** 记录 probed 透传的 collect 门面（复用 fakeCollect 的 starts 记录形态）。 */
+function probedRecordingCollect() {
+  const starts: Array<{ accountId: string; probed: unknown }> = []
+  return {
+    starts,
+    start: (input: { accountId: string; options?: Partial<RunOptions> }) => {
+      starts.push({ accountId: input.accountId, probed: input.options?.probed })
+      return {
+        started: true,
+        record: { accountId: input.accountId, status: 'running' as const, startedAt: new Date().toISOString(), finishedAt: null, events: [] as Record<string, unknown>[], result: null, error: null },
+      }
+    },
+    wait: async (): Promise<CollectResult | null> => ({ status: 'ready', runId: 'r1' }) as CollectResult,
+    hasRunning: (): boolean => false,
+  }
+}
+
+test('U9 批量阶段 1 的探测结果随阶段 2 启动传入（options.probed，TTL 内新鲜）', async () => {
+  const collect = probedRecordingCollect()
+  const batch = createBatchCollectController({
+    collect,
+    probe: async accountId => ({
+      sessionStatus: 'ok',
+      reason: null,
+      probe: { state: { sessionStatus: 'ok', reason: null, sessionSeq: 1, checkedAt: new Date().toISOString(), vaultRef: `vault://douyin/${accountId}`, accountId, profile: null }, reported: true, probedAt: Date.now() },
+    }),
+    rand: () => 0,
+    sleep: async () => undefined,
+  })
+  const started = batch.start([candidate('a1'), candidate('a2')])
+  assert.equal(started.started, true)
+  await started.runPromise
+  assert.deepEqual(collect.starts.map(item => item.accountId).sort(), ['a1', 'a2'])
+  for (const item of collect.starts) {
+    const probed = item.probed as { probedAt: number } | undefined
+    assert.ok(probed !== undefined, `阶段 2 启动 ${item.accountId} 应携带阶段 1 的探测结果`)
+    assert.ok(Date.now() - probed.probedAt <= PROBE_REUSE_TTL_MS, 'probedAt 在有效期内')
+    assert.equal(probed.probedAt <= Date.now(), true, 'probedAt 不晚于当前时刻')
+  }
+})
 
 /** 候选筛选纯本地：callTool 一旦被调用即失败（RunnerDeps 最小接缝）。 */
 function candidateDeps(root: string): RunnerDeps {

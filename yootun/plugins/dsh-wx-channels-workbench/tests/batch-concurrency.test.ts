@@ -17,6 +17,7 @@ import { buildRouteHandlers, createWxHostDeps, type WxHostDeps } from '../src/ha
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { ACTION_SCHEMAS } from '../src/route.ts'
 import { createCollectController, type CollectResult, type CollectController } from '../src/runner.ts'
+import { PROBE_REUSE_TTL_MS, type ProbedSession, type RefreshedSession } from '../src/probe.ts'
 import { createAttemptId, readRuns, updateRun } from '../src/runs.ts'
 import type { ChromeFactory } from '../src/session.ts'
 import type { WxWorkbenchFace } from '../src/ingest.ts'
@@ -127,7 +128,8 @@ function makeGateFactory(signalOf: (accountId: string) => AbortSignal | undefine
     calls.set(accountId, callNo)
     const page = {
       goto: async () => {
-        if (callNo === 3 && hang.has(accountId)) {
+        // 采集本体 = 第 2 次启动（前置探测结果复用，collect-probe-reuse）。
+        if (callNo === 2 && hang.has(accountId)) {
           const signal = signalOf(accountId)
           await new Promise<void>((resolve, reject) => {
             if (signal === undefined) { resolve(); return }
@@ -155,7 +157,12 @@ function makeGateFactory(signalOf: (accountId: string) => AbortSignal | undefine
 const noopWorkbench: WxWorkbenchFace = { callTool: async () => ({ structuredContent: {}, content: [] }) } as never
 
 /** Host 接线（与 index.ts apply 同构）：单账号控制器 + 真实批量控制器。 */
-function wireHost(deps: WxHostDeps, options: { batchProbe?: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null }> } = {}) {
+function wireHost(deps: WxHostDeps, options: {
+  batchProbe?: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> }>
+  /** 批量控制器取号节奏接缝（U7/U8 用零等待；缺省走真实错峰）。 */
+  rand?: (() => number) | undefined
+  sleep?: ((ms: number, signal?: AbortSignal) => Promise<void>) | undefined
+} = {}) {
   const registry = deps.taskRegistry
   let batch: ReturnType<typeof createBatchCollectController>
   const collect: CollectController = createCollectController(
@@ -168,13 +175,17 @@ function wireHost(deps: WxHostDeps, options: { batchProbe?: (accountId: string) 
         accountId: input.accountId,
         fromBatch: true,
         ...(input.signal !== undefined ? { signal: input.signal } : {}),
+        ...(input.probed !== undefined ? { probed: input.probed } : {}),
       }),
       wait: accountId => collect.wait(accountId),
       hasRunning: () => collect.hasRunning(),
     },
-    probe: options.batchProbe ?? (async accountId => registry.runTracked(() => import('../src/probe.ts').then(({ probeAndReport }) => probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory)))),
+    probe: options.batchProbe ?? (async accountId => registry.runTracked(() => import('../src/probe.ts').then(({ probeAndReport }) => probeAndReport(deps.workbench, accountId, deps.root, deps.locks, deps.chromeFactory)))
+      .then(result => ({ sessionStatus: result.sessionStatus, reason: result.reason, probe: result.probe })) ),
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
+    ...(options.rand !== undefined ? { rand: options.rand } : {}),
+    ...(options.sleep !== undefined ? { sleep: options.sleep } : {}),
   })
   const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string | boolean>) => Promise<object>>
   return { batch, collect, handlers }
@@ -185,6 +196,188 @@ async function callHandler(handlers: Record<string, (args: Record<string, string
   assert.ok(handler !== undefined, `handler ${action} 必须存在`)
   return await handler(args) as Record<string, unknown>
 }
+
+// --- U7/U8 批量探测复用（collect-probe-reuse） ---
+
+/**
+ * 计数 workbench + 计数 factory：统计上报次数与每账号启动次数。无门控——
+ * 采集本体的 post-list 页面取不到数据（evaluate 500）快速失败，批次自然收敛，
+ * 断言只看启动与上报计数（body 的成功路径由其他用例覆盖）。
+ */
+function makeReuseInfra(): { workbench: WxWorkbenchFace; factory: ChromeFactory; launches: Map<string, number>; reports: string[]; launchLog: Array<{ accountId: string; launchNo: number; reports: number }> } {
+  const launches = new Map<string, number>()
+  const reports: string[] = []
+  // 每次启动的（账号, 序号, 此刻上报数）日志：复用语义断言用（合成 batchProbe
+  // 不发 Chrome，阶段 1 零启动——账号的第 1 次启动即采集本体）。
+  const launchLog: Array<{ accountId: string; launchNo: number; reports: number }> = []
+  const workbench: WxWorkbenchFace = {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_session_status_report') reports.push(name)
+      return { structuredContent: {}, content: [] }
+    },
+  } as never
+  const factory: ChromeFactory = async options => {
+    const accountId = basename(options.profileDir)
+    const launchNo = (launches.get(accountId) ?? 0) + 1
+    launches.set(accountId, launchNo)
+    launchLog.push({ accountId, launchNo, reports: reports.length })
+    const page = {
+      goto: async () => undefined,
+      evaluate: async (_fn: unknown, arg: { url: string }) => {
+        if (typeof arg?.url === 'string' && arg.url.includes('auth_data')) return { status: 200, text: authDataBody(accountId) }
+        return { status: 500, text: '' }
+      },
+    }
+    const context = {
+      pages: () => [page],
+      newPage: async () => page,
+      cookies: async () => [{ name: 'sessionid', value: 'v' }],
+      storageState: async () => ({ cookies: [], origins: [] }),
+      close: async () => undefined,
+    }
+    return { context } as never
+  }
+  return { workbench, factory, launches, reports, launchLog }
+}
+
+test('U7 批量：ok 账号阶段 2 只再启动 1 次 Chrome，上报次数 = 账号数（前置探测复用）', async () => {
+  const root = await makeEnv('wx-u7', ['a1', 'a2'])
+  try {
+    const infra = makeReuseInfra()
+    const deps = createWxHostDeps({
+      root,
+      workbench: infra.workbench,
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: message => { console.error('U7 WARN:', message) } },
+      chromeFactory: infra.factory,
+    })
+    const { batch, handlers } = wireHost(deps, { rand: () => 0, sleep: async () => undefined })
+    const started = await callHandler(handlers, 'collectAll.start', {})
+    assert.equal(started.started, true)
+    // 等 batch run 自然收敛（runPromise 经 trackRun 登记；不能先 dispose——
+    // dispose 会 stop 批次把整批置 collect_cancelled）。
+    await deps.taskRegistry.awaitSettled()
+    assert.deepEqual([...infra.launches.entries()].sort(), [['a1', 2], ['a2', 2]], '每账号 = 前置探测 1 次 + 采集本体 1 次（复用跳过流程内探测）')
+    // 本体启动时刻的上报数 = 阶段 1 的总上报数（复用账号的流程内上报已跳过；
+    // 真实 batchProbe 下阶段 1 串行完成两账号后阶段 2 才启动）。
+    assert.deepEqual(infra.launchLog.filter(item => item.accountId === 'a1').map(item => item.reports), [0, 2], 'a1：探测时 0 上报，本体前 = 阶段 1 共 2 次（流程内上报已跳过）')
+    assert.deepEqual(infra.launchLog.filter(item => item.accountId === 'a2').map(item => item.reports), [1, 2], 'a2：探测前 a1 已上报 1 次，本体前 = 2 次（流程内上报已跳过）')
+  } finally {
+    await cleanupRoot(root)
+  }
+})
+
+test('U8 批量：靠后账号探测结果超 TTL → 回落重新探测（3 次启动），其余仍复用', async () => {
+  const root = await makeEnv('wx-u8', ['a1', 'a2'])
+  try {
+    const infra = makeReuseInfra()
+    const deps = createWxHostDeps({
+      root,
+      workbench: infra.workbench,
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+      chromeFactory: infra.factory,
+    })
+    // a2 的探测结果带已过期的 probedAt（构造即超 TTL，等价于注入时钟推进）。
+    const staleProbe = async (accountId: string): Promise<{ sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> }> => ({
+      sessionStatus: 'ok',
+      reason: null,
+      probe: {
+        state: { sessionStatus: 'ok', reason: null, sessionSeq: 1, checkedAt: new Date().toISOString(), vaultRef: `vault://wx/${accountId}`, accountId, sessionStatusReported: true },
+        reported: true,
+        probedAt: accountId === 'a2' ? Date.now() - PROBE_REUSE_TTL_MS - 1_000 : Date.now(),
+      },
+    })
+    const { batch, handlers } = wireHost(deps, { batchProbe: staleProbe, rand: () => 0, sleep: async () => undefined })
+    const started = await callHandler(handlers, 'collectAll.start', {})
+    assert.equal(started.started, true)
+    await deps.taskRegistry.awaitSettled()
+    // 合成 batchProbe 不发 Chrome：a1 新鲜探测直接复用 → 第 1 次启动就是采集
+    // 本体（0 上报）；a2 超 TTL 回落 → 重新探测（补报 1）后再本体。
+    assert.deepEqual([...infra.launches.entries()].sort(), [['a1', 1], ['a2', 2]], 'a1 复用（仅本体 1 次启动）；a2 回落（探测 + 本体 2 次）')
+    assert.deepEqual(infra.launchLog.filter(item => item.accountId === 'a1').map(item => item.reports), [0], 'a1 复用：进入本体前零上报')
+    assert.deepEqual(infra.launchLog.filter(item => item.accountId === 'a2').map(item => item.reports), [0, 1], 'a2 回落：探测前 0 上报，探测补报后进本体')
+  } finally {
+    await cleanupRoot(root)
+  }
+})
+
+// --- U7b 生产接线回归（collect-probe-reuse）：批量门面必须透传 probed ---
+
+test('U7b 生产接线（与 index.ts apply 同构）：批量阶段 2 复用阶段 1 探测，每账号仅本体 1 次启动', async () => {
+  const root = await makeEnv('wx-u7b', ['a1', 'a2'])
+  try {
+    // 合成 batchProbe 不发 Chrome（与生产 probe 回调同构的返回形状）：复用生效时
+    // 每账号唯一一次启动就是采集本体；门面丢 probed 时会回落重探测（2 次启动）
+    // 且流程内补报——本用例同时抓住两种回退（验收轮 2 的 F1 即由本形态证实）。
+    const launches = new Map<string, number>()
+    const reports: string[] = []
+    const workbench: WxWorkbenchFace = {
+      callTool: async (_caller: string, _domain: string, name: string) => {
+        if (name === 'workbench_wx_session_status_report') reports.push(name)
+        return { structuredContent: {}, content: [] }
+      },
+    } as never
+    const factory: ChromeFactory = async options => {
+      const accountId = basename(options.profileDir)
+      launches.set(accountId, (launches.get(accountId) ?? 0) + 1)
+      const page = {
+        goto: async () => undefined,
+        evaluate: async (_fn: unknown, arg: { url: string }) => {
+          if (typeof arg?.url === 'string' && arg.url.includes('auth_data')) return { status: 200, text: authDataBody(accountId) }
+          return { status: 500, text: '' }
+        },
+      }
+      const context = { pages: () => [page], newPage: async () => page, cookies: async () => [{ name: 'sessionid', value: 'v' }], storageState: async () => ({ cookies: [], origins: [] }), close: async () => undefined }
+      return { context } as never
+    }
+    const deps = createWxHostDeps({
+      root,
+      workbench,
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+      chromeFactory: factory,
+    })
+    let batch: ReturnType<typeof createBatchCollectController>
+    const collect: CollectController = createCollectController(
+      { workbench: deps.workbench, root, chromeFactory: factory, logger: deps.logger, locks: deps.locks },
+      { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+    )
+    // 门面与生产 index.ts apply 逐行同构（含 probed 透传行）。
+    batch = createBatchCollectController({
+      collect: {
+        start: input => collect.start({
+          accountId: input.accountId,
+          fromBatch: true,
+          ...(input.signal !== undefined ? { signal: input.signal } : {}),
+          ...(input.probed !== undefined ? { probed: input.probed } : {}),
+        }),
+        wait: accountId => collect.wait(accountId),
+        hasRunning: () => collect.hasRunning(),
+      },
+      probe: async accountId => ({
+        sessionStatus: 'ok',
+        reason: null,
+        probe: {
+          state: { sessionStatus: 'ok', reason: null, sessionSeq: 1, checkedAt: new Date().toISOString(), vaultRef: `vault://wx/${accountId}`, accountId, sessionStatusReported: true },
+          reported: true,
+          probedAt: Date.now(),
+        },
+      }),
+      logger: deps.logger,
+      trackRun: promise => { deps.taskRegistry.track(promise) },
+      rand: () => 0,
+      sleep: async () => undefined,
+    })
+    const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string | boolean>) => Promise<object>>
+    const started = await callHandler(handlers, 'collectAll.start', {})
+    assert.equal(started.started, true)
+    await deps.taskRegistry.awaitSettled()
+    assert.deepEqual([...launches.entries()].sort(), [['a1', 1], ['a2', 1]], '每账号唯一一次启动 = 采集本体（阶段 1 合成探测不发 Chrome，复用跳过流程内探测）')
+  } finally {
+    await cleanupRoot(root)
+  }
+})
 
 // --- B1 action 清单 ---
 

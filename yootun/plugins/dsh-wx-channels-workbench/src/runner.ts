@@ -17,7 +17,7 @@ import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage, closeContext, launchWithTimeout } from './chrome.ts'
 import { asCollectorPage, launchChrome, refreshSessionState, type ChromeFactory } from './session.ts'
-import { markSessionExpired, markSessionOk, reportSessionStatus } from './probe.ts'
+import { markSessionExpired, markSessionOk, reportSessionStatus, PROBE_REUSE_TTL_MS, type ProbedSession, type RefreshedSession } from './probe.ts'
 import { accountSaveIdempotencyKey } from './idempotency.ts'
 
 export const DEFAULT_MAX_PAGES = 50
@@ -124,6 +124,10 @@ export async function runCollection(options: {
   signal?: AbortSignal | undefined
   /** 账号 profile 锁实例（采集全程持锁）。 */
   locks: ProfileLocks
+  /** 前置探测结果（单账号入口 / 批量阶段 1 传入；有效期内复用）。 */
+  probed?: ProbedSession<RefreshedSession> | undefined
+  /** 时钟接缝（测试注入；缺省 Date.now）。 */
+  now?: (() => number) | undefined
   /** 任务登记：runs.json 写盘（runId barrier/进度/终态）纳入 dispose 等待。 */
   taskRegistry?: TaskRegistry | undefined
   /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
@@ -150,6 +154,10 @@ async function runCollectionWithinProfileLock(options: {
   accountId: string
   root: string
   attemptId: string
+  /** 前置探测结果（透传自 runCollection）。 */
+  probed?: ProbedSession<RefreshedSession> | undefined
+  /** 时钟接缝（透传自 runCollection）。 */
+  now?: (() => number) | undefined
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   newAttempt?: boolean
@@ -222,16 +230,29 @@ async function runCollectionWithinProfileLock(options: {
       // 不阻断本地实测。
       void error
     }
-    const session = await refreshSessionState({
-      accountId: options.accountId,
-      root,
-      chromeFactory: options.chromeFactory,
-      launchTimeoutMs,
-      browserCloseTimeoutMs: closeTimeoutMs,
-      onBrowserCloseTimeout: message => { options.logger?.warn(message) },
-      trackCleanup: promise => { trackWrite(promise) },
-    })
-    await reportSessionStatus(options.workbench, options.accountId, session)
+    // 前置探测结果在有效期内复用（实施单 2.2：ok + TTL 内），少一次 Chrome
+    // 冷启动、一次上报与一次 seq 递增；复用且上报已成功时跳过流程内上报，
+    // reported 为 false 时补一次。过期或非 ok 照旧重新探测。
+    const now = options.now ?? Date.now
+    // 进入即快照到 const：属性访问的 undefined 收窄不跨 await。
+    const probed = options.probed
+    const reusable = probed !== undefined
+      && probed.state.sessionStatus === 'ok'
+      && now() - probed.probedAt <= PROBE_REUSE_TTL_MS
+    const session = reusable
+      ? probed.state
+      : await refreshSessionState({
+        accountId: options.accountId,
+        root,
+        chromeFactory: options.chromeFactory,
+        launchTimeoutMs,
+        browserCloseTimeoutMs: closeTimeoutMs,
+        onBrowserCloseTimeout: message => { options.logger?.warn(message) },
+        trackCleanup: promise => { trackWrite(promise) },
+      })
+    if (!reusable || probed.reported !== true) {
+      await reportSessionStatus(options.workbench, options.accountId, session)
+    }
     if (session.sessionStatus !== 'ok') {
       const reason = session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed'
       await persistFinalRun({ status: 'failed', error: reason })
@@ -478,8 +499,11 @@ export interface CollectStartInput {
   /**
    * 页面路径前置探测（同步等待）：就绪检查 + 会话实测上报。探测期间记录
    * progress.phase = 'probing'；不通过 → started:false 与原因，记录落终态。
+   * 通过时返回的 probe 交给采集流程复用（有效期内）。
    */
-  probe?: (() => Promise<{ ok: boolean; reason: string | null }>) | undefined
+  probe?: (() => Promise<{ ok: boolean; reason: string | null; probe?: ProbedSession<RefreshedSession> }>) | undefined
+  /** 批量阶段 1 的探测结果（fromBatch 启动时传入；有效期内复用）。 */
+  probed?: ProbedSession<RefreshedSession> | undefined
   /** 启动前复查（探测通过后、runCollection 启动前）：返回拒绝 reason 或 null。 */
   beforeLaunch?: (() => string | null) | undefined
 }
@@ -545,8 +569,8 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
     progress: record.progress,
     result: record.result,
   })
-  /** 启动 runCollection 并挂终态写回（与旧 collect.start handler 内的编排一致）。 */
-  const launch = (record: CollectRecord, input: CollectStartInput, signal: AbortSignal): Promise<CollectResult> => {
+  /** 启动 runCollection 并挂终态写回（与旧 collect.start handler 内的编排一致）；`probed` 为本次采集可复用的前置探测结果。 */
+  const launch = (record: CollectRecord, input: CollectStartInput, signal: AbortSignal, probed?: ProbedSession<RefreshedSession>): Promise<CollectResult> => {
     const accountId = record.accountId
     const attemptId = createAttemptId(accountId)
     record.attemptId = attemptId
@@ -565,6 +589,7 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
       logger: deps.logger,
       signal,
       taskRegistry: hooks.taskRegistry,
+      ...(probed !== undefined ? { probed } : {}),
       ...(deps.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: deps.browserCloseTimeoutMs } : {}),
       ...(deps.launchTimeoutMs !== undefined ? { launchTimeoutMs: deps.launchTimeoutMs } : {}),
     })
@@ -625,14 +650,14 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
         if (signals?.get(accountId) === controller) signals.delete(accountId)
         input.signal?.removeEventListener('abort', forwardBatchAbort)
       }
-      // 批量内部启动：阶段 1 已实测，直接启动。
+      // 批量内部启动：阶段 1 已实测（结果经 input.probed 传入），直接启动。
       if (input.probe === undefined) {
-        const task = launch(record, input, controller.signal)
+        const task = launch(record, input, controller.signal, input.probed)
         void task.then(() => undefined, () => undefined).finally(releaseSignal)
         return { started: true, record }
       }
       // 页面路径：就绪检查 → 实测上报（同步等待）→ 启动前复查 → 启动。
-      const probeResult = await input.probe().catch((error: unknown) => ({ ok: false, reason: safeCode(error) }))
+      const probeResult = await input.probe().catch((error: unknown) => ({ ok: false, reason: safeCode(error), probe: undefined }))
       if (!probeResult.ok) {
         record.status = 'failed'
         record.error = probeResult.reason ?? 'probe_failed'
@@ -657,7 +682,7 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
         releaseSignal()
         return { started: false, record, reason: 'collect_cancelled' }
       }
-      const task = launch(record, input, controller.signal)
+      const task = launch(record, input, controller.signal, probeResult.probe)
       void task.then(() => undefined, () => undefined).finally(releaseSignal)
       return { started: true, record }
     },

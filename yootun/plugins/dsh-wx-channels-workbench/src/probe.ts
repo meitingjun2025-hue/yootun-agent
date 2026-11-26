@@ -14,6 +14,19 @@ import type { WxWorkbenchFace } from './ingest.ts'
 
 export { refreshSessionState, type RefreshedSession } from './session.ts'
 
+/** 探测结果有效期（一次采集内部的新鲜度窗口，不随部署环境变化；实施单 2.2）。 */
+export const PROBE_REUSE_TTL_MS = 5 * 60 * 1000
+
+/** 前置探测的带时间戳结果（采集流程在有效期内复用；抖音同形，实施单 2.1）。 */
+export interface ProbedSession<S> {
+  /** 探测得到的会话状态（RefreshedSession）。 */
+  state: S
+  /** 前置探测的上报是否成功。 */
+  reported: boolean
+  /** 探测完成时刻（Date.now()）。 */
+  probedAt: number
+}
+
 /** 上报会话状态到 Workbench（幂等键 accountId+seq；失败不抛，返回 ok:false）。 */
 export async function reportSessionStatus(workbench: WxWorkbenchFace, accountId: string, state: RefreshedSession): Promise<{ ok: boolean; reason: string | null }> {
   try {
@@ -81,7 +94,7 @@ export async function probeAndReport(
     onBrowserCloseTimeout?: ((message: string) => void) | undefined
     trackCleanup?: ((promise: Promise<void>) => void) | undefined
   },
-): Promise<{ sessionStatus: string; reason: string | null; reported: boolean }> {
+): Promise<{ sessionStatus: string; reason: string | null; reported: boolean; probe: ProbedSession<RefreshedSession> }> {
   const state = await locks.withProfileLock(accountId, () => refreshSessionState({
     accountId,
     root,
@@ -92,7 +105,8 @@ export async function probeAndReport(
     ...(budgets?.trackCleanup !== undefined ? { trackCleanup: budgets.trackCleanup } : {}),
   }))
   const reported = await reportSessionStatus(workbench, accountId, state)
-  return { sessionStatus: state.sessionStatus, reason: state.reason, reported: reported.ok }
+  // probe 交给采集流程复用（有效期内少一次 Chrome 冷启动与一次上报）。
+  return { sessionStatus: state.sessionStatus, reason: state.reason, reported: reported.ok, probe: { state, reported: reported.ok, probedAt: Date.now() } }
 }
 
 export { getAccount }
