@@ -10,11 +10,24 @@ import { after, test } from 'node:test'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { Context } from '@deepseek-ai/cordis'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
-import WorkbenchMcp, { WorkbenchMcpError, serverErrorCodeOf, CALLER_DOMAINS, CATALOG_TOOL_NAMES, domainOf, isAllowedFor, WORKBENCH_TOOL_PREFIX, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
+import WorkbenchMcp, { WorkbenchMcpError, classifyTransportError, serverErrorCodeOf, CALLER_DOMAINS, CATALOG_TOOL_NAMES, domainOf, isAllowedFor, WORKBENCH_TOOL_PREFIX, type WorkbenchCaller, type WorkbenchDomain } from '../src/index.ts'
 import { ACCESS_CREDENTIAL_REF } from '../src/constants.ts'
 import { startWorkbenchFixture, type WorkbenchFixture } from './fixture-workbench-server.ts'
 
 const ACTIVATED_SNAPSHOT = { setupComplete: true, validationVersion: Number(VALIDATION_VERSION) }
+/** 可控墙钟（K5 刷新窗口注入用）：初始为真实时刻，用例按需前拨。 */
+let clockMs = Date.now()
+
+/** 注入可控时钟的服务变体：其余行为与生产完全一致。 */
+class ClockControlledWorkbenchMcp extends WorkbenchMcp {
+  /**
+   * @param ctx - the service context.
+   * @param config - resolved configuration.
+   */
+  constructor(ctx: Context, config: ConstructorParameters<typeof WorkbenchMcp>[1]) {
+    super(ctx, config, () => clockMs)
+  }
+}
 /** 所有测试共享的环境恢复点。 */
 const cleanups: Array<() => Promise<void>> = []
 after(async () => {
@@ -31,7 +44,7 @@ interface Booted {
   emitCredentialUpdate(): void
 }
 
-async function boot(options: { access?: Record<string, unknown>; keyValue?: string | undefined; fixture?: WorkbenchFixture } = {}): Promise<Booted> {
+async function boot(options: { access?: Record<string, unknown>; keyValue?: string | undefined; fixture?: WorkbenchFixture; clock?: boolean } = {}): Promise<Booted> {
   const fixture = options.fixture ?? await startWorkbenchFixture()
   process.env.YOOTUN_WORKBENCH_MCP_URL = fixture.url
   const ctx = new Context()
@@ -43,8 +56,7 @@ async function boot(options: { access?: Record<string, unknown>; keyValue?: stri
   ctx.reflect.provide('credentials', {
     resolve: async () => keyValue === undefined ? undefined : { source: 'test' as const, value: keyValue },
   })
-  const service = await ctx.plugin(WorkbenchMcp, { callTimeoutMs: 900 })
-  void service
+  await ctx.plugin(options.clock === true ? ClockControlledWorkbenchMcp : WorkbenchMcp, { callTimeoutMs: 900 })
   cleanups.push(async () => {
     await ctx.fiber.dispose()
     await fixture.close()
@@ -496,4 +508,234 @@ test('卸载中止 in-flight 且无后续连接', async () => {
     '卸载后拒绝新调用',
   )
   void requestsBefore
+})
+
+// --- 传输层状态分类（2026-11-26 稳定码拆分） ---
+
+test('classifyTransportError：按错误类型与 status 分类，不解析消息文本', () => {
+  const httpError = (status: number, message: string): Error => {
+    const error: Error & { status?: number } = new Error(message)
+    error.name = 'SdkHttpError'
+    error.status = status
+    return error
+  }
+  assert.equal(classifyTransportError(httpError(401, 'body 401')), 'workbench_unauthorized')
+  assert.equal(classifyTransportError(httpError(403, 'body 403')), 'workbench_unauthorized')
+  assert.equal(classifyTransportError(httpError(500, 'body 500')), 'workbench_server_error')
+  assert.equal(classifyTransportError(httpError(503, 'body 503')), 'workbench_server_error')
+  assert.equal(classifyTransportError(httpError(408, 'body 408')), 'workbench_server_error')
+  assert.equal(classifyTransportError(httpError(429, 'body 429')), 'workbench_server_error')
+  assert.equal(classifyTransportError(httpError(404, 'body 404')), 'workbench_protocol_error')
+  assert.equal(classifyTransportError(httpError(410, 'body 410')), 'workbench_protocol_error')
+  const unauthorized = new Error('Unauthorized')
+  unauthorized.name = 'UnauthorizedError'
+  assert.equal(classifyTransportError(unauthorized), 'workbench_unauthorized')
+  // 非 Error、无名形态、无数字 status 的 SdkHttpError 形态一律 network_error。
+  assert.equal(classifyTransportError(new Error('Error POSTing to endpoint (HTTP 500): body')), 'workbench_network_error')
+  assert.equal(classifyTransportError({ name: 'SdkHttpError', status: '500' }), 'workbench_network_error')
+  assert.equal(classifyTransportError(' boom '), 'workbench_network_error')
+  assert.equal(classifyTransportError(undefined), 'workbench_network_error')
+})
+
+test('K1：401 / 403 → workbench_unauthorized，不带 payload，message 不含响应体', async () => {
+  for (const status of [401, 403]) {
+    const fixture = await startWorkbenchFixture()
+    fixture.setFault(status)
+    const booted = await boot({ fixture })
+    const error = await assertRejects(
+      () => booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {}),
+      'workbench_unauthorized',
+      `HTTP ${String(status)} 投影鉴权失败`,
+    )
+    assert.equal(error.payload, undefined, '传输层失败不带业务 envelope')
+    assert.equal(error.message.includes('secret-upstream-body-must-not-leak'), false, '响应体不进入 message')
+  }
+})
+
+test('K2：500 / 503 / 429 → workbench_server_error', async () => {
+  for (const status of [500, 503, 429]) {
+    const fixture = await startWorkbenchFixture()
+    const booted = await boot({ fixture })
+    await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+    fixture.setFault(status)
+    await assertRejects(
+      () => booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {}),
+      'workbench_server_error',
+      `HTTP ${String(status)} 投影服务端故障`,
+    )
+    fixture.setFault(null)
+    const outcome = await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {})
+    assert.deepEqual(outcome.structuredContent, { ok: true, tool: 'workbench_wx_work_list' })
+  }
+})
+
+test('K3：404 → workbench_protocol_error，连接失效后下一次调用重新握手', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture })
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+  fixture.setFault(404)
+  await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {}),
+    'workbench_protocol_error',
+    '404 投影协议错误',
+  )
+  fixture.setFault(null)
+  // 缓存连接上的单次调用只增加 1 个请求（tools/call）；重连则会重新 initialize。
+  const requestsBefore = fixture.authorization.length
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_work_list', {})
+  const growth = fixture.authorization.length - requestsBefore
+  assert.ok(growth >= 2, `失效后重连应重新握手（实际新增 ${String(growth)} 个请求）`)
+  assert.ok(fixture.authorization.slice(requestsBefore).every(value => value === 'Bearer test-model-key'), '重连仍携带同一 key')
+})
+
+test('K4：未广播先稳定投影；服务端新增工具后下一次调用先刷新广播再成功', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture, clock: true })
+  const toolName = 'workbench_wx_not_deployed_yet'
+  await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'wx', toolName, {}),
+    'workbench_tool_unavailable',
+    '连接窗口内的未广播工具不发请求',
+  )
+  assert.equal(booted.fixture.toolCalls.length, 0, '未广播不发 tools/call')
+  const requestsBefore = fixture.authorization.length
+  fixture.addExtraTool(toolName)
+  clockMs += 61_000
+  const outcome = await booted.service.callTool('wx-workbench', 'wx', toolName, {})
+  assert.deepEqual(outcome.structuredContent, { ok: true, tool: toolName })
+  const growth = fixture.authorization.length - requestsBefore
+  assert.ok(growth >= 2, `刷新路径应先发 tools/list 再发 tools/call（实际新增 ${String(growth)} 个请求）`)
+  assert.deepEqual(fixture.toolCalls, [toolName])
+})
+
+test('K5：60 秒窗口内连续两次未广播只刷一次 tools/list（注入时钟）', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture, clock: true })
+  const missingA = 'workbench_wx_missing_a'
+  const missingB = 'workbench_wx_missing_b'
+  // 先建立连接（连接期 tools/list 计入刷新窗口起点），再前拨时钟到满窗。
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+  clockMs += 61_000
+  await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'wx', missingA, {}),
+    'workbench_tool_unavailable',
+    '满窗后第一次未广播触发刷新后仍投影',
+  )
+  const requestsAfterFirstRefresh = fixture.authorization.length
+  // 刷新发生在第一次调用内完成，这里只验证窗口内不再刷。
+  clockMs += 10_000
+  await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'wx', missingB, {}),
+    'workbench_tool_unavailable',
+    '窗口内第二次未广播不刷新',
+  )
+  assert.equal(fixture.authorization.length, requestsAfterFirstRefresh, '窗口内的未广播调用不发任何请求')
+})
+
+test('K8：未广播触发的刷新遇 401 → workbench_unauthorized 且连接失效，下一次调用重新握手', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture, clock: true })
+  const toolName = 'workbench_wx_not_deployed_yet'
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+  clockMs += 61_000
+  fixture.setFault(401)
+  await assertRejects(
+    () => booted.service.callTool('wx-workbench', 'wx', toolName, {}),
+    'workbench_unauthorized',
+    '刷新阶段的鉴权失败同样投影鉴权码',
+  )
+  fixture.setFault(null)
+  fixture.addExtraTool(toolName)
+  const requestsBefore = fixture.authorization.length
+  const outcome = await booted.service.callTool('wx-workbench', 'wx', toolName, {})
+  assert.deepEqual(outcome.structuredContent, { ok: true, tool: toolName })
+  const growth = fixture.authorization.length - requestsBefore
+  assert.ok(growth >= 3, `刷新 401 后连接已失效，下一次调用应重新握手（initialize + tools/list + tools/call，实际新增 ${String(growth)} 个请求）`)
+})
+
+test('K9：并发未广播调用共享单飞刷新，只产生一次 tools/list 请求（注入时钟 + 请求延迟）', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture, clock: true })
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+  const baseline = fixture.authorization.length
+  const missingA = 'workbench_wx_missing_a'
+  const missingB = 'workbench_wx_missing_b'
+  clockMs += 61_000
+  fixture.setRequestDelay(150)
+  const first = booted.service.callTool('wx-workbench', 'wx', missingA, {})
+  const second = booted.service.callTool('wx-workbench', 'wx', missingB, {})
+  await assertRejects(() => first, 'workbench_tool_unavailable', '并发未广播调用 a')
+  await assertRejects(() => second, 'workbench_tool_unavailable', '并发未广播调用 b')
+  fixture.setRequestDelay(null)
+  assert.equal(fixture.authorization.length - baseline, 1, '两个并发未广播调用只产生一次刷新请求')
+})
+
+/** 等刷新请求真正到达假 server（authorization 计数超过基线），带超时上限。 */
+async function waitForRefreshArrival(fixture: WorkbenchFixture, baseline: number): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (fixture.authorization.length <= baseline) {
+    if (Date.now() > deadline) throw new Error('refresh request never reached the fixture')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+}
+
+test('K10：并发未广播调用——首发调用方取消刷新后，未取消的后到者以自己的结果收尾', async () => {
+  const fixture = await startWorkbenchFixture()
+  const booted = await boot({ fixture, clock: true })
+  await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+  clockMs += 61_000
+  fixture.setRequestDelay(150)
+  const baseline = fixture.authorization.length
+  const toolCallsBaseline = fixture.toolCalls.length
+  const controller = new AbortController()
+  const first = booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_missing_a', {}, controller.signal)
+  const second = booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_missing_b', {})
+  // 等刷新请求真正到达服务端再取消，避免启动竞态（写法同「卸载中止 in-flight」用例）。
+  await waitForRefreshArrival(fixture, baseline)
+  controller.abort()
+  await assertRejects(() => first, 'workbench_call_cancelled', '首发调用方取消刷新')
+  await assertRejects(() => second, 'workbench_tool_unavailable', '未取消的后到者以自己的剩余预算重试后收尾')
+  fixture.setRequestDelay(null)
+  // 首发刷新 + 后到者重试共两次 tools/list；SDK 对被中止的在途请求按协议补发
+  // 一条 notifications/cancelled POST，故总请求增量为 3。
+  assert.equal(fixture.authorization.length - baseline, 3, '两次 tools/list + 一条协议取消通知')
+  assert.equal(fixture.toolCalls.length, toolCallsBaseline, '全程零新增 tools/call')
+})
+
+test('K11：刷新在途时卸载 / 凭证更新，本次调用作废', async () => {
+  // (a) 卸载：悬挂刷新在途时 dispose，本次调用以 workbench_unavailable 收尾且不发 tools/call。
+  {
+    const fixture = await startWorkbenchFixture()
+    const booted = await boot({ fixture, clock: true })
+    await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+    clockMs += 61_000
+    fixture.setRequestDelay(150)
+    const baseline = fixture.authorization.length
+    const toolCallsBaseline = fixture.toolCalls.length
+    const pending = booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_missing_a', {})
+    await waitForRefreshArrival(fixture, baseline)
+    await booted.ctx.fiber.dispose()
+    await assertRejects(() => pending, 'workbench_unavailable', '刷新在途卸载使本次调用作废')
+    fixture.setRequestDelay(null)
+    assert.equal(fixture.toolCalls.length, toolCallsBaseline, '作废的调用不发 tools/call')
+  }
+  // (b) 凭证更新：悬挂刷新在途时轮换 key，本次调用作废，下一次调用重新握手。
+  {
+    const fixture = await startWorkbenchFixture()
+    const booted = await boot({ fixture, clock: true })
+    await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+    clockMs += 61_000
+    fixture.setRequestDelay(150)
+    const baseline = fixture.authorization.length
+    const pending = booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_missing_a', {})
+    await waitForRefreshArrival(fixture, baseline)
+    booted.emitCredentialUpdate()
+    await assertRejects(() => pending, 'workbench_unavailable', '刷新在途凭证更新使本次调用作废')
+    fixture.setRequestDelay(null)
+    const requestsBefore = fixture.authorization.length
+    const outcome = await booted.service.callTool('wx-workbench', 'wx', 'workbench_wx_account_list', {})
+    assert.deepEqual(outcome.structuredContent, { ok: true, tool: 'workbench_wx_account_list' })
+    const growth = fixture.authorization.length - requestsBefore
+    assert.ok(growth >= 2, `失效后重连应重新握手（实际新增 ${String(growth)} 个请求）`)
+  }
 })

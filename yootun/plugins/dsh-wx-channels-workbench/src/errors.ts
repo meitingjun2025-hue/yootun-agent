@@ -6,7 +6,7 @@
  */
 
 /** 服务端稳定错误码超集（tools 网关 ValueError/BusinessError/幂等层产出）。 */
-export const SERVER_ERROR_CODES = Object.freeze([
+const SERVER_ERROR_CODE_VALUES = [
   'ACCOUNT_NOT_FOUND',
   'ACCOUNT_NOT_ACCESSIBLE',
   'CONFIRMATION_REQUIRED',
@@ -35,10 +35,12 @@ export const SERVER_ERROR_CODES = Object.freeze([
   'IDEMPOTENCY_IN_PROGRESS',
   'IDEMPOTENCY_OUTCOME_UNKNOWN',
   'IDEMPOTENCY_KEY_REQUIRED',
-])
+] as const
+
+export const SERVER_ERROR_CODES = Object.freeze([...SERVER_ERROR_CODE_VALUES])
 
 /** 本域（设备端）稳定错误码。 */
-export const LOCAL_ERROR_CODES = Object.freeze([
+const LOCAL_ERROR_CODE_VALUES = [
   'GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING',
   'WX_SESSION_INVALID',
@@ -61,10 +63,21 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'auth_data_unavailable',
   'account_mismatch',
   'LOCAL_CLEARED_REQUIRED',
-])
+  // Host action 传输收敛码（2026-11-26 起 kit createHostAction 统一产出）。
+  'host_unreachable',
+  // 批量采集批内熔断批次原因 / 条目原因（2026-11-26 起，wx-collect-all-concurrency）。
+  'risk_paused',
+  // 批量取消批次 / 条目原因与采集启动空账号 ID（2026-11-26 起，wx-collect-all-concurrency 补齐）。
+  'collect_cancelled',
+  'account_id_required',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
+] as const
 
-/** 全部对外合法码值（路由 reason / run reason 的唯一合法取值）。 */
-export const STABLE_ERROR_CODES = Object.freeze([...SERVER_ERROR_CODES, ...LOCAL_ERROR_CODES])
+export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])
+
+/** 全部对外合法码值（路由 reason / run reason 的唯一合法取值；`LOCAL_CLEARED_REQUIRED` 服务端与本域同码，去重）。 */
+export const STABLE_ERROR_CODES = Object.freeze([...new Set([...SERVER_ERROR_CODES, ...LOCAL_ERROR_CODES])])
 
 export type StableErrorCode = typeof STABLE_ERROR_CODES[number]
 
@@ -102,9 +115,11 @@ export function serverCodeOf(error: unknown): string | undefined {
 
 /**
  * Normalize any thrown cause into a stable code. Workbench business failures
- * project their server code (when whitelisted); transport/protocol failures
- * project `WX_TOOL_UNAVAILABLE`; session-invalid keeps its dedicated code;
- * everything else collapses to the local fallback.
+ * project their server code (when whitelisted); connector transport failures
+ * project by their stable code（2026-11-26 起 `workbench_unauthorized` 显式投影
+ * `UNAUTHORIZED`、`workbench_server_error` 显式投影 `WX_TOOL_UNAVAILABLE`，其余
+ * 传输/协议失败收敛 `WX_TOOL_UNAVAILABLE`）; session-invalid keeps its dedicated
+ * code; everything else collapses to the local fallback.
  * @param error - anything thrown.
  * @returns one of {@link STABLE_ERROR_CODES}.
  */
@@ -113,7 +128,11 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+  // 连接器新码显式投影（分册 08 §5.2：鉴权失败不伪装成通用服务不可用）。
+  if (direct === 'workbench_unauthorized') return 'UNAUTHORIZED'
+  if (direct === 'workbench_server_error') return 'WX_TOOL_UNAVAILABLE'
   if (direct === 'WX_SESSION_INVALID') return 'WX_SESSION_INVALID'
   if (direct === 'GOOGLE_CHROME_MISSING') return 'GOOGLE_CHROME_MISSING'
   if (direct === 'PLAYWRIGHT_DRIVER_MISSING') return 'PLAYWRIGHT_DRIVER_MISSING'

@@ -1,5 +1,5 @@
 /**
- * 已实现 16 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
+ * 已实现 30 项 action 的 Host 实现（与 route.ts allowlist 同数；依赖注入面 + 处理器表）。登录/采集均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；profile
  * 互斥按旧口径即时占（登录/采集全程持锁，probe/删除 try 语义立即拒绝）。响应
  * 形状沿用旧路由契约（status: ready/started/created/error），client 半按同形状
@@ -8,9 +8,10 @@
  * @module
  */
 import type { BrowserStatus, ChromeFactory } from './chrome.ts'
+import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { safeCode, STABLE_ERROR_CODES, type StableErrorCode } from './errors.ts'
 import { acquireProfileLock, isProfileLocked, tryWithProfileLock, type ProfileLockRelease } from './locks.ts'
-import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
+import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { CollectError, collectNotes, summarizeSnapshot, type SnapshotSummary } from './collector.ts'
 import { PublishError, publishDraft } from './publisher.ts'
 import {
@@ -107,7 +108,7 @@ export interface LoginRun {
 export interface CollectRun {
   collectId: string
   accountId: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
   pagesDone: number
   notesTotal: number
   truncated: boolean
@@ -138,6 +139,12 @@ export interface XhsHostDeps {
   taskRegistry: TaskRegistry
   /** dispose 开始后 route handler 稳定拒绝新 action（稳定码 plugin_disposing）。 */
   disposing: boolean
+  /** 卸载预算毫秒（Config.disposeBudgetMs 透传；dispose 收口用）。 */
+  disposeBudgetMs: number
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs: number
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs: number
   /** 扫码登录等待上限（测试注入短值；生产为 10 分钟旧口径）。 */
   loginTimeoutMs: number
   loginRuns: Map<string, LoginRun>
@@ -156,6 +163,9 @@ export interface XhsHostDeps {
 /**
  * Assemble the Host deps.
  * @param options - root/workbench/browserStatus/logger/chromeFactory/registry seams.
+ * @param options.disposeBudgetMs - dispose wait budget (Config.disposeBudgetMs; defaults to 20000).
+ * @param options.browserCloseTimeoutMs - browser close budget (Config.browserCloseTimeoutMs; defaults to 8000).
+ * @param options.launchTimeoutMs - Chrome launch budget (Config.launchTimeoutMs; defaults to 60000).
  * @returns the deps bundle.
  */
 export function createXhsHostDeps(options: {
@@ -165,6 +175,9 @@ export function createXhsHostDeps(options: {
   logger: { warn(message: string): void }
   chromeFactory?: ChromeFactory
   taskRegistry?: TaskRegistry
+  disposeBudgetMs?: number
+  browserCloseTimeoutMs?: number
+  launchTimeoutMs?: number
 }): XhsHostDeps {
   return {
     root: options.root,
@@ -174,6 +187,9 @@ export function createXhsHostDeps(options: {
     chromeFactory: options.chromeFactory,
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
     disposing: false,
+    disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
+    browserCloseTimeoutMs: options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS,
+    launchTimeoutMs: options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS,
     loginTimeoutMs: LOGIN_TIMEOUT_MS,
     loginRuns: new Map(),
     loginSignals: new Map(),
@@ -483,6 +499,9 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
 
     'accounts.list': async () => {
       const local = await readAccounts(deps.root)
+      // 发布窗口投影：存在 running 发布 run 即该账号浏览器窗口仍打开；run 落终态
+      // （context close）后标识自然消失，不另起轮询。
+      const openAccounts = new Set([...deps.publishRuns.values()].filter(publishRun => publishRun.status === 'running').map(publishRun => publishRun.accountId))
       const accounts: Array<Record<string, unknown>> = []
       for (const record of Object.values(local.accounts)) {
         if (record === null || typeof record !== 'object' || typeof record.accountId !== 'string' || record.accountId === '') continue
@@ -493,6 +512,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           sessionStatus: record.sessionStatus ?? 'unknown',
           sessionCheckedAt: record.sessionCheckedAt ?? null,
           lastCollectedAt: record.lastCollectedAt ?? null,
+          publishWindowOpen: openAccounts.has(record.accountId),
         }
         const summary = await projectSnapshotSummary(deps, record.accountId)
         if (summary !== null) entry.summary = summary
@@ -527,6 +547,9 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         timeoutMs: deps.loginTimeoutMs,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         isResolvedBusy: isProfileLocked,
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
       }).then(async (result: LoginResult) => {
@@ -582,17 +605,23 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       deps.probeSignals.set(accountId, controller)
       try {
         const attempt = await tryWithProfileLock(accountId, () =>
-          probeSession({ accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal: controller.signal }))
+          probeSession({
+            accountId,
+            root: deps.root,
+            chromeFactory: deps.chromeFactory,
+            signal: controller.signal,
+            launchTimeoutMs: deps.launchTimeoutMs,
+            browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+            onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+            trackCleanup: promise => { deps.taskRegistry.track(promise) },
+          }))
         if (!attempt.acquired) return { status: 'error', reason: 'PROFILE_BUSY' }
         const result = attempt.result
         if (result.status === 'ok' || result.status === 'expired') {
           return { status: 'ready', accountId, sessionStatus: result.status }
         }
         // unknown（浏览器/驱动异常）→ 受控 PROBE_FAILED / 专码，不透出原始异常名。
-        const reason = (STABLE_ERROR_CODES as readonly string[]).includes(result.reason ?? '')
-          ? result.reason as string
-          : 'PROBE_FAILED'
-        return { status: 'error', reason }
+        return errorPayload(stableOr(result.reason ?? '', 'PROBE_FAILED'))
       } finally {
         if (deps.probeSignals.get(accountId) === controller) deps.probeSignals.delete(accountId)
       }
@@ -636,18 +665,38 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         root: deps.root,
         chromeFactory: deps.chromeFactory,
         signal: controller.signal,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+        trackCleanup: promise => { deps.taskRegistry.track(promise) },
         onProgress: progress => {
           if (deps.collectRuns.get(collectId) !== run) return
           run.pagesDone = Number.isFinite(progress.pagesDone) ? progress.pagesDone : run.pagesDone
           run.notesTotal = Number.isFinite(progress.notesTotal) ? progress.notesTotal : run.notesTotal
         },
       }).then(result => {
+        // 迟到成功不覆盖取消终态（快照检查点之后的极小窗口内 abort 已受理）：
+        // 投影保持 cancelled，不回写已完成摘要。
+        if (controller.signal.aborted === true) {
+          run.status = 'cancelled'
+          run.error = 'collect_cancelled'
+          return
+        }
         run.status = 'completed'
         run.pagesDone = result.pagesDone
         run.notesTotal = result.notesTotal
         run.summary = result.summary
         run.truncated = result.truncated === true
       }).catch((error: unknown) => {
+        // 取消终态只认本 run 的 abort 信号：collect.cancel 已直接置 cancelled /
+        // collect_cancelled；abort 后仍抛出的带码 CollectError（如迟到的
+        // SESSION_EXPIRED）不得改判为普通失败（XH4）。非取消失败维持 failed 原码。
+        if (controller.signal.aborted === true) {
+          run.status = 'cancelled'
+          run.error = 'collect_cancelled'
+          return
+        }
+        if (run.status === 'cancelled') return
         run.status = 'failed'
         run.error = error instanceof CollectError && (STABLE_ERROR_CODES as readonly string[]).includes(error.code)
           ? error.code
@@ -663,6 +712,23 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const collectId = stringValue(args, 'collectId')
       const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
       if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
+      return { status: 'ready', collect: projectCollect(run) }
+    },
+
+    // 采集取消（1126 xhs-collect-cancel-and-publish-state §2.1）：abort 该 run 的
+    // controller 并同步落取消终态；锁由采集 promise 的既有 finally 释放。
+    'collect.cancel': async args => {
+      const collectId = stringValue(args, 'collectId')
+      const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
+      // 未知 run 与 collect.status 同口径。
+      if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
+      if (run.status !== 'running') {
+        // 已是终态：原样返回既有投影，不改写（取消与自然结束竞争时幂等）。
+        return { status: 'ready', collect: projectCollect(run) }
+      }
+      deps.collectSignals.get(collectId)?.abort()
+      run.status = 'cancelled'
+      run.error = 'collect_cancelled'
       return { status: 'ready', collect: projectCollect(run) }
     },
 
@@ -691,13 +757,18 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       deps.publishIdempotency.set(idempotencyKey, publishId)
       // 打开发布页是后台动作：立即返回 started。完成后浏览器保持打开（README §5.3）
       // ——互斥锁随浏览器窗口生命周期：onContext 挂钩后由 context close 释放；
-      // 早期失败（context 未创建）由 finally 释放（审查 P1）。
+      // 早期失败（context 未创建，含启动超预算）由 finally 释放（审查 P1）。
+      // 发布 promise 纳入任务登记表（dispose 等待；含迟到的启动清理）。
       let contextHooked = false
-      void publishDraft({
+      deps.taskRegistry.track(publishDraft({
         accountId,
         target: target as 'image' | 'video',
         root: deps.root,
         chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+        trackCleanup: promise => { deps.taskRegistry.track(promise) },
         onStep: step => {
           if (deps.publishRuns.get(publishId) !== run) return
           run.step = step
@@ -706,7 +777,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           contextHooked = true
           context.once('close', () => { release() })
         },
-      }).then(() => {
+      })).then(() => {
         run.status = 'completed'
         run.step = 'done'
       }).catch((error: unknown) => {

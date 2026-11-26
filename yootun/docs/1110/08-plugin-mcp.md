@@ -149,7 +149,12 @@ credentials.resolve(MODELS_API_KEY) 返回非空值
 | key 更新 | dispose 旧 client 后重建 |
 | key 移除 | dispose client，工作台与普通会话均不可用 |
 | 网络初始连接失败 | 不阻塞桌面启动，保留重连策略，不伪造工具可用 |
-| 插件卸载 | dispose client 并释放所有 effect |
+| 重连耗尽（官方 `failed`） | 监督器订阅状态句柄按退避自愈重建，无需任何门禁事件；`connected` 复位退避 |
+| 插件卸载 | dispose client 并释放所有 effect 与待触发的重建定时器 |
+
+自愈退避（2026-11-26 起）：基值 30 秒（Config `rebuildBackoffMs`，1000..600000）、×2 倍增、上限 = max(基值, 5 分钟)、抖动 ±20%；`failed` 已有待触发定时器则忽略（一次失败只对应一次重建），`connected` 复位到基值；`dispose` 清除定时器与状态订阅。
+
+设置页状态出口（2026-11-26 起）：`POST /api/desktop/yootun/agent-status` 返回监督器只读快照 `{ status: 'ok', state, attempt, since, count, retryAt? }`，`state` 取值 `disabled`（门禁未通过，attempt 为 0）/ `connecting` / `connected` / `failed`（带下次重建时间 `retryAt`）/ `waiting-credentials`；体可省略，有体时必须是空对象；插件卸载中 503 `plugin_disposing`；信任判定同 §10.3；响应不含 key、URL 或任何凭证相关信息。设置区块「智能体工具」行按此轮询（可见时每 5 秒）。
 
 transport headers：
 
@@ -208,9 +213,20 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 7. 错误 envelope 安全投影；
 8. 新 domain/tool 审计辅助信息。
 
-连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具返回 `workbench_tool_unavailable`，不发请求。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
+连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具，先按 60 秒窗口刷新一次广播集合再判定，仍不在则返回 `workbench_tool_unavailable`，不发请求（2026-11-26 起，服务端发版新增工具后无需重启或换密钥即可用）。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
 
-连接器稳定码在 Host 侧的投影（2026-11-24 起）：抖音工作台以受 `WorkbenchErrorCode` 约束的登记表原样投影全部连接器稳定码，连接器新增稳定码而未登记时该包 `build` 类型报错，`workbench_tool_unavailable` 有对应的中英文文案；小红书、视频号工作台与 media-upload 对连接器稳定码统一投影到各自的兜底码，不逐码登记。
+传输层失败按错误类型与 HTTP 状态分类（2026-11-26 起，按 `@modelcontextprotocol/client` 2.2.0 实际导出核对；不解析消息文本）：
+
+| 稳定码 | 触发 |
+|---|---|
+| `workbench_unauthorized` | HTTP 401 / 403（含 SDK 的 `UnauthorizedError`） |
+| `workbench_server_error` | HTTP ≥ 500、408、429 |
+| `workbench_protocol_error` | 其它 4xx（含 404 / 410：端点不存在或已下线）与 `serverName` 不匹配 |
+| `workbench_network_error` | 连接被拒、DNS、TLS、socket 挂起、SDK 内部超时等其它传输异常 |
+
+连接、`tools/list`、广播刷新与 `tools/call` 阶段的失败走同一张表；`workbench_unauthorized` 与 `workbench_protocol_error`（404 / 410）发生后连接缓存立即失效，下一次调用重新 `initialize`（服务端无状态，重连无副作用；写操作不自动重试）。
+
+并发的未广播调用共享同一次广播刷新；共享刷新随首发调用方的取消或超时而失败时，未取消的后到调用方以自己的剩余预算重试一次（传输层投影仍由所有等待者原样共享）；刷新在途时连接被失效或插件卸载，本次调用以 `workbench_unavailable` 结束、不发 `tools/call`。
 
 ### 5.3 请求约束
 
@@ -233,7 +249,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 
 ## 6. `@yootun/dsh-media-upload`
 
-旧 `dsh-yootun-tos-upload` 迁移为 `@yootun/dsh-media-upload`，仍是纯 Host 插件。
+旧 `dsh-yootun-tos-upload` 迁移为 `@yootun/dsh-media-upload`，为 Host + client 双半插件（2026-11-26 起带会话工具承接卡片）。
 
 保留本地同源路由：
 
@@ -244,11 +260,24 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 /_dsh/uploader/media
 ```
 
+承接卡片新增两条同源路由（信任判定、体上限、错误码口径与既有四条一致）：
+
+```text
+/_dsh/uploader/pending
+/_dsh/uploader/cancel
+```
+
+`pending` 是只读投影：只返回工具创建（`origin: 'tool'`）且仍在等待或上传中的会话，字段只有 uploadId、kind、state（awaiting 记作 waiting）、取整进度、createdAt 与可选的调用标识 context（工具执行上下文目前只提供 toolCallId）；不含文件名、大小、类型、URL 与任何本地路径。`cancel` 取消一个进行中的会话（不限来源）：宿主先把会话落 `failed`/`user_cancelled` 终态再中止在途直传，工具随之返回 `user_cancelled`；终态会话返回 `not_running`，未知 id 返回 403 `session_not_found`。
+
 保留会话工具：
 
 ```text
 media_upload
 ```
+
+工具创建的会话标 `origin: 'tool'`，`exec` 携带调用标识时写入 `context`；页面 `pick-file` 创建的会话标 `origin: 'page'`，不进入 `pending`。
+
+client 半（`exports["./client"]`）在 `shell.overlay` 注册「上传请求」承接卡片（标注本次请求的短编号；执行上下文没有会话标识，卡片不标注来源会话）：轮询 `pending` 发现工具创建的会话（页面自己发起的上传不触发卡片）、卡片内经原生 file input 选择文件、字节经既有 `uploadStart` 回流直传、按 `uploadStatus` 显示进度、经 `cancel` 路由取消；轮询只在页面可见时进行，`done` 不展示 URL（URL 由工具返回模型）。
 
 授权调用改为 Workbench 面：
 
@@ -265,7 +294,8 @@ workbench_tos_upload_authorize
 - 预签名 URL 不进入响应、日志或会话；
 - 本地路径与 object key 不回传；
 - 上传前后执行 MIME、大小、普通文件、TOCTOU 和授权响应校验；
-- 返回给上层的是公网 URL 和非敏感元信息。
+- 返回给上层的是公网 URL 和非敏感元信息；
+- `pending` 投影只含标识与进度，卡片不泄露文件名、大小、类型与 URL。
 
 ## 7. 三个工作台迁移
 
@@ -531,7 +561,8 @@ tools.dofe.ai dev
 - 本地凭证删除顺序；
 - 崩溃或重启后 run 恢复；
 - MCP 错误稳定投影；
-- 长任务取消无脏状态。
+- 长任务取消无脏状态；
+- 卸载时间预算（`disposeBudgetMs`）与浏览器关闭 / 启动超时（`browserCloseTimeoutMs` / `launchTimeoutMs`）：卸载等登记任务 settle 至多预算，耗尽告警后照常收口；context.close 挂起超时即放弃等待并告警，锁与 finally 清理照常执行；Chrome 启动超时投影稳定码 `browser_launch_timeout`。
 
 ### 12.5 Catalog 面
 

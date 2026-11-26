@@ -1,6 +1,6 @@
 {
   "name": "@yootun/dsh-media-upload",
-  "description": "yootun 媒体上传能力（纯 Host 插件）：/_dsh/uploader/* 同源路由与 media_upload 会话工具，经 Workbench 面授权后预签名直传，不持有 TOS 凭证",
+  "description": "yootun 媒体上传能力（Host + client 双半插件）：/_dsh/uploader/* 同源路由、media_upload 会话工具与会话工具承接上传卡片（client），经 Workbench 面授权后预签名直传，不持有 TOS 凭证",
   "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
@@ -10,19 +10,23 @@
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/index.js",
+    "lib/*.js",
     "lib/types/**/*.d.ts",
     "lib/types/**/*.d.ts.map",
     "lib/**/*.js.map",
     "src"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsdown",
-    "test": "node --test tests/media-upload.test.ts"
+    "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
+    "test": "node --test tests/media-upload.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {
@@ -34,12 +38,32 @@
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-client-locale": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-layout": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-primitives": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-renderer": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-slots": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-tool-executor-native": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
+    "@testing-library/react": "^16.3.3",
     "@yootun/dsh-workbench-mcp": "workspace:*",
+    "jsdom": "29.1.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ],
+      "platform": "web"
+    }
   }
 }

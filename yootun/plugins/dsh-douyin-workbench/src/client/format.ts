@@ -1,16 +1,196 @@
 /**
  * 页面展示格式化与稳定 reason → 文案映射（旧 ui-format.js 的语义迁移，视觉与
  * 实现不迁移）。缺失一律显示「—」不造 0；已知稳定码出可行动文案并附原码，
- * 未知码走通用失败文案并附原码（不透传内部信息）。
+ * 未知码走通用失败文案并附原码（不透传内部信息）。稳定码映射表类型穷尽：
+ * 新增稳定码而未提供文案时本包 `build` 编译报错。
  * @module
  */
-import { zh, type DouyinLocaleKey } from './locales.ts'
+import type { StableErrorCode } from '../errors.ts'
+import { zh } from './locales.ts'
+import type { DouyinLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
 export type Translate = (key: DouyinLocaleKey, values?: Record<string, string | number>) => string
 
 /** 展示占位符（缺失不伪装成 0）。 */
 export const EMPTY = '—'
+
+/**
+ * 稳定 reason → 文案键（稳定码全集类型穷尽，`satisfies` 缺键即编译报错）。
+ * 值优先复用既有 `reason.<CODE>` 词典键，二者皆无的新增 `reason.<CODE>`；多个
+ * 分域对同一码措辞不同的（如 `ASYNC_RUN_NOT_FOUND`），本表取中性措辞、只在
+ * 不带域的展示路径（`reasonText`）生效，分域页面由 `domainErrorText` 优先取
+ * 各域词典。新增稳定码而词典缺文案时本包 `build` 编译报错。
+ */
+const REASON_KEYS: Readonly<Record<StableErrorCode, DouyinLocaleKey>> = {
+  'ACCOUNT_NOT_FOUND': 'reason.ACCOUNT_NOT_FOUND',
+  'ACCOUNT_NOT_ACCESSIBLE': 'reason.ACCOUNT_NOT_ACCESSIBLE',
+  'RUN_NOT_FOUND': 'reason.RUN_NOT_FOUND',
+  'WORK_NOT_FOUND': 'reason.WORK_NOT_FOUND',
+  'RUN_ACCOUNT_MISMATCH': 'reason.RUN_ACCOUNT_MISMATCH',
+  'RUN_NOT_RUNNING': 'reason.RUN_NOT_RUNNING',
+  'RUN_STILL_ACTIVE': 'reason.RUN_STILL_ACTIVE',
+  'RUN_LIST_META_REQUIRED': 'reason.RUN_LIST_META_REQUIRED',
+  'HEARTBEAT_SEQ_REGRESSED': 'reason.HEARTBEAT_SEQ_REGRESSED',
+  'PUBLISH_SINCE_MISMATCH': 'reason.PUBLISH_SINCE_MISMATCH',
+  'DAILY_DAY_IN_FUTURE': 'reason.DAILY_DAY_IN_FUTURE',
+  'UNAUTHORIZED': 'reason.UNAUTHORIZED',
+  'PAYLOAD_TOO_LARGE': 'reason.PAYLOAD_TOO_LARGE',
+  'DOUYIN_EXPORT_TOO_LARGE': 'reason.DOUYIN_EXPORT_TOO_LARGE',
+  'INVALID_CURSOR': 'reason.INVALID_CURSOR',
+  'INVALID_SORT': 'reason.INVALID_SORT',
+  'RULE_VERSION_MISMATCH': 'reason.RULE_VERSION_MISMATCH',
+  'INVALID_TIME_WINDOW': 'reason.INVALID_TIME_WINDOW',
+  'INVALID_METRIC': 'reason.INVALID_METRIC',
+  'CONTRACT_VERSION_MISMATCH': 'reason.CONTRACT_VERSION_MISMATCH',
+  'TREND_RANGE_TOO_LARGE': 'reason.TREND_RANGE_TOO_LARGE',
+  'OVERVIEW_SAMPLE_TOO_LARGE': 'reason.OVERVIEW_SAMPLE_TOO_LARGE',
+  'AI_ANALYSIS_RUNNING': 'ai.error.AI_ANALYSIS_RUNNING',
+  'AI_ANALYSIS_GLOBAL_CONCURRENCY_LIMIT': 'ai.error.AI_ANALYSIS_GLOBAL_CONCURRENCY_LIMIT',
+  'AI_ANALYSIS_INSUFFICIENT_DATA': 'ai.error.AI_ANALYSIS_INSUFFICIENT_DATA',
+  'AI_ANALYSIS_MODEL_FAILED': 'ai.error.AI_ANALYSIS_MODEL_FAILED',
+  'AI_ANALYSIS_SCHEMA_INVALID': 'ai.error.AI_ANALYSIS_SCHEMA_INVALID',
+  'AI_ANALYSIS_TIMEOUT': 'ai.error.AI_ANALYSIS_TIMEOUT',
+  'AI_ANALYSIS_ENQUEUE_FAILED': 'ai.error.AI_ANALYSIS_ENQUEUE_FAILED',
+  'AI_ANALYSIS_MODEL_CONFIG_MISSING': 'ai.error.AI_ANALYSIS_MODEL_CONFIG_MISSING',
+  'AI_ANALYSIS_PROMPT_INVALID': 'ai.error.AI_ANALYSIS_PROMPT_INVALID',
+  'REPORT_NOT_FOUND': 'report.error.REPORT_NOT_FOUND',
+  'REPORT_DISABLED': 'report.error.REPORT_DISABLED',
+  'REPORT_INSUFFICIENT_DATA': 'report.error.REPORT_INSUFFICIENT_DATA',
+  'REPORT_MODEL_FAILED': 'report.error.REPORT_MODEL_FAILED',
+  'REPORT_SCHEMA_INVALID': 'report.error.REPORT_SCHEMA_INVALID',
+  'REPORT_TIMEOUT': 'report.error.REPORT_TIMEOUT',
+  'REPORT_TRUNCATED': 'report.error.REPORT_TRUNCATED',
+  'REPORT_INPUT_TOO_LARGE': 'report.error.REPORT_INPUT_TOO_LARGE',
+  'REPORT_PAYLOAD_TOO_LARGE': 'report.error.REPORT_PAYLOAD_TOO_LARGE',
+  'REPORT_ENQUEUE_FAILED': 'report.error.REPORT_ENQUEUE_FAILED',
+  'REPORT_MODEL_CONFIG_MISSING': 'report.error.REPORT_MODEL_CONFIG_MISSING',
+  'REPORT_LEASE_EXPIRED': 'report.error.REPORT_LEASE_EXPIRED',
+  'REPORT_PROMPT_INVALID': 'report.error.REPORT_PROMPT_INVALID',
+  'OWNER_NAME_REQUIRED': 'reason.OWNER_NAME_REQUIRED',
+  'OWNER_NAME_INVALID': 'reason.OWNER_NAME_INVALID',
+  'PROMOTION_ALREADY_EXISTS': 'reason.PROMOTION_ALREADY_EXISTS',
+  'PROMOTION_NOT_FOUND': 'reason.PROMOTION_NOT_FOUND',
+  'PROMOTION_FIELD_REQUIRED': 'reason.PROMOTION_FIELD_REQUIRED',
+  'PROMOTION_VALUE_INVALID': 'reason.PROMOTION_VALUE_INVALID',
+  'TOO_MANY_ACCOUNTS': 'reason.TOO_MANY_ACCOUNTS',
+  'SCHEDULE_ROW_NOT_FOUND': 'schedule.error.SCHEDULE_ROW_NOT_FOUND',
+  'SCHEDULE_ROW_CONFLICT': 'schedule.error.SCHEDULE_ROW_CONFLICT',
+  'SCHEDULE_VALIDATION_ERROR': 'schedule.error.SCHEDULE_VALIDATION_ERROR',
+  'ASYNC_RUN_NOT_FOUND': 'reason.ASYNC_RUN_NOT_FOUND',
+  'UNKNOWN_REWRITE_RULE': 'bd.error.UNKNOWN_REWRITE_RULE',
+  'CANDIDATE_NOT_FOUND': 'bd.error.CANDIDATE_NOT_FOUND',
+  'STORYBOARD_NOT_READY': 'bd.error.STORYBOARD_NOT_READY',
+  'DOUYIN_DOWNLOAD_URL_MISSING': 'reason.DOUYIN_DOWNLOAD_URL_MISSING',
+  'PROVIDER_ERROR': 'bd.error.PROVIDER_ERROR',
+  'ONEAPI_BUDGET_EXHAUSTED': 'bd.error.ONEAPI_BUDGET_EXHAUSTED',
+  'DOWNLOAD_JOB_NOT_FOUND': 'bd.error.DOWNLOAD_JOB_NOT_FOUND',
+  'DOWNLOAD_JOB_TIMEOUT': 'bd.error.DOWNLOAD_JOB_TIMEOUT',
+  'DOWNLOAD_JOB_NOT_CLAIMABLE': 'reason.DOWNLOAD_JOB_NOT_CLAIMABLE',
+  'DOUYIN_VIDEO_DOWNLOAD_FAILED': 'reason.DOUYIN_VIDEO_DOWNLOAD_FAILED',
+  'DOUYIN_TOS_UPLOAD_FAILED': 'reason.DOUYIN_TOS_UPLOAD_FAILED',
+  'TOS_PRESIGN_FAILED': 'reason.TOS_PRESIGN_FAILED',
+  'VIRAL_VIDEO_NO_ACTIVE_SEEDS': 'mat.error.VIRAL_VIDEO_NO_ACTIVE_SEEDS',
+  'VIRAL_VIDEO_ACTIVE_RUN_EXISTS': 'mat.error.VIRAL_VIDEO_ACTIVE_RUN_EXISTS',
+  'VIRAL_VIDEO_SEED_LIMIT_INVALID': 'mat.error.VIRAL_VIDEO_SEED_LIMIT_INVALID',
+  'VIRAL_VIDEO_SEARCH_DISPATCH_FAILED': 'mat.error.VIRAL_VIDEO_SEARCH_DISPATCH_FAILED',
+  'KNOWLEDGE_NOT_FOUND': 'gene.error.KNOWLEDGE_NOT_FOUND',
+  'GENE_NOT_READY': 'gene.error.GENE_NOT_READY',
+  'GENE_EXTRACT_RUNNING': 'gene.error.GENE_EXTRACT_RUNNING',
+  'GENE_INPUT_MISSING': 'gene.error.GENE_INPUT_MISSING',
+  'GENE_EXTRACT_MODEL_FAILED': 'gene.error.GENE_EXTRACT_MODEL_FAILED',
+  'GENE_EXTRACT_TIMEOUT': 'gene.error.GENE_EXTRACT_TIMEOUT',
+  'GENE_EXTRACT_PARSE_FAILED': 'gene.error.GENE_EXTRACT_PARSE_FAILED',
+  'GENE_EXTRACT_QUALITY_FAILED': 'gene.error.GENE_EXTRACT_QUALITY_FAILED',
+  'GENE_EXTRACT_LEASE_EXPIRED': 'gene.error.GENE_EXTRACT_LEASE_EXPIRED',
+  'GENE_EXTRACT_DISABLED': 'gene.error.GENE_EXTRACT_DISABLED',
+  'INVALID_IDEMPOTENCY_KEY': 'reason.INVALID_IDEMPOTENCY_KEY',
+  'IDEMPOTENCY_KEY_REQUIRED': 'reason.IDEMPOTENCY_KEY_REQUIRED',
+  'CONFIRMATION_REQUIRED': 'reason.CONFIRMATION_REQUIRED',
+  'VALIDATION_ERROR': 'reason.VALIDATION_ERROR',
+  'IDEMPOTENCY_CONFLICT': 'reason.IDEMPOTENCY_CONFLICT',
+  'IDEMPOTENCY_IN_PROGRESS': 'reason.IDEMPOTENCY_IN_PROGRESS',
+  'IDEMPOTENCY_OUTCOME_UNKNOWN': 'reason.IDEMPOTENCY_OUTCOME_UNKNOWN',
+  'GOOGLE_CHROME_MISSING': 'reason.GOOGLE_CHROME_MISSING',
+  'PLAYWRIGHT_DRIVER_MISSING': 'reason.PLAYWRIGHT_DRIVER_MISSING',
+  'browser_launch_timeout': 'reason.browser_launch_timeout',
+  'workbench_not_activated': 'reason.workbench_not_activated',
+  'workbench_credential_unavailable': 'reason.workbench_credential_unavailable',
+  'workbench_tool_denied': 'reason.workbench_tool_denied',
+  'workbench_tool_unavailable': 'reason.workbench_tool_unavailable',
+  'workbench_call_timeout': 'reason.workbench_call_timeout',
+  'workbench_call_cancelled': 'reason.workbench_call_cancelled',
+  'workbench_network_error': 'reason.workbench_network_error',
+  'workbench_protocol_error': 'reason.workbench_protocol_error',
+  'workbench_call_failed': 'reason.workbench_call_failed',
+  'workbench_unavailable': 'reason.workbench_unavailable',
+  'workbench_unauthorized': 'reason.workbench_unauthorized',
+  'workbench_server_error': 'reason.workbench_server_error',
+  'DOUYIN_TOOL_UNAVAILABLE': 'reason.DOUYIN_TOOL_UNAVAILABLE',
+  'DOUYIN_ROUTE_UNKNOWN_ACTION': 'reason.DOUYIN_ROUTE_UNKNOWN_ACTION',
+  'DOUYIN_ROUTE_INVALID_REQUEST': 'reason.DOUYIN_ROUTE_INVALID_REQUEST',
+  'DOUYIN_ROUTE_PAYLOAD_TOO_LARGE': 'reason.DOUYIN_ROUTE_PAYLOAD_TOO_LARGE',
+  'DOUYIN_ROUTE_REFUSED': 'reason.DOUYIN_ROUTE_REFUSED',
+  'host_unreachable': 'reason.host_unreachable',
+  'plugin_disposing': 'reason.plugin_disposing',
+  'douyin_operation_request_failed': 'reason.douyin_operation_request_failed',
+  'session_invalid': 'reason.session_invalid',
+  'storage_state_missing': 'reason.storage_state_missing',
+  'login_page_detected': 'reason.login_page_detected',
+  'user_info_unavailable': 'reason.user_info_unavailable',
+  'session_error': 'reason.session_error',
+  'login_timeout': 'reason.login_timeout',
+  'login_failed': 'reason.login_failed',
+  'probe_failed': 'reason.probe_failed',
+  'refresh_failed': 'reason.refresh_failed',
+  'account_save_failed': 'reason.account_save_failed',
+  'run_state_corrupt': 'reason.run_state_corrupt',
+  'recovery_required': 'reason.recovery_required',
+  'login_aborted': 'reason.login_aborted',
+  'identity_not_stable': 'reason.identity_not_stable',
+  'no_session_cookie': 'reason.no_session_cookie',
+  'account_mismatch': 'reason.account_mismatch',
+  'collect_cancelled': 'reason.collect_cancelled',
+  'ingest_failed': 'reason.ingest_failed',
+  'start_failed': 'reason.start_failed',
+  'stale_report': 'reason.stale_report',
+  'session_report_rejected': 'reason.session_report_rejected',
+  'already_ok': 'reason.already_ok',
+  'remote_account_unavailable': 'reason.remote_account_unavailable',
+  'profile_unverified': 'reason.profile_unverified',
+  'account_id_required': 'reason.account_id_required',
+  'work_id_required': 'reason.work_id_required',
+  'run_id_required': 'reason.run_id_required',
+  'share_url_required': 'reason.share_url_required',
+  'candidate_id_required': 'reason.candidate_id_required',
+  'job_id_required': 'reason.job_id_required',
+  'row_id_invalid': 'schedule.error.row_id_invalid',
+  'version_invalid': 'schedule.error.version_invalid',
+  'idempotency_key_required': 'reason.idempotency_key_required',
+  'collect_busy': 'reason.collect_busy',
+  'no_eligible_account': 'reason.no_eligible_account',
+  'session_required': 'reason.session_required',
+  'publish_since_required': 'reason.publish_since_required',
+  'expected_work_count_out_of_range': 'reason.expected_work_count_out_of_range',
+  'cleanup_failed': 'reason.cleanup_failed',
+  'export_too_large': 'reason.export_too_large',
+  'export_failed': 'reason.export_failed',
+  'overview_too_many_accounts': 'reason.overview_too_many_accounts',
+  'risk_paused': 'reason.risk_paused',
+} satisfies Readonly<Record<StableErrorCode, DouyinLocaleKey>>
+
+/**
+ * 运行时 reason → 文案键：不在稳定码全集但页面本地路径会产生且已有词典文案的
+ * 旧取值（不在路由 reason 白名单内，本表只服务页面展示）。
+ */
+const RUNTIME_REASON_KEYS: Readonly<Record<string, DouyinLocaleKey>> = {
+  export_unsupported: 'reason.export_unsupported',
+}
+
+/** 稳定码 → 文案键的运行时查找（REASON_KEYS 的 hasOwn 判定，测试与诊断共用）。 */
+function reasonKeyOf(code: string): DouyinLocaleKey | undefined {
+  return Object.hasOwn(REASON_KEYS, code) ? REASON_KEYS[code as StableErrorCode] : undefined
+}
 
 /**
  * 稳定 reason → 单行文案：已知码给可行动文案并保留原码，未知码给通用文案并
@@ -20,23 +200,26 @@ export const EMPTY = '—'
  * @returns 展示文案。
  */
 export function reasonText(reason: string, t: Translate): string {
-  const key = `reason.${reason}` as DouyinLocaleKey
-  if (zh[key] !== undefined) return `${t(key)}（${reason}）`
+  const key = reasonKeyOf(reason) ?? RUNTIME_REASON_KEYS[reason]
+  if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
 }
 
 /**
- * 分域错误码 → 文案（schedule / report / ai / bd / mat / gene 全表在 locales，
- * 前缀即词典段名；未登记码回退通用文案）。
- * @param domain - 错误文案域（词典前缀）。
+ * 分域错误码 → 文案：缺码回退该域默认文案；词典已有该域的码专属文案
+ * （`${domain}.error.${code}`，各域页面的既有措辞）优先；否则走统一映射
+ * {@linkcode REASON_KEYS}；未登记码回退通用文案并附原码。
+ * @param domain - 错误文案域（默认文案的词典前缀）。
  * @param code - 稳定错误码。
  * @param t - 页面翻译函数。
  * @returns 展示文案。
  */
 export function domainErrorText(domain: 'schedule' | 'report' | 'ai' | 'bd' | 'mat' | 'gene', code: string | null, t: Translate): string {
   if (code === null || code === '') return t(`${domain}.error.default` as DouyinLocaleKey)
-  const key = `${domain}.error.${code}` as DouyinLocaleKey
-  return zh[key] !== undefined ? t(key) : t(`${domain}.error.default` as DouyinLocaleKey)
+  const domainKey = `${domain}.error.${code}`
+  if (Object.hasOwn(zh, domainKey)) return t(domainKey as DouyinLocaleKey)
+  const key = reasonKeyOf(code)
+  return key !== undefined ? t(key) : t('error.unknownWithCode', { code })
 }
 
 /** locale compact 格式化缓存（zh 万/亿、en K/M）。 */

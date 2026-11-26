@@ -289,17 +289,36 @@ describe('错误码词典全表（schedule 18 码 / report 17 码 / AI 9 码）'
     expect(aiKeys.length).toBe(11)
   })
 
-  it('分域文案：已知码出全表文案，未知码回退 default', () => {
+  it('分域文案：分域词典优先，统一映射兜底，未知码回退通用文案并附原码，缺码回退域默认', () => {
+    // 既有域专属码仍走各自分域文案。
     expect(domainErrorText('schedule', 'SCHEDULE_ROW_CONFLICT', t)).toBe(zh['schedule.error.SCHEDULE_ROW_CONFLICT'])
     expect(domainErrorText('report', 'REPORT_TIMEOUT', t)).toBe(zh['report.error.REPORT_TIMEOUT'])
     expect(domainErrorText('ai', 'AI_ANALYSIS_TIMEOUT', t)).toBe(zh['ai.error.AI_ANALYSIS_TIMEOUT'])
-    expect(domainErrorText('schedule', 'NOT_A_CODE', t)).toBe(zh['schedule.error.default'])
+    // 多域措辞不同：同一码在素材页与拆解页各用本域文案（改动前措辞保持）。
+    expect(domainErrorText('mat', 'ASYNC_RUN_NOT_FOUND', t)).toBe(zh['mat.error.ASYNC_RUN_NOT_FOUND'])
+    expect(domainErrorText('bd', 'ASYNC_RUN_NOT_FOUND', t)).toBe(zh['bd.error.ASYNC_RUN_NOT_FOUND'])
+    expect(domainErrorText('mat', 'PROVIDER_ERROR', t)).toBe(zh['mat.error.PROVIDER_ERROR'])
+    // 无分域文案的码走统一映射（REASON_KEYS 的中性措辞）。
+    expect(domainErrorText('mat', 'ACCOUNT_NOT_FOUND', t)).toBe(zh['reason.ACCOUNT_NOT_FOUND'])
+    expect(domainErrorText('mat', 'NOT_A_CODE', t)).toBe(t('error.unknownWithCode', { code: 'NOT_A_CODE' }))
     expect(domainErrorText('report', null, t)).toBe(zh['report.error.default'])
   })
 
   it('通用 reason.*：已知码附原码，未知码走通用文案', () => {
     expect(reasonText('RUN_STILL_ACTIVE', t)).toBe(`${zh['reason.RUN_STILL_ACTIVE']}（RUN_STILL_ACTIVE）`)
     expect(reasonText('CLEANUP_FAILED_X', t)).toBe(t('error.unknownWithCode', { code: 'CLEANUP_FAILED_X' }))
+  })
+
+  it('稳定码全集每个码都有词典文案（REASON_KEYS 编译期穷尽的运行时面）', async () => {
+    const { STABLE_ERROR_CODES } = await import('../../src/errors.ts')
+    for (const code of STABLE_ERROR_CODES) {
+      expect(reasonText(code, t).includes('error.unknownWithCode'), `reasonText ${code}`).toBe(false)
+      expect(domainErrorText('schedule', code, t).includes('error.unknownWithCode'), `domainErrorText ${code}`).toBe(false)
+    }
+    // 连接器新码与 Host 收敛码的口径（分册 08 §5.2 / 实施单 2.7）。
+    expect(reasonText('workbench_unauthorized', t)).toBe(`${zh['reason.workbench_unauthorized']}（workbench_unauthorized）`)
+    expect(reasonText('workbench_server_error', t)).toBe(`${zh['reason.workbench_server_error']}（workbench_server_error）`)
+    expect(reasonText('host_unreachable', t)).toBe(`${zh['reason.host_unreachable']}（host_unreachable）`)
   })
 
   it('报表状态五态词典键齐全', () => {

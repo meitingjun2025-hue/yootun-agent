@@ -13,10 +13,10 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { ACCESS_CREDENTIAL_REF } from './constants.ts'
 import { activationServices, isActivated } from './gate.ts'
 import { WorkbenchMcpError } from './errors.ts'
-import { callTool, closeWorkbench, connectWorkbench, type ToolCallOutcome, type WorkbenchConnection } from './client.ts'
+import { callTool, closeWorkbench, connectWorkbench, refreshToolNames, type ToolCallOutcome, type WorkbenchConnection } from './client.ts'
 import { isAllowedFor, type WorkbenchCaller, type WorkbenchDomain } from './whitelist.ts'
 
-export { WorkbenchMcpError, serverErrorCodeOf, type WorkbenchErrorCode } from './errors.ts'
+export { WorkbenchMcpError, classifyTransportError, serverErrorCodeOf, type WorkbenchErrorCode } from './errors.ts'
 export { workbenchUrl, WORKBENCH_SERVER_NAME, ACCESS_CREDENTIAL_REF, ACCESS_NAMESPACE } from './constants.ts'
 export {
   CALLER_DOMAINS, CATALOG_TOOL_NAMES, domainOf, isAllowedFor, WORKBENCH_TOOL_PREFIX,
@@ -37,6 +37,12 @@ export interface WorkbenchConfig {
   /** Explicit per-call timeout budget in milliseconds (§5.4, default 60s). */
   callTimeoutMs: number
 }
+
+/**
+ * 工具广播刷新窗口（分册 08 §5.2）：距上次成功 `tools/list` 满窗后才在
+ * 「未广播」路径上再刷一次，避免对真正不存在的工具反复打扰服务端。
+ */
+const TOOL_LIST_REFRESH_INTERVAL_MS = 60_000
 
 /** One caller-supplied signal wrapped with the call budget, plus its settle handle. */
 interface InFlight {
@@ -63,14 +69,18 @@ export default class YootunWorkbenchMcp extends Service {
   private generation = 0
   private readonly inFlight = new Set<InFlight>()
   private stopped = false
+  /** 刷新窗口与剩余预算共用的墙钟；测试注入可控时钟，生产为 Date.now。 */
+  private readonly now: () => number
 
   /**
    * @param ctx - the service context.
    * @param config - resolved configuration.
+   * @param now - wall clock for the tools/list refresh window and remaining call budget; test seam (production `Date.now`).
    */
-  constructor(ctx: Context, config: WorkbenchConfig) {
+  constructor(ctx: Context, config: WorkbenchConfig, now: () => number = Date.now) {
     super(ctx, 'yootunWorkbench')
     this.config = config
+    this.now = now
   }
 
   /**
@@ -121,12 +131,33 @@ export default class YootunWorkbenchMcp extends Service {
     const connection = await this.ensureConnection()
     // 连接在途期间发生失效/卸载：本次调用作废，调用方带新状态重试。
     if (this.stopped) throw new WorkbenchMcpError('workbench_unavailable', 'the workbench connector was disposed during connect')
+    // 本次调用的预算起点：刷新与调用共享同一份预算（剩余量递减）。
+    const startedAt = this.now()
+    const remainingBudget = (): number => Math.max(1, this.config.callTimeoutMs - (this.now() - startedAt))
     // 4. 服务端广播可用性：通过域门但服务端未广播（未部署该版本或已移除）→
-    //    稳定投影，不发请求。
-    if (!connection.toolNames.has(name)) {
-      throw new WorkbenchMcpError('workbench_tool_unavailable', `workbench tool "${name}" is not advertised by the workbench server`)
+    //    距上次成功 tools/list 满窗先刷一次再判定；窗口内已刷过的直接稳定投影，
+    //    不发 tools/call。刷新与调用走同一条失效规则（catch）。刷新在途时连接
+    //    被失效或插件卸载：本次调用以 workbench_unavailable 结束、不盖
+    //    refreshedAt、不发 tools/call（与 open() 的在途失效口径一致）。
+    const connectionStillCurrent = (): boolean => !this.stopped && this.connection === connection
+    try {
+      if (!connection.toolNames.has(name) && this.now() - connection.refreshedAt >= TOOL_LIST_REFRESH_INTERVAL_MS) {
+        await refreshToolNames(connection, remainingBudget(), signal)
+        if (!connectionStillCurrent()) throw new WorkbenchMcpError('workbench_unavailable', 'connection invalidated during tools/list refresh')
+        connection.refreshedAt = this.now()
+      }
+      if (!connection.toolNames.has(name)) {
+        throw new WorkbenchMcpError('workbench_tool_unavailable', `workbench tool "${name}" is not advertised by the workbench server`)
+      }
+    } catch (error: unknown) {
+      // 刷新在途的失效/卸载会把传输层失败换成不可信投影（多为 network_error）：
+      // 先作废本次调用，再走既有失效重连判定。
+      if (!connectionStillCurrent()) throw new WorkbenchMcpError('workbench_unavailable', 'connection invalidated during tools/list refresh')
+      this.invalidateAfterTransportRejection(error)
+      throw error
     }
-    // 5. 调用：显式超时 + 调用方取消。
+    // 5. 调用：显式超时 + 调用方取消；鉴权失效与端点下线后失效连接缓存，下次
+    //    调用重连（写操作不自动重试，世代号自检保证在途 open 产物不进缓存）。
     const settle = Promise.withResolvers<void>()
     const inFlight: InFlight = { controller: new AbortController(), done: settle.promise }
     this.inFlight.add(inFlight)
@@ -134,10 +165,26 @@ export default class YootunWorkbenchMcp extends Service {
       ? inFlight.controller.signal
       : AbortSignal.any([signal, inFlight.controller.signal])
     try {
-      return await callTool(connection, name, args, this.config.callTimeoutMs, callerSignal)
+      return await callTool(connection, name, args, remainingBudget(), callerSignal)
+    } catch (error: unknown) {
+      this.invalidateAfterTransportRejection(error)
+      throw error
     } finally {
       this.inFlight.delete(inFlight)
       settle.resolve()
+    }
+  }
+
+  /**
+   * 鉴权失效与端点下线（404 / 410）后失效连接缓存，下一次调用重新连接
+   * （服务端为无状态 Streamable HTTP，重连无副作用；写操作不自动重试）。
+   * 连接阶段的刷新与调用共用本判定；世代号自检保证在途 open 产物不进缓存。
+   */
+  private invalidateAfterTransportRejection(error: unknown): void {
+    if (error instanceof WorkbenchMcpError
+      && (error.code === 'workbench_unauthorized'
+        || (error.code === 'workbench_protocol_error' && (error.status === 404 || error.status === 410)))) {
+      void this.invalidate()
     }
   }
 
@@ -196,6 +243,8 @@ export default class YootunWorkbenchMcp extends Service {
       await closeWorkbench(connection).catch(() => undefined)
       throw new WorkbenchMcpError('workbench_unavailable', 'connection invalidated during open')
     }
+    // 连接时的 tools/list 计入刷新窗口起点（用本服务的时钟，测试可注入）。
+    connection.refreshedAt = this.now()
     this.connection = connection
     return connection
   }

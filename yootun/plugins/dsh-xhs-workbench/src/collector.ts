@@ -13,8 +13,8 @@
  * metrics 字段缺失记 dataGap 不补 0。
  * @module
  */
-import { launchChrome, type ChromeFactory } from './chrome.ts'
-import { detectCaptcha, type XhsBrowserContext, type XhsPage } from './session.ts'
+import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage, closeContext, launchChrome, launchWithTimeout, type ChromeFactory } from './chrome.ts'
+import { detectCaptcha, type XhsBrowserContext, type XhsPage, type BrowserCloseBudget } from './session.ts'
 import { ensureProfileDir, saveSnapshot, stateRoot, updateAccount, type SnapshotNote } from './state.ts'
 
 /** 笔记管理页地址。 */
@@ -197,7 +197,8 @@ export interface CollectResult {
  * 采集主流程：无头复用账号 Profile → 笔记管理页签名 fetch 翻页 → 快照落盘。
  * 会话失效（跳 /login 或登录框可见）→ SESSION_EXPIRED；验证码出现 →
  * CAPTCHA_DETECTED；签名函数缺失 → COLLECT_FAILED（fail-loud，不静默空采）。
- * Profile 互斥由调用方（handlers 层）持有。
+ * Profile 互斥由调用方（handlers 层）持有。Chrome 启动受 `launchTimeoutMs`
+ * 预算；迟到的启动结果立即关闭（promise 交 trackCleanup 登记）。
  * @param options - accountId/root/chrome factory/页数上限/间隔/进度回调/signal。
  * @returns the collection result（含快照路径与聚合）。
  * @throws {CollectError} 采集链路上的稳定失败。
@@ -211,7 +212,11 @@ export async function collectNotes(options: {
   sleepFn?: ((ms: number) => Promise<void>) | undefined
   onProgress?: ((progress: { pagesDone: number; notesTotal: number }) => void) | null
   signal?: AbortSignal | undefined
-}): Promise<CollectResult> {
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
+  /** 迟到启动结果清理 promise 的登记接缝（dispose 等待）。 */
+  trackCleanup?: ((promise: Promise<void>) => void) | undefined
+} & BrowserCloseBudget): Promise<CollectResult> {
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
   const maxPages = options.maxPages ?? DEFAULT_MAX_PAGES
@@ -222,11 +227,20 @@ export async function collectNotes(options: {
   const profileDir = await ensureProfileDir(accountId, root)
   const chromeFactory = options.chromeFactory ?? launchChrome
   let context: XhsBrowserContext | null = null
+  const closeTimeoutMs = options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS
+  const closeTimeout = (target: { close(): Promise<void> }): Promise<void> => closeContext(target, closeTimeoutMs, () => {
+    options.onBrowserCloseTimeout?.(browserCloseTimeoutMessage(accountId))
+  })
   /** 每个 await 点检查 abort（控制流收窄不跨循环迭代，用函数包装）。 */
   const aborted = (): boolean => signal?.aborted === true
   try {
     if (aborted()) throw new CollectError('COLLECT_FAILED', 'collect_aborted')
-    ;({ context } = await chromeFactory({ headless: true, profileDir }))
+    ;({ context } = await launchWithTimeout(() => chromeFactory({ headless: true, profileDir }), options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS, result => {
+      // 迟到成功：立即关闭（采集已按超时失败返回）；promise 同步交登记表。
+      const cleanup = closeTimeout(result.context).catch(() => undefined)
+      options.trackCleanup?.(cleanup)
+      return cleanup
+    }))
     const page: XhsPage = context.pages()[0] ?? await context.newPage()
     await page.goto(NOTE_MANAGER_URL, { waitUntil: 'domcontentloaded', timeout: OPEN_TIMEOUT_MS })
     // 会话失效：跳 /login 或登录框可见
@@ -277,6 +291,9 @@ export async function collectNotes(options: {
       if (await detectCaptcha(page)) throw new CollectError('CAPTCHA_DETECTED', 'captcha detected')
     }
 
+    // 快照只在未取消时落盘：终局 break 之后 abort 仍可能到达（最后一页取数或
+    // 翻页间隔期间取消），此处复查，避免「已取消却写入本次快照/回写最近采集时间」。
+    if (aborted()) throw new CollectError('COLLECT_FAILED', 'collect_aborted')
     const snapshot = {
       schemaVersion: 1 as const,
       accountId,
@@ -289,6 +306,6 @@ export async function collectNotes(options: {
     await updateAccount(accountId, { lastCollectedAt: snapshot.capturedAt }, root)
     return { pagesDone, notesTotal: notes.length, truncated, snapshotPath, summary: summarizeSnapshot(snapshot) }
   } finally {
-    if (context !== null) await context.close().catch(() => undefined)
+    if (context !== null) await closeTimeout(context)
   }
 }

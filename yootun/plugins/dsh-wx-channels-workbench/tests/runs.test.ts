@@ -18,6 +18,7 @@ import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createAttemptId, readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun } from '../src/runs.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
+import { createCollectController } from '../src/runner.ts'
 import { progressFromEvent } from '../src/runner.ts'
 import { createIngestClient, ingestCollectedData, type WxWorkbenchFace } from '../src/ingest.ts'
 import { safeCode } from '../src/errors.ts'
@@ -124,7 +125,11 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  return { deps, handlers: buildRouteHandlers(deps, batch as never) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
 }
 
 /** 按工具名分发的 fake workbench：run_start 返回固定远端 runId。 */
@@ -322,7 +327,7 @@ test('collect.status 合并内存与持久化：取消后 lastRun 与内存 reco
   assert.equal(collect.started, true)
   await gotoEntered.promise
   // 运行中：内存 running + 持久化 running，同一条 attemptId。
-  const status1 = await callHandler(handlers, 'collect.status')
+  const status1 = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
   assert.equal(status1.busy, true)
   const memory = status1.collect as { attemptId: string | null; status: string }
   const persisted = status1.lastRun as { attemptId: string; status: string } | null
@@ -337,7 +342,7 @@ test('collect.status 合并内存与持久化：取消后 lastRun 与内存 reco
     const status = await callHandler(handlers, 'collect.status')
     return (status.lastRun as { status: string } | null)?.status === 'cancelled'
   }, 5000)
-  const status2 = await callHandler(handlers, 'collect.status')
+  const status2 = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
   assert.equal(status2.busy, false)
   const memory2 = status2.collect as { attemptId: string | null; status: string }
   const persisted2 = status2.lastRun as { attemptId: string; status: string; error: string | null }
@@ -398,11 +403,11 @@ test('终态写失败必须可见：warn 日志 + run_persist_failed 进度事�
   await callHandler(handlers, 'collect.cancel', { accountId: 'acc1' })
   rejectGoto(new Error('goto aborted'))
   await waitForCondition(async () => {
-    const status = await callHandler(handlers, 'collect.status')
+    const status = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
     const memory = status.collect as { status: string } | null
     return memory?.status === 'cancelled'
   }, 5000)
-  const status = await callHandler(handlers, 'collect.status')
+  const status = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
   const memory = status.collect as { status: string; progress: { phase?: string } }
   assert.equal(memory.status, 'cancelled', '内存终态不因持久化失败被覆盖')
   assert.equal(memory.progress.phase, 'run_persist_failed', '进度事件必须暴露终态写失败')

@@ -35,3 +35,4 @@ export {
   composerKeyAction, sendDisabledReason, shouldStickToBottom,
   type ComposerKeyAction,
 } from './composer-logic.ts'
+export { HostActionError, createHostAction, type HostActionOptions, type HostResponse } from './host-action.ts'

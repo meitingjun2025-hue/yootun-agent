@@ -12,12 +12,13 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ACTION_SCHEMAS, MAX_BODY_BYTES, createRouteHandler, permitted, validateActionArgs } from '../src/route.ts'
-import { STABLE_ERROR_CODES, WxError, safeCode, serverCodeOf } from '../src/errors.ts'
+import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, WxError, safeCode, serverCodeOf } from '../src/errors.ts'
 import {
   bumpSessionSeq, clearLocalCredentials, getAccount, hasStorageState, paths, readAccounts,
   safeSegment, stateRoot, updateAccount, writeAccounts,
 } from '../src/state.ts'
 import { browserStatus, chromeCandidates, resolveSystemChrome } from '../src/chrome.ts'
+import type { ChromeFactory } from '../src/session.ts'
 import {
   ingestAccountMetricsIdempotencyKey, ingestFansProfileIdempotencyKey, ingestFansTrendIdempotencyKey,
 } from '../src/idempotency.ts'
@@ -28,16 +29,17 @@ test('action allowlist：全部 action 有 schema', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus', 'account.refreshLoginQr',
     'account.probe', 'account.promote', 'account.removeLocal', 'account.removeRemote', 'collect.start',
-    'collect.status', 'collect.cancel', 'collectAll.start', 'collectAll.status', 'collectAll.cancel',
-    'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview', 'fans.profile.get',
-    'overview.accounts',
+    'collect.status', 'collect.running', 'collect.cancel', 'collectAll.start', 'collectAll.status',
+    'collectAll.cancel', 'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview',
+    'fans.profile.get', 'overview.accounts',
   ]
+  assert.equal(expected.length, 23)
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
 
 test('Tools 契约：插件 Config 可解析，vault 引用与账号级幂等键前缀精确', async () => {
   const { Config } = await import('../src/index.ts')
-  assert.deepEqual(Config({}), { stateDir: '' })
+  assert.deepEqual(Config({}), { stateDir: '', batchConcurrency: 3, disposeBudgetMs: 20000, browserCloseTimeoutMs: 8000, launchTimeoutMs: 60000 })
   assert.equal(paths('/tmp/wx').vaultRef('a@finder'), 'vault://wx-channels/a@finder')
   assert.equal(
     ingestAccountMetricsIdempotencyKey('run-1', '2026-01-01', '2026-01-31'),
@@ -226,6 +228,32 @@ test('稳定错误模型：Workbench envelope 嵌套码映射，未知码收敛'
   }
 })
 
+test('连接器新码显式投影与 host_unreachable 登记（2026-11-26，分册 08 §5.2）', () => {
+  const workbenchError = (code: string): Error => Object.assign(new Error(`x-${code}`), { name: 'WorkbenchMcpError', code })
+  // 鉴权失败投影 UNAUTHORIZED（既有服务端码），不再伪装成通用服务不可用。
+  assert.equal(safeCode(workbenchError('workbench_unauthorized')), 'UNAUTHORIZED')
+  assert.equal(safeCode(workbenchError('workbench_server_error')), 'WX_TOOL_UNAVAILABLE')
+  // host_unreachable 为本地新码，白名单直通。
+  assert.equal(safeCode(workbenchError('host_unreachable')), 'host_unreachable')
+  for (const code of ['UNAUTHORIZED', 'WX_TOOL_UNAVAILABLE', 'host_unreachable']) {
+    assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
+  }
+})
+
+test('批量取消与空账号 ID 的稳定码登记（2026-11-26，wx-collect-all-concurrency 补齐）', () => {
+  // 批量取消在途 / 未开始条目结算 failed/collect_cancelled，批次 error 同码；
+  // createCollectController().start() 对空 accountId 返回 account_id_required。
+  for (const code of ['collect_cancelled', 'account_id_required']) {
+    assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
+    assert.equal((LOCAL_ERROR_CODES as readonly string[]).includes(code), true, code)
+  }
+})
+
+test('稳定码集合无重复元素（服务端与本域同码去重后的全集）', () => {
+  assert.equal(new Set(LOCAL_ERROR_CODES).size, LOCAL_ERROR_CODES.length)
+  assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
+})
+
 // --- 状态目录兼容 ---
 
 test('状态目录：env 覆盖与旧默认路径', () => {
@@ -337,36 +365,48 @@ test('moveProfile：目标已存在时备份迁移，失败回滚', async () => 
 })
 
 test('collect.start 同步互斥：并发第二请求被拒（TOCTOU 缺口锁定）', async () => {
-  // 通过 handler 表直接驱动：第一个请求占住 collectBusy（用阻塞探针），第二个必须立即 collect_busy。
+  // 第一请求在探测前就把记录同步登记为 running（控制器 start 入口），第二请求
+  // 立即 collect_busy——互斥判定无 await 窗口。探测经挂起 factory 停住，第二
+  // 请求确认后在终态前释放。
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
-  let probeStarted = 0
+  const { createCollectController } = await import('../src/runner.ts')
+  const root = join(tmpdir(), `wx-mutex-${String(Math.random()).slice(2)}`)
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  await mkdir(join(root, 'storage-state'), { recursive: true })
+  await writeFile(join(root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
+  await writeFile(join(root, 'storage-state', 'acc1.json'), '{"cookies":[]}', { mode: 0o600 })
+  const probeGate = Promise.withResolvers<void>()
+  const factory: ChromeFactory = async () => {
+    await probeGate.promise
+    throw new Error('no chrome in mutex test')
+  }
   const deps = createWxHostDeps({
-    root: join(tmpdir(), `wx-mutex-${String(Math.random()).slice(2)}`),
+    root,
     workbench: { callTool: async () => ({ structuredContent: { accounts: [] }, content: [] }) },
     browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
     logger: { warn: () => undefined },
+    chromeFactory: factory,
   })
-  // 让 probe 挂起，保证第一请求持有 collectBusy。
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  await mkdir(deps.root, { recursive: true })
-  await writeFile(join(deps.root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
-  const release = Promise.withResolvers<void>()
   const batch = {
-    get status() { return { ready: true, phase: 'ready', items: [], total: 0, currentAccountIndex: -1, currentAccountId: null, currentRunId: null, startedAt: null, finishedAt: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, summary: null } as never },
+    get status() { return { ready: true, phase: 'ready', items: [], total: 0, currentAccountIndex: -1, currentAccountId: null, currentRunId: null, runningAccountIds: [], concurrency: 0, error: null, startedAt: null, finishedAt: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, summary: null } as never },
     get running() { return false },
     start: async () => ({ started: false, reason: 'collect_busy' }),
   }
-  const handlers = buildRouteHandlers(deps, batch as never)
-  // 注入挂起 probe：临时替换 probeAndReport 动态导入不可行——改为直接测 deps 互斥位。
-  // 用 collectBusy=true 直接模拟第一请求已受理。
-  deps.collectBusy = true
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory: factory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
+  // 不 await 第一请求：记录已同步 running，探测挂起在 factory 门上。
+  const first = handlers['collect.start']?.({ accountId: 'acc1' })
   const second = await handlers['collect.start']?.({ accountId: 'acc1' })
   assert.deepEqual(second, { status: 'ok', started: false, reason: 'collect_busy' })
   assert.equal(handlers['collect.status'] ? (await handlers['collect.status']({})).busy : undefined, true)
-  void probeStarted
-  void release
-  deps.collectBusy = false
-  await rm(deps.root, { recursive: true, force: true })
+  probeGate.resolve()
+  assert.ok(first !== undefined)
+  await first
+  await deps.taskRegistry.awaitSettled()
+  await rm(root, { recursive: true, force: true })
 })
 
 test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {

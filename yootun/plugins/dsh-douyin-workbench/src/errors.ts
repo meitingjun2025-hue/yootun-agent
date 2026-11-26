@@ -9,7 +9,7 @@
 import type { WorkbenchErrorCode } from '@yootun/dsh-workbench-mcp'
 
 /** 服务端抖音数据域稳定码（workbench_douyin_* envelope；分册 15 §6 冻结）。 */
-export const SERVER_DOUYIN_ERROR_CODES = Object.freeze([
+const SERVER_DOUYIN_ERROR_CODE_VALUES = [
   'ACCOUNT_NOT_FOUND',
   'ACCOUNT_NOT_ACCESSIBLE',
   'WORK_NOT_FOUND',
@@ -64,10 +64,12 @@ export const SERVER_DOUYIN_ERROR_CODES = Object.freeze([
   'SCHEDULE_ROW_NOT_FOUND',
   'SCHEDULE_ROW_CONFLICT',
   'SCHEDULE_VALIDATION_ERROR',
-])
+] as const
+
+export const SERVER_DOUYIN_ERROR_CODES = Object.freeze([...SERVER_DOUYIN_ERROR_CODE_VALUES])
 
 /** 服务端 viral 域稳定码（workbench_viral_* envelope；分册 15 §6 冻结）。 */
-export const SERVER_VIRAL_ERROR_CODES = Object.freeze([
+const SERVER_VIRAL_ERROR_CODE_VALUES = [
   'ASYNC_RUN_NOT_FOUND',
   'UNKNOWN_REWRITE_RULE',
   'CANDIDATE_NOT_FOUND',
@@ -95,10 +97,12 @@ export const SERVER_VIRAL_ERROR_CODES = Object.freeze([
   'GENE_EXTRACT_QUALITY_FAILED',
   'GENE_EXTRACT_LEASE_EXPIRED',
   'GENE_EXTRACT_DISABLED',
-])
+] as const
+
+export const SERVER_VIRAL_ERROR_CODES = Object.freeze([...SERVER_VIRAL_ERROR_CODE_VALUES])
 
 /** 服务端公共码（确认/校验/幂等；分册 15 §6 冻结）。 */
-export const SERVER_COMMON_ERROR_CODES = Object.freeze([
+const SERVER_COMMON_ERROR_CODE_VALUES = [
   'INVALID_IDEMPOTENCY_KEY',
   'IDEMPOTENCY_KEY_REQUIRED',
   'CONFIRMATION_REQUIRED',
@@ -106,7 +110,9 @@ export const SERVER_COMMON_ERROR_CODES = Object.freeze([
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_IN_PROGRESS',
   'IDEMPOTENCY_OUTCOME_UNKNOWN',
-])
+] as const
+
+export const SERVER_COMMON_ERROR_CODES = Object.freeze([...SERVER_COMMON_ERROR_CODE_VALUES])
 
 /** 连接器稳定码登记（原样投影，不收敛兜底）；键受 `WorkbenchErrorCode` 约束，缺键即类型报错。 */
 const WORKBENCH_ERROR_CODES: Readonly<Record<WorkbenchErrorCode, true>> = Object.freeze({
@@ -120,19 +126,27 @@ const WORKBENCH_ERROR_CODES: Readonly<Record<WorkbenchErrorCode, true>> = Object
   workbench_protocol_error: true,
   workbench_call_failed: true,
   workbench_unavailable: true,
+  // 2026-11-26 传输层状态分类新增（分册 08 §5.2）。
+  workbench_unauthorized: true,
+  workbench_server_error: true,
 })
 
+/** 登记表的键清单（键集受 `WorkbenchErrorCode` 约束；Object.keys 会放宽为 string[]）。 */
+const WORKBENCH_ERROR_CODE_KEYS = Object.keys(WORKBENCH_ERROR_CODES) as readonly WorkbenchErrorCode[]
+
 /** 本域（设备端）稳定码：路由层 + 浏览器探测 + 旧插件小写 reason（分册 15 §6）。 */
-export const LOCAL_ERROR_CODES = Object.freeze([
+const LOCAL_ERROR_CODE_VALUES = [
   'GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING',
   // Workbench MCP 连接器传输层稳定码（分册 15 §6：原样投影，不收敛兜底）；见上方登记表。
-  ...Object.keys(WORKBENCH_ERROR_CODES),
+  ...WORKBENCH_ERROR_CODE_KEYS,
   'DOUYIN_TOOL_UNAVAILABLE',
   'DOUYIN_ROUTE_UNKNOWN_ACTION',
   'DOUYIN_ROUTE_INVALID_REQUEST',
   'DOUYIN_ROUTE_PAYLOAD_TOO_LARGE',
   'DOUYIN_ROUTE_REFUSED',
+  // Host action 传输收敛码（2026-11-26 起 kit createHostAction 统一产出）。
+  'host_unreachable',
   'plugin_disposing',
   // 旧插件兜底码（沿用旧 route 语义，xhs 同款先例）。
   'douyin_operation_request_failed',
@@ -156,6 +170,8 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'account_mismatch',
   'collect_cancelled',
   'ingest_failed',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
   'start_failed',
   'stale_report',
   'session_report_rejected',
@@ -183,7 +199,9 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'overview_too_many_accounts',
   // 批量采集批内熔断（collectAll 批次 error 槽与未开始条目 reason 槽；不是路由 reason）。
   'risk_paused',
-])
+] as const
+
+export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */
 export const STABLE_ERROR_CODES = Object.freeze([
@@ -243,6 +261,7 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
   if (typeof direct === 'string' && (STABLE_ERROR_CODES as readonly string[]).includes(direct)) return direct as StableErrorCode
   const server = serverCodeOf(error)

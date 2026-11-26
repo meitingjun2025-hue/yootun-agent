@@ -1,9 +1,10 @@
 /**
  * 账号管理页（12 册 §4；旧 client.js AccountsPage/AccountSummary 重译；布局
  * 结构与样式逐字对齐视频号 AccountSidebar/WorksPanel）：左侧账号管理栏
- * （标题+采集全部 → 账号卡片列表[头像/昵称/最近同步/会话状态行 + 按状态
- * 分流的 ghost sm 操作：检测或重新登录 + 红字移除本地] → 通栏添加账号）；
- * 右栏通知条 + 工具栏（采集本账号全部 primary sm/刷新 outline sm/上次采集
+ * （标题+采集全部 → 账号卡片列表[头像/昵称/最近同步/会话状态行（含发布
+ * 窗口打开中标识）+ 按状态分流的 ghost sm 操作：检测或重新登录 + 红字移除
+ * 本地] → 通栏添加账号）；右栏通知条 + 工具栏（采集本账号全部 primary sm，
+ * 运行中变「取消采集」并在旁边显示页数与笔记进度/刷新 outline sm/上次采集
  * 时间）+ 基本数据卡（指标缺失显示缺口提示，不补 0）。Chrome 缺失时页面
  * 顶部阻断提示。
  * @module
@@ -101,6 +102,13 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                         <StateDot state={account.sessionStatus === 'ok' ? 'done' : account.sessionStatus === 'expired' ? 'error' : 'idle'} />
                         <span>{account.sessionStatus === 'ok' ? t('accounts.statusOk') : account.sessionStatus === 'expired' ? t('accounts.statusExpired') : t('accounts.statusUnknown')}</span>
                       </span>
+                      {/* 发布窗口打开中（存在 running 发布 run）：警示状态点 + 说明。 */}
+                      {account.publishWindowOpen === true && (
+                        <span className={css.accountStateLine} title={t('account.publishWindowHint')}>
+                          <StateDot state='warning' />
+                          <span>{t('account.publishWindowOpen')}</span>
+                        </span>
+                      )}
                     </span>
                   </button>
                   {/* 操作按会话状态分流（视频号同款）：ok=检测、expired/unknown=重新登录、移除恒在（红字）。 */}
@@ -144,17 +152,28 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
               <>
                 {/* 右栏工具栏（对齐视频号）：采集本账号 + 刷新（浅灰实心）+ 最近采集时间。 */}
                 <div className={css.accountsMainBar}>
+                  {/* 采集运行中按钮变为「取消采集」：点击取消本次采集（取消不写快照）；
+                      自然结束后回「采集本账号全部」，取消请求只可能发于运行中（X2）。 */}
                   <Button
                     variant='primary'
                     size='sm'
                     aria-busy={collectRunning || undefined}
-                    disabled={collectRunning || anyRunning}
-                    onClick={() => { void machine.startCollectFlow(selected.accountId) }}
+                    disabled={!collectRunning && anyRunning}
+                    onClick={() => {
+                      if (collectRunning) void machine.cancelCollectFlow()
+                      else void machine.startCollectFlow(selected.accountId)
+                    }}
                   >
                     {collectRunning
-                      ? t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })
+                      ? t('collect.cancel')
                       : t('accounts.collectData')}
                   </Button>
+                  {/* 运行中的页数与笔记进度：按钮改为取消入口后，进度在工具栏内并排显示。 */}
+                  {collectRunning && (
+                    <span className={css.toolbarNote}>
+                      {t('accounts.collecting', { pages: state.collect?.pagesDone ?? 0, notes: state.collect?.notesTotal ?? 0 })}
+                    </span>
+                  )}
                   {/* 刷新按钮对齐视频号：outline sm + 文案「刷新」。 */}
                   <Button
                     variant='outline'

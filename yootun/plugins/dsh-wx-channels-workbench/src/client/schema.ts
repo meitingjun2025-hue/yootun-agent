@@ -153,6 +153,12 @@ export interface BatchStatusView {
   total: number | null
   currentAccountIndex: number | null
   currentAccountId: string | null
+  /** 运行中的账号（按启动顺序；缺失为空数组）。 */
+  runningAccountIds: string[]
+  /** 生效并发度（缺失为 0）。 */
+  concurrency: number | null
+  /** 批次级原因（risk_paused / collect_cancelled / no_eligible_account；缺失 null）。 */
+  error: string | null
   completedCount: number | null
   partialCount: number | null
   failedCount: number | null
@@ -520,12 +526,16 @@ export function readBatchStatus(payload: Record<string, unknown>): BatchStatusVi
     })
   }
   const numberField = (key: string): number | null => numberOf(payload[key])
+  const runningIds = Array.isArray(payload.runningAccountIds) ? payload.runningAccountIds : []
   return {
     ready: payload.ready === true,
     phase: textOf(payload.phase),
     total: numberField('total'),
     currentAccountIndex: numberField('currentAccountIndex'),
     currentAccountId: textOf(payload.currentAccountId),
+    runningAccountIds: runningIds.map(id => textOf(id)).filter((id): id is string => id !== null),
+    concurrency: numberField('concurrency'),
+    error: textOf(payload.error),
     completedCount: numberField('completedCount'),
     partialCount: numberField('partialCount'),
     failedCount: numberField('failedCount'),

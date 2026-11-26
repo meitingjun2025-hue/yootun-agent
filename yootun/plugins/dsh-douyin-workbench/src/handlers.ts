@@ -9,9 +9,10 @@
  * @module
  */
 import { normalizeAvatarUrl } from './avatar.ts'
+import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { isStableCode, safeCode, DouyinError, type StableErrorCode } from './errors.ts'
 import { accountRemoveIdempotencyKey, accountSaveIdempotencyKey } from './idempotency.ts'
-import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
+import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { tryWithProfileLock, withProfileLock } from './locks.ts'
 import { readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
 import {
@@ -55,12 +56,25 @@ export interface DouyinHandlerDeps {
   maxPages: number
   /** 批量采集并发度（阶段 2 worker 数；1..5）。 */
   batchConcurrency: number
+  /** 卸载预算毫秒（Config.disposeBudgetMs 透传；dispose 收口用）。 */
+  disposeBudgetMs: number
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs: number
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs: number
   /** 启动恢复（G-2）：running→interrupted 标记；业务 action 在它 settle 前等待。 */
   startupReady: Promise<void>
   /** 启动恢复失败（runs.json 语义损坏）的稳定码；非 null 时业务 action 拒绝。 */
   startupError: StableErrorCode | null
   /** pending 提升接缝（缺省 promotePendingAccount；测试注入受控实现）。 */
-  promote: (input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined }) => Promise<{ promoted: boolean; accountId: string; reason?: string }>
+  promote: (input: {
+    accountId: string
+    root: string
+    chromeFactory?: ChromeFactory | undefined
+    launchTimeoutMs?: number | undefined
+    browserCloseTimeoutMs?: number | undefined
+    trackCleanup?: ((promise: Promise<void>) => void) | undefined
+  }) => Promise<{ promoted: boolean; accountId: string; reason?: string }>
 }
 
 /** 从 Workbench face 构建直接调用通道（handlers 用；caller 前缀校验已在 workbench.ts；signal 原样透传）。 */
@@ -86,6 +100,9 @@ export type StartupRecovery = (root: string) => Promise<number>
  * @param options.chromeFactory - Chrome launcher seam (tests).
  * @param options.maxPages - default collect page budget.
  * @param options.batchConcurrency - batch collect concurrency (defaults to 3).
+ * @param options.disposeBudgetMs - dispose wait budget (defaults to 20000).
+ * @param options.browserCloseTimeoutMs - browser close budget (defaults to 8000).
+ * @param options.launchTimeoutMs - Chrome launch budget (defaults to 60000).
  * @param options.taskRegistry - task registry (defaults to a fresh one).
  * @param options.recovery - startup recovery seam (defaults to recoverInterruptedRuns).
  * @returns the deps shared by handlers.
@@ -98,12 +115,17 @@ export function createHandlerDeps(options: {
   chromeFactory?: ChromeFactory
   maxPages?: number
   batchConcurrency?: number
+  disposeBudgetMs?: number
+  browserCloseTimeoutMs?: number
+  launchTimeoutMs?: number
   taskRegistry?: TaskRegistry
   recovery?: StartupRecovery
   /** pending 提升接缝（测试注入；生产缺省 promotePendingAccount）。 */
   promote?: DouyinHandlerDeps['promote']
 }): DouyinHandlerDeps {
   const taskRegistry = options.taskRegistry ?? createTaskRegistry()
+  const browserCloseTimeoutMs = options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS
+  const launchTimeoutMs = options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS
   const deps: DouyinHandlerDeps = {
     root: options.root,
     callTool: callerOf(options.face),
@@ -116,10 +138,20 @@ export function createHandlerDeps(options: {
     loginRuns: new Map(),
     maxPages: options.maxPages ?? 1000,
     batchConcurrency: options.batchConcurrency ?? 3,
+    disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
+    browserCloseTimeoutMs,
+    launchTimeoutMs,
     startupError: null,
     startupReady: Promise.resolve(),
-    promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined }) =>
-      promotePendingAccount({ accountId: input.accountId, root: input.root, chromeFactory: input.chromeFactory })),
+    promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined; launchTimeoutMs?: number | undefined; browserCloseTimeoutMs?: number | undefined; trackCleanup?: ((promise: Promise<void>) => void) | undefined }) =>
+      promotePendingAccount({
+        accountId: input.accountId,
+        root: input.root,
+        chromeFactory: input.chromeFactory,
+        ...(input.launchTimeoutMs !== undefined ? { launchTimeoutMs: input.launchTimeoutMs } : {}),
+        ...(input.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: input.browserCloseTimeoutMs } : {}),
+        ...(input.trackCleanup !== undefined ? { trackCleanup: input.trackCleanup } : {}),
+      })),
   }
   // G-2 启动恢复：立即启动（不阻塞 route 注册），完成前业务 action 等待。
   // recovery promise 纳入任务登记表：dispose 等它 settle——pending 期间
@@ -211,7 +243,14 @@ export interface ResolveAccountOutcome {
 export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunning: (accountId: string) => boolean, accountId: string, signal?: AbortSignal): Promise<ResolveAccountOutcome> {
   if (!isPendingAccountId(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   if (collectHasRunning(accountId)) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
-  const promoted = await deps.promote({ accountId, root: deps.root, chromeFactory: deps.chromeFactory })
+  const promoted = await deps.promote({
+    accountId,
+    root: deps.root,
+    chromeFactory: deps.chromeFactory,
+    launchTimeoutMs: deps.launchTimeoutMs,
+    browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+    trackCleanup: promise => { deps.taskRegistry.track(promise) },
+  })
   if (!promoted.promoted) return { accountId, promoted: false, saveError: null, remoteCleanup: null }
   const realId = promoted.accountId
   let saveError: string | null = null
@@ -386,7 +425,15 @@ export async function completeLoginAfterSuccess(
   run.status = 'ok'
   // ② 会话上报（新 seq；携带 login signal；失败不影响 run 终态）。
   try {
-    const state = await refreshSessionState({ accountId: result.accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal })
+    const state = await refreshSessionState({
+      accountId: result.accountId,
+      root: deps.root,
+      chromeFactory: deps.chromeFactory,
+      signal,
+      launchTimeoutMs: deps.launchTimeoutMs,
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+    })
     if (aborted()) return
     const report = await reportSessionStatus(
       { callTool: deps.callTool, root: deps.root, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
@@ -486,6 +533,9 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         root: deps.root,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
       }).then(result => completeLoginAfterSuccess(deps, controller.signal, run, result))
         .catch((error: unknown) => {
@@ -513,7 +563,16 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       const requested = asString(args, 'accountId')
       const resolved = await resolveAccountId(deps, id => controllers.collect.status(id) !== null && (controllers.collect.status(id)?.status === 'running'), requested, signal)
       const session = await withProfileLock(resolved.accountId, () =>
-        refreshSessionState({ accountId: resolved.accountId, root: deps.root, chromeFactory: deps.chromeFactory, signal }))
+        refreshSessionState({
+          accountId: resolved.accountId,
+          root: deps.root,
+          chromeFactory: deps.chromeFactory,
+          signal,
+          launchTimeoutMs: deps.launchTimeoutMs,
+          browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+          onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+          trackCleanup: promise => { deps.taskRegistry.track(promise) },
+        }))
       const report = await reportSessionStatus(runnerDeps, resolved.accountId, session, signal)
       return {
         status: 'ready',
@@ -583,7 +642,10 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       })
       if (!started.started) {
         if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
-        return { status: 'error', reason: started.reason ?? 'collect_busy' }
+        // started.reason 是控制器层的宽字符串；路由 reason 槽只收稳定码，
+        // 未登记值按 collect_busy 投影。
+        const reason = started.reason !== undefined && isStableCode(started.reason) ? started.reason : 'collect_busy'
+        return { status: 'error', reason }
       }
       deps.taskRegistry.track(controllers.collect.wait(resolved.accountId).then(() => undefined, () => undefined).then(() => {
         if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)

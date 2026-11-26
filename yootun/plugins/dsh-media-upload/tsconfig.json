@@ -1,8 +1,9 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "types": ["node", "client-build-environment", "client-assets"]
   },
   "include": [
     "src"
@@ -18,10 +19,29 @@
       "path": "../../../packages/core/tools"
     },
     {
+      "path": "../../../packages/client/locale/tsconfig.client.json"
+    },
+    {
+      "path": "../../../packages/client/ui-primitives"
+    },
+    {
+      "path": "../../../packages/client/ui-slots"
+    },
+    {
+      "path": "../../../packages/client/ui-layout"
+    },
+    {
+      "path": "../../../packages/client/ui-renderer"
+    },
+    {
       "path": "../../../packages/host/webserver"
     },
     {
       "path": "../../plugins/dsh-workbench-mcp"
     }
   ]
+  // @yootun/dsh-workbench-mcp 之外的 yootun 包不进 references：经 node_modules
+  // symlink 解析到各自已构建的 lib/types（与 wx/xhs 同口径），避免
+  // rootDir/outDir 相对路径重写不安全（TS2878）。本包 Host 半与 client 半同
+  // 一个 tsconfig 编译（xhs/wx 双半插件同款）。
 }

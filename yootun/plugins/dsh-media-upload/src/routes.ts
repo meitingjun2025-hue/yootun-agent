@@ -1,15 +1,16 @@
 /**
  * 本地同源路由（分册 08 §6）：pick-file 创建会话、uploadStart 接收用户经
  * 浏览器原生 file input 选中的字节并启动授权直传、uploadStatus 轮询、
- * media 预览暂存字节（单区间 Range 支持）。加固口径沿用旧插件并以 wx/xhs
- * 同款信任判定收紧：loopback 远端 + 浏览器来源标记（Desktop 转发双头缺失
- * 放行）、体上限、固定错误码；本地路径与预签名 URL 永不
+ * media 预览暂存字节（单区间 Range 支持）、pending 投影工具创建的待处理
+ * 会话（承接卡片只读轮询）、cancel 取消进行中的会话。加固口径沿用旧插件
+ * 并以 wx/xhs 同款信任判定收紧：loopback 远端 + 浏览器来源标记（Desktop
+ * 转发双头缺失放行）、体上限、固定错误码；本地路径与预签名 URL 永不
  * 出现在任何响应。生产 deps 由插件入口注入；测试可用假授权与假 TOS 驱动。
  * @module
  */
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, PICK_KINDS, KIND_EXTENSIONS, MEDIA_PREVIEW_MIME, ALLOWED_CONTENT_TYPES } from './constants.ts'
+import { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, PENDING_PATH, CANCEL_PATH, PICK_KINDS, KIND_EXTENSIONS, MEDIA_PREVIEW_MIME, ALLOWED_CONTENT_TYPES } from './constants.ts'
 import { MediaUploadError, toPublicCode, type MediaUploadErrorCode } from './errors.ts'
 import { extensionOf, normalizeMime } from './mime.ts'
 import { runUpload } from './run-upload.ts'
@@ -295,7 +296,7 @@ function parseSingleRange(header: string | undefined, size: number): { start: nu
 }
 
 /**
- * Build the four uploader routes against one deps wiring.
+ * Build the six uploader routes against one deps wiring.
  * @param deps - production or test wiring.
  * @returns the route table (registration order matters not).
  */
@@ -443,6 +444,70 @@ export function uploaderRoutes(deps: UploaderDeps): UploadRoute[] {
             return
           }
           return await pipeMedia(res, session, range ?? undefined)
+        } finally {
+          await responseSettled(res)
+          admission.release()
+        }
+      },
+    },
+    {
+      path: PENDING_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return finishJson(res, 405, { error: 'invalid_request' })
+        if (!permitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 503, { error: 'uploader_not_configured' })
+        try {
+          // 只读路由：JSON 体可省略；有体时必须是对象且不含任何字段。
+          if (req.headers['content-type'] !== undefined) {
+            if (normalizeMime(req.headers['content-type']) !== 'application/json') {
+              return finishJson(res, 415, { error: 'invalid_request' })
+            }
+            try {
+              const body = await readJson(req)
+              if (Object.keys(body).length > 0) {
+                return finishJson(res, 400, { error: 'invalid_request' })
+              }
+            } catch {
+              return finishJson(res, 400, { error: 'invalid_request' })
+            }
+          }
+          return finishJson(res, 200, { sessions: deps.registry.pendingToolSessions() })
+        } finally {
+          await responseSettled(res)
+          admission.release()
+        }
+      },
+    },
+    {
+      path: CANCEL_PATH,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') return finishJson(res, 405, { error: 'invalid_request' })
+        if (!permitted(req, deps.getExpectedOrigin())) return finishJson(res, 403, { error: 'forbidden' })
+        const admission = deps.registry.beginRequest()
+        if (admission === undefined) return finishJson(res, 503, { error: 'uploader_not_configured' })
+        try {
+          if (normalizeMime(req.headers['content-type']) !== 'application/json') {
+            return finishJson(res, 415, { error: 'invalid_request' })
+          }
+          let uploadId = ''
+          try {
+            const body = await readJson(req)
+            // 未知字段拒绝：cancel 契约只有 uploadId。
+            if (Object.keys(body).some(key => key !== 'uploadId')) {
+              return finishJson(res, 400, { error: 'invalid_request' })
+            }
+            if (typeof body.uploadId === 'string') uploadId = body.uploadId
+          } catch {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          if (uploadId === '' || uploadId.length > MAX_UPLOAD_ID_LENGTH) {
+            return finishJson(res, 400, { error: 'invalid_request' })
+          }
+          const outcome = deps.registry.cancel(uploadId)
+          if (outcome === 'not_found') return finishJson(res, 403, { error: 'session_not_found' })
+          if (outcome === 'not_running') return finishJson(res, 200, { cancelled: false, reason: 'not_running' })
+          return finishJson(res, 200, { cancelled: true })
         } finally {
           await responseSettled(res)
           admission.release()

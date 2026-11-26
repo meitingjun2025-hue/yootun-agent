@@ -85,6 +85,86 @@ describe('账号管理页（12 册 §4）', () => {
     }, { timeout: 4000 })
   })
 
+  it('采集运行中按钮变「取消采集」，点击调用 collect.cancel，收到 cancelled 停止轮询并提示（XC1）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [ACCOUNT_A, ACCOUNT_B] }
+      if (action === 'collect.start') {
+        return { status: 'started', collectId: 'col-run', collect: { collectId: 'col-run', accountId: args?.accountId, collectStatus: 'running', pagesDone: 1, notesTotal: 3, truncated: false, error: null } }
+      }
+      if (action === 'collect.status') {
+        return { status: 'ready', collect: { collectId: 'col-run', accountId: 'acc-a', collectStatus: 'running', pagesDone: 2, notesTotal: 4, truncated: false, error: null } }
+      }
+      if (action === 'collect.cancel') {
+        return { status: 'ready', collect: { collectId: 'col-run', accountId: 'acc-a', collectStatus: 'cancelled', pagesDone: 2, notesTotal: 4, truncated: false, error: 'collect_cancelled' } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    await renderAccounts()
+    fireEvent.click(screen.getByRole('button', { name: en['accounts.collectData'] }))
+    const cancelBtn = await screen.findByRole('button', { name: en['collect.cancel'] })
+    // 运行中的页数与笔记进度在工具栏内并排显示（按钮改为取消入口后不丢进度）。
+    expect(screen.getByText(/Collecting… \(\d+ pages \/ \d+ notes\)/)).not.toBeNull()
+    fireEvent.click(cancelBtn)
+    // 终态提示「已取消，未保存本次采集」，按钮回「采集本账号全部」。
+    await waitFor(() => expect(screen.getByText(en['collect.cancelled'])).not.toBeNull())
+    await waitFor(() => expect(screen.getByRole('button', { name: en['accounts.collectData'] })).not.toBeNull())
+    expect(screen.queryByText(/Collecting… \(\d+ pages \/ \d+ notes\)/)).toBeNull()
+    const cancelCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.cancel')
+    expect(cancelCalls).toHaveLength(1)
+    expect((cancelCalls[0]?.[1] as Record<string, unknown>).collectId).toBe('col-run')
+    // 停止轮询：取消后超过一个轮询周期不再发 collect.status。
+    const pollsAtCancel = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.status').length
+    await new Promise(resolve => setTimeout(resolve, 2400))
+    const pollsAfter = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.status').length
+    expect(pollsAfter).toBe(pollsAtCancel)
+  })
+
+  it('采集自然结束后按钮回「采集」，再点只发 collect.start、不发取消请求（XC1/X2）', async () => {
+    let started = 0
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [ACCOUNT_A, ACCOUNT_B] }
+      if (action === 'collect.start') {
+        started += 1
+        const collectId = `col-done-${started}`
+        return { status: 'started', collectId, collect: { collectId, accountId: 'acc-a', collectStatus: 'completed', pagesDone: 1, notesTotal: 2, truncated: false, error: null } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    await renderAccounts()
+    fireEvent.click(screen.getByRole('button', { name: en['accounts.collectData'] }))
+    await waitFor(() => expect(screen.getByText(en['accounts.collectDone'])).not.toBeNull(), { timeout: 4000 })
+    // 自然结束后没有「取消采集」按钮可点。
+    expect(screen.queryByRole('button', { name: en['collect.cancel'] })).toBeNull()
+    // 再次点击只发新的 collect.start，绝不发 collect.cancel。
+    fireEvent.click(screen.getByRole('button', { name: en['accounts.collectData'] }))
+    await waitFor(() => expect(started).toBe(2))
+    const cancelCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.cancel')
+    expect(cancelCalls).toHaveLength(0)
+  })
+
+  it('publishWindowOpen 账号卡显示「发布窗口打开中」标识与悬停说明（XC2）', async () => {
+    let publishOpen = false
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+      if (action === 'accounts.list') {
+        return { status: 'ready', accounts: [{ ...ACCOUNT_A, publishWindowOpen: publishOpen }, ACCOUNT_B] }
+      }
+      if (action === 'collect.start') {
+        return { status: 'started', collectId: 'col-refresh', collect: { collectId: 'col-refresh', accountId: 'acc-a', collectStatus: 'completed', pagesDone: 1, notesTotal: 1, truncated: false, error: null } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    await renderAccounts()
+    expect(screen.queryByText(en['account.publishWindowOpen'])).toBeNull()
+    // 采集终态刷新列表：新投影的 publishWindowOpen 进入账号卡。
+    publishOpen = true
+    fireEvent.click(screen.getByRole('button', { name: en['accounts.collectData'] }))
+    await waitFor(() => expect(screen.getByText(en['account.publishWindowOpen'])).not.toBeNull(), { timeout: 4000 })
+    expect(screen.getByTitle(en['account.publishWindowHint'])).not.toBeNull()
+  })
+
   it('移除账号走确认弹层，确认后调 removeLocal', async () => {
     await renderAccounts()
     await waitFor(() => expect(screen.getAllByRole('button', { name: en['accounts.removeLocal'] }).length).toBeGreaterThan(0))

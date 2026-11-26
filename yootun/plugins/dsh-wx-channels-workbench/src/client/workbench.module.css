@@ -90,6 +90,14 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.batchPaused {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+  overflow-wrap: anywhere;
+}
+
 .batchLine {
   margin: 0;
   font-size: 12px;

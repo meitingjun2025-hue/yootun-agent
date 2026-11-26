@@ -38,9 +38,19 @@ export const zh = {
   invalid: 'Key 验证失败，请检查后重试',
   tenantMismatch: '该 Key 不属于本产品租户，请使用管理员分配的 model_api_key',
   tenantUnavailable: '暂时无法确认该 Key 的租户归属，请稍后重试',
+  networkUnavailable: '暂时无法连接模型服务，请检查网络后重试',
   modelError: '无法获取模型列表，请检查 Key 与模型服务',
   saveError: '保存失败，请检查配置后重试',
+  catalogSyncFailed: '模型目录未能同步，当前使用内置目录',
+  modelNotAvailable: '该模型当前不可用，请选择其他模型',
   removeError: '移除失败，请稍后重试',
+  'agent.title': '智能体工具',
+  'agent.connected': '已连接，共 {count} 个工具可用',
+  'agent.connecting': '正在连接（第 {attempt} 次）',
+  'agent.failed': '连接失败，{seconds} 秒后自动重试',
+  'agent.disabled': '未激活，激活后可用',
+  'agent.waitingCredentials': '等待密钥',
+  'agent.notLoaded': '未加载，请重启应用',
 } as const
 
 export type AccessLocaleKey = keyof typeof zh
@@ -73,9 +83,19 @@ export const en: Record<AccessLocaleKey, string> = {
   invalid: 'The key could not be verified',
   tenantMismatch: 'This key belongs to a different tenant; use the model_api_key your administrator assigned',
   tenantUnavailable: 'The key tenant could not be confirmed; try again shortly',
+  networkUnavailable: 'Could not reach the model service; check the network and retry',
   modelError: 'Could not load models; check the key and the model service',
   saveError: 'Could not save the configuration',
+  catalogSyncFailed: 'The model list could not be synced; using the built-in list',
+  modelNotAvailable: 'That model is not available now; choose another',
   removeError: 'Could not remove the key',
+  'agent.title': 'Agent tools',
+  'agent.connected': 'Connected, {count} tools available',
+  'agent.connecting': 'Connecting (attempt {attempt})',
+  'agent.failed': 'Connection failed, retrying in {seconds}s',
+  'agent.disabled': 'Not activated; available after activation',
+  'agent.waitingCredentials': 'Waiting for the key',
+  'agent.notLoaded': 'Not loaded, restart the app',
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createKitTranslate } from '../src/kit-locale.ts'
 import { KitLocaleProvider } from '../src/kit-locale.ts'
+import { createHostAction, HostActionError } from '../src/host-action.ts'
 import { en } from '../src/locales.ts'
 import { AssistantDock } from '../src/assistant-dock.tsx'
 import { ChartFrame } from '../src/chart-frame.tsx'
@@ -532,5 +533,86 @@ describe('FilterMenu', () => {
       <FilterMenu label="Account" currentLabel="All" items={ITEMS} selectedId="all" triggerClassName="pageTrigger" onSelect={() => {}} />,
     )
     expect(screen.getByRole('button', { name: 'Account' }).classList.contains('pageTrigger')).toBe(true)
+  })
+})
+
+describe('createHostAction', () => {
+  /** A fetch that never settles and rejects only when the request signal aborts. */
+  const hangingFetch = (): ReturnType<typeof vi.fn> =>
+    vi.fn((_path: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => {
+        reject(new DOMException('The operation was aborted.', init.signal?.reason instanceof DOMException ? 'TimeoutError' : 'AbortError'))
+      })
+    }))
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('T1: 2xx + status ok 返回载荷', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status: 'ok', data: { a: 1 } }), { status: 200 })))
+    const call = createHostAction('/api/test')
+    await expect(call('x.get')).resolves.toEqual({ status: 'ok', data: { a: 1 } })
+  })
+
+  it('T2: error envelope 以稳定 reason 抛 HostActionError', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status: 'error', reason: 'X' }), { status: 200 })))
+    const call = createHostAction('/api/test')
+    const error = await call('x.get').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HostActionError)
+    expect((error as HostActionError).code).toBe('X')
+  })
+
+  it('T3: 非 JSON / 空体 / status 非字符串收敛 host_unreachable', async () => {
+    const call = createHostAction('/api/test')
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{not json', { status: 200 })))
+    await expect(call('x.get')).rejects.toMatchObject({ code: 'host_unreachable' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('null', { status: 200 })))
+    await expect(call('x.get')).rejects.toMatchObject({ code: 'host_unreachable' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ noStatus: true }), { status: 200 })))
+    await expect(call('x.get')).rejects.toMatchObject({ code: 'host_unreachable' })
+    await expect(call('x.get', { k: 1 })).rejects.toBeInstanceOf(HostActionError)
+  })
+
+  it('T4: 传输失败（网络拒绝）收敛 host_unreachable 且不透传原文', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('fetch failed: 192.168.1.4:9876 refused')
+    }))
+    const call = createHostAction('/api/test')
+    const error = await call('x.get').catch((e: unknown) => e as HostActionError)
+    expect(error).toBeInstanceOf(HostActionError)
+    expect(error.code).toBe('host_unreachable')
+    expect(error.message).not.toContain('192.168.1.4')
+  })
+
+  it('T5: 请求方法、头、凭证与 redirect 同源契约一致', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok' }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const call = createHostAction('/api/test')
+    await call('x.get', { id: 7 })
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(path).toBe('/api/test')
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('same-origin')
+    expect(init.redirect).toBe('error')
+    expect(new Headers(init.headers).get('content-type')).toBe('application/json')
+    expect(JSON.parse(String(init.body))).toEqual({ action: 'x.get', id: 7 })
+  })
+
+  it('T6: actionTimeouts 内的 action 用自带预算，未列出的用缺省预算', async () => {
+    const fetchMock = hangingFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    const call = createHostAction('/api/test', { timeoutMs: 5_000, actionTimeouts: { 'account.probe': 80 } })
+    // 列出的 action：80ms 预算内不抛，超时后收敛 host_unreachable。
+    const probe = call('account.probe')
+    const stillPending = await Promise.race([probe.then(() => 'settled'), new Promise(resolve => setTimeout(() => resolve('pending'), 30))])
+    expect(stillPending).toBe('pending')
+    await expect(probe).rejects.toMatchObject({ code: 'host_unreachable' })
+    // 未列出的 action：缺省预算 5s，远超观察窗时不抛（此处只验证未提前收敛）。
+    const other = call('overview.get')
+    const otherPending = await Promise.race([other.then(() => 'settled'), new Promise(resolve => setTimeout(() => resolve('pending'), 60))])
+    expect(otherPending).toBe('pending')
+    await expect(Promise.race([other, new Promise(resolve => setTimeout(() => resolve('race-timeout'), 120))])).resolves.toBe('race-timeout')
   })
 })

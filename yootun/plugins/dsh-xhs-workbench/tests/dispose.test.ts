@@ -48,7 +48,7 @@ test('dispose：登录等待中 abort → run 落 login_aborted，新 action 稳
   await rm(root, { recursive: true, force: true })
 })
 
-test('dispose：采集运行中 abort → run 落 failed(collect_aborted)，等待 settle', async () => {
+test('dispose：采集运行中 abort → run 落 cancelled(collect_cancelled)，等待 settle', async () => {
   const root = await tempRoot()
   const fake = createFakeChrome()
   const deps = createXhsHostDeps({
@@ -66,9 +66,11 @@ test('dispose：采集运行中 abort → run 落 failed(collect_aborted)，等�
   // dispose 后 handler 拒绝：collect.status 也被 guard 拦截（plugin_disposing）。
   assert.equal(status.status, 'error')
   assert.equal(status.reason, 'plugin_disposing')
-  // 采集 run 落 failed 终态（abort 收敛），信号表清空。
+  // 采集 run 落取消终态（abort 与 collect.cancel 同一判定口径，1126 实施单 A1），
+  // 信号表清空。
   const run = deps.collectRuns.get(String(payload.collectId))
-  assert.equal(run?.status, 'failed')
+  assert.equal(run?.status, 'cancelled')
+  assert.equal(run?.error, 'collect_cancelled')
   assert.equal(deps.collectSignals.size, 0)
   await rm(root, { recursive: true, force: true })
 })

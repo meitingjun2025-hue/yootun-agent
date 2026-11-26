@@ -1,9 +1,9 @@
 /**
  * 账号管理状态机（迁移旧 client.js createAccountsHub 全行为，纯逻辑无 React
  * 依赖）：登录 waiting 与采集 running 各自 2s 轮询一次 status；登录终态
- * ok/timeout/failed 与采集 completed/failed 停止轮询并刷新列表；宿主侧终态
- * run 读取一次即清理，轮询返回 idle 视为扫码中断（进程重启/窗口丢失）。
- * Chrome 缺失时浏览器动作前置阻断（不动浏览器，直接受控提示）。
+ * ok/timeout/failed 与采集 completed/failed/cancelled 停止轮询并刷新列表；
+ * 宿主侧终态 run 读取一次即清理，轮询返回 idle 视为扫码中断（进程重启/窗口
+ * 丢失）。Chrome 缺失时浏览器动作前置阻断（不动浏览器，直接受控提示）。
  * @module
  */
 import { hostAction } from './api.ts'
@@ -16,6 +16,8 @@ export interface AccountRow {
   sessionStatus: string
   sessionCheckedAt: string | null
   lastCollectedAt: string | null
+  /** 存在 running 发布 run（浏览器发布页仍打开）；缺省 false。 */
+  publishWindowOpen?: boolean
   summary?: {
     notesCount: number
     totals: { plays: number; likes: number; collects: number; comments: number; shares: number }
@@ -77,6 +79,7 @@ export interface AccountsMachinePorts {
   removeLocal(args: { accountId: string }): Promise<unknown>
   startCollect(args: { accountId: string; idempotencyKey: string }): Promise<{ collect?: CollectState }>
   collectStatus(args: { collectId: string }): Promise<{ status?: string; collect?: CollectState | null }>
+  cancelCollect(args: { collectId: string }): Promise<{ status?: string; collect?: CollectState | null }>
   browserStatus(): Promise<{ chromeAvailable?: boolean }>
   intervalMs?: number
   schedule?: ((fn: () => void) => unknown) | undefined
@@ -99,6 +102,8 @@ export interface AccountsMachine {
   probeNow(accountId: string): Promise<void>
   removeAccount(accountId: string): Promise<void>
   startCollectFlow(accountId: string): Promise<void>
+  /** 取消运行中的采集（collect.cancel）；终态收敛与轮询路径同口径。 */
+  cancelCollectFlow(): Promise<void>
   /** 测试辅助：注入假时钟推进轮询。 */
   tick(): Promise<void>
 }
@@ -273,6 +278,16 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
     }
   }
 
+  /** 采集终态收敛（轮询与取消共用）：清运行态、按终态分流提示并刷新列表摘要。 */
+  async function settleCollectTerminal(next: CollectState): Promise<void> {
+    setState({ collect: null })
+    if (next.collectStatus === 'completed') setNotice(next.truncated === true ? 'warn' : 'ok', next.truncated === true ? 'accounts.truncated' : 'accounts.collectDone')
+    // 取消是终态而非失败：固定提示「已取消，未保存本次采集」（快照未变）。
+    else if (next.collectStatus === 'cancelled') setNotice('warn', 'collect.cancelled')
+    else noticeForReason('error', typeof next.error === 'string' ? next.error : undefined, 'accounts.collectFailed')
+    await refresh()
+  }
+
   /** 采集单次查询：宿主重启后 run 丢失（collect_id_required 等）收敛为失败，不静默清空。 */
   async function pollCollectOnce(): Promise<void> {
     const collect = snapshot.collect
@@ -294,10 +309,7 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
       setState({ collect: next })
       return
     }
-    setState({ collect: null })
-    if (next.collectStatus === 'completed') setNotice(next.truncated === true ? 'warn' : 'ok', next.truncated === true ? 'accounts.truncated' : 'accounts.collectDone')
-    else noticeForReason('error', typeof next.error === 'string' ? next.error : undefined, 'accounts.collectFailed')
-    await refresh()
+    await settleCollectTerminal(next)
   }
 
   return {
@@ -409,6 +421,20 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
         if (active) noticeForReason('error', error instanceof Error ? error.message : undefined, 'accounts.collectFailed')
       }
     },
+    async cancelCollectFlow() {
+      const collect = snapshot.collect
+      // 只取消本机运行中的 run；自然结束后按钮已回「采集」，不再发取消请求（X2）。
+      if (collect === null || collect.collectStatus !== 'running') return
+      try {
+        const result = await ports.cancelCollect({ collectId: collect.collectId })
+        if (!active) return
+        const next = result?.collect
+        // Host 已同步落终态；回包异常时留给下一轮 collect.status 收敛，不打断采集。
+        if (next !== undefined && next !== null && next.collectStatus !== 'running') await settleCollectTerminal(next)
+      } catch (error) {
+        void error // 取消请求失败不打断运行中的采集：下一轮 collect.status 继续观察终态。
+      }
+    },
     async tick() {
       if (timer !== null) {
         clearSchedule(timer)
@@ -430,6 +456,7 @@ export function createAccountsMachineWithHost(): AccountsMachine {
     removeLocal: async args => await hostAction('account.removeLocal', args),
     startCollect: async args => await hostAction('collect.start', args) as { collect?: CollectState },
     collectStatus: async args => await hostAction('collect.status', args) as { status?: string; collect?: CollectState | null },
+    cancelCollect: async args => await hostAction('collect.cancel', args) as { status?: string; collect?: CollectState | null },
     browserStatus: async () => await hostAction('browser.status') as { chromeAvailable?: boolean },
   })
 }

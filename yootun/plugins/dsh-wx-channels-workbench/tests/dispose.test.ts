@@ -1,9 +1,9 @@
 /**
  * dispose 全任务收口的确定性测试（node --test）：
- * 登录/单账号采集/批量采集挂起时 dispose 统一 abort 并等待 settle；dispose 后
- * 新 action 稳定拒绝（plugin_disposing）；晚 factory 清理被等待；runs.json
- * 损坏不阻塞 dispose；全程断言 activeCount 归零、profile lock 无残留、
- * loginSignals/collectSignals 清空、无 unhandled rejection。
+ * 登录/单账号采集/批量采集挂起时 dispose 统一 abort 并等待 settle（批量含多
+ * 账号并发在途场景）；dispose 后新 action 稳定拒绝（plugin_disposing）；晚
+ * factory 清理被等待；runs.json 损坏不阻塞 dispose；全程断言 activeCount 归零、
+ * profile lock 无残留、loginSignals/collectSignals 清空、无 unhandled rejection。
  * 断言全部基于 Promise gate / 锁计数 / registry 计数，不用 sleep 裁决。
  * 运行：`node --test tests/dispose.test.ts`
  */
@@ -15,6 +15,7 @@ import { test } from 'node:test'
 import { isProfileLocked } from '../src/locks.ts'
 import { createBatchCollectController } from '../src/collect-all.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
+import { createCollectController, type CollectController } from '../src/runner.ts'
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createRouteHandler } from '../src/route.ts'
 import { readRuns } from '../src/runs.ts'
@@ -142,7 +143,11 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  return { deps, handlers: buildRouteHandlers(deps, batch as never) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
 }
 
 async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string> = {}): Promise<Record<string, unknown>> {
@@ -221,9 +226,6 @@ test('dispose：挂起单账号采集被 abort 并 settle，锁释放、cancelle
 
   assert.equal(deps.collectSignals.size, 0, 'collectSignals 清空')
   assert.equal(isProfileLocked('acc1'), false, 'profile lock 无残留')
-  // dispose 后 handler 稳定拒绝（plugin_disposing），状态改由 deps 直读。
-  assert.equal(deps.collectBusy, false)
-  assert.equal((deps.collectRecord as { status?: string } | null)?.status, 'cancelled')
   const runs = await readRuns(root)
   const records = Object.values(runs)
   assert.equal(records.length, 1)
@@ -234,7 +236,7 @@ test('dispose：挂起单账号采集被 abort 并 settle，锁释放、cancelle
 
 // --- 3. batch 多账号执行中 dispose ---
 
-test('dispose：batch 当前账号 abort、后续账号 skipped、整体 run settle', async () => {
+test('dispose：batch 在途账号 abort、后续账号按取消结算、整体 run settle', async () => {
   const root = makeEnv('wx-dp-batch', [{ id: 'acc1' }, { id: 'acc2' }])
   const gotoEntered = deferred<void>()
   const deps = createWxHostDeps({
@@ -242,44 +244,124 @@ test('dispose：batch 当前账号 abort、后续账号 skipped、整体 run set
     workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
     browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
     logger: { warn: () => undefined },
+    chromeFactory: makeAbortAwareFactory(
+      { acc1: { collectGoto: { entered: gotoEntered.resolve } } },
+      id => depsRef?.collectSignals.get(id)?.signal,
+    ),
   })
+  let depsRef: typeof deps | undefined
+  depsRef = deps
   const registry = deps.taskRegistry
-  const activeSignals = new Map<string, AbortSignal>()
-  const factory = makeAbortAwareFactory(
-    { acc1: { collectGoto: { entered: gotoEntered.resolve } } },
-    id => activeSignals.get(id),
-  )
 
+  let batchRef: ReturnType<typeof createBatchCollectController>
+  const collect: CollectController = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    { batchHasRunning: () => batchRef.running || deps.batchReserved, taskRegistry: registry, signals: deps.collectSignals },
+  )
   const batch = createBatchCollectController({
-    collect: async input => {
-      const { runCollection } = await import('../src/runner.ts')
-      activeSignals.set(input.accountId, input.signal)
-      return registry.track(runCollection({
-        workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
-        accountId: input.accountId, root,
-        logger: deps.logger, signal: input.signal, taskRegistry: registry,
-        chromeFactory: factory,
-      }))
+    collect: {
+      start: input => collect.start({
+        accountId: input.accountId,
+        fromBatch: true,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      }),
+      wait: accountId => collect.wait(accountId),
+      hasRunning: () => collect.hasRunning(),
     },
-    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, factory)),
+    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.chromeFactory)),
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
   })
-  const handlers = buildRouteHandlers(deps, batch as never) as Record<string, (args: Record<string, string>) => Promise<object>>
+  batchRef = batch
+  const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string>) => Promise<object>>
 
   const started = await callHandler(handlers, 'collectAll.start', {})
   assert.equal(started.started, true)
   await gotoEntered.promise
   assert.equal(batch.status.phase, 'collecting')
+  assert.deepEqual(batch.status.runningAccountIds, ['acc1'])
   assert.equal(batch.status.currentAccountId, 'acc1')
 
   await disposeHostTasks({ deps, batch })
 
   assert.equal(batch.status.phase, 'finished', 'batch 整体 run settle')
-  assert.equal(batch.status.items[0]?.status, 'cancelled', '当前账号 aborted')
-  assert.equal(batch.status.items[1]?.status, 'skipped', '后续账号 skipped')
+  assert.equal(batch.status.error, 'collect_cancelled', 'dispose 取消批次')
+  assert.equal(batch.status.items[0]?.status, 'failed', '在途账号 aborted')
+  assert.equal(batch.status.items[0]?.reason, 'collect_cancelled')
+  assert.equal(batch.status.items[1]?.status, 'failed', '后续账号不启动，按取消结算')
+  assert.equal(batch.status.items[1]?.reason, 'collect_cancelled')
+  assert.deepEqual(batch.status.runningAccountIds, [])
+  assert.equal(batch.status.currentAccountId, null)
   assert.equal(isProfileLocked('acc1'), false)
   assert.equal(isProfileLocked('acc2'), false)
+  assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
+  cleanup(root)
+})
+
+// --- 3b. 批量多账号在途并发时 dispose（B13/B18） ---
+
+test('dispose：批量三账号并发在途时 abort 全部、等全部 settle、锁全部释放', async () => {
+  const root = makeEnv('wx-dp-batch3', [{ id: 'acc1' }, { id: 'acc2' }, { id: 'acc3' }])
+  const entered = [deferred<void>(), deferred<void>(), deferred<void>()]
+  const deps = createWxHostDeps({
+    root,
+    workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+    browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+    logger: { warn: () => undefined },
+    chromeFactory: makeAbortAwareFactory(
+      {
+        acc1: { collectGoto: { entered: entered[0]?.resolve } },
+        acc2: { collectGoto: { entered: entered[1]?.resolve } },
+        acc3: { collectGoto: { entered: entered[2]?.resolve } },
+      },
+      id => depsRef3?.collectSignals.get(id)?.signal,
+    ),
+  })
+  let depsRef3: typeof deps | undefined
+  depsRef3 = deps
+  const registry = deps.taskRegistry
+
+  let batchRef: ReturnType<typeof createBatchCollectController>
+  const collect: CollectController = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    { batchHasRunning: () => batchRef.running || deps.batchReserved, taskRegistry: registry, signals: deps.collectSignals },
+  )
+  const batch = createBatchCollectController({
+    collect: {
+      start: input => collect.start({
+        accountId: input.accountId,
+        fromBatch: true,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      }),
+      wait: accountId => collect.wait(accountId),
+      hasRunning: () => collect.hasRunning(),
+    },
+    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.chromeFactory)),
+    logger: deps.logger,
+    trackRun: promise => { registry.track(promise) },
+    // 三 worker 同时取号（零随机 + 零等待接缝），三个采集本体同时挂起在 goto 门上。
+    rand: () => 0,
+    sleep: () => Promise.resolve(),
+  })
+  batchRef = batch
+  const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string>) => Promise<object>>
+
+  const started = await callHandler(handlers, 'collectAll.start', {})
+  assert.equal(started.started, true)
+  await Promise.all(entered.map(gate => gate.promise))
+  assert.equal(batch.status.phase, 'collecting')
+  assert.deepEqual(batch.status.runningAccountIds, ['acc1', 'acc2', 'acc3'], '三账号同时运行')
+  assert.equal(batch.status.concurrency, 3)
+
+  await disposeHostTasks({ deps, batch })
+
+  assert.equal(batch.status.phase, 'finished', 'batch 整体 run settle')
+  assert.equal(batch.status.error, 'collect_cancelled')
+  assert.ok(batch.status.items.every(item => item.status === 'failed' && item.reason === 'collect_cancelled'), `全部条目 collect_cancelled: ${JSON.stringify(batch.status.items)}`)
+  assert.deepEqual(batch.status.runningAccountIds, [])
+  for (const accountId of ['acc1', 'acc2', 'acc3']) {
+    assert.equal(isProfileLocked(accountId), false, `${accountId} 锁释放`)
+  }
   assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
   cleanup(root)
 })
@@ -577,14 +659,14 @@ test('dispose：runs.json 损坏（写失败）不阻塞 dispose，错误可见�
 
 test('dispose：route 包装层的新请求同样被 plugin_disposing 拒绝', async () => {
   const root = makeEnv('wx-dp-route', [{ id: 'acc1' }])
-  const { deps } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined))
+  const { deps, handlers } = buildHandlers(root, makeAbortAwareFactory({ acc1: {} }, () => undefined))
   const batch = {
     get status() { return {} as never },
     get running() { return false },
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  const routeHandler = createRouteHandler(() => 'http://127.0.0.1:1', buildRouteHandlers(deps, batch as never))
+  const routeHandler = createRouteHandler(() => 'http://127.0.0.1:1', handlers)
   await disposeHostTasks({ deps, batch })
 
   const responded: Array<{ status: number; payload: Record<string, unknown> }> = []

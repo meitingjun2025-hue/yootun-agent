@@ -1,9 +1,9 @@
 /**
- * 批量采集并发测试（node --test）：阶段 2 worker 队列的并发峰值、取号顺序、
- * 单次启动、探测串行、no_eligible_account、collect_busy 互斥、批内熔断、
- * 错峰接缝、Config.batchConcurrency 校验与 runs.json 并发写入隔离。时序全部
- * 经 concurrency/rand/sleep 注入控制，不依赖真实计时；不启动真实 Chrome，
- * 不访问生产 endpoint。
+ * 批量采集并发测试（node --test）：候选筛选（pending/无凭证）、阶段 2 worker
+ * 队列的并发峰值、取号顺序、单次启动、探测串行、no_eligible_account、
+ * collect_busy 互斥、批内熔断、错峰接缝、Config.batchConcurrency 校验与
+ * runs.json 并发写入隔离。时序全部经 concurrency/rand/sleep 注入控制，不依赖
+ * 真实计时；不启动真实 Chrome，不访问生产 endpoint。
  * 运行：`node --test tests/batch-concurrency.test.ts`。
  */
 import assert from 'node:assert/strict'
@@ -11,7 +11,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRouteHandlers, createDouyinHostDeps, Config } from '../src/index.ts'
-import { createBatchCollectController, createCollectController, type CollectResult, type RunOptions } from '../src/runner.ts'
+import { batchCandidates, createBatchCollectController, createCollectController, type CollectResult, type RunOptions, type RunnerDeps } from '../src/runner.ts'
 import { createAttemptId, readRuns, updateRun } from '../src/runs.ts'
 import { paths, updateAccount } from '../src/state.ts'
 import { createFakeWorkbench, tempRoot } from './fakes.ts'
@@ -83,11 +83,20 @@ function fakeCollect(script: CollectScript, gate: boolean) {
   }
 }
 
-/** 写入本地账号记录 + storage_state 占位（批量候选就绪）。 */
-async function seedAccount(root: string, accountId: string): Promise<void> {
-  await updateAccount(accountId, { sessionStatus: 'ok' }, root)
+/** 写入本地账号记录 + storage_state 占位（批量候选就绪；sessionStatus 缺省 ok）。 */
+async function seedAccount(root: string, accountId: string, sessionStatus: string = 'ok'): Promise<void> {
+  await updateAccount(accountId, { sessionStatus }, root)
   await mkdir(join(root, 'storage-state'), { recursive: true })
   await writeFile(paths(root).storageStatePath(accountId), '{"cookies":[]}')
+}
+
+/** 候选筛选纯本地：callTool 一旦被调用即失败（RunnerDeps 最小接缝）。 */
+function candidateDeps(root: string): RunnerDeps {
+  return {
+    callTool: async (): Promise<never> => { throw new Error('no workbench in candidate tests') },
+    root,
+    logger: { warn: (): void => undefined },
+  }
 }
 
 test('B1 并发峰值 ≤ batchConcurrency：5 账号 2 路并发，同时在途不超过 2', async () => {
@@ -211,6 +220,90 @@ test('B5 no_eligible_account：全部被探测拦截时不启动任何采集', a
   assert.equal(probed.status.error, 'no_eligible_account')
   assert.equal(collect.starts.length, 0)
   assert.ok(probed.status.items.every(item => item.status === 'skipped' && item.reason === 'session_required'))
+})
+
+test('C1 候选只按缓存排除确定不可采：unknown/expired/ok 且有凭证的账号均入围', async () => {
+  const { root, cleanup } = await tempRoot()
+  try {
+    await seedAccount(root, 'c1-unknown', 'unknown')
+    await seedAccount(root, 'c1-expired', 'expired')
+    await seedAccount(root, 'c1-ok')
+    const candidates = await batchCandidates(candidateDeps(root))
+    assert.deepEqual(candidates.sort((a, b) => a.accountId.localeCompare(b.accountId)), [
+      { accountId: 'c1-expired', skipped: false, reason: null },
+      { accountId: 'c1-ok', skipped: false, reason: null },
+      { accountId: 'c1-unknown', skipped: false, reason: null },
+    ], '缓存 unknown/expired 不再预筛：三种缓存状态全部进入阶段 1')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('C2 候选仍排除 pending 占位与无凭证账号', async () => {
+  const { root, cleanup } = await tempRoot()
+  try {
+    await updateAccount('pending-c2', { sessionStatus: 'ok' }, root)
+    await updateAccount('c2-no-cred', { sessionStatus: 'ok' }, root)
+    const candidates = await batchCandidates(candidateDeps(root))
+    const byId = new Map(candidates.map(item => [item.accountId, item]))
+    assert.deepEqual(byId.get('pending-c2'), { accountId: 'pending-c2', skipped: true, reason: 'pending_account' }, 'pending 占位先行于凭证检查')
+    assert.deepEqual(byId.get('c2-no-cred'), { accountId: 'c2-no-cred', skipped: true, reason: 'storage_state_missing' })
+  } finally {
+    await cleanup()
+  }
+})
+
+test('C3 缓存 unknown 的账号按阶段 1 实测结算：ok → ready 后采集；unknown → probe_failed；expired → session_required', async () => {
+  const collect = fakeCollect({ 'c3-ok': ok() }, true)
+  const probeScript: Record<string, { sessionStatus: string; reason: string | null }> = {
+    'c3-expired': { sessionStatus: 'expired', reason: 'session_expired' },
+    'c3-ok': { sessionStatus: 'ok', reason: null },
+    'c3-unknown': { sessionStatus: 'unknown', reason: 'probe_failed' },
+  }
+  // worker 取号前的错峰等待挂起直到 release：让 ready（探测通过、未被取号）可确定性观察。
+  let releaseWorker: (() => void) | undefined
+  const workerGate = new Promise<void>(resolve => { releaseWorker = resolve })
+  const batch = createBatchCollectController({
+    collect,
+    probe: async accountId => {
+      const scripted = probeScript[accountId]
+      if (scripted === undefined) throw new Error(`unscripted probe: ${accountId}`)
+      return scripted
+    },
+    concurrency: 2,
+    rand: zeroRand,
+    sleep: (): Promise<void> => workerGate,
+  })
+  const started = batch.start([candidate('c3-unknown'), candidate('c3-expired'), candidate('c3-ok')])
+  assert.equal(started.started, true)
+  await flush()
+  // 批次级标量随访问快照：ready/skipped 观察与终态结算各自重新访问 batch.status。
+  assert.deepEqual(collect.starts, [], 'worker 仍在错峰等待：探测通过前不取号')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-ok')?.status, 'ready', '实测 ok → ready（等待采集）')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-unknown')?.status, 'skipped')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-unknown')?.reason, 'probe_failed', '实测 unknown → probe_failed，不是 session_required')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-expired')?.status, 'skipped')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-expired')?.reason, 'session_required', '实测 expired → session_required')
+  releaseWorker?.()
+  await flush()
+  assert.deepEqual(collect.starts, ['c3-ok'], '仅实测 ok 的账号进入阶段 2')
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-ok')?.status, 'running')
+  collect.settle('c3-ok')
+  await started.runPromise
+  assert.equal(batch.status.items.find(item => item.accountId === 'c3-ok')?.status, 'completed', '实测通过即被采集')
+  assert.equal(batch.status.status, 'completed')
+})
+
+test('C4 回归：全部账号被实测拦截 → 批次 failed / no_eligible_account，不启动采集', async () => {
+  const collect = fakeCollect({}, true)
+  const batch = createBatchCollectController({ collect, probe: async () => ({ sessionStatus: 'unknown', reason: 'probe_failed' }), concurrency: 2, rand: zeroRand, sleep: immediateSleep })
+  const started = batch.start([candidate('c4-a'), candidate('c4-b')])
+  assert.equal(started.started, true)
+  await started.runPromise
+  assert.equal(batch.status.status, 'failed')
+  assert.equal(batch.status.error, 'no_eligible_account')
+  assert.equal(collect.starts.length, 0, '实测全拦截时不启动任何采集')
+  assert.ok(batch.status.items.every(item => item.status === 'skipped' && item.reason === 'probe_failed'))
 })
 
 test('B6 批量运行中：collect.start 与重复 collectAll.start 均 collect_busy；settle 后信号清理', async () => {

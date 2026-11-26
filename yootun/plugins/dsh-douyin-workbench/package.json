@@ -1,6 +1,6 @@
 {
   "name": "@yootun/dsh-douyin-workbench",
-  "description": "yootun 抖音工作台：Host 半（`/api/desktop/yootun/douyin-workbench` 同源路由 + 56 个 action 契约 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile 管理 + 经 Workbench MCP 的按域放行调用）+ client 半（root main 中央面板与 sidebar.panellist 入口，7 个顶级 Tab：账号总览/账号作品/发布排期看板/爆款素材看板/爆款拆解/爆款基因库/AI 报表，已随 D9 集成批次接入 bundle）",
+  "description": "yootun 抖音工作台：Host 半（`/api/desktop/yootun/douyin-workbench` 同源路由 + 57 个 action 契约 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile 管理 + 经 Workbench MCP 的按域放行调用）+ client 半（root main 中央面板与 sidebar.panellist 入口，7 个顶级 Tab：账号总览/账号作品/发布排期看板/爆款素材看板/爆款拆解/爆款基因库/AI 报表，已随 D9 集成批次接入 bundle）",
   "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
@@ -26,7 +26,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/route.test.ts && node --test tests/dispose.test.ts && node --test tests/d2.test.ts && node --test tests/d3.test.ts && node --test tests/d4d5.test.ts && node --test tests/d6.test.ts && node --test tests/d7.test.ts && node --test tests/d8.test.ts && node --test tests/source-conventions.test.ts && node --test tests/parse.test.ts && node --test tests/collector.test.ts && node --test tests/old-parity.test.ts && node --test tests/recovery.test.ts && node --test tests/abort.test.ts && node --test tests/lifecycle3.test.ts && node --test tests/batch-concurrency.test.ts && vitest run"
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/route.test.ts && node --test tests/dispose.test.ts && node --test tests/lifecycle-budget.test.ts && node --test tests/d2.test.ts && node --test tests/d3.test.ts && node --test tests/d4d5.test.ts && node --test tests/d6.test.ts && node --test tests/d7.test.ts && node --test tests/d8.test.ts && node --test tests/source-conventions.test.ts && node --test tests/parse.test.ts && node --test tests/collector.test.ts && node --test tests/old-parity.test.ts && node --test tests/recovery.test.ts && node --test tests/abort.test.ts && node --test tests/lifecycle3.test.ts && node --test tests/batch-concurrency.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {

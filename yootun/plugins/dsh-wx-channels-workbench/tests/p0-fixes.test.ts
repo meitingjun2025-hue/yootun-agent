@@ -171,6 +171,7 @@ test('account.probe 真实 handler 在限定时间内完成（无嵌套锁死锁
   writeFileSync(join(root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
 
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const { createCollectController } = await import('../src/runner.ts')
   const deps = createWxHostDeps({
     root,
     workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
@@ -184,7 +185,11 @@ test('account.probe 真实 handler 在限定时间内完成（无嵌套锁死锁
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  const handlers = buildRouteHandlers(deps, batch as never)
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
 
   // 修复前：外层包 lock + probe 内层再包 lock → 永久挂起；修复后 3 秒内返回。
   const result = await Promise.race([
@@ -206,6 +211,7 @@ test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async
   writeFileSync(join(root, 'accounts.json'), JSON.stringify({ accounts: { acc1: { accountId: 'acc1', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
 
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const { createCollectController } = await import('../src/runner.ts')
   const deps = createWxHostDeps({
     root,
     workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
@@ -219,7 +225,11 @@ test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  const handlers = buildRouteHandlers(deps, batch as never)
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
 
   const first = await Promise.race([
     handlers['collect.start']?.({ accountId: 'acc1' }) as Promise<Record<string, unknown>>,

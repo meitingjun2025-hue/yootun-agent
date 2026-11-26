@@ -10,6 +10,10 @@ export const PICK_FILE_PATH = '/_dsh/uploader/pick-file'
 export const UPLOAD_START_PATH = '/_dsh/uploader/uploadStart'
 export const UPLOAD_STATUS_PATH = '/_dsh/uploader/uploadStatus'
 export const MEDIA_PATH = '/_dsh/uploader/media'
+/** 承接卡片只读轮询：工具创建且仍在等待或上传中的会话投影。 */
+export const PENDING_PATH = '/_dsh/uploader/pending'
+/** 承接卡片取消：会话先落 user_cancelled 终态再中止在途直传。 */
+export const CANCEL_PATH = '/_dsh/uploader/cancel'
 
 /** Workbench 面 authorize 工具名（唯一授权入口）。 */
 export const AUTHORIZE_TOOL_NAME = 'workbench_tos_upload_authorize'

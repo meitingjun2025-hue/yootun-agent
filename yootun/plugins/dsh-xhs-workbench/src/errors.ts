@@ -7,7 +7,7 @@
  */
 
 /** 服务端任务链稳定码（workbench_xhs_task_* / result_get envelope）。 */
-export const SERVER_TASK_ERROR_CODES = Object.freeze([
+const SERVER_TASK_ERROR_CODE_VALUES = [
   'TASK_NOT_FOUND',
   'TASK_STATE_CONFLICT',
   'RESULT_NOT_READY',
@@ -19,10 +19,12 @@ export const SERVER_TASK_ERROR_CODES = Object.freeze([
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_IN_PROGRESS',
   'IDEMPOTENCY_OUTCOME_UNKNOWN',
-])
+] as const
+
+export const SERVER_TASK_ERROR_CODES = Object.freeze([...SERVER_TASK_ERROR_CODE_VALUES])
 
 /** 服务端爆款看板稳定码（workbench_xhs_hotboard_* envelope）。 */
-export const SERVER_HOTBOARD_ERROR_CODES = Object.freeze([
+const SERVER_HOTBOARD_ERROR_CODE_VALUES = [
   'XHS_HOTBOARD_INVALID_ARGUMENT',
   'XHS_HOTBOARD_NOT_FOUND',
   'XHS_HOTBOARD_ACTIVE_RUN_EXISTS',
@@ -35,19 +37,23 @@ export const SERVER_HOTBOARD_ERROR_CODES = Object.freeze([
   'XHS_HOTBOARD_PROVIDER_FAILED',
   'XHS_HOTBOARD_SETTING_TOML_MANAGED',
   'XHS_HOTBOARD_INTERNAL_ERROR',
-])
+] as const
+
+export const SERVER_HOTBOARD_ERROR_CODES = Object.freeze([...SERVER_HOTBOARD_ERROR_CODE_VALUES])
 
 /** 服务端公共码（确认/校验/幂等，两组 envelope 共用）。 */
-export const SERVER_COMMON_ERROR_CODES = Object.freeze([
+const SERVER_COMMON_ERROR_CODE_VALUES = [
   'CONFIRMATION_REQUIRED',
   'VALIDATION_ERROR',
   'IDEMPOTENCY_CONFLICT',
   'IDEMPOTENCY_IN_PROGRESS',
   'IDEMPOTENCY_OUTCOME_UNKNOWN',
-])
+] as const
+
+export const SERVER_COMMON_ERROR_CODES = Object.freeze([...SERVER_COMMON_ERROR_CODE_VALUES])
 
 /** 本域（设备端）稳定码（沿用旧插件白名单 + 路由层新增）。 */
-export const LOCAL_ERROR_CODES = Object.freeze([
+const LOCAL_ERROR_CODE_VALUES = [
   'GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING',
   'SESSION_EXPIRED',
@@ -63,8 +69,15 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'XHS_ROUTE_INVALID_REQUEST',
   'XHS_ROUTE_PAYLOAD_TOO_LARGE',
   'XHS_ROUTE_REFUSED',
+  // 2026-11-26 连接器鉴权投影与 Host action 传输收敛码（分册 08 §5.2）。
+  'UNAUTHORIZED',
+  'host_unreachable',
   'login_aborted',
+  // 采集取消终态（collect.cancel；run.status='cancelled' 的固定 error 码）。
+  'collect_cancelled',
   'plugin_disposing',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
   'xhs_operation_request_failed',
   // 旧 session.js 探测/会话判定的小写原因码（ProbeResult.reason 可携带，client 半据此映射提示）。
   'storage_state_missing',
@@ -84,7 +97,9 @@ export const LOCAL_ERROR_CODES = Object.freeze([
   'create_failed_no_task',
   'invalid_target',
   'publish_id_required',
-])
+] as const
+
+export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])
 
 /** 全部对外合法码值（路由 reason 的唯一合法取值）。 */
 export const STABLE_ERROR_CODES = Object.freeze([
@@ -131,9 +146,11 @@ export function serverCodeOf(error: unknown): string | undefined {
 /**
  * Normalize any thrown cause into a stable code (旧 index.js 顶层 catch 口径)：
  * errors carrying a whitelisted `code`（CollectError / 本地失败）project it;
- * Chrome/driver missing project by class name; Workbench business failures
- * project their server code (when whitelisted); everything else collapses to
- * the legacy tool-call fallback `xhs_operation_request_failed`.
+ * Chrome/driver missing project by class name; connector transport failures
+ * project by their stable code（2026-11-26 起 `workbench_unauthorized` 显式投影
+ * `UNAUTHORIZED`、`workbench_server_error` 投影兜底码，分册 08 §5.2）; Workbench
+ * business failures project their server code (when whitelisted); everything
+ * else collapses to the legacy tool-call fallback `xhs_operation_request_failed`.
  * @param error - anything thrown.
  * @returns one of {@link STABLE_ERROR_CODES}.
  */
@@ -142,7 +159,10 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+  if (direct === 'workbench_unauthorized') return 'UNAUTHORIZED'
+  if (direct === 'workbench_server_error') return 'xhs_operation_request_failed'
   if (typeof direct === 'string' && (STABLE_ERROR_CODES as readonly string[]).includes(direct)) return direct as StableErrorCode
   const server = serverCodeOf(error)
   if (server !== undefined && (SERVER_ERROR_CODES as readonly string[]).includes(server)) return server as StableErrorCode

@@ -1,7 +1,8 @@
-/** 设置页激活管理区块（分册 05 §3.4）：激活状态、更换 Key、移除 Key 三行。 */
+/** 设置页激活管理区块（分册 05 §3.4）：激活状态、智能体工具、更换 Key、移除 Key。 */
 import { useSyncExternalStore, useEffect, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { AccessForm, type Translate } from './form.tsx'
+import { agentStatusPresentation, createAgentStatusPoller, documentVisibility, fetchAgentStatus } from './agent-status.ts'
 import { describeKeyConfigured, isAuthorized, removeAccess, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
 import css from './access.module.css'
 
@@ -12,8 +13,50 @@ export interface AccessSectionProps {
   t: Translate
 }
 
+/** 「智能体工具」行 failed 倒计时的刷新周期（毫秒）。 */
+const COUNTDOWN_TICK_MS = 1_000
+
 /**
- * 激活管理区块。收起态三行（分册 05 §3.4）；「更换 Key」展开门禁同款表单
+ * 「智能体工具」行：经同源状态路由轮询 Agent 面连接状态——区块挂载且页面
+ * 可见时每 5 秒，隐藏即停、恢复可见立即拉一次，卸载清除定时器与在途请求；
+ * failed 用路由返回的 `retryAt` 显示倒计时秒数。
+ * @param props - 词典访问面。
+ * @returns the row.
+ */
+function AgentToolsRow(props: { readonly t: Translate }): ReactNode {
+  const { t } = props
+  const [poller] = useState(() => createAgentStatusPoller({ fetch: fetchAgentStatus, visibility: documentVisibility() }))
+  const status = useSyncExternalStore(poller.subscribe, poller.getSnapshot, poller.getSnapshot)
+  useEffect(() => () => { poller.dispose() }, [poller])
+  // failed 的倒计时秒数随时间递减：每秒触发一次重渲染刷新显示。
+  const [, setTick] = useState(0)
+  const countingDown = status.ready && status.view?.state === 'failed'
+  useEffect(() => {
+    if (!countingDown) return
+    const timer = setInterval(() => { setTick(value => (value + 1) % Number.MAX_SAFE_INTEGER) }, COUNTDOWN_TICK_MS)
+    return () => { clearInterval(timer) }
+  }, [countingDown])
+  const presentation = status.ready ? agentStatusPresentation(status.view, Date.now()) : undefined
+  return (
+    <div className={css.row}>
+      <span className={css.rowLabel}>{t('agent.title')}</span>
+      <span className={css.rowValue}>
+        {presentation === undefined
+          ? <StateDot state="idle" />
+          : (
+              <span className={css.agentState}>
+                <StateDot state={presentation.dot} />
+                <span>{t(presentation.key, presentation.values)}</span>
+              </span>
+            )}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * 激活管理区块。收起态四行（分册 05 §3.4 + 分册 08 §4.2 状态出口）：激活
+ * 状态、智能体工具、更换 Key、移除 Key；「更换 Key」展开门禁同款表单
  * （组件复用），「移除 Key」展开 in-place 确认区（warning + 确认/取消）。
  * @param props - 注入面。
  * @returns the section.
@@ -65,6 +108,7 @@ export function AccessSection(props: AccessSectionProps): ReactNode {
           {activated && settings !== undefined ? t('statusActive', { model: settings.modelId }) : t('statusInactive')}
         </span>
       </div>
+      <AgentToolsRow t={t} />
       {editing
         ? (
             <AccessForm

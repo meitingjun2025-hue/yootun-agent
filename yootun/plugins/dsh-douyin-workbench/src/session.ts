@@ -6,11 +6,16 @@
  * 账号标识才算登录（死 Cookie 不假成功的真机回归锁）。未传 accountId 用
  * pending- 占位；登录成功把 profile/storage_state/记录整体迁到真实账号。
  * probe 用本地 storage_state 无头实测；采集与登录共用一份系统 Chrome 最小
- * 启动参数。dispose 经 AbortSignal 中止登录并等待 settle。
+ * 启动参数。启动经 launchWithTimeout 受 Config.launchTimeoutMs 预算；context
+ * 关闭经 closeContext 受 Config.browserCloseTimeoutMs 预算（挂起时告警并继续
+ * finally 清理）。dispose 经 AbortSignal 中止登录并等待 settle（至多卸载预算）。
  * @module
  */
 import type { BrowserContext, Browser, Page } from 'playwright-core'
-import { LAUNCH_ARGS, resolveSystemChrome } from './chrome.ts'
+import {
+  DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, LAUNCH_ARGS, browserCloseTimeoutMessage,
+  closeContext, launchWithTimeout, resolveSystemChrome,
+} from './chrome.ts'
 import { normalizeAvatarUrl } from './avatar.ts'
 import { safeCode, DouyinError } from './errors.ts'
 import {
@@ -18,6 +23,26 @@ import {
   moveProfile, moveStorageState, paths, saveStorageState, stateRoot, type AccountRecord,
 } from './state.ts'
 import { tryWithProfileLocks, withProfileLock, withProfileLocks } from './locks.ts'
+
+/** 浏览器关闭预算在调用链上的透传字段（Config.browserCloseTimeoutMs + 告警接缝）。 */
+export interface BrowserCloseBudget {
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** 关闭超时告警（插件 logger；缺省不记录）。 */
+  onBrowserCloseTimeout?: ((message: string) => void) | undefined
+}
+
+/** closeContext 的账号侧包装：预算缺省 {@linkcode DEFAULT_BROWSER_CLOSE_TIMEOUT_MS}。 */
+function closeBudgeted(target: { close(): Promise<void> }, accountId: string, budget: BrowserCloseBudget): Promise<void> {
+  return closeContext(target, budget.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, () => {
+    budget.onBrowserCloseTimeout?.(browserCloseTimeoutMessage(accountId))
+  })
+}
+
+/** launchWithTimeout 的预算读取（Config.launchTimeoutMs 透传；缺省 60s）。 */
+function launchBudgetOf(launchTimeoutMs?: number | undefined): number {
+  return launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS
+}
 
 /** 创作者中心入口（登录与采集同源）。 */
 export const CREATOR_ORIGIN = 'https://creator.douyin.com/'
@@ -75,12 +100,15 @@ export type ChromeFactory = (options: {
   locale?: string | undefined
   /** 临时上下文模式的时区（采集固定 Asia/Shanghai）。 */
   timezoneId?: string | undefined
+  /** context.close 的等待预算毫秒（生产 close() 构造使用；fake factory 可忽略）。 */
+  browserCloseTimeoutMs?: number | undefined
 }) => Promise<LaunchedSession>
 
 /**
  * Launch a system Chrome session（旧 chrome.js 口径）：登录为有头持久化上下文
  * （viewport 跟随窗口）；探测/采集为无头临时上下文（storage_state 注入，
- * viewport 1440×900）。不下载浏览器、不回退 Chromium、参数仅最小集合。
+ * viewport 1440×900）。不下载浏览器、不回退 Chromium、参数仅最小集合。返回的
+ * `close()` 经 closeContext 受关闭预算约束（临时模式先 context 后 browser）。
  */
 export async function launchChromeSession(options: {
   headless: boolean
@@ -88,8 +116,14 @@ export async function launchChromeSession(options: {
   storageStatePath?: string | undefined
   locale?: string | undefined
   timezoneId?: string | undefined
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
 }): Promise<LaunchedSession> {
   const chrome = await resolveSystemChrome()
+  const closeTimeoutMs = options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS
+  // 内层 close 的超时不告警：factory 只有 profileDir（本地路径不进日志），
+  // 账号口径的告警由调用方的 closeBudgeted 外层施加。
+  const closeTimedOut = (): void => undefined
   try {
     const { chromium } = await import('playwright-core')
     if (options.storageStatePath === undefined) {
@@ -100,7 +134,7 @@ export async function launchChromeSession(options: {
         args: [...LAUNCH_ARGS],
         viewport: null,
       })
-      return { context, browser: null, close: () => context.close() }
+      return { context, browser: null, close: () => closeContext(context, closeTimeoutMs, closeTimedOut) }
     }
     const browser = await chromium.launch({
       headless: options.headless,
@@ -118,8 +152,8 @@ export async function launchChromeSession(options: {
       context,
       browser,
       close: async () => {
-        await context.close().catch(() => undefined)
-        await browser.close().catch(() => undefined)
+        await closeContext(context, closeTimeoutMs, closeTimedOut)
+        await closeContext(browser, closeTimeoutMs, closeTimedOut)
       },
     }
   } catch (error) {
@@ -307,7 +341,9 @@ export function isPendingAccountId(accountId: string): boolean {
 /**
  * 扫码登录全流程：一律先写 pending- 临时 Profile（不把登录态写进正式账号
  * 目录）；探活读出真实账号标识后才迁移。超时必须关有头窗口（否则窗口与进程
- * 滞留）；任何失败路径都清理临时 profile。
+ * 滞留）；任何失败路径都清理临时 profile。Chrome 启动受 `launchTimeoutMs`
+ * 预算（超时抛 BrowserLaunchTimeoutError，登录以 failed 收敛）；迟到的启动
+ * 结果立即关闭并清理临时凭证（promise 交 trackCleanup 登记）。
  */
 export async function loginWithQrCode(options: {
   accountId?: string
@@ -318,25 +354,44 @@ export async function loginWithQrCode(options: {
   signal?: AbortSignal | undefined
   /** 晚 factory 清理 promise（abort 后 close+二次清理）交给调用方任务登记；dispose 等待它。 */
   trackCleanup?: ((promise: Promise<void>) => void) | undefined
-}): Promise<LoginResult> {
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
+} & BrowserCloseBudget): Promise<LoginResult> {
   const root = options.root ?? stateRoot()
   const chromeFactory = options.chromeFactory ?? launchChromeSession
   const tempId = options.accountId !== undefined && options.accountId !== '' ? options.accountId : `pending-${String(Date.now())}`
   const profileDir = await ensureProfileDir(tempId, root)
   const signal = options.signal
   let session: LaunchedSession | null = null
+  const closeTimeout = (target: { close(): Promise<void> }): Promise<void> => closeBudgeted(target, tempId, options)
   /** 在每个 await 点检查 abort（同步检查，窄化安全）。 */
   const checkAbort = (): void => {
     if (signal?.aborted === true) throw new DouyinError('login_failed', 'login_aborted')
   }
   try {
     checkAbort()
-    // 捕获 factory promise：abort 赢得 race 后 factory 晚 resolve 时，context 可能在
-    // abort 之后才创建/写入 pending-* profile——close 完成后必须再清一次临时凭证。
-    const factoryPromise = chromeFactory({ headless: false, profileDir })
+    // 捕获 factory promise（带启动预算）：abort 赢得 race 后 factory 晚 resolve
+    // 时，context 可能在 abort 之后才创建/写入 pending-* profile——close 完成
+    // 后必须再清一次临时凭证；启动超预算后迟到成功的结果同样立即关闭清理。
+    const factoryPromise = launchWithTimeout(
+      () => chromeFactory({
+        headless: false,
+        profileDir,
+        ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
+      }),
+      launchBudgetOf(options.launchTimeoutMs),
+      result => {
+        // 迟到成功：close + 二次清理临时凭证；promise 在此同步交登记表（dispose 等待）。
+        const cleanup = closeTimeout(result).then(async () => {
+          await clearLocalCredentials(tempId, root).catch(() => undefined)
+        }).catch(() => undefined)
+        options.trackCleanup?.(cleanup)
+        return cleanup
+      },
+    )
     const cleanupPromise = factoryPromise.then(async result => {
       if (signal?.aborted !== true) return
-      await result.close().catch(() => undefined)
+      await closeTimeout(result)
       await clearLocalCredentials(tempId, root).catch(() => undefined)
     }).catch(() => undefined)
     options.trackCleanup?.(cleanupPromise)
@@ -367,7 +422,7 @@ export async function loginWithQrCode(options: {
       signal,
     })
     if (!waited.loggedIn) {
-      await session.close().catch(() => undefined)
+      await closeTimeout(session)
       session = null
       await clearLocalCredentials(tempId, root).catch(() => undefined)
       return { status: 'timeout' }
@@ -376,11 +431,19 @@ export async function loginWithQrCode(options: {
     const profile = waited.profile ?? await readAccountProfileWithRetry(collectorPageOf(page), { signal })
     checkAbort()
     const resolvedId = profile?.accountId !== undefined && profile.accountId !== '' ? profile.accountId : tempId
-    await commitLoginIdentity({ tempId, resolvedId, profile, context: session.context, root })
+    await commitLoginIdentity({
+      tempId,
+      resolvedId,
+      profile,
+      context: session.context,
+      root,
+      ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
+      ...(options.onBrowserCloseTimeout !== undefined ? { onBrowserCloseTimeout: options.onBrowserCloseTimeout } : {}),
+    })
     session = null
     return { status: 'ok', accountId: resolvedId, profile }
   } catch (error) {
-    if (session !== null) await session.close().catch(() => undefined)
+    if (session !== null) await closeTimeout(session)
     // 任何失败路径都清理临时 profile（正式账号未被创建，不留残留）。
     await clearLocalCredentials(tempId, root).catch(() => undefined)
     if (signal?.aborted === true) return { status: 'failed', reason: 'login_aborted' }
@@ -391,8 +454,8 @@ export async function loginWithQrCode(options: {
 /**
  * 登录成果提交（resolvedId 确定后的迁移临界区）：同时持有 tempId 与 resolvedId
  * 两把账号 profile 锁（排序获取防死锁），在锁内完成 storage_state 落盘（0600）、
- * context 关闭、profile 迁移到真实名下与序号/资料推进——与 realId 的
- * probe/collect/remove 严格串行。
+ * context 关闭（受关闭预算约束）、profile 迁移到真实名下与序号/资料推进——与
+ * realId 的 probe/collect/remove 严格串行。
  * @param options - tempId（登录期临时目录）、resolvedId（真实账号）、资料、
  *   仍打开着的登录 context 与状态根目录。
  */
@@ -402,17 +465,19 @@ export async function commitLoginIdentity(options: {
   profile: DouyinProfile | null
   context: BrowserContext
   root: string
-}): Promise<void> {
+} & BrowserCloseBudget): Promise<void> {
+  const closeTimeout = (target: { close(): Promise<void> }): Promise<void> =>
+    closeBudgeted(target, options.tempId, options)
   await withProfileLocks([options.tempId, options.resolvedId], async () => {
     if (options.profile === null) {
       // 探活未读出资料（罕见：verify 成功后重读也失败）：仍按 Cookie 命中提交，
       // 但不写 profile 字段，账号保持 pending- 语义由后续 probe 提升。
       await saveStorageState(options.tempId, options.context, options.root)
-      await options.context.close()
+      await closeTimeout(options.context)
       return
     }
     await saveStorageState(options.resolvedId, options.context, options.root)
-    await options.context.close()
+    await closeTimeout(options.context)
     if (options.resolvedId !== options.tempId) await moveProfile(options.tempId, options.resolvedId, options.root)
     const nowIso = new Date().toISOString()
     await bumpSessionSeqWith(options.resolvedId, {
@@ -440,12 +505,18 @@ export interface ProbeResult {
  * 设备端会话探测：无 storage_state 直接 expired（不启动浏览器）；用本地
  * storage_state 无头打开创作者中心，同源 user/info 读出账号标识才算 ok
  * （旧 chrome.js 口径：探活与采集共用同一份最小启动参数避免指纹不一致）。
+ * Chrome 启动受 `launchTimeoutMs` 预算；迟到的启动结果立即关闭（promise 交
+ * trackCleanup 登记）。
  */
 export async function probeSession(options: {
   accountId: string
   root?: string
   chromeFactory?: ChromeFactory | undefined
-}): Promise<ProbeResult> {
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
+  /** 迟到启动结果清理 promise 的登记接缝（dispose 等待）。 */
+  trackCleanup?: ((promise: Promise<void>) => void) | undefined
+} & BrowserCloseBudget): Promise<ProbeResult> {
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
   const checkedAt = new Date().toISOString()
@@ -456,13 +527,24 @@ export async function probeSession(options: {
   }
   const chromeFactory = options.chromeFactory ?? launchChromeSession
   const profileDir = await ensureProfileDir(accountId, root)
+  const closeTimeout = (target: { close(): Promise<void> }): Promise<void> => closeBudgeted(target, accountId, options)
   let session: LaunchedSession | null = null
   try {
-    session = await chromeFactory({
-      headless: true,
-      profileDir,
-      storageStatePath: paths(root).storageStatePath(accountId),
-    })
+    session = await launchWithTimeout(
+      () => chromeFactory({
+        headless: true,
+        profileDir,
+        storageStatePath: paths(root).storageStatePath(accountId),
+        ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
+      }),
+      launchBudgetOf(options.launchTimeoutMs),
+      result => {
+        // 迟到成功：立即关闭（探测已按超时失败返回）；promise 同步交登记表。
+        const cleanup = closeTimeout(result).catch(() => undefined)
+        options.trackCleanup?.(cleanup)
+        return cleanup
+      },
+    )
     const page = session.context.pages()[0] ?? await session.context.newPage()
     await page.goto(CREATOR_ORIGIN, { waitUntil: 'domcontentloaded', timeout: PROBE_TIMEOUT_MS })
     const outcome = await raceWithTimeout(
@@ -471,22 +553,22 @@ export async function probeSession(options: {
       () => ({ profile: null, error: 'probe_failed' }),
     )
     if (outcome.profile === null) {
-      await session.close().catch(() => undefined)
+      await closeTimeout(session)
       session = null
       return { status: 'expired', reason: outcome.error ?? 'user_info_unavailable', profile: null, sessionSeq, checkedAt }
     }
     // 探活成功后落盘刷新 storage_state（会话续期；0600；上下文仍打开）。
     await saveStorageState(accountId, session.context, root)
-    await session.close().catch(() => undefined)
+    await closeTimeout(session)
     session = null
     if (outcome.profile.accountId !== accountId) {
       return { status: 'expired', reason: 'account_mismatch', profile: outcome.profile, sessionSeq, checkedAt }
     }
     return { status: 'ok', reason: null, profile: outcome.profile, sessionSeq, checkedAt }
   } catch (error) {
-    if (session !== null) await session.close().catch(() => undefined)
+    if (session !== null) await closeTimeout(session)
     const code = (error as { code?: unknown }).code
-    if (code === 'GOOGLE_CHROME_MISSING' || code === 'PLAYWRIGHT_DRIVER_MISSING') {
+    if (code === 'GOOGLE_CHROME_MISSING' || code === 'PLAYWRIGHT_DRIVER_MISSING' || (error instanceof Error && error.name === 'BrowserLaunchTimeoutError')) {
       return { status: 'unknown', reason: safeCode(error), profile: null, sessionSeq, checkedAt }
     }
     return { status: 'unknown', reason: 'probe_failed', profile: null, sessionSeq, checkedAt }
@@ -516,13 +598,25 @@ export async function refreshSessionState(options: {
   chromeFactory?: ChromeFactory | undefined
   /** 登录链路取消：探测前后检查（浏览器路径本身不受 signal 影响）。 */
   signal?: AbortSignal | undefined
-}): Promise<RefreshedSession> {
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
+  /** 迟到启动结果清理 promise 的登记接缝（透传 probeSession）。 */
+  trackCleanup?: ((promise: Promise<void>) => void) | undefined
+} & BrowserCloseBudget): Promise<RefreshedSession> {
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
   // abort 检查走函数边界（第二次在 await 之后；const 收窄不跨 await）。
   const aborted = (): boolean => options.signal?.aborted === true
   if (aborted()) throw new DouyinError('login_aborted', 'login_aborted')
-  const probe = await probeSession({ accountId, root, chromeFactory: options.chromeFactory })
+  const probe = await probeSession({
+    accountId,
+    root,
+    chromeFactory: options.chromeFactory,
+    ...(options.launchTimeoutMs !== undefined ? { launchTimeoutMs: options.launchTimeoutMs } : {}),
+    ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
+    ...(options.onBrowserCloseTimeout !== undefined ? { onBrowserCloseTimeout: options.onBrowserCloseTimeout } : {}),
+    ...(options.trackCleanup !== undefined ? { trackCleanup: options.trackCleanup } : {}),
+  })
   if (aborted()) throw new DouyinError('login_aborted', 'login_aborted')
   const vaultRef = paths(root).vaultRef(accountId)
   const nowIso = new Date().toISOString()
@@ -570,12 +664,24 @@ export async function promotePendingAccount(options: {
   accountId: string
   root?: string
   chromeFactory?: ChromeFactory | undefined
-}): Promise<PromoteResult> {
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
+  /** 迟到启动结果清理 promise 的登记接缝（透传 probeSession）。 */
+  trackCleanup?: ((promise: Promise<void>) => void) | undefined
+} & BrowserCloseBudget): Promise<PromoteResult> {
   const { accountId } = options
   const root = options.root ?? stateRoot()
   if (!isPendingAccountId(accountId)) return { promoted: false, accountId, reason: 'not_pending' }
   const probe = await withProfileLock(accountId, () =>
-    probeSession({ accountId, root, chromeFactory: options.chromeFactory })).catch((error: unknown) => ({
+    probeSession({
+      accountId,
+      root,
+      chromeFactory: options.chromeFactory,
+      ...(options.launchTimeoutMs !== undefined ? { launchTimeoutMs: options.launchTimeoutMs } : {}),
+      ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
+      ...(options.onBrowserCloseTimeout !== undefined ? { onBrowserCloseTimeout: options.onBrowserCloseTimeout } : {}),
+      ...(options.trackCleanup !== undefined ? { trackCleanup: options.trackCleanup } : {}),
+    })).catch((error: unknown) => ({
     status: 'unknown' as const, reason: safeCode(error), profile: null as DouyinProfile | null, sessionSeq: 0, checkedAt: new Date().toISOString(),
   }))
   const probeProfile = probe.profile

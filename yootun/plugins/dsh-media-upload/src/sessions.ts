@@ -36,10 +36,35 @@ export interface SettlePatch {
   errorCode?: string
 }
 
+/** 会话来源：页面 pick-file 创建（page）或 media_upload 会话工具创建（tool）。 */
+export type UploadSessionOrigin = 'page' | 'tool'
+
+/** 工具会话携带的调用标识（只保存标识，不保存任何输入内容）。 */
+export interface UploadSessionContext {
+  sessionId?: string
+  toolCallId?: string
+}
+
+/** pendingToolSessions 投影给承接卡片的字段（不含 name/size/类型/URL/路径）。 */
+export interface PendingToolSession {
+  uploadId: string
+  kind: string
+  /** uploadStatus 同口径：awaiting → waiting。 */
+  state: 'waiting' | 'uploading'
+  /** 取整 0..100（与 uploadStatus 同一算式）。 */
+  progress: number
+  /** 会话创建时刻（ISO 8601）。 */
+  createdAt: string
+  /** 会话工具写入的调用标识；缺省时省略键。 */
+  context?: UploadSessionContext
+}
+
 /** One live upload session. */
 export interface UploadSession {
   id: string
   kind: string
+  /** 创建来源：page（pick-file）或 tool（media_upload 工具）。 */
+  origin: UploadSessionOrigin
   name: string
   contentType: string
   size: number
@@ -60,6 +85,8 @@ export interface UploadSession {
   controller: AbortController
   /** The in-flight upload pipeline (set by the route once the background run starts). */
   pipeline: Promise<void> | undefined
+  /** 工具会话的调用标识；页面会话与未提供标识的工具会话为 undefined。 */
+  context: UploadSessionContext | undefined
 }
 
 /** Registry options; timings are deployment-varying and injected. */
@@ -130,16 +157,20 @@ export class UploadSessionRegistry {
   }
 
   /**
-   * Create an awaiting session (the pick-file surface). The browser then
-   * streams the user-picked bytes to uploadStart against this id.
+   * Create an awaiting session. The browser then streams the user-picked
+   * bytes to uploadStart against this id; tool-created sessions surface to
+   * the handoff card through {@link pendingToolSessions}.
    * @param kind - pick kind (media/image/video).
+   * @param origin - creation source; `page` (pick-file, default) never enters the handoff card.
+   * @param context - caller identifiers for tool-created sessions (identifiers only).
    * @returns the session with metadata still empty until uploadStart binds them.
    */
-  create(kind: string): UploadSession {
+  create(kind: string, origin: UploadSessionOrigin = 'page', context?: UploadSessionContext): UploadSession {
     const completion = Promise.withResolvers<void>()
     const session: UploadSession = {
       id: this.idFactory(),
       kind,
+      origin,
       name: '',
       contentType: '',
       size: 0,
@@ -163,6 +194,7 @@ export class UploadSessionRegistry {
       },
       controller: new AbortController(),
       pipeline: undefined,
+      context,
     }
     this.sessions.set(session.id, session)
     return session
@@ -251,11 +283,65 @@ export class UploadSessionRegistry {
   }
 
   /**
-   * Settle one session as failed with a public code.
+   * 投影给承接卡片的待处理会话：只含工具创建且仍在等待或上传中的会话，
+   * 按创建时间（startedAt）升序。每个会话先过一次 snapshot() 触发惰性过期，
+   * 过期/终态会话自然落出投影。字段只含标识与进度，不含 name、size、
+   * contentType、URL、暂存路径与预签名 URL。
+   * @returns the projections in creation order.
+   */
+  pendingToolSessions(): PendingToolSession[] {
+    const entries: Array<{ projection: PendingToolSession; startedAt: number }> = []
+    for (const session of this.sessions.values()) {
+      const snapshot = this.snapshot(session.id)
+      if (session.origin !== 'tool') continue
+      if (session.state !== 'awaiting' && session.state !== 'uploading') continue
+      entries.push({
+        projection: {
+          uploadId: session.id,
+          kind: session.kind,
+          state: session.state === 'awaiting' ? 'waiting' : 'uploading',
+          progress: snapshot !== undefined && snapshot.totalBytes > 0
+            ? Math.min(100, Math.floor((snapshot.bytesSent / snapshot.totalBytes) * 100))
+            : 0,
+          createdAt: new Date(session.startedAt).toISOString(),
+          ...(session.context !== undefined ? { context: session.context } : {}),
+        },
+        startedAt: session.startedAt,
+      })
+    }
+    return entries
+      .sort((left, right) => left.startedAt - right.startedAt)
+      .map(entry => entry.projection)
+  }
+
+  /**
+   * 取消一个进行中的会话：abort 在途直传并落 `failed`/`user_cancelled` 终态
+   * （同一同步段内终态先行，任何观察者看到的都是已取消的终态），暂存文件
+   * 由管线的既有失败路径清理。终态先行是工具侧 2 秒内拿到 `user_cancelled`
+   * 的保证；后到的超时/取消回调被 {@link settleFailed} 的终态守卫挡住，不得
+   * 把错误码改写成 upload_timeout。
+   * @param id - the upload id.
+   * @returns `cancelled`（已落终态并中止）、`not_running`（已是终态）或 `not_found`（不存在）。
+   */
+  cancel(id: string): 'cancelled' | 'not_running' | 'not_found' {
+    const session = this.sessions.get(id)
+    if (session === undefined) return 'not_found'
+    if (session.state === 'done' || session.state === 'failed') return 'not_running'
+    session.controller.abort()
+    this.settleFailed(session, 'user_cancelled')
+    return 'cancelled'
+  }
+
+  /**
+   * Settle one session as failed with a public code. Terminal sessions keep
+   * their first settlement's code: a later abort-driven caller (route cancel
+   * racing the upload pipeline, sweep timeout racing dispose) must not
+   * rewrite the already-published error.
    * @param session - the session.
    * @param code - public error code.
    */
   settleFailed(session: UploadSession, code: string): void {
+    if (session.state === 'done' || session.state === 'failed') return
     session.errorCode = code
     session.settle('failed', { errorCode: code })
   }

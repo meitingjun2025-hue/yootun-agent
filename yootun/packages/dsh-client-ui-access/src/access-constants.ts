@@ -10,12 +10,15 @@ export const TENANT_ID = '869856a5-760a-4570-9177-8823ed84da78'
 /** 激活设置 namespace（= bundle patch 的 entry id，host 半 Config schema 暴露）。 */
 export const ACCESS_NAMESPACE = 'yootun-access'
 
-/** 托管模型凭证引用：llm-deepseek patch 的 apiKeyEnv 与 credential store 共用此名。 */
+/** 托管模型凭证引用：llm-pi-ai provider yootun 的 apiKeyEnv 与 credential store 共用此名。 */
 export const ACCESS_CREDENTIAL_REF = 'MODELS_API_KEY'
 
 /** 同源激活 API 路由（host 半 webServer 路由，client 同源相对路径调用）。 */
 export const ACCESS_VALIDATE_PATH = '/api/desktop/dofe/validate'
 export const ACCESS_MODELS_PATH = '/api/desktop/dofe/models'
+
+/** 智能体工具状态路由（host 半 managed-mcp 只读快照，client 设置区块轮询）。 */
+export const ACCESS_AGENT_STATUS_PATH = '/api/desktop/yootun/agent-status'
 
 /** 表单请求共享的有界超时（毫秒）。 */
 export const REQUEST_TIMEOUT_MS = 30_000
