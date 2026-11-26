@@ -1,6 +1,6 @@
 # wx-workbench-采集全部并发 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 参照实现：抖音「采集全部」并发（[douyin-collect-all-concurrency.md](../../1125/features/douyin-collect-all-concurrency.md)），2026-11-25 合入后运行两天稳定，本单把同一调度模型移植到视频号。
 
@@ -102,15 +102,17 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | `concurrency` | number | 生效并发度 = min(配置并发度, 阶段 1 通过的账号数) | 新增；未启动过的空状态为 0 |
 | `error` | string \| null | 批次级原因 | 新增；取值 `risk_paused`、`collect_cancelled`、`no_eligible_account` |
 | `items[].reason` | string \| null | 条目原因 | 新增取值 `risk_paused`，只出现在 `status: skipped` 的未开始账号上 |
-| `items[].finishedAt` | string \| null | 条目终态时刻 | 新增；只有熔断暂停的条目写暂停时刻 |
+| `items[].finishedAt` | string \| null | 条目终态时刻 | 既有字段，视频号现状所有终态条目都写；熔断暂停的条目写暂停时刻 |
 | `phase` | `'probing' \| 'collecting' \| 'stopping' \| 'ready' \| 'finished'` | 不变 | |
-| `status` | `'running' \| 'completed' \| 'partial' \| 'failed' \| null` | 不变 | 熔断批次按既有三态结算 |
+| `status` | — | 视频号现有出参没有批次级 `status`（抖音形态才有） | 不新增；熔断批次按既有 completed / partial / failed / skipped 计数与 `summary` 结算 |
 
 ### 2.6 稳定码
 
 | 码 | 位置 | 用途 |
 |---|---|---|
 | `risk_paused` | `src/errors.ts` `LOCAL_ERROR_CODES` 追加 | 批次 `error` 与条目 `reason` 的新取值；不是路由 `reason` |
+| `collect_cancelled` | 同上 | 批量取消时在途与未开始条目的 `reason`、批次 `error`，以及页面路径在探测期间被取消时 `collect.start` 的返回原因 |
+| `account_id_required` | 同上 | `collect.start` 对空 `accountId` 的返回原因（只对绕过页面的直接调用可达） |
 
 ### 2.7 词典新增（`src/client/locales.ts`，zh 为键集事实源，en 成对）
 
@@ -151,7 +153,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | 文档（本文 + p2 册 §1 + 11 册 §6 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/wx-collect-all-concurrency` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/wx-collect-all-concurrency`（基于 `feat/connector-status-and-error-copy`） | 包内 `test`（node --test 六文件：host 27、batch-concurrency 20、p0-fixes 6、profile-lock 12、runs 21、dispose 15，共 101 用例；vitest 三文件 103 用例）、`build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 | 观察结论 | | | 待填：观察窗口与指标见附录 C.4 |
@@ -177,7 +179,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | R5 | 批量运行中 `runs.json` 任取 3 条 running 记录 | accountId 与 attemptId 一一对应，没有同一账号两条 running |
 | R6 | 本轮出现疑似平台风控时（无法人为触发，遇到即记录） | 剩余未开始账号标「疑似风控，批次已暂停」，面板显示暂停提示与剩余数；已运行的账号正常结束 |
 | R7 | 批量运行中点取消 | 面板显示 stopping；3 个在途账号落 cancelled 后显示 finished 汇总 |
-| R8 | 批量运行中退出应用，重新打开 | 在途账号的本地 run 落 cancelled；页面提示「上次采集被中断」 |
+| R8 | 批量运行中退出应用，重新打开 | 在途账号的本地 run 落 cancelled（崩溃退出的残留 run 在下次启动标 `interrupted`）；视频号页面不消费 `lastRun`，不重放中断提示（中断提示的横幅化见 P1 [mount-restore-and-login-alignment.md](mount-restore-and-login-alignment.md)） |
 | R9 | 采集进行中切到其他面板再切回 | 进度、面板与账号栏状态点恢复并继续更新（挂载恢复三路查询） |
 | R10 | 明暗主题、三档宽度（≥1120 / 880 / 640 px） | 多账号行与熔断提示完整可读 |
 | R11 | 按 `record-browser-gif` 流程录制批量面板片段 | GIF 附在 PR |
@@ -185,7 +187,9 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：环境、空闲态挂载查询、与并行的 P0 单冲突预演）。
+2026-11-26 开发侧回填。环境：WSL2（Linux 6.18.58.1-microsoft-standard-WSL2，node v25.9.0，pnpm 11.28.5），分支 `feat/wx-collect-all-concurrency`（自 `feat/connector-status-and-error-copy` 切出，S2 已在本分支基线内，改动直接叠加、无冲突文件；与并行的 P0 单的冲突预演即 S2 码表叠加，`src/errors.ts` 仅追加了 `risk_paused` 一项）。自动验收全绿：`pnpm --filter @yootun/dsh-wx-channels-workbench test`（node --test 六文件 26+20+6+12+21+15 例，vitest 三文件 100 例）与 `build`（tsc + tsdown + 样式安装元数据与 runtime bundle 校验）通过；仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs` 与 `git diff --check` 通过。空闲态挂载查询：三路查询（`collect.running` / `collect.status`（选中账号）/ `collectAll.status`）各一次、无运行中采集不进入运行态不启动轮询、批量 `ready` 无面板，已由自动化用例锁定（`tests/client/wx-data.test.tsx` 挂载恢复组 D1）。并发调度、错峰与熔断经注入 rand/sleep 的确定性用例覆盖（`tests/batch-concurrency.test.ts` B1–B17 与并发峰值=1 补例），真实 Chrome 并发留给 5.2 真机验收；dispose 收口（B13/B18）见 `tests/dispose.test.ts`（含三账号并发在途场景）。
+
+2026-11-26 验收复核后补齐一轮（同分支叠加，未提交）。R4 补齐：页面新增选中驱动的单账号轮询——选中账号属于运行中集合（单账号 `collectRunningIds` ∪ 批量 `runningAccountIds`）且不在发起/恢复路目标上时，另起一路 `collect.status({ accountId })` 轮询（首跳立即、间隔沿用 POLL_MS）并把该账号运行中记录写入 `collectRecord`，作品面板显示其进度；切到未运行账号停表并清掉该账号记录，切回重新开始；选中路终态一次性收尾（清记录、仍被选中时刷新一次该账号数据、不弹 toast，批量内部账号结果由批量面板汇总）；发起/恢复路与批量轮询不因切换选中停止或改目标，发起账号经点击瞬间的乐观登记（`collectClaimRef`）让位选中路，同一时刻至多两路单账号轮询加一路批量轮询。稳定码补登记（2.6 增量，回填归档）：`collect_cancelled`（批量取消批次 / 条目原因）与 `account_id_required`（采集启动空账号 ID）入 `LOCAL_ERROR_CODES`，配 `reason.collect_cancelled`（zh「采集已取消」/ en「Collection cancelled」）与 `reason.account_id_required`（zh「缺少账号 ID，请刷新后重试」/ en「Account id is required; refresh and retry」）。新增用例 D8（批量运行中切换选中到运行中账号：发起该账号查询并显示进度、切到未开始账号停表无查询、点回恢复）与 D9（切换选中不影响发起/恢复账号终态：失败 toast 与数据刷新恰好各一次）；D9 取挂载恢复形态（发起账号与另一账号并发运行中），因页面发起采集与批量运行互斥（works.collect 按钮禁用），「页面发起 + 批量运行中切换」不可经 UI 达到。同步文档：11 册 §6.1 补选中轮询条款、p2 册 §1 `collect.status` 行补按账号轮询显示进度。补齐后自动验收复跑全绿（`pnpm --filter @yootun/dsh-wx-channels-workbench test` vitest 102 例与 node --test 六文件、`build`，仓库根 `lint` / `typecheck` / 三 verify / `test:docs` / `git diff --check`）。
 
 ## 附录 A：调度设计
 
@@ -238,6 +242,8 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | 同上 | `phase = finished` | 面板显示汇总，不轮询 |
 | 同上 | `phase = ready` | 不显示批量面板 |
 
+批量运行中选中账号变化：选中账号属于运行中集合（`collect.status` 的 `runningAccountIds` 与批量 `runningAccountIds` 的并集）且不是发起 / 恢复那一路轮询的目标时，另起一路按账号轮询，作品面板显示该账号进度；该路终态不弹 toast，账号仍被选中时刷新一次它的数据；发起 / 恢复那一路不因切换选中停止或改目标。
+
 ## 附录 B：测试矩阵
 
 ### B.1 Host（`tests/batch-concurrency.test.ts` 新建；`tests/host.test.ts`、`tests/dispose.test.ts`）
@@ -274,6 +280,9 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | D5 | 批量 `finished`：显示汇总，不轮询；`ready`：无面板 |
 | D6 | 恢复响应到达前用户点「采集」：恢复结果丢弃 |
 | D7 | 其他账号在采：账号卡片显示「采集中」，选中账号面板不显示其进度 |
+| D8 | 批量运行中切换选中到运行中账号：发起该账号的 `collect.status` 查询并进入轮询，面板显示进度；切到未开始账号停表且不显示进度；切回恢复 |
+| D8b | 切换选中后到达的过期响应被丢弃：不停止新选中账号的轮询、不清它的进度 |
+| D9 | 切换选中不影响发起 / 恢复账号的终态提示：失败 toast 恰好一次、数据刷新恰好一次 |
 
 ## 附录 C：默认采用项
 
