@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表服务端 实施单
 
-状态：实施中（2026-11-26 开始，特性分支 `feat/wx-report-server`） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26 自动验收通过，待合入 `dev`；特性分支 `feat/wx-report-server`，自内核分支 `feat/report-kernel-extraction` 切出） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -80,6 +80,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §3.2（视频号 Agent 清
 |---|---|---|
 | `accounts[]` | 没有 `ownerName` | 视频号账号没有负责人字段 |
 | `works[].metrics` | 指标键见 2.4，另带 `trafficSource` 与 `retention` | 平台指标不同 |
+| `accounts[].metrics.publishes` | 有作品记录的账号取作品表的窗口计数；周期内日度缺采时仍是真实计数（含 0）。抖音按是否有日度行判定，缺采为空 | 发布数与多账号总览的作品数同口径（2026-11-26 验收补充） |
 
 `ai` 层与抖音完全相同：`{ summary, facts, inferences, recommendations, limitations }`。
 
@@ -103,7 +104,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §3.2（视频号 Agent 清
 
 ### 2.4 作品行
 
-日报取周期内发布的全部作品；周报取周期内发布、按累计播放降序的前 `[report].max_top_works` 条，超出部分计入 `worksOmittedCount`。
+日报与周报都取周期内发布、按累计播放降序的前 `[report].max_top_works` 条，超出部分计入 `worksOmittedCount`，与抖音相同。（2026-11-26 勘误：原稿写「日报取全部作品」，抖音的实现是日报与周报都裁到前 N 条。）
 
 | 键 | 取值 |
 |---|---|
@@ -112,7 +113,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §3.2（视频号 Agent 清
 | `metrics.fansGain` | 该作品带来的全部视频关注增量 |
 | `metrics.completionRate`、`avgPlaySeconds`、`fastFlipRate` | 作品累计值，缺失为空 |
 | `trafficSource` | `{ name, plays }` 数组，取作品流量来源里除「全部」之外的来源，按播放降序 |
-| `retention` | `{ durationSeconds, maxLostSecond, maxLostRatePct }`，取自留存曲线的视频时长、最大流失秒与该秒的留存率；没有曲线为空 |
+| `retention` | `{ durationSeconds, maxLostSecond, retentionAtMaxLostPct }`，取自留存曲线的视频时长、最大流失秒，以及该秒仍在观看的比例（留存率，不是流失率）；没有曲线为空。（2026-11-26 验收改键名：原键名 `maxLostRatePct` 字面是流失率、取值却是留存率，会把模型结论带反。） |
 
 ### 2.5 覆盖、异常与趋势
 
@@ -135,7 +136,7 @@ tools 契约文档对齐：`docs/1116/yootun-mcp.md` §3.2（视频号 Agent 清
 | `works` | 同 `data.works`（已裁剪到前 N 条） |
 | `coverage`、`anomalies` | 同 `data` |
 | `fanSource` | 周期内各来源的新增关注数，按来源名给出本期与上期（来自关注者日表的来源趋势，逐日求和） |
-| `trafficSourceAccount` | 周期内最新一日有账号级流量来源快照的账号，含快照日期；没有的账号不出现 |
+| `trafficSourceAccount` | 周期内最新一日有账号级流量来源快照的账号，每项为 `{ accountId, nickname, day, sources }`，`sources` 的投影与作品行的 `trafficSource` 相同；没有快照的账号不出现 |
 | `lowBasePlays` | 取自配置，提示词据此降低低基数比率的解读强度 |
 
 输入超过 `[report].max_input_bytes` 时按播放降序逐条裁剪 `works`；裁空仍超限则为 `REPORT_INPUT_TOO_LARGE`。
@@ -227,10 +228,12 @@ tools.dofe.ai：
 | `docs/superpowers/catalogs/yootun-service-catalog-snapshot.json`、`service-catalog-snapshot.json` | 重新导出 | 是 | 快照与注册一致 |
 | `src/tools_dofe/tasks/wx_channels_operation.py`（新）、`tasks/celery_app.py` | 三个任务、`include` 登记、beat 三条 | 是 | 异步与调度 |
 | `docs/1116/yootun-mcp.md` | 2.1 的清单与计数 | 是 | 契约唯一来源 |
-| `tests/wx_channels_operation/test_reports.py`（新） | 服务层用例（附录 B） | 是 | 新代码的用例 |
+| `tests/mcp/data/legacy_policy_snapshot.json` | 只追加三个源工具的策略条目，既有条目与键序不动 | 是 | 策略快照与登记一致（2026-11-26 回填） |
+| `scripts/export_service_catalog_snapshot.py` | legacy 快照的基线哈希随新增三个工具更新 | 是 | 基线白名单（2026-11-26 回填） |
+| `tests/wx_channels_operation/test_report_service.py`（新） | 服务层用例（附录 B） | 是 | 新代码的用例；不叫 `test_reports.py` 是因为抖音目录有同名文件，pytest 收集会冲突（2026-11-26 回填） |
 | `tests/yootun/test_workbench_wx_reports.py`（新）、`test_agent_wx_reports.py`（新） | 三个 Workbench 工具与两个 Agent 工具的行为 | 是 | 行为与审计 |
-| `tests/yootun/test_contract.py`、`test_agent_coverage.py`、`test_workbench_coverage.py`、`test_catalog_face.py`、`test_agent_tools.py`、`test_workbench_wx_tos.py`、`test_dev_baseline_parity.py` | 计数与白名单 | 是 | 计数随清单变化 |
-| `tests/mcp/test_yootun_sdk_probe.py`、`test_service_catalog_snapshot.py`、`test_douyin_publish_schedule_tools.py`、`test_capability_manifest.py`、`test_policy_snapshot.py` | 计数、清单与快照 | 是 | 同上 |
+| `tests/yootun/test_contract.py`、`test_agent_coverage.py`、`test_workbench_coverage.py`、`test_catalog_face.py`、`test_agent_tools.py`、`test_workbench_wx_tos.py`、`test_agent_douyin_publish_schedule.py`、`test_provider_isolation.py`、`test_schema_parity.py`、`test_dev_baseline_parity.py` | 计数与白名单 | 是 | 计数随清单变化 |
+| `tests/mcp/test_yootun_sdk_probe.py`、`test_service_catalog_snapshot.py`、`test_douyin_publish_schedule_tools.py`、`test_capability_manifest.py`、`test_policy_snapshot.py` | 计数、清单与快照（后两个没有硬编码计数，本次未改） | 是 | 同上 |
 | `AGENTS.md` 视频号数据域说明 | 「全部不调模型、无 Celery 队列」改为如实描述 | 是 | 仓库导航 |
 
 docker-helm.dofe.ai：
@@ -255,9 +258,10 @@ yootun-agent：本单不改桌面端代码；`yootun/docs/1126/00-overview.md` �
 
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
-| 文档（本文、1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
-| tools 合入 `dev` | | `feat/wx-report-server` | 前置：内核单开发完成；本单分支自 `feat/report-kernel-extraction` 切出，两单一并合入 `dev` |
-| docker-helm 部署测试环境 | | | 部署后 `tools/list` 核对 8 个新工具名（旧域 3、Agent 2、Workbench 3） |
+| 文档（本文、1126 索引） | 2026-11-26 | `main` | 已确认 |
+| 开发完成（自动验收通过） | 2026-11-26 | tools 与 docker-helm 各自的 `feat/wx-report-server` | 5.1 通过；两个仓都已本地提交，未合入、未推送 |
+| tools 合入 `dev` | | `feat/wx-report-server` | 待填；前置：内核单开发完成，本单分支自 `feat/report-kernel-extraction` 切出，两单一并合入 `dev` |
+| docker-helm 部署测试环境 | | `feat/wx-report-server` | 待填；部署后 `tools/list` 核对 8 个新工具名（旧域 3、Agent 2、Workbench 3） |
 | yootun-agent 合入 `main` | — | — | 不涉及 |
 | 发版 | | | 随 [wx-report-client.md](wx-report-client.md) 一并发版 |
 
@@ -265,10 +269,10 @@ yootun-agent：本单不改桌面端代码；`yootun/docs/1126/00-overview.md` �
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
-- [ ] tools：`uv run pytest tests/wx_channels_operation tests/yootun tests/mcp -q` 通过；`tests/douyin_operation` 的既有用例断言未改；
-- [ ] tools：本地启动后核对三个面的 `tools/list`，2.1 的工具都出现，计数等于 2.10；
-- [ ] tools：附录 C 的口径对账全部一致；迁移在一次性测试库上完成升级与回退各一次，不改动备份库；
-- [ ] docker-helm：`bash jenkins/check-service-registry-pipelines.sh`、`bash jenkins/check-remote-deploy-pipeline.sh`、`bash jenkins/check-registry-deploy-pipeline.sh`、`bash jenkins/check-yootun-mcp-routing.sh` 通过；
+- [x] tools：`uv run pytest tests/wx_channels_operation tests/yootun tests/mcp -q` 通过；`tests/douyin_operation` 的既有用例断言未改；实际执行范围与结果见 5.3；
+- [x] tools：本地启动后核对三个面的 `tools/list`，2.1 的工具都出现，计数等于 2.10；
+- [x] tools：附录 C 的口径对账一致，574 个字段里只有互动总量环比一处差在 131.25 的舍入位（实现与抖音同用 Python `round`）；迁移在一次性测试库上完成升级、回退与再升级，不改动备份库；
+- [x] docker-helm：`bash jenkins/check-service-registry-pipelines.sh`、`bash jenkins/check-remote-deploy-pipeline.sh`、`bash jenkins/check-registry-deploy-pipeline.sh`、`bash jenkins/check-yootun-mcp-routing.sh` 通过；
 - [ ] docker-helm：测试环境 `bash runtime/mcp-gateway/verify-routes.sh` 通过；专属 worker 健康，且只消费 `tools.wx_channels_operation`。
 
 ### 5.2 真机验收（用户执行）
@@ -283,11 +287,38 @@ yootun-agent：本单不改桌面端代码；`yootun/docs/1126/00-overview.md` �
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：`tools/list` 计数、口径对账结果、迁移升降级结果）。
+2026-11-26 在 CI 备份库上只读执行，会话设为只读并实测建表语句被数据库拒绝；迁移验证另建一次性测试库，备份库前后未变。
+
+| 对账项 | 范围 | 结果 |
+|---|---|---|
+| 口径对账（附录 C） | 7 个日报（11-19 到 11-25）与 2 个完整自然周（11-09、11-16 起）：六个核心指标的本期、上期、环比与可用性，逐账号明细，作品行顺序与播放，趋势序列；SQL 独立聚合，不引用实现 | 574 个字段一致；唯一差异是互动总量环比在 131.25 上的舍入位 |
+| 与多账号总览对账 | 同上 9 个窗口的播放增量、净增粉丝、发布数 | 27 项一致 |
+| 缺采与边界 | 赛恩的房车日记在 11-24、11-25 没有日度行；这两个周期没有账号发布作品；日度表最早一天（10-12）之前的两个周期 | 缺采账号标为不可用并进入缺采清单，报表正常生成；发布为 0、作品为空，不判不足；10-12 之前判数据不足 |
+| 数据形状 | 作品与账号的流量来源、作品留存曲线、关注者日表的来源趋势 | 与解析逻辑一致；808 行来源趋势逐行满足各来源加总等于当日新增关注 |
+| 留存取值 | 103 条作品在最大流失秒的留存率 | 96 条低于 50%，播放最高的一条为 36.0%，据此改键名（见 2.4） |
+| `tools/list` | 旧域、yootun Agent 面、yootun Workbench 面 | 23、41、98，Catalog 描述 139；8 个新工具名全部出现；两个 yootun 面与源能力的入参、出参 schema 一致 |
+| 迁移 `20261126_0092` | 克隆备份库表结构的一次性测试库 | 升级、回退、再升级各一次，27 列与 6 个索引一致；部分唯一索引拒绝同周期的第二条当前版本，CHECK 拒绝非法周期类型 |
+| 抖音一致性 | 抖音报表对比脚本，当前时刻固定 | 93 条报表与 18 个周期重算，与 `dev` 基线逐字节一致 |
+
+自动验收：`tests/wx_channels_operation`、`tests/yootun`、`tests/mcp`、`tests/douyin_operation`、`tests/reporting` 按字母序与按命令行顺序各跑一次，都是 1507 通过、2 跳过（跳过的是需要显式开启的 PostgreSQL 冒烟用例）。内核包、抖音适配与 `tests/douyin_operation` 零改动；`make lint` 口径下本单改动的 33 个 Python 文件 0 错误，全仓剩余 33 个错误都在未改动的文件里。
+
+验收修订（均在提交前完成）：
+
+- 服务层用例 `test_d13` 调用了报表生成却没有替换模型客户端，每次运行都会用真实密钥调用一次模型，依赖网络与模型输出；已改为替身，密钥为空时也能通过。
+- 提示词输出要求第 8 条照搬了抖音的平台名，见附录 A。
+- 留存键名与取值相反，见 2.4。
+- 策略快照 `tests/mcp/data/legacy_policy_snapshot.json` 重新导出时键序整体变化，已改为只追加三个条目。
+- 两个「重新生成」工具的描述缺「派生异步任务」与「是否需要确认」，不满足契约 6.2，已补齐。
+
+遗留（不在本单范围，建议另开单）：
+
+- 抖音域的 `test_export_xlsx.py` 有一处与时刻相关的偶发失败：表格内嵌当前时间戳，压缩后大小浮动 3 到 4 字节，而用例把上限设在第一次导出大小减 1。按实测比例每次全量约 0.4% 的概率失败。
+- 旧域策略登记里，抖音的 `douyin_report_regenerate` 没有登记为模型调用工具，视频号的已登记；抖音侧受零改动约束未补。
+- 这五个测试目录不能并行运行：`test_mcp_acceptance_contract.py` 使用固定名称的测试库。
 
 ## 附录 A：提示词
 
-文件 `config/modules/wx_channels_operation_report_prompt.md`。输出要求 8 条与抖音逐字相同（只输出一个 JSON 对象、数字必须来自输入、事实与推断和建议分开、每类最多 5 条、`limitations` 为字符串数组、覆盖不足只说明不推演、全中文且不出现技术键名、措辞中性），下面只列与抖音不同的部分。
+文件 `config/modules/wx_channels_operation_report_prompt.md`。输出 JSON 结构与输出要求 8 条取自抖音（只输出一个 JSON 对象、数字必须来自输入、事实与推断和建议分开、每类最多 5 条、`limitations` 为字符串数组、覆盖不足只说明不推演、全中文且不出现技术键名、措辞中性），只有两处不同：输出要求第 8 条的「抖音官方判定」写作「视频号官方判定」；输入口径多一条留存字段的说明（2026-11-26 验收修订，前者原稿照搬了抖音的平台名）。下面列出全部与抖音不同的部分。
 
 ```
 promptVersion: wx-report-v1
@@ -311,6 +342,8 @@ promptVersion: wx-report-v1
 - 计数列为当日增量或周期内求和；比率列为本周期计算值。
 - works 里的完播率、平均播放时长、快速划过率、最大流失点是作品发布以来的累计值，
   不是本周期增量，只能用于作品之间比较。
+- retention 是留存曲线摘要：maxLostSecond 是最大流失点所在的秒，
+  retentionAtMaxLostPct 是到该秒仍在观看的比例（留存率，不是流失率）。
 - trafficSource 是单条作品的累计播放来源；trafficSourceAccount 是账号近 30 天滚动
   窗口的快照，可能缺失，缺失时不分析来源结构。
 - fanSource 是周期内各来源的新增关注数。
@@ -351,7 +384,7 @@ promptVersion: wx-report-v1
 
 ## 输出要求
 
-（与抖音 8 条逐字相同）
+（与抖音相同，仅第 8 条的「抖音官方判定」写作「视频号官方判定」）
 ```
 
 ## 附录 B：服务层测试矩阵
@@ -363,8 +396,8 @@ promptVersion: wx-report-v1
 | D3 | 互动：点赞、评论、分享任一为空的账号不计入；全部为空时互动总量与互动率为空；互动率保留 1 位小数，播放为 0 时为空 |
 | D4 | 发布数与 `queries.py` 的窗口计数在同一夹具上相等 |
 | D5 | 矩阵总粉丝：日报取最新非空行，窗口内无行时回退账号记录值；周报期初取周期开始的前一天，无行顺延周期内最早有值行 |
-| D6 | 作品行：日报取周期内全部发布；周报按播放降序取前 N 条，超出计入 `worksOmittedCount`；爆款按配置阈值判定 |
-| D7 | 作品行：流量来源去掉「全部」并按播放降序；留存取最大流失秒与该秒留存率，没有曲线为空 |
+| D6 | 作品行：日报与周报都按播放降序取前 N 条，超出计入 `worksOmittedCount`（与抖音相同）；爆款按配置阈值判定 |
+| D7 | 作品行：流量来源去掉「全部」并按播放降序；留存取最大流失秒与该秒留存率（`retentionAtMaxLostPct`），没有曲线为空 |
 | D8 | 数据不足：日度行数为 0 时落 `insufficient` 且不调模型；四信号全空为 `no_signals`，否则为 `daily_missing` |
 | D9 | 部分账号缺采：报表正常生成，缺采账号标为不可用并出现在缺采清单里 |
 | D10 | 异常：会话过期、连续净掉粉、长期未发布三条规则各自触发与不触发 |
