@@ -4,7 +4,7 @@
 
 本目录收纳 2026-11-26 建单的业务特性实施单，来源是同日的三工作台全面审查（抖音 / 视频号 / 小红书，含 tools.dofe.ai 与 docker-helm.dofe.ai 的相关面）。实施单是三仓共享的唯一协调文件，固定五章（范围 / 契约增量 / 影响面 / 状态回填 / 验收），先建单再动代码；模板见 [feature-template.md](../feature-template.md)。
 
-全部实施单状态为草案：待用户审查通过后再切特性分支动代码。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
+P0 八张已开发完成（2026-11-26 自动验收通过，代码在各特性分支，待真机验收后合入 `main`）；P1 八张仍为草案，P0 发版观察一周后再动代码。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
 
 ## 实施单索引
 
@@ -19,7 +19,7 @@
 | P0 | [agent-face-self-heal.md](features/agent-face-self-heal.md) | Agent 面监督器订阅连接状态，重连耗尽后按退避自愈；新增只读路由 `POST /api/desktop/yootun/agent-status`；设置页「Yootun 接入」区块增加「智能体工具」连接状态一行 | 开发完成（2026-11-26），待真机验收 |
 | P0 | [host-lifecycle-budget.md](features/host-lifecycle-budget.md) | 三工作台 Host 的 dispose 等待与浏览器 `close()` 加时间预算（Config 可调），超时告警并释放 profile 锁；小红书发布 promise 纳入任务登记表，Chrome 启动加超时 | 开发完成（2026-11-26），待真机验收 |
 | P0 | [xhs-collect-cancel-and-publish-state.md](features/xhs-collect-cancel-and-publish-state.md) | 小红书新增 `collect.cancel`（Host action），取消落 `cancelled` 终态；`accounts.list` 投影 `publishWindowOpen`，账号卡显示「发布窗口打开中」 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [activation-gate-and-model-catalog.md](features/activation-gate-and-model-catalog.md) | 激活门禁改三态（未知期间只渲染遮罩，不闪现卡片）；激活失败原因区分网络不可用与密钥无效；激活成功时把网关实时模型目录写入 `llm-pi-ai` provider；目录请求协议与实际承载协议对齐 | 草案 |
+| P0 | [activation-gate-and-model-catalog.md](features/activation-gate-and-model-catalog.md) | 激活门禁改三态（未知期间只渲染遮罩，不闪现卡片）；激活失败原因区分网络不可用与密钥无效；激活成功时把网关实时模型目录写入 `llm-pi-ai` provider；目录请求协议与实际承载协议对齐 | 开发完成（2026-11-26），待真机验收 |
 | P1 | [workbench-host-kit.md](features/workbench-host-kit.md) | 新建 Host 侧共享库 `@yootun/dsh-workbench-host-kit`（路由信任判定与分发、JSON 体读取、任务登记表、profile 锁、状态文件原子写与按 root 的写队列、系统 Chrome 探测与浏览器关闭 / 启动超时）；三插件删除本地副本改为消费；账号锁与批次序号随插件实例创建，门禁的模块级变量移入闭包；补齐小红书缺失的写队列（修复并发丢更新） | 草案 |
 | P1 | [client-workbench-hooks.md](features/client-workbench-hooks.md) | 抖音、视频号的 `WorkbenchPage` 把登录、单账号采集、批量采集、作品查询四条数据流拆为不依赖 React 的 machine（小红书已是该形态，不动），两份同构核心上移为纯 client 包 `@yootun/dsh-client-workbench-machines`；语言标签改取 locale 服务；`attemptId` 归位 | 草案 |
 | P1 | [douyin-tabs-regroup.md](features/douyin-tabs-regroup.md) | 抖音 7 个顶级 Tab 重组为 4 组 + 组内二级控制（默认进入「账号作品」），保留 keep-alive；作品与榜单表格增加显式「查看详情」入口 | 草案 |

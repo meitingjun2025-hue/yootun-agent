@@ -1,6 +1,6 @@
 # access-激活门禁三态与模型目录对齐 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -62,7 +62,7 @@ MCP 工具：无。
 |---|---|
 | 时机 | `saveActivation` 中，凭证写入之后、默认模型写入之前 |
 | 目标 | `ctx.configForms.get('llm-pi-ai')` 的 `providers.yootun.models` 路径，值为 `[{ id }, ...]`：分区现有模型列表与实时目录按 id 去重后的并集，现有项在前；实时目录已过滤非对话模型。只增不删：网关目录缺少某个内置模型时，用户正在使用的默认模型不会被移出列表 |
-| 失败 | `mutate` 返回 false 或分区不在服 → 跳过，不阻断激活（provider 仍有 patch 的静态目录兜底），记录 console 之外的诊断（`ctx.logger` 不可用于 client；由表单显示一行「模型目录未能同步，当前使用内置目录」） |
+| 失败 | `mutate` 返回 false、rejection 或分区不在服 → 跳过，不阻断激活（provider 仍有 patch 的静态目录兜底），表单显示一行「模型目录未能同步，当前使用内置目录」。例外：分区列表可读且所选模型确不在内时，`saveActivation` 在写默认模型与授权之前中止（`ok: false`），表单提示「该模型当前不可用」；列表不可读时不以此阻止 |
 | 选择器 | 选项来自并集（现有列表 ∪ 实时目录）；提交时若所选模型不在现有列表且目录写入失败 → 提示并阻止提交（避免选中 provider 未声明的模型） |
 
 ### 2.4 词典新增（`src/client/locales.ts`，zh / en 成对）
@@ -95,7 +95,7 @@ MCP 工具：无。
 | 文档（本文 + 03 册 §3/§4 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/activation-gate-and-model-catalog` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/activation-gate-and-model-catalog`（基于 `feat/agent-face-self-heal`） | `@yootun/dsh-client-ui-access` `test`（node --test 21 用例）、`build`（generate 后生成产物零预期外 diff），`pnpm --filter '@yootun/*' run build`，仓库根 `pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；目录协议参数未核对（见 5.3）；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -121,15 +121,17 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（必填：真实 key 下 `?protocol=` 取值核对结果；`llm-pi-ai` 设置分区路径核对结果）。
+- 官方设置表单 API 核对（只读源码 `packages/client/ui-settings/src/client/config-form.ts`、`config-form-types.ts`、`packages/settings/settings/src/types.ts`）：`ctx.configForms.get<T>(entryId): ConfigForm<T>` 为同步注册表查找，按 entryId 惰性建 controller，不校验分区在服状态（分区缺位表现为快照 `unavailable`）；`ConfigForm.mutate(ops: readonly SettingsPathOpView[], expectedRevision?): Promise<boolean>`，`SettingsPathOpView = { op: 'set'; path: string[]; value: JsonValue } | { op: 'unset'; path: string[] }`；Host 拒绝写 → `mutate` 返回 false，分区缺位或传输失败 → promise rejection（目录写入以 try/catch 收敛为跳过）。
+- `llm-pi-ai` 设置分区路径核对：cordis.patch.yml entry `llm-pi-ai` 写 `config.providers.yootun`（`apiKeyEnv: MODELS_API_KEY`、`api: openai-responses`、`models` 为 23 项裸 `{ id }`）；llm-pi-ai Config schema（`packages/llm/llm-pi-ai/src/config.ts`）的 `models?: PiAiModelProfile[]` 语义为「显式列表整体替换安装目录、缺省字段按同 id 目录项回填」，写回裸 `{ id }` 并集与 patch 形态一致，网关新增模型走路由缺省（context window 1,000,000 / max tokens 128,000 / input [text]）。
+- `?protocol=` 取值核对：未核对——本机无可用真实 key，未对网关发起请求，`MODEL_CATALOG_URL` 保持原值 `protocol=anthropic` 不动，留待真机验收 V5 / V6 验证。
 
 ## 附录 A：逐文件规格
 
 ### A1 `src/route.ts`
 
 - `AccessFailureReason` 增 `'network_unavailable'`；
-- `verifyTenant` 的 catch → `{ ok: false, reason: 'network_unavailable' }`；`response.ok` 为 false 时：401 / 403 → `invalid_key`，其余 → `network_unavailable`；
-- `loadModels` 返回 `{ models, reason? }`：非 2xx → 401 / 403 `invalid_key`，其余 `network_unavailable`；`handleDofeValidateRequest` / `handleDofeModelsRequest` 的 catch → `network_unavailable`；
+- `verifyTenant` 的传输 catch（fetch 抛错、超时）→ `{ ok: false, reason: 'network_unavailable' }`；`response.ok` 为 false 时：401 / 403 → `invalid_key`，其余 → `network_unavailable`；2xx 但响应体不可解析仍是 `tenant_unavailable`；
+- `loadModels` 返回 `{ models, reason? }`：非 2xx → 401 / 403 `invalid_key`，其余 `network_unavailable`；2xx 但响应体不可解析 → `network_unavailable`；`handleDofeValidateRequest` / `handleDofeModelsRequest` 的 catch → `network_unavailable`；客户端 `validateAndLoadModels` 把目录路由的 `reason` 透传给表单（原固定 `invalid_key`）；
 - `MODEL_CATALOG_URL` 的 `protocol` 参数按 5.3 核对结果设定（候选：`openai-responses`、无参数）；头注释改为现行承载（`llm-pi-ai` + `openai-responses`）。
 
 ### A2 `src/client/logic.ts`
@@ -148,7 +150,7 @@ MCP 工具：无。
 
 - `index.ts` 的 `forms` 增 `models: ctx.configForms.get('llm-pi-ai')`（try/catch 包裹，分区不存在时置 undefined，不改用 `as`）；
 - `loadModels` / `save` 的原因映射增 `network_unavailable → t('networkUnavailable')`；
-- `save` 调 `saveActivation(..., verdict.models)`，`catalogSynced === false` 时：所选模型不在内置目录 → `t('modelNotAvailable')` 并阻止；否则显示 `t('catalogSyncFailed')` 后继续。
+- `save` 调 `saveActivation(..., verdict.models)`：`ok === false` 且目录未同步、列表可读、所选模型不在内 → `t('modelNotAvailable')`（中止发生在默认模型与授权写入之前）；`ok === true` 且 `catalogSynced === false` → 显示 `t('catalogSyncFailed')` 后继续。
 
 ### A5 `scripts/generate-access-constants.mjs`
 
@@ -159,7 +161,7 @@ MCP 工具：无。
 | ID | 断言 |
 |---|---|
 | R1 | 路由：fetch 抛错 / 超时 / 5xx → `network_unavailable`；401 / 403 → `invalid_key`；租户不符 → `tenant_mismatch` |
-| R2 | 门禁：`configured === undefined` 时不渲染 `.card`；`false` 渲染；`true` 不渲染任何层；未知态超过 5 秒（注入时钟）→ 渲染卡片，随后回包为已授权 → 卡片消失 |
+| R2 | 门禁：`configured === undefined` 时不渲染 `.card`；`false` 渲染；`true` 不渲染任何层；未知态超过 5 秒（注入时钟）→ 渲染卡片，随后回包为已授权 → 卡片消失。本包测试是无 DOM 的 node --test，三态渲染决策提取为纯函数 `gatePhase` 断言，`gate.tsx` 只做 JSX 映射 |
 | R3 | `saveActivation` 写入顺序：凭证 → 目录 → 默认模型 → 授权；目录 mutate 失败时仍完成后续写入且 `catalogSynced === false`；写入值为并集，分区现有模型一个不少、目录新模型追加在后 |
 | R4 | 表单：`network_unavailable` → 对应文案；目录未同步且所选模型不在内置目录 → 阻止提交 |
 | R5 | 生成常量脚本的输出与 `src/access-constants.ts` 一致（`build` 的 `generate` 步骤零 diff） |
