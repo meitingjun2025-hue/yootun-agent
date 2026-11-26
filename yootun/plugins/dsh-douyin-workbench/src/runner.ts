@@ -15,7 +15,7 @@ import { createIngestClient, ingestCollectedWorks } from './ingest.ts'
 import { SessionInvalidError, type PartialCollected } from './parse.ts'
 import { collectAccountWorksOn, collectSurfaceOf, WORK_PUBLISH_SINCE_REPORT } from './collector.ts'
 import { getAccount, hasStorageState, paths, readAccounts, stateRoot, updateAccount, type AccountRecord } from './state.ts'
-import { withProfileLock } from './locks.ts'
+import type { ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { isPendingAccountId } from './session.ts'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
@@ -35,6 +35,8 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 export interface RunnerDeps {
   callTool: (tool: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ structuredContent: unknown; content: unknown }>
   root: string
+  /** 账号 profile 锁实例（采集全程持锁；随 deps 创建）。 */
+  locks: ProfileLocks
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   logger?: { warn(message: string): void } | undefined
@@ -296,7 +298,7 @@ export async function runCollection(deps: RunnerDeps, options: RunOptions): Prom
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
   const attemptId = options.attemptId ?? createAttemptId()
-  return withProfileLock(accountId, () => runCollectionWithinProfileLock(deps, { ...options, root, attemptId }))
+  return deps.locks.withProfileLock(accountId, () => runCollectionWithinProfileLock(deps, { ...options, root, attemptId }))
 }
 
 /** runCollection 的锁内实现（调用方必须已持有账号锁）。 */
@@ -841,8 +843,6 @@ interface BatchState {
   signal: AbortSignal | undefined
 }
 
-let batchSeq = 0
-
 /**
  * 批量采集控制器：全局单飞幂等、与单账号互斥、稳定排序、no_eligible_account、
  * 串行 probing → 受控并发 collecting（worker 队列 + 启动错峰 + 批内熔断）、
@@ -866,6 +866,8 @@ export function createBatchCollectController(options: {
   sleep?: ((ms: number, signal?: AbortSignal) => Promise<void>) | undefined
 }) {
   let state: BatchState | null = null
+  // 批次序号随控制器实例创建（模块级可变状态归位；序号只在 batchId 里出现）。
+  let batchOrdinal = 0
   const projectItems = (items: BatchItem[]): Record<string, unknown>[] => items.map(item => ({
     accountId: item.accountId,
     status: item.status,
@@ -925,9 +927,9 @@ export function createBatchCollectController(options: {
       if (runnable.length === 0) {
         return { started: false, reason: 'no_eligible_account', skipped: projectItems(items) }
       }
-      batchSeq += 1
+      batchOrdinal += 1
       state = {
-        batchId: `batch-${Date.now().toString(36)}-${String(batchSeq)}`,
+        batchId: `batch-${Date.now().toString(36)}-${String(batchOrdinal)}`,
         status: 'running',
         phase: 'probing',
         startedAt: new Date().toISOString(),

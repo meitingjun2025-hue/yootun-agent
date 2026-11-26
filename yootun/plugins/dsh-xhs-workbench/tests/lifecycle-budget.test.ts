@@ -14,7 +14,6 @@ import { test } from 'node:test'
 import { BrowserLaunchTimeoutError, closeContext, launchWithTimeout, type ChromeFactory } from '../src/chrome.ts'
 import { safeCode } from '../src/errors.ts'
 import { createTaskRegistry, disposeHostTasks } from '../src/lifecycle.ts'
-import { isProfileLocked } from '../src/locks.ts'
 import { buildRouteHandlers, createXhsHostDeps } from '../src/handlers.ts'
 import { createFakeChrome, sessionCookie, userInfoPayload } from './fakes.ts'
 
@@ -172,9 +171,9 @@ test('G5 publish：dispose 等待挂起的 publishDraft 至预算；浏览器保
     await waitForCondition(() => deps.taskRegistry.activeCount === 0)
     const run = deps.publishRuns.get(String(started.publishId))
     assert.equal(run?.status, 'completed')
-    assert.equal(isProfileLocked('acc-p'), true, '浏览器保持打开：锁保持到用户关闭')
+    assert.equal(deps.locks.isProfileLocked('acc-p'), true, '浏览器保持打开：锁保持到用户关闭')
     fake.context.close()
-    await waitForCondition(() => !isProfileLocked('acc-p'))
+    await waitForCondition(() => !deps.locks.isProfileLocked('acc-p'))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -212,7 +211,7 @@ test('G5 publish：启动超预算后锁释放、account.probe 不再 PROFILE_BU
     await waitForCondition(() => deps.publishRuns.get(String(started.publishId))?.status === 'failed')
     const run = deps.publishRuns.get(String(started.publishId))
     assert.equal(run?.error, 'PUBLISH_FAILED', `实际: ${String(run?.error)}`)
-    assert.equal(isProfileLocked('acc-p'), false, '启动超时后锁由 finally 释放')
+    assert.equal(deps.locks.isProfileLocked('acc-p'), false, '启动超时后锁由 finally 释放')
     // 锁已释放：account.probe 不再返回 PROFILE_BUSY（注入可成功的 factory 实测）。
     const probeFake = createFakeChrome()
     probeFake.state.cookies = sessionCookie()
@@ -224,7 +223,7 @@ test('G5 publish：启动超预算后锁释放、account.probe 不再 PROFILE_BU
     // 迟到的启动结果：仍被立即关闭，锁不复活（release 幂等）。
     lateGate.resolve()
     await waitForCondition(() => lateCloseCount >= 1)
-    assert.equal(isProfileLocked('acc-p'), false, '迟到 context 关闭后锁保持释放')
+    assert.equal(deps.locks.isProfileLocked('acc-p'), false, '迟到 context 关闭后锁保持释放')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

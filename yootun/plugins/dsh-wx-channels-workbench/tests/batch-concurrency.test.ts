@@ -159,7 +159,7 @@ function wireHost(deps: WxHostDeps, options: { batchProbe?: (accountId: string) 
   const registry = deps.taskRegistry
   let batch: ReturnType<typeof createBatchCollectController>
   const collect: CollectController = createCollectController(
-    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: registry, signals: deps.collectSignals },
   )
   batch = createBatchCollectController({

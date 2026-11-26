@@ -9,7 +9,8 @@
  * 队列；原子 0600 写；记录为白名单投影，无 Cookie / storage_state / 本地路径。
  * @module
  */
-import { readFile, rename, writeFile, chmod, mkdir } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { atomicWriteJson, runInRootQueue } from '@yootun/dsh-workbench-host-kit'
 import { dirname, join } from 'node:path'
 import { DouyinError } from './errors.ts'
 
@@ -125,33 +126,19 @@ export async function readRuns(root: string): Promise<Record<string, RunRecord>>
   return runs
 }
 
-/** 原子 0600 写全部 run 记录。 */
+/** 原子 0600 写全部 run 记录（kit 原子写；tmp 名带 pid 与随机段）。 */
 async function writeRuns(root: string, runs: Record<string, RunRecord>): Promise<void> {
   const file = runsFilePath(root)
   await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-  const tmp = `${file}.tmp-${String(process.pid)}-${String(Math.random()).slice(2, 8)}`
-  await writeFile(tmp, `${JSON.stringify({ version: RUNS_VERSION, runs }, null, 2)}\n`, { mode: 0o600 })
-  await rename(tmp, file)
-  await chmod(file, 0o600).catch(() => undefined)
-}
-
-/** per-root 串行队列：并发 updateRun / recoverInterruptedRuns / removeAccountRuns 不丢更新。 */
-const rootQueues = new Map<string, Promise<unknown>>()
-
-function withRootLock<T>(root: string, task: () => Promise<T>): Promise<T> {
-  const previous = rootQueues.get(root) ?? Promise.resolve()
-  const current = previous.then(task, task)
-  rootQueues.set(root, current.catch(() => undefined))
-  return current
+  await atomicWriteJson(file, { version: RUNS_VERSION, runs })
 }
 
 /**
  * 在 per-root 串行队列内运行 `task`（组合多步 runs 操作的公开入口；测试用它
- * 构造确定性挂起场景）。
+ * 构造确定性挂起场景）。队列实现为 kit 的进程级实例——同 root 的 accounts 与
+ * runs 写入、以及同进程的多个插件实例共用同一条串行链。
  */
-export function runInRootQueue<T>(root: string, task: () => Promise<T>): Promise<T> {
-  return withRootLock(root, task)
-}
+export { runInRootQueue } from '@yootun/dsh-workbench-host-kit'
 
 /**
  * 一次采集的统一写入入口：read-modify-write 走 root 串行队列。记录不存在时以
@@ -164,7 +151,7 @@ export function runInRootQueue<T>(root: string, task: () => Promise<T>): Promise
  * @returns the merged record after this write.
  */
 export async function updateRun(root: string, accountId: string, attemptId: string, patch: Partial<Omit<RunRecord, 'accountId' | 'attemptId'>>): Promise<RunRecord> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const runs = await readRuns(root)
     const existing = runs[attemptId]
     const base: RunRecord = existing ?? {
@@ -193,7 +180,7 @@ export async function updateRun(root: string, accountId: string, attemptId: stri
  * @returns the number of records marked interrupted.
  */
 export async function recoverInterruptedRuns(root: string): Promise<number> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const runs = await readRuns(root)
     let count = 0
     for (const record of Object.values(runs)) {
@@ -217,7 +204,7 @@ export async function recoverInterruptedRuns(root: string): Promise<number> {
  * @returns the number of removed records.
  */
 export async function removeAccountRuns(root: string, accountId: string): Promise<number> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const runs = await readRuns(root)
     const kept: Record<string, RunRecord> = {}
     let removed = 0

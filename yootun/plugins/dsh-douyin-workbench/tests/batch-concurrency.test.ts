@@ -11,6 +11,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRouteHandlers, createDouyinHostDeps, Config } from '../src/index.ts'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { batchCandidates, createBatchCollectController, createCollectController, type CollectResult, type RunOptions, type RunnerDeps } from '../src/runner.ts'
 import { createAttemptId, readRuns, updateRun } from '../src/runs.ts'
 import { paths, updateAccount } from '../src/state.ts'
@@ -95,6 +96,7 @@ function candidateDeps(root: string): RunnerDeps {
   return {
     callTool: async (): Promise<never> => { throw new Error('no workbench in candidate tests') },
     root,
+    locks: createProfileLocks(),
     logger: { warn: (): void => undefined },
   }
 }
@@ -539,7 +541,7 @@ test('B6b 真实单账号控制器接线：批量运行中页面发起被拒，�
   try {
     const workbench = createFakeWorkbench({})
     const collect = createCollectController(
-      { callTool: async (tool, args, signal) => workbench.callTool('douyin-workbench', 'douyin', tool, args, signal), root },
+      { callTool: async (tool, args, signal) => workbench.callTool('douyin-workbench', 'douyin', tool, args, signal), root, locks: createProfileLocks() },
       { batchHasRunning: () => true },
     )
     // 页面路径（无 fromBatch）：批量运行中被互斥钩子拒绝。

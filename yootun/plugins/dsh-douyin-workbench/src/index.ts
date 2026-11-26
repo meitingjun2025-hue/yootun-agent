@@ -81,6 +81,7 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
   const runnerDeps = {
     callTool: deps.callTool,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     maxPages: deps.maxPages,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
@@ -232,7 +233,6 @@ export { createTaskRegistry, disposeHostTasks, DEFAULT_DISPOSE_BUDGET_MS, type T
 export { normalizeAvatarUrl, MAX_AVATAR_URL_LENGTH } from './avatar.ts'
 export { attemptUuid, sessionIdempotencyKey, accountSaveIdempotencyKey, accountRemoveIdempotencyKey, runStartIdempotencyKey, listMetaIdempotencyKey, heartbeatIdempotencyKey, ingestBatchIdempotencyKey, ingestDailyIdempotencyKey, runFinishIdempotencyKey } from './idempotency.ts'
 export { CREATOR_ORIGIN, USER_INFO_PATH, SESSION_COOKIE_NAMES, PENDING_ACCOUNT_PREFIX, isPendingAccountId, launchChromeSession, loginWithQrCode, probeSession, promotePendingAccount, refreshSessionState, removeLocalAccount, commitLoginIdentity, waitForSessionCookie, readAccountProfile, type ChromeFactory, type DouyinProfile, type LoginResult, type ProbeResult, type PromoteResult, type RefreshedSession, type BrowserCloseBudget } from './session.ts'
-export { withProfileLock, tryWithProfileLock, withProfileLocks, tryWithProfileLocks, isProfileLocked } from './locks.ts'
 export { runsFilePath, createAttemptId, readRuns, updateRun, recoverInterruptedRuns, removeAccountRuns, runInRootQueue, type RunRecord } from './runs.ts'
 export { createCollectController, createBatchCollectController, batchCandidates, checkCollectionReadiness, ensureRemoteAccount, reportSessionStatus, markSessionOk, markSessionExpired, reportSessionOkAfterCollect, saveDiscoveredAvatar, runCollection, finishExpiredSession, progressFromEvent, lastProgress, type CollectResult, type BatchStatus, type BatchItem, type RunnerDeps } from './runner.ts'
 export { createIngestClient, ingestCollectedWorks, BATCH_SIZE, DETERMINISTIC_ERRORS, RECOVERABLE_ERRORS, type IngestClient, type IngestOutcome } from './ingest.ts'

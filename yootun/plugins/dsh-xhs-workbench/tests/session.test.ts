@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { collectNotes, CollectError, mapNote, parsePostedPage, summarizeSnapshot } from '../src/collector.ts'
-import { acquireProfileLock } from '../src/locks.ts'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import {
   confirmSessionOnPage, loginWithQrCode, probeSession, readAccountProfileWithRetry,
   removeLocalAccount, waitForSessionCookie, isPendingAccountId,
@@ -154,7 +154,8 @@ test('loginWithQrCode：resolvedId 被占用时丢弃成果返回 PROFILE_BUSY�
   const fake = createFakeChrome()
   fake.state.cookies = sessionCookie()
   fake.state.profileJson = userInfoPayload('real-busy', null, null)
-  const release = acquireProfileLock('real-busy')
+  const locks = createProfileLocks()
+  const release = locks.acquireProfileLock('real-busy')
   const result = await loginWithQrCode({
     root, chromeFactory: fake.factory, timeoutMs: 1000,
     isResolvedBusy: isProfileLockedInjectee,

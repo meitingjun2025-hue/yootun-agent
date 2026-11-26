@@ -176,6 +176,23 @@ test('未知 action 与 handler 缺位返回 unknown_action（400）', async () 
   assert.equal(responded[0]?.payload.reason, 'unknown_action')
 })
 
+test('R1：非 POST 返回 405，reason 随 kit 统一为 method_not_allowed（原 invalid_request）', async () => {
+  const responded: Array<{ status: number; payload: Record<string, unknown> }> = []
+  const handler = createRouteHandler(() => 'http://127.0.0.1:1', {})
+  // kit 路由的 req/res 是结构面（RouteRequest/RouteResponse），测试直接构造，
+  // 不需要断言到 IncomingMessage。
+  const getReq = {
+    method: 'GET',
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin' },
+    async *[Symbol.asyncIterator]() { yield Buffer.from('') },
+  }
+  await handler(getReq, fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 405)
+  assert.equal(responded.at(-1)?.payload.reason, 'method_not_allowed')
+  assert.equal(responded.at(-1)?.payload.status, 'error')
+})
+
 test('handler 抛非稳定码错误收敛为稳定 reason，不透传原文', async () => {
   const responded: Array<{ status: number; payload: Record<string, unknown> }> = []
   const handler = createRouteHandler(() => 'http://127.0.0.1:1', {
@@ -393,7 +410,7 @@ test('collect.start 同步互斥：并发第二请求被拒（TOCTOU 缺口锁�
     start: async () => ({ started: false, reason: 'collect_busy' }),
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: factory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: factory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   const handlers = buildRouteHandlers(deps, batch as never, collect)

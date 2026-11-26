@@ -90,7 +90,6 @@ export { browserStatus, resolveSystemChrome, chromeCandidates, launchChrome, LAU
 export { buildRouteHandlers, createXhsHostDeps, projectHotboardWrite, type XhsHostDeps, type LoginRun, type CollectRun, type PublishRun } from './handlers.ts'
 export type { XhsWorkbenchFace } from './workbench.ts'
 export { createTaskRegistry, disposeHostTasks, DEFAULT_DISPOSE_BUDGET_MS, type TaskRegistry, type AwaitSettledOutcome } from './lifecycle.ts'
-export { acquireProfileLock, withProfileLock, tryWithProfileLock, withProfileLocks, tryWithProfileLocks, isProfileLocked, profileLockWaiters, type ProfileLockAttempt, type ProfileLockRelease } from './locks.ts'
 export { loginWithQrCode, waitForSessionCookie, probeSession, confirmSessionOnPage, removeLocalAccount, isPendingAccountId, detectCaptcha, readAccountProfile, readAccountProfileWithRetry, PENDING_ACCOUNT_PREFIX, SESSION_COOKIE_NAMES, CREATOR_ORIGIN, LOGIN_URL, LOGIN_TIMEOUT_MS, PROBE_TIMEOUT_MS, type LoginResult, type ProbeResult, type RemoveLocalResult, type AccountProfile, type CookieWaitResult, type XhsPage, type XhsBrowserContext, type BrowserCloseBudget } from './session.ts'
 export { publishDraft, publishUrl, PublishError, PUBLISH_URL_BASE, OPEN_TIMEOUT_MS, type PublishDraftResult } from './publisher.ts'
 export { collectNotes, mapNote, parsePostedPage, summarizeSnapshot, CollectError, NOTE_MANAGER_URL, POSTED_PATH, DEFAULT_MAX_PAGES, PAGE_INTERVAL_MS, type CollectResult, type PostedPage } from './collector.ts'

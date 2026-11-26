@@ -72,6 +72,9 @@ const LOCAL_ERROR_CODE_VALUES = [
   'account_id_required',
   // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
   'browser_launch_timeout',
+  // account.refreshLoginQr 的终态守卫拒绝（仅登录运行中可刷新；页面无入口，
+  // 不出文案；mount-restore 单将移除整个 action）。
+  'refresh_not_allowed',
 ] as const
 
 export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])

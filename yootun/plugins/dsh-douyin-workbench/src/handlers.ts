@@ -12,8 +12,8 @@ import { normalizeAvatarUrl } from './avatar.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { isStableCode, safeCode, DouyinError, type StableErrorCode } from './errors.ts'
 import { accountRemoveIdempotencyKey, accountSaveIdempotencyKey } from './idempotency.ts'
+import { createProfileLocks, type ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
-import { tryWithProfileLock, withProfileLock } from './locks.ts'
 import { readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
 import {
   isPendingAccountId, launchChromeSession, loginWithQrCode, promotePendingAccount,
@@ -51,6 +51,8 @@ export interface DouyinHandlerDeps {
   disposing: boolean
   signals: Map<string, AbortController>
   taskRegistry: TaskRegistry
+  /** 账号 profile 锁实例（随 deps 创建；经 runnerDeps / options 透传给独立函数）。 */
+  locks: ProfileLocks
   chromeFactory: ChromeFactory | undefined
   loginRuns: Map<string, LoginRun>
   maxPages: number
@@ -70,6 +72,7 @@ export interface DouyinHandlerDeps {
   promote: (input: {
     accountId: string
     root: string
+    locks: ProfileLocks
     chromeFactory?: ChromeFactory | undefined
     launchTimeoutMs?: number | undefined
     browserCloseTimeoutMs?: number | undefined
@@ -134,6 +137,7 @@ export function createHandlerDeps(options: {
     disposing: false,
     signals: new Map(),
     taskRegistry,
+    locks: createProfileLocks(),
     chromeFactory: options.chromeFactory ?? launchChromeSession,
     loginRuns: new Map(),
     maxPages: options.maxPages ?? 1000,
@@ -143,10 +147,11 @@ export function createHandlerDeps(options: {
     launchTimeoutMs,
     startupError: null,
     startupReady: Promise.resolve(),
-    promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined; launchTimeoutMs?: number | undefined; browserCloseTimeoutMs?: number | undefined; trackCleanup?: ((promise: Promise<void>) => void) | undefined }) =>
+    promote: options.promote ?? ((input: { accountId: string; root: string; locks: ProfileLocks; chromeFactory?: ChromeFactory | undefined; launchTimeoutMs?: number | undefined; browserCloseTimeoutMs?: number | undefined; trackCleanup?: ((promise: Promise<void>) => void) | undefined }) =>
       promotePendingAccount({
         accountId: input.accountId,
         root: input.root,
+        locks: input.locks,
         chromeFactory: input.chromeFactory,
         ...(input.launchTimeoutMs !== undefined ? { launchTimeoutMs: input.launchTimeoutMs } : {}),
         ...(input.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: input.browserCloseTimeoutMs } : {}),
@@ -246,6 +251,7 @@ export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunnin
   const promoted = await deps.promote({
     accountId,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     launchTimeoutMs: deps.launchTimeoutMs,
     browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
@@ -436,7 +442,7 @@ export async function completeLoginAfterSuccess(
     })
     if (aborted()) return
     const report = await reportSessionStatus(
-      { callTool: deps.callTool, root: deps.root, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
+      { callTool: deps.callTool, root: deps.root, locks: deps.locks, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
       result.accountId,
       state,
       signal,
@@ -482,6 +488,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   const runnerDeps: RunnerDeps = {
     callTool: deps.callTool,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     maxPages: deps.maxPages,
     logger: { warn: message => { deps.logger.warn(message) } },
@@ -531,6 +538,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       deps.taskRegistry.track(loginWithQrCode({
         accountId: requested,
         root: deps.root,
+        locks: deps.locks,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
         launchTimeoutMs: deps.launchTimeoutMs,
@@ -562,7 +570,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     'account.probe': async (args, signal) => {
       const requested = asString(args, 'accountId')
       const resolved = await resolveAccountId(deps, id => controllers.collect.status(id) !== null && (controllers.collect.status(id)?.status === 'running'), requested, signal)
-      const session = await withProfileLock(resolved.accountId, () =>
+      const session = await deps.locks.withProfileLock(resolved.accountId, () =>
         refreshSessionState({
           accountId: resolved.accountId,
           root: deps.root,
@@ -591,7 +599,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     'account.removeLocal': async args => {
       const accountId = asString(args, 'accountId')
       // try 锁：collect/登录迁移持锁时立即 collect_busy，不排队等长采集。
-      const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
+      const attempt = await deps.locks.tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
       if (!attempt.acquired) return { status: 'error', reason: 'collect_busy' }
       const removed = attempt.result.removed
       // 清理 runs.json 中该账号全部 run 记录（排期数据不级联，runs 属设备端）。

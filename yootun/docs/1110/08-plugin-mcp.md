@@ -450,7 +450,7 @@ PluginPageShell
 每个 endpoint 必须：
 
 - 只接受 POST;
-- 校验 expected origin：显式 Origin 必须精确匹配，字面 `null` 与异源拒绝；
+- 校验 expected origin：显式 Origin 必须精确匹配，字面 `null` 与异源拒绝（信任判定与 action 分发的实现在 `@yootun/dsh-workbench-host-kit` 的 route 模块，三工作台与 agent-status、上传路由共用，2026-11-27 起）；
 - 来源标记：显式 `sec-fetch-site: cross-site` 拒绝；Origin 与 Sec-Fetch-Site 缺失放行——Desktop Electron main 的 `forwardWebRequest` 转发会剥掉这两枚头，来源边界由 loopback 承担（对齐官方 connection fence）;
 - 限制请求体大小；
 - 显式 action allowlist;

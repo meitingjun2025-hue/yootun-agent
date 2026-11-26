@@ -6,6 +6,7 @@
  * @module
  */
 import { access, chmod, constants, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { atomicWriteJson, runInRootQueue } from '@yootun/dsh-workbench-host-kit'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -65,18 +66,6 @@ export function paths(root: string): StatePaths {
 export function safeSegment(value: string): string {
   const cleaned = String(value || '').trim().replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 128)
   return cleaned || 'account'
-}
-
-/**
- * Atomic 0600 write: tmp(pid+rand) in the same directory → rename → chmod.
- * 固定 tmp 在同机多实例并发写时会被交错覆盖（P3-1：桌面+CLI 各跑一份），
- * pid+rand 隔离；rename 保证半截文件永不出现在最终路径。
- */
-async function atomicWrite0600(file: string, data: string): Promise<void> {
-  const tmp = `${file}.tmp-${String(process.pid)}-${String(Math.random()).slice(2, 8)}`
-  await writeFile(tmp, data, { mode: 0o600 })
-  await rename(tmp, file)
-  await chmod(file, 0o600).catch(() => undefined)
 }
 
 async function ensureDir(dir: string, mode = 0o700): Promise<void> {
@@ -142,27 +131,16 @@ export async function readAccounts(root: string = stateRoot()): Promise<Accounts
   }
 }
 
-/** Per-root write queue: concurrent heartbeats/report/login must not clobber sessionSeq ordering. */
-const rootQueues = new Map<string, Promise<unknown>>()
-
-/** Serialize a read-modify-write task per root. */
-function withRootLock<T>(root: string, task: () => Promise<T>): Promise<T> {
-  const previous = rootQueues.get(root) ?? Promise.resolve()
-  const current = previous.then(task, task)
-  rootQueues.set(root, current.catch(() => undefined))
-  return current
-}
-
 /**
  * Persist the whole accounts document (0700 dirs, file under the guarded root).
  * @param state - the document to write.
  * @param root - state root directory.
  */
 export async function writeAccounts(state: AccountsState, root: string = stateRoot()): Promise<void> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const file = paths(root).accountsFile
     await ensureDir(dirname(file))
-    await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
+    await atomicWriteJson(file, state)
   })
 }
 
@@ -185,7 +163,7 @@ export async function getAccount(accountId: string, root: string = stateRoot()):
  * @returns the patched record.
  */
 export async function updateAccount(accountId: string, patch: Partial<AccountRecord>, root: string = stateRoot()): Promise<AccountRecord> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const file = paths(root).accountsFile
     await ensureDir(dirname(file))
     let state = emptyState()
@@ -201,7 +179,7 @@ export async function updateAccount(accountId: string, patch: Partial<AccountRec
     const previous: AccountRecord = state.accounts[accountId] ?? { accountId }
     const merged: AccountRecord = { ...previous, ...patch, accountId }
     state.accounts[accountId] = merged
-    await atomicWrite0600(file, `${JSON.stringify(state, null, 2)}\n`)
+    await atomicWriteJson(file, state)
     return merged
   })
 }
@@ -214,7 +192,7 @@ export async function updateAccount(accountId: string, patch: Partial<AccountRec
  */
 export async function bumpSessionSeq(accountId: string, root: string = stateRoot()): Promise<number> {
   // 单次持锁完成读-改-写（内部不得再调 updateAccount 等持锁入口，否则同 root 死锁）。
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const file = paths(root).accountsFile
     let accounts: Record<string, AccountRecord> = {}
     try {
@@ -229,7 +207,7 @@ export async function bumpSessionSeq(accountId: string, root: string = stateRoot
     const previous: AccountRecord = accounts[accountId] ?? { accountId }
     const next = Number(previous.sessionSeq ?? 0) + 1
     accounts[accountId] = { ...previous, sessionSeq: next, accountId }
-    await atomicWrite0600(file, `${JSON.stringify({ version: STATE_VERSION, accounts }, null, 2)}\n`)
+    await atomicWriteJson(file, { version: STATE_VERSION, accounts })
     return next
   })
 }
@@ -262,7 +240,7 @@ export async function bumpSessionSeqWith(
   floor = 0,
   root: string = stateRoot(),
 ): Promise<{ record: AccountRecord; seq: number }> {
-  return withRootLock(root, async () => {
+  return runInRootQueue(root, async () => {
     const file = paths(root).accountsFile
     let accounts: Record<string, AccountRecord> = {}
     try {
@@ -279,7 +257,7 @@ export async function bumpSessionSeqWith(
     const seq = Math.max(previousSeq, floor) + 1
     const record: AccountRecord = { ...previous, ...patch, sessionSeq: seq, accountId }
     accounts[accountId] = record
-    await atomicWrite0600(file, `${JSON.stringify({ version: STATE_VERSION, accounts }, null, 2)}\n`)
+    await atomicWriteJson(file, { version: STATE_VERSION, accounts })
     return { record, seq }
   })
 }
@@ -436,10 +414,10 @@ export async function clearLocalCredentials(accountId: string, root: string = st
   // profile 残留但记录仍在」的漂移——hasStorageState=false 时记录必须已同步移除）。
   await rm(layout.storageStatePath(accountId), { force: true })
   await rm(layout.profileDir(accountId), { recursive: true, force: true }).catch(() => undefined)
-  await withRootLock(root, async () => {
+  await runInRootQueue(root, async () => {
     const state = await readAccounts(root).catch(() => emptyState())
     if (state.accounts[accountId] === undefined) return
     delete state.accounts[accountId]
-    await atomicWrite0600(layout.accountsFile, `${JSON.stringify(state, null, 2)}\n`)
+    await atomicWriteJson(layout.accountsFile, state)
   })
 }

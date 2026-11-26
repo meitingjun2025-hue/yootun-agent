@@ -64,6 +64,14 @@ describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
+
+  it('R2：路由层拒绝原因（forbidden/unknown_action/method_not_allowed）显示 kit 2.6 文案', async () => {
+    const { reasonText } = await import('../../src/client/format.ts')
+    const t = (key: XhsLocaleKey): string => en[key] ?? key
+    expect(reasonText('forbidden', t)).toBe(`${en['reason.forbidden']}（forbidden）`)
+    expect(reasonText('unknown_action', t)).toBe(`${en['reason.unknown_action']}（unknown_action）`)
+    expect(reasonText('method_not_allowed', t)).toBe(`${en['reason.method_not_allowed']}（method_not_allowed）`)
+  })
 })
 
 describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣爆款看板三个 tab）', () => {

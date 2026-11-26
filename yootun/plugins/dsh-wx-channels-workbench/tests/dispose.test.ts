@@ -12,7 +12,6 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
-import { isProfileLocked } from '../src/locks.ts'
 import { createBatchCollectController } from '../src/collect-all.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
 import { createCollectController, type CollectController } from '../src/runner.ts'
@@ -144,7 +143,7 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
@@ -195,7 +194,7 @@ test('dispose：挂起登录被 abort 并 settle，context close、临时 profil
   assert.equal(deps.loginSignals.size, 0, 'loginSignals 清空')
   assert.equal(deps.loginRuns.get('acc1')?.state, 'timeout', 'abort 后登录 settle（timeout 分支 close+清理）')
   await Promise.race([closeCalled.promise, timeoutReject(1000, 'context 未 close')])
-  assert.equal(isProfileLocked('acc1'), false, '无 profile lock 残留')
+  assert.equal(deps.locks.isProfileLocked('acc1'), false, '无 profile lock 残留')
   const pendingLeft = existsSync(join(root, 'profiles'))
     ? readdirSync(join(root, 'profiles')).filter(name => name.startsWith('pending-'))
     : []
@@ -225,7 +224,7 @@ test('dispose：挂起单账号采集被 abort 并 settle，锁释放、cancelle
   await disposeHostTasks({ deps, batch: { stop() {} } })
 
   assert.equal(deps.collectSignals.size, 0, 'collectSignals 清空')
-  assert.equal(isProfileLocked('acc1'), false, 'profile lock 无残留')
+  assert.equal(deps.locks.isProfileLocked('acc1'), false, 'profile lock 无残留')
   const runs = await readRuns(root)
   const records = Object.values(runs)
   assert.equal(records.length, 1)
@@ -255,7 +254,7 @@ test('dispose：batch 在途账号 abort、后续账号按取消结算、整体 
 
   let batchRef: ReturnType<typeof createBatchCollectController>
   const collect: CollectController = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batchRef.running || deps.batchReserved, taskRegistry: registry, signals: deps.collectSignals },
   )
   const batch = createBatchCollectController({
@@ -268,7 +267,7 @@ test('dispose：batch 在途账号 abort、后续账号按取消结算、整体 
       wait: accountId => collect.wait(accountId),
       hasRunning: () => collect.hasRunning(),
     },
-    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.chromeFactory)),
+    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.locks, deps.chromeFactory)),
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
   })
@@ -292,8 +291,8 @@ test('dispose：batch 在途账号 abort、后续账号按取消结算、整体 
   assert.equal(batch.status.items[1]?.reason, 'collect_cancelled')
   assert.deepEqual(batch.status.runningAccountIds, [])
   assert.equal(batch.status.currentAccountId, null)
-  assert.equal(isProfileLocked('acc1'), false)
-  assert.equal(isProfileLocked('acc2'), false)
+  assert.equal(deps.locks.isProfileLocked('acc1'), false)
+  assert.equal(deps.locks.isProfileLocked('acc2'), false)
   assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
   cleanup(root)
 })
@@ -323,7 +322,7 @@ test('dispose：批量三账号并发在途时 abort 全部、等全部 settle�
 
   let batchRef: ReturnType<typeof createBatchCollectController>
   const collect: CollectController = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batchRef.running || deps.batchReserved, taskRegistry: registry, signals: deps.collectSignals },
   )
   const batch = createBatchCollectController({
@@ -336,7 +335,7 @@ test('dispose：批量三账号并发在途时 abort 全部、等全部 settle�
       wait: accountId => collect.wait(accountId),
       hasRunning: () => collect.hasRunning(),
     },
-    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.chromeFactory)),
+    probe: async accountId => registry.runTracked(() => probeAndReport(deps.workbench, accountId, root, deps.locks, deps.chromeFactory)),
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
     // 三 worker 同时取号（零随机 + 零等待接缝），三个采集本体同时挂起在 goto 门上。
@@ -360,7 +359,7 @@ test('dispose：批量三账号并发在途时 abort 全部、等全部 settle�
   assert.ok(batch.status.items.every(item => item.status === 'failed' && item.reason === 'collect_cancelled'), `全部条目 collect_cancelled: ${JSON.stringify(batch.status.items)}`)
   assert.deepEqual(batch.status.runningAccountIds, [])
   for (const accountId of ['acc1', 'acc2', 'acc3']) {
-    assert.equal(isProfileLocked(accountId), false, `${accountId} 锁释放`)
+    assert.equal(deps.locks.isProfileLocked(accountId), false, `${accountId} 锁释放`)
   }
   assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
   cleanup(root)
@@ -420,7 +419,7 @@ test('dispose：横跨 dispose 全程的 collect.start 在 probe 后被复查拦
   assert.equal(deps.taskRegistry.activeCount, 0, 'active count 归零')
   const runs = await readRuns(root)
   assert.deepEqual(Object.keys(runs), [], '拦截后不得产生 runs 记录')
-  assert.equal(isProfileLocked('acc1'), false)
+  assert.equal(deps.locks.isProfileLocked('acc1'), false)
   cleanup(root)
 })
 
@@ -651,7 +650,7 @@ test('dispose：runs.json 损坏（写失败）不阻塞 dispose，错误可见�
   await Promise.race([disposeHostTasks({ deps, batch: { stop() {} } }), timeoutReject(15000, 'runs.json 损坏阻塞了 dispose')])
   assert.ok(logger.warnings.some(message => message.includes('final state write failed')), '终态写失败必须 warn 可见')
   assert.equal(deps.taskRegistry.activeCount, 0, '损坏场景任务仍 settle、active count 归零')
-  assert.equal(isProfileLocked('acc1'), false)
+  assert.equal(deps.locks.isProfileLocked('acc1'), false)
   cleanup(root)
 })
 

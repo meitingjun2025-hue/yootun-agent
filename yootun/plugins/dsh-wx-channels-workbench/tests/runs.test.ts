@@ -126,7 +126,7 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }

@@ -92,6 +92,7 @@ export function apply(ctx: Context, config: Config): void {
     {
       workbench,
       root,
+      locks: deps.locks,
       chromeFactory: deps.chromeFactory,
       logger: deps.logger,
       browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
@@ -116,7 +117,7 @@ export function apply(ctx: Context, config: Config): void {
     },
     probe: async accountId => {
       const { probeAndReport } = await import('./probe.ts')
-      return registry.runTracked(() => probeAndReport(workbench, accountId, root, deps.chromeFactory, {
+      return registry.runTracked(() => probeAndReport(workbench, accountId, root, deps.locks, deps.chromeFactory, {
         launchTimeoutMs: deps.launchTimeoutMs,
         browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
         onBrowserCloseTimeout: message => { deps.logger.warn(message) },
@@ -161,5 +162,4 @@ export { reportSessionStatus, markSessionOk, markSessionExpired } from './probe.
 export { COLLECT_SINCE_DAY, PAGE_SIZE, MAX_PAGES, splitIngestBatches, planFansTrendWindow, collectWorkList, collectWorkDetail, collectAccountMetrics, collectFansTrend, collectFansPortrait, fetchAuthData } from './collector.ts'
 export { parseAuthData, parsePostListPage, parseDailySeries, parseFansTrend, parseFansPortrait, parseJsonPreservingIds, latestCompletedDay, SessionInvalidError, type WorkItem } from './parse.ts'
 export { createAttemptId, readRuns, updateRun, removeAccountRuns, recoverInterruptedRuns, type RunRecord } from './runs.ts'
-export { withProfileLock, tryWithProfileLock, withProfileLocks, tryWithProfileLocks, isProfileLocked, profileLockWaiters, type ProfileLockAttempt } from './locks.ts'
 export type { WxWorkbenchFace } from './ingest.ts'

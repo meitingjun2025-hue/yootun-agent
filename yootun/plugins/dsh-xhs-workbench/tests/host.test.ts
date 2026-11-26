@@ -13,7 +13,6 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ACTION_SCHEMAS, MAX_BODY_BYTES, createRouteHandler, permitted, validateActionArgs } from '../src/route.ts'
 import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, XhsError, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers, createXhsHostDeps, type XhsHostDeps } from '../src/handlers.ts'
-import { isProfileLocked, acquireProfileLock } from '../src/locks.ts'
 import { writeAccounts } from '../src/state.ts'
 import { Config } from '../src/index.ts'
 import { createFakeChrome, createFakeState, createFakeWorkbench, postedPage, sessionCookie, userInfoPayload } from './fakes.ts'
@@ -178,6 +177,7 @@ test('未知 action 返回 unknown_action（400）；非 POST 返回 405', async
   const getReq = { ...fakeReq({}), method: 'GET' } as unknown as IncomingMessage
   await handler(getReq, fakeRes(responded))
   assert.equal(responded.at(-1)?.status, 405)
+  assert.equal(responded.at(-1)?.payload.reason, 'method_not_allowed')
 })
 
 test('handler 抛非稳定码错误收敛为稳定 reason，不透传原文', async () => {
@@ -288,7 +288,7 @@ test('account.beginLogin：waiting 幂等复用；login 运行中同账号 probe
   const first = await handlers['account.beginLogin']!({ accountId: 'acc-1' }) as Record<string, unknown>
   const second = await handlers['account.beginLogin']!({ accountId: 'acc-1' }) as Record<string, unknown>
   assert.equal((first.login as Record<string, unknown>).loginId, (second.login as Record<string, unknown>).loginId)
-  assert.ok(isProfileLocked('acc-1'))
+  assert.ok(deps.locks.isProfileLocked('acc-1'))
   const probe = await handlers['account.probe']!({ accountId: 'acc-1' }) as Record<string, unknown>
   assert.equal(probe.status, 'error')
   assert.equal(probe.reason, 'PROFILE_BUSY')
@@ -305,7 +305,7 @@ test('account.beginLogin：resolvedId 已被占用时丢弃扫码成果（PROFIL
   state.profileJson = userInfoPayload('real-id', null, null)
   const handlers = buildRouteHandlers(deps)
   // 模拟 real-id 已被其他浏览器操作占用。
-  const release = acquireProfileLock('real-id')
+  const release = deps.locks.acquireProfileLock('real-id')
   const begin = await handlers['account.beginLogin']!({}) as Record<string, unknown>
   await deps.taskRegistry.awaitSettled()
   release()
@@ -419,7 +419,7 @@ test('account.removeLocal：锁占用即拒绝（PROFILE_BUSY），不删除任�
   await mkdir(join(root, 'storage-state'), { recursive: true })
   await writeFile(join(root, 'storage-state', 'acc-1.json'), '{"cookies":[]}\n', { mode: 0o600 })
   const { deps } = await testDeps(root)
-  const release = acquireProfileLock('acc-1')
+  const release = deps.locks.acquireProfileLock('acc-1')
   const handlers = buildRouteHandlers(deps)
   const payload = await handlers['account.removeLocal']!({ accountId: 'acc-1' }) as Record<string, unknown>
   release()
@@ -472,8 +472,8 @@ test('collect.start：profile 锁占用时同账号操作即拒绝（即时占�
   const root = await tempRoot()
   const { deps } = await testDeps(root)
   const handlers = buildRouteHandlers(deps)
-  const release = acquireProfileLock('acc-1')
-  assert.ok(isProfileLocked('acc-1'))
+  const release = deps.locks.acquireProfileLock('acc-1')
+  assert.ok(deps.locks.isProfileLocked('acc-1'))
   const probe = await handlers['account.probe']!({ accountId: 'acc-1' }) as Record<string, unknown>
   assert.equal(probe.reason, 'PROFILE_BUSY')
   const start = await handlers['collect.start']!({ accountId: 'acc-1', idempotencyKey: 'k-1' }) as Record<string, unknown>
@@ -522,7 +522,7 @@ test('collect.cancel：运行中取消落 cancelled/collect_cancelled，锁释�
   const handlers = buildRouteHandlers(deps)
   const started = await handlers['collect.start']!({ accountId: 'acc-x', idempotencyKey: 'k-x1' }) as Record<string, unknown>
   assert.equal(started.status, 'started')
-  assert.ok(isProfileLocked('acc-x'))
+  assert.ok(deps.locks.isProfileLocked('acc-x'))
   const cancel = await handlers['collect.cancel']!({ collectId: String(started.collectId) }) as Record<string, unknown>
   assert.equal(cancel.status, 'ready')
   assert.equal((cancel.collect as Record<string, unknown>).collectStatus, 'cancelled')
@@ -535,7 +535,7 @@ test('collect.cancel：运行中取消落 cancelled/collect_cancelled，锁释�
   assert.equal(collect.collectStatus, 'cancelled')
   assert.equal(collect.error, 'collect_cancelled')
   // 锁随采集 promise 的 finally 释放：账号可立即再次采集。
-  const release = acquireProfileLock('acc-x')
+  const release = deps.locks.acquireProfileLock('acc-x')
   assert.notEqual(release, null)
   release()
   await rm(root, { recursive: true, force: true })
@@ -854,9 +854,9 @@ test('publish.start：会话过期投影 SESSION_EXPIRED；profile 锁占用即�
   assert.equal(failed.publishStatus, 'failed')
   assert.equal(failed.error, 'SESSION_EXPIRED')
   // 锁占用即拒绝（发布浏览器保持打开 → 锁随 context close 释放，测试里 close
-  // 未触发所以锁仍被发布 run 持有）。
-  assert.equal(acquireProfileLock('acc-1'), null)
-  const busy = await handlers['publish.start']!({ accountId: 'acc-1', idempotencyKey: 'k-2' }) as Record<string, unknown>
+  // 未触发所以锁仍被本发布 run 持有；锁实例随 deps，断言不再依赖跨用例残留）。
+  assert.equal(deps.locks.acquireProfileLock('acc-exp'), null)
+  const busy = await handlers['publish.start']!({ accountId: 'acc-exp', idempotencyKey: 'k-2' }) as Record<string, unknown>
   assert.equal(busy.reason, 'PROFILE_BUSY')
   await rm(root, { recursive: true, force: true })
 })

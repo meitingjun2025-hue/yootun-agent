@@ -12,7 +12,7 @@ import { createIngestClient, ingestCollectedData, resolveClientStatus } from './
 import type { WxWorkbenchFace } from './ingest.ts'
 import { SessionInvalidError, shanghaiDayFromTs } from './parse.ts'
 import { getAccount, hasStorageState, paths, stateRoot } from './state.ts'
-import { withProfileLock } from './locks.ts'
+import type { ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage, closeContext, launchWithTimeout } from './chrome.ts'
@@ -122,6 +122,8 @@ export async function runCollection(options: {
   onProgress?: ((event: Record<string, unknown>) => void) | undefined
   logger?: { warn(message: string): void } | undefined
   signal?: AbortSignal | undefined
+  /** 账号 profile 锁实例（采集全程持锁）。 */
+  locks: ProfileLocks
   /** 任务登记：runs.json 写盘（runId barrier/进度/终态）纳入 dispose 等待。 */
   taskRegistry?: TaskRegistry | undefined
   /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
@@ -133,7 +135,7 @@ export async function runCollection(options: {
   // attemptId 是这次采集在 runs.json 的稳定 key：调用方（collect.start）传入
   // 以便内存态与持久化态引用同一条记录；未传入时在此生成。
   const attemptId = options.attemptId ?? createAttemptId(options.accountId)
-  return withProfileLock(options.accountId, () => runCollectionWithinProfileLock({ ...options, root, attemptId }))
+  return options.locks.withProfileLock(options.accountId, () => runCollectionWithinProfileLock({ ...options, root, attemptId }))
 }
 
 /**
@@ -486,6 +488,8 @@ export interface CollectStartInput {
 export interface CollectControllerDeps {
   workbench: WxWorkbenchFace
   root: string
+  /** 账号 profile 锁实例（采集全程持锁；随 deps 创建）。 */
+  locks: ProfileLocks
   chromeFactory?: ChromeFactory | undefined
   logger?: { warn(message: string): void } | undefined
   /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
@@ -551,6 +555,7 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
       accountId,
       root: deps.root,
       attemptId,
+      locks: deps.locks,
       chromeFactory: deps.chromeFactory,
       newAttempt: input.newAttempt ?? true,
       onProgress: event => {

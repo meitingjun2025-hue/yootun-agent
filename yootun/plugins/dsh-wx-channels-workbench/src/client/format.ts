@@ -5,6 +5,7 @@
  * @module
  */
 import type { StableErrorCode } from '../errors.ts'
+import type { RouteRefusalReason } from '@yootun/dsh-workbench-host-kit'
 import type { WxLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
@@ -67,6 +68,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
   plugin_disposing: 'collect.reason.plugin_disposing',
   probe_failed: 'collect.reason.probe_failed',
   risk_paused: 'reason.risk_paused',
+  refresh_not_allowed: 'reason.refresh_not_allowed',
   run_state_corrupt: 'reason.run_state_corrupt',
   session_required: 'collect.reason.session_required',
   storage_state_missing: 'collect.reason.storage_state_missing',
@@ -87,6 +89,17 @@ const RUNTIME_REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
 const IDENTITY_PREFIX = 'identity_check_failed'
 
 /**
+ * 路由层拒绝 reason → 文案键（kit 路由字面量，不进稳定码白名单；对
+ * `ROUTE_REFUSAL_REASONS` 类型穷尽的显式分支，运行时防御口径同
+ * connector-status-and-error-copy §2.7）。
+ */
+const ROUTE_REASON_KEYS: Readonly<Record<RouteRefusalReason, WxLocaleKey>> = {
+  forbidden: 'reason.forbidden',
+  unknown_action: 'reason.unknown_action',
+  method_not_allowed: 'reason.method_not_allowed',
+}
+
+/**
  * 稳定 reason → 单行文案；已知码给可行动文案并保留原码，`identity_check_failed:*`
  * 前缀码归并到同一文案，未知码给通用文案并保留原码。
  * @param reason - Host 响应中的稳定 reason。
@@ -98,6 +111,7 @@ export function reasonText(reason: string, t: Translate): string {
     ? IDENTITY_PREFIX
     : reason
   const key = (Object.hasOwn(REASON_KEYS, normalized) ? REASON_KEYS[normalized as StableErrorCode] : undefined)
+    ?? (Object.hasOwn(ROUTE_REASON_KEYS, normalized) ? ROUTE_REASON_KEYS[normalized as RouteRefusalReason] : undefined)
     ?? RUNTIME_REASON_KEYS[normalized]
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })

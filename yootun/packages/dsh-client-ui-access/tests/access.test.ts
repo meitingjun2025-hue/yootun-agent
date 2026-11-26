@@ -12,7 +12,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { handleDofeModelsRequest, handleDofeValidateRequest, parseModelCatalog } from '../src/route.ts'
-import { accessFailureKey, blockApplicationScroll, existingProviderModels, gatePhase, GATE_UNKNOWN_FALLBACK_MS, isAuthorized, providerDeclaresModel, saveActivation, timeoutScheduler, type AccessForms, type AccessSettings, type CredentialsFace, type ProviderModelsSection } from '../src/client/logic.ts'
+import { accessFailureKey, existingProviderModels, gatePhase, GATE_UNKNOWN_FALLBACK_MS, isAuthorized, providerDeclaresModel, saveActivation, timeoutScheduler, type AccessForms, type AccessSettings, type CredentialsFace, type ProviderModelsSection } from '../src/client/logic.ts'
 import { agentStatusPresentation, createAgentStatusPoller, parseAgentStatus, type AgentStatusPresentation, type AgentStatusView } from '../src/client/agent-status.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { TENANT, TENANT_ID, VALIDATION_VERSION } from '../src/access-constants.ts'
@@ -92,27 +92,6 @@ test('R2：未知回落计时 5 秒触发，清理撤销未触发回调', (t) =>
     cancel()
   } finally {
     mock.reset()
-  }
-})
-
-test('门禁滚动锁不申请 root.inert，避免与官方启动 overlay 的恢复快照竞态', () => {
-  const root = { inert: false }
-  const bodyStyle = { overflow: '' }
-  const previousDocument = globalThis.document
-  const fakeDocument = {
-    getElementById: () => root,
-    body: { style: bodyStyle },
-  } as Document
-  globalThis.document = fakeDocument
-
-  try {
-    const release = blockApplicationScroll()
-    assert.equal(root.inert, false)
-    assert.equal(bodyStyle.overflow, 'hidden')
-    release()
-    assert.equal(bodyStyle.overflow, '')
-  } finally {
-    globalThis.document = previousDocument
   }
 })
 

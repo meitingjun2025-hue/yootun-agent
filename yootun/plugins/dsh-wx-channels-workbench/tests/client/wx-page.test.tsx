@@ -33,6 +33,10 @@ describe('词典键集', () => {
     // 批量取消与空账号 ID 的稳定码文案（实施单 5.3 补齐轮，2.6 增量）。
     expect(reasonText('collect_cancelled', interpolate)).toBe(`${en['reason.collect_cancelled']}（collect_cancelled）`)
     expect(reasonText('account_id_required', interpolate)).toBe(`${en['reason.account_id_required']}（account_id_required）`)
+    // 路由层拒绝原因文案（workbench-host-kit 2.6：kit 路由字面量的显式分支，R2）。
+    expect(reasonText('forbidden', interpolate)).toBe(`${en['reason.forbidden']}（forbidden）`)
+    expect(reasonText('unknown_action', interpolate)).toBe(`${en['reason.unknown_action']}（unknown_action）`)
+    expect(reasonText('method_not_allowed', interpolate)).toBe(`${en['reason.method_not_allowed']}（method_not_allowed）`)
   })
 
   it('账号采集中状态点文案 zh / en 成对', () => {

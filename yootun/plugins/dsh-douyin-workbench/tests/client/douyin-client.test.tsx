@@ -1713,6 +1713,13 @@ describe('词典与源码红线', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
+  it('R2：路由层拒绝原因（forbidden/unknown_action/method_not_allowed）显示 kit 2.6 文案', () => {
+    const t = (key: DouyinLocaleKey): string => en[key] ?? key
+    expect(reasonText('forbidden', t)).toBe(`${en['reason.forbidden']}（forbidden）`)
+    expect(reasonText('unknown_action', t)).toBe(`${en['reason.unknown_action']}（unknown_action）`)
+    expect(reasonText('method_not_allowed', t)).toBe(`${en['reason.method_not_allowed']}（method_not_allowed）`)
+  })
+
   it('无硬编码 copy：组件文本均经 t()（词典外无中文字面量）', () => {
     for (const name of readdirSync(clientDir)) {
       if (!name.endsWith('.tsx') && !name.endsWith('.ts')) continue

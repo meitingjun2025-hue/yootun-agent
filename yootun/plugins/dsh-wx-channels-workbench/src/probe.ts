@@ -8,7 +8,7 @@ import {
   bumpSessionSeqWith, getAccount, nextSessionSeq, paths, type AccountRecord,
 } from './state.ts'
 import { refreshSessionState, type RefreshedSession } from './session.ts'
-import { withProfileLock } from './locks.ts'
+import type { ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { sessionIdempotencyKey } from './idempotency.ts'
 import type { WxWorkbenchFace } from './ingest.ts'
 
@@ -73,6 +73,7 @@ export async function probeAndReport(
   workbench: WxWorkbenchFace,
   accountId: string,
   root: string,
+  locks: ProfileLocks,
   chromeFactory?: import('./session.ts').ChromeFactory,
   budgets?: {
     launchTimeoutMs?: number | undefined
@@ -81,7 +82,7 @@ export async function probeAndReport(
     trackCleanup?: ((promise: Promise<void>) => void) | undefined
   },
 ): Promise<{ sessionStatus: string; reason: string | null; reported: boolean }> {
-  const state = await withProfileLock(accountId, () => refreshSessionState({
+  const state = await locks.withProfileLock(accountId, () => refreshSessionState({
     accountId,
     root,
     chromeFactory,

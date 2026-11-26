@@ -11,7 +11,9 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { withProfileLock } from '../src/locks.ts'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
+
+const { withProfileLock } = createProfileLocks()
 
 // --- 1. profile lock 死锁 ---
 
@@ -186,7 +188,7 @@ test('account.probe 真实 handler 在限定时间内完成（无嵌套锁死锁
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   const handlers = buildRouteHandlers(deps, batch as never, collect)
@@ -226,7 +228,7 @@ test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   const handlers = buildRouteHandlers(deps, batch as never, collect)

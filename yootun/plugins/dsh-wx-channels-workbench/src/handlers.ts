@@ -8,19 +8,19 @@
  */
 import type { BrowserStatus } from './chrome.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
-import { safeCode } from './errors.ts'
+import { safeCode, WxError } from './errors.ts'
 import {
   accountRemoveIdempotencyKey, accountSaveIdempotencyKey, sessionIdempotencyKey,
 } from './idempotency.ts'
 import { isPendingAccountId, loginWithQrCode, removeLocalAccount, type ChromeFactory } from './session.ts'
-import { tryWithProfileLock } from './locks.ts'
+import { createProfileLocks, type ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
 import { checkCollectionReadiness, type CollectController } from './runner.ts'
 import { readRuns, removeAccountRuns, type RunRecord } from './runs.ts'
 import type { BatchStatus } from './collect-all.ts'
 import type { WxWorkbenchFace } from './ingest.ts'
-import type { ActionArgs, ActionHandler } from './route.ts'
+import type { ActionArgs, ActionHandler, HandlerPayload } from './route.ts'
 
 /** 登录进行中状态集合（只有进行中的登录才复用；终态必须允许重新发起）。 */
 const ACTIVE_LOGIN_STATES = new Set(['waiting_qr', 'waiting_confirm'])
@@ -48,6 +48,8 @@ export interface WxHostDeps {
   chromeFactory: ChromeFactory | undefined
   /** 任务登记表：登录/采集/probe/promote/写盘等后台 promise 统一登记，dispose 等待。 */
   taskRegistry: TaskRegistry
+  /** 账号 profile 锁实例（随 deps 创建；经 options / controller deps 透传）。 */
+  locks: ProfileLocks
   /** dispose 开始后 route handler 稳定拒绝新 action（稳定码 plugin_disposing）。 */
   disposing: boolean
   /** 卸载预算毫秒（Config.disposeBudgetMs 透传；dispose 收口用）。 */
@@ -87,6 +89,7 @@ export function createWxHostDeps(options: {
     logger: options.logger,
     chromeFactory: options.chromeFactory,
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
+    locks: createProfileLocks(),
     disposing: false,
     disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
     browserCloseTimeoutMs: options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS,
@@ -108,10 +111,10 @@ async function callWx(deps: WxHostDeps, name: string, args: Record<string, unkno
   return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload as Record<string, unknown> : {}
 }
 
-function compat(deps: WxHostDeps, name: string, args: Record<string, unknown>): Promise<{ status: string } & Record<string, unknown>> {
+function compat(deps: WxHostDeps, name: string, args: Record<string, unknown>): Promise<HandlerPayload> {
   return callWx(deps, name, args)
-    .then(result => ({ status: 'ok', ...result }))
-    .catch((error: unknown) => ({ status: 'error', reason: safeCode(error) }))
+    .then((result): HandlerPayload => ({ status: 'ok', ...result }))
+    .catch((error: unknown): HandlerPayload => ({ status: 'error', reason: safeCode(error) }))
 }
 
 function stringValue(value: unknown): string | null {
@@ -166,9 +169,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     }],
     'run.get': args => ['workbench_wx_collect_run_get', { runId: asString(args, 'runId') }],
   }
-  const runPassthrough = async (action: string, args: ActionArgs): Promise<object> => {
+  const runPassthrough = async (action: string, args: ActionArgs): Promise<HandlerPayload> => {
     const build = workbenchActions[action]
-    if (build === undefined) return { status: 'error', reason: 'unknown_action' }
+    // handler 表只由 route 按 ACTION_SCHEMAS 分发命中，此分支不可达；保持
+    // fail loud（稳定码收敛在 route），不伪造半实现。
+    if (build === undefined) throw new WxError('WX_ROUTE_UNKNOWN_ACTION', `action "${action}" has no workbench binding`)
     const pair = build(args)
     return compat(deps, pair[0], pair[1])
   }
@@ -258,6 +263,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       // 登录任务（含晚 factory 清理 promise）纳入登记表，dispose 统一等待。
       deps.taskRegistry.track(loginWithQrCode({
         accountId: key, root: deps.root, timeoutMs: LOGIN_TIMEOUT_MS,
+        locks: deps.locks,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
         launchTimeoutMs: deps.launchTimeoutMs,
@@ -350,6 +356,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       deps.loginSignals.set(accountId, controller)
       deps.taskRegistry.track(loginWithQrCode({
         accountId, root: deps.root, timeoutMs: LOGIN_TIMEOUT_MS,
+        locks: deps.locks,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
         launchTimeoutMs: deps.launchTimeoutMs,
@@ -387,7 +394,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
 
     'account.probe': async args => {
       const { probeAndReport } = await import('./probe.ts')
-      const probe = await deps.taskRegistry.runTracked(() => probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root, deps.chromeFactory, {
+      const probe = await deps.taskRegistry.runTracked(() => probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root, deps.locks, deps.chromeFactory, {
         launchTimeoutMs: deps.launchTimeoutMs,
         browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
         onBrowserCloseTimeout: message => { deps.logger.warn(message) },
@@ -401,6 +408,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       return { status: 'ok', ...await deps.taskRegistry.runTracked(() => promotePendingAccount({
         accountId: asString(args, 'accountId'),
         root: deps.root,
+        locks: deps.locks,
         chromeFactory: deps.chromeFactory,
         launchTimeoutMs: deps.launchTimeoutMs,
         browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
@@ -417,7 +425,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       if (deps.disposing) return { status: 'error', reason: 'plugin_disposing' }
       // try 锁：collect/登录迁移持有 profile 时立即返回 collect_busy，不排队等
       // 长采集，也不删除任何本地凭证（先检查后执行不可靠，必须由锁原子裁决）。
-      const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
+      const attempt = await deps.locks.tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
       if (!attempt.acquired) return { status: 'ok', removed: false, reason: 'collect_busy' }
       const result = attempt.result
       // 清理 runs.json 中该账号全部 run 记录：root 队列内一次性原子清理，
@@ -455,7 +463,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         probe: async () => {
           const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
           if (!readiness.ready) return { ok: false, reason: readiness.reason ?? 'session_required' }
-          const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory, {
+          const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.locks, deps.chromeFactory, {
             launchTimeoutMs: deps.launchTimeoutMs,
             browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
             onBrowserCloseTimeout: message => { deps.logger.warn(message) },

@@ -15,10 +15,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { test } from 'node:test'
-import {
-  isProfileLocked, profileLockWaiters, tryWithProfileLock, tryWithProfileLocks,
-  withProfileLock, withProfileLocks,
-} from '../src/locks.ts'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
 import { createCollectController } from '../src/runner.ts'
 import type { ChromeFactory } from '../src/session.ts'
@@ -162,10 +159,10 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory): { deps: Retu
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
-  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  return { deps, locks: deps.locks, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
 }
 
 async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string>): Promise<Record<string, unknown>> {
@@ -186,7 +183,8 @@ test('profile 锁：collect 全程持锁，同账号 probe 排队等待、不同
       collectAuthAs: 'someone-else',
     },
   })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked, profileLockWaiters } = locks
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   assert.equal(collect.status, 'ok')
@@ -234,7 +232,8 @@ test('profile 锁：context close 完成前锁不释放，removeLocal 返回 col
       collectAuthAs: 'someone-else',
     },
   })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked } = locks
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   assert.equal(collect.started, true)
@@ -270,7 +269,8 @@ test('profile 锁：collect.cancel abort 后 runCollection settle、锁释放、
   const factory = makeFactory({
     acc1: { collectGoto: { gate: abortAwareGate, entered: gotoEntered.resolve } },
   })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked } = locks
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   assert.equal(collect.started, true)
@@ -309,7 +309,8 @@ test('profile 锁：removeLocal 与 collect 互斥——持锁期间立即 colle
       collectAuthAs: 'someone-else',
     },
   })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked } = locks
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   assert.equal(collect.started, true)
@@ -346,7 +347,8 @@ test('profile 锁：promote 在 realId 被 collect 占用时返回 collect_busy 
     },
     'pending-5': { authAs: 'real-1' },
   })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked } = locks
 
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'real-1' })
   assert.equal(collect.started, true)
@@ -387,18 +389,20 @@ test('profile 锁：commitLoginIdentity 双锁内迁移——close 挂起期间 
     storageState: async () => ({ cookies: [], origins: [] }),
     close: async () => { closeEntered.resolve(); await closeGate.promise },
   }
+  const locks = createProfileLocks()
   const commit = commitLoginIdentity({
     tempId: 'pending-777',
     resolvedId: 'real-9',
     profile: { accountId: 'real-9', nickname: 'n9', avatar: null, fansCount: 5, feedsCount: 6, isMasterFinder: null },
     context: context as never,
     root,
+    locks,
   })
 
   await closeEntered.promise
-  assert.equal(isProfileLocked('real-9'), true, '迁移临界区内必须持有 realId 锁')
-  assert.equal(isProfileLocked('pending-777'), true, '迁移临界区内必须持有 tempId 锁')
-  const steal = await tryWithProfileLock('real-9', async () => 'should-not-run')
+  assert.equal(locks.isProfileLocked('real-9'), true, '迁移临界区内必须持有 realId 锁')
+  assert.equal(locks.isProfileLocked('pending-777'), true, '迁移临界区内必须持有 tempId 锁')
+  const steal = await locks.tryWithProfileLock('real-9', async () => 'should-not-run')
   assert.equal(steal.acquired, false, 'realId 锁被迁移持有时 try 锁不得获取')
   assert.ok(existsSync(join(root, 'profiles', 'pending-777', 'marker')), 'close 未完成前 moveProfile 不得发生')
   assert.ok(!existsSync(join(root, 'profiles', 'real-9')))
@@ -409,7 +413,7 @@ test('profile 锁：commitLoginIdentity 双锁内迁移——close 挂起期间 
   assert.ok(existsSync(join(root, 'profiles', 'real-9', 'marker')), 'profile 应迁移到 realId 名下')
   assert.ok(!existsSync(join(root, 'profiles', 'pending-777')), 'tempId profile 应消失')
   assert.ok(existsSync(join(root, 'storage-state', 'real-9.json')), 'storage_state 应落到 realId 名下')
-  assert.equal(isProfileLocked('real-9'), false, '迁移完成后锁应释放')
+  assert.equal(locks.isProfileLocked('real-9'), false, '迁移完成后锁应释放')
   const accounts = JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8')) as { accounts: Record<string, { sessionStatus?: string }> }
   assert.equal(accounts.accounts['real-9']?.sessionStatus, 'ok')
   cleanup(root)
@@ -419,9 +423,11 @@ test('loginWithQrCode 生产路径经 commitLoginIdentity 迁移（身份稳定�
   const root = makeRoot('wx-pl-login')
   const { loginWithQrCode } = await import('../src/session.ts')
   const controller = new AbortController()
+  const locks = createProfileLocks()
   const result = await loginWithQrCode({
     root,
     timeoutMs: 10_000,
+    locks,
     signal: controller.signal,
     chromeFactory: async () => {
       const page = {
@@ -449,7 +455,7 @@ test('loginWithQrCode 生产路径经 commitLoginIdentity 迁移（身份稳定�
   assert.ok(existsSync(join(root, 'storage-state', 'real-9.json')))
   const accounts = JSON.parse(readFileSync(join(root, 'accounts.json'), 'utf8')) as { accounts: Record<string, { sessionStatus?: string }> }
   assert.equal(accounts.accounts['real-9']?.sessionStatus, 'ok')
-  assert.equal(isProfileLocked('real-9'), false, '登录完成后迁移锁应释放')
+  assert.equal(locks.isProfileLocked('real-9'), false, '登录完成后迁移锁应释放')
   cleanup(root)
 })
 
@@ -458,7 +464,8 @@ test('loginWithQrCode 生产路径经 commitLoginIdentity 迁移（身份稳定�
 test('profile 锁：collect.start 经 buildRouteHandlers 失败路径不挂起且锁可重入', async () => {
   const root = makeEnv('wx-pl-integ', [{ id: 'acc1' }])
   const factory = makeFactory({ acc1: { failFromCall: 3 } })
-  const { handlers } = buildHandlers(root, factory)
+  const { handlers, locks } = buildHandlers(root, factory)
+  const { isProfileLocked } = locks
 
   // handler probe(1) 成功 → collect.start 返回 started（runCollection 已进入全程锁）；
   // runCollection 内 probe(2) 成功 → collect 本体(3) Chrome 失败 → 后台 failed 收尾、锁释放。
@@ -479,6 +486,7 @@ test('profile 锁：collect.start 经 buildRouteHandlers 失败路径不挂起�
 // --- 锁原语补充（多锁排序 / try 回滚；集成覆盖见上方用例） ---
 
 test('profile 锁原语：withProfileLocks 以不同 key 顺序并发调用不死锁且互斥', async () => {
+  const { withProfileLocks } = createProfileLocks()
   const order: string[] = []
   const [r1, r2] = await Promise.all([
     withProfileLocks(['pa', 'pb'], async () => {
@@ -498,11 +506,12 @@ test('profile 锁原语：withProfileLocks 以不同 key 顺序并发调用不�
 })
 
 test('profile 锁原语：tryWithProfileLocks 任一占用即整体失败，已获取的锁回滚', async () => {
-  await withProfileLock('pb', async () => {
-    const attempt = await tryWithProfileLocks(['pa', 'pb'], async () => 1)
+  const locks = createProfileLocks()
+  await locks.withProfileLock('pb', async () => {
+    const attempt = await locks.tryWithProfileLocks(['pa', 'pb'], async () => 1)
     assert.equal(attempt.acquired, false)
-    assert.equal(isProfileLocked('pa'), false, '回滚后 pa 不得残留占用')
-    assert.equal(profileLockWaiters('pa'), 0)
+    assert.equal(locks.isProfileLocked('pa'), false, '回滚后 pa 不得残留占用')
+    assert.equal(locks.profileLockWaiters('pa'), 0)
   })
 })
 

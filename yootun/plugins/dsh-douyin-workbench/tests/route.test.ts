@@ -174,6 +174,7 @@ test('非 POST 拒绝；非 loopback 拒绝；显式异源拒绝', async () => {
   const res = fakeRes(responded)
   await handler({ ...fakeReq({}), method: 'GET' }, res)
   assert.equal(responded[0]?.status, 405)
+  assert.equal(responded[0]?.payload.reason, 'method_not_allowed', '405 的 reason 随 kit 统一为 method_not_allowed（R1）')
   const res2 = fakeRes(responded)
   await handler(fakeReq({ action: 'browser.status' }, {}, '10.0.0.8'), res2)
   assert.equal(responded[1]?.status, 403)

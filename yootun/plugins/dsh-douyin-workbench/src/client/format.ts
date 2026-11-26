@@ -6,6 +6,7 @@
  * @module
  */
 import type { StableErrorCode } from '../errors.ts'
+import type { RouteRefusalReason } from '@yootun/dsh-workbench-host-kit'
 import { zh } from './locales.ts'
 import type { DouyinLocaleKey } from './locales.ts'
 
@@ -187,9 +188,22 @@ const RUNTIME_REASON_KEYS: Readonly<Record<string, DouyinLocaleKey>> = {
   export_unsupported: 'reason.export_unsupported',
 }
 
+/**
+ * 路由层拒绝 reason → 文案键（kit 路由字面量，不进稳定码白名单；对
+ * `ROUTE_REFUSAL_REASONS` 类型穷尽的显式分支，运行时防御口径同
+ * connector-status-and-error-copy §2.7）。
+ */
+const ROUTE_REASON_KEYS: Readonly<Record<RouteRefusalReason, DouyinLocaleKey>> = {
+  forbidden: 'reason.forbidden',
+  unknown_action: 'reason.unknown_action',
+  method_not_allowed: 'reason.method_not_allowed',
+}
+
 /** 稳定码 → 文案键的运行时查找（REASON_KEYS 的 hasOwn 判定，测试与诊断共用）。 */
 function reasonKeyOf(code: string): DouyinLocaleKey | undefined {
-  return Object.hasOwn(REASON_KEYS, code) ? REASON_KEYS[code as StableErrorCode] : undefined
+  if (Object.hasOwn(REASON_KEYS, code)) return REASON_KEYS[code as StableErrorCode]
+  if (Object.hasOwn(ROUTE_REASON_KEYS, code)) return ROUTE_REASON_KEYS[code as RouteRefusalReason]
+  return undefined
 }
 
 /**

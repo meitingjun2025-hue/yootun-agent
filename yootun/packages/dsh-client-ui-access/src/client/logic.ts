@@ -292,13 +292,4 @@ export async function describeKeyConfigured(credentials: CredentialsFace): Promi
   }
 }
 
-/** Lock body scroll; the fixed gate layer owns pointer blocking, so no root.inert claim can race official startup overlays. */
-export function blockApplicationScroll(): () => void {
-  const previousOverflow = document.body.style.overflow
-  document.body.style.overflow = 'hidden'
-  return () => {
-    document.body.style.overflow = previousOverflow
-  }
-}
-
 export { ACCESS_NAMESPACE }

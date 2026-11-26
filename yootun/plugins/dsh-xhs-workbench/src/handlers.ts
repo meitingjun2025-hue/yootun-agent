@@ -10,7 +10,7 @@
 import type { BrowserStatus, ChromeFactory } from './chrome.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { safeCode, STABLE_ERROR_CODES, type StableErrorCode } from './errors.ts'
-import { acquireProfileLock, isProfileLocked, tryWithProfileLock, type ProfileLockRelease } from './locks.ts'
+import { createProfileLocks, type ProfileLockRelease } from '@yootun/dsh-workbench-host-kit'
 import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { CollectError, collectNotes, summarizeSnapshot, type SnapshotSummary } from './collector.ts'
 import { PublishError, publishDraft } from './publisher.ts'
@@ -147,6 +147,8 @@ export interface XhsHostDeps {
   launchTimeoutMs: number
   /** 扫码登录等待上限（测试注入短值；生产为 10 分钟旧口径）。 */
   loginTimeoutMs: number
+  /** 账号 profile 锁实例（登录/probe/采集/发布互斥；即时占语义入口在此暴露）。 */
+  locks: ReturnType<typeof createProfileLocks>
   loginRuns: Map<string, LoginRun>
   loginSignals: Map<string, AbortController>
   probeSignals: Map<string, AbortController>
@@ -186,6 +188,7 @@ export function createXhsHostDeps(options: {
     logger: options.logger,
     chromeFactory: options.chromeFactory,
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
+    locks: createProfileLocks(),
     disposing: false,
     disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
     browserCloseTimeoutMs: options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS,
@@ -534,7 +537,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       }
       const runKey = requested !== '' ? requested : `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       // Profile 互斥：重新登录锁显式账号；新增账号锁 pending 键（即时占语义）。
-      const release = acquireProfileLock(runKey)
+      const release = deps.locks.acquireProfileLock(runKey)
       if (release === null) return { status: 'error', reason: 'PROFILE_BUSY' }
       const run: LoginRun = { key: runKey, status: 'waiting', accountId: null, nickname: null, avatar: null, error: null, release }
       deps.loginRuns.set(runKey, run)
@@ -550,7 +553,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         launchTimeoutMs: deps.launchTimeoutMs,
         browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
         onBrowserCloseTimeout: message => { deps.logger.warn(message) },
-        isResolvedBusy: isProfileLocked,
+        isResolvedBusy: accountId => deps.locks.isProfileLocked(accountId),
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
       }).then(async (result: LoginResult) => {
         if (result.status === 'ok') {
@@ -604,7 +607,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const controller = new AbortController()
       deps.probeSignals.set(accountId, controller)
       try {
-        const attempt = await tryWithProfileLock(accountId, () =>
+        const attempt = await deps.locks.tryWithProfileLock(accountId, () =>
           probeSession({
             accountId,
             root: deps.root,
@@ -632,7 +635,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       if (accountId === '') return { status: 'error', reason: 'account_id_required' }
       // 移除会递归删除该账号的 Profile/storage_state/快照：与登录/probe/采集互斥，
       // 否则运行中的浏览器操作会在被删目录上继续写（僵尸账号）。占用即拒绝。
-      const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
+      const attempt = await deps.locks.tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
       if (!attempt.acquired) return { status: 'error', reason: 'PROFILE_BUSY' }
       const result: RemoveLocalResult = attempt.result
       // 幂等删除：源不存在也视为已清除（removed 布尔仅反映删除动作执行成功）。
@@ -651,7 +654,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         if (run !== undefined) return { status: 'started', collectId: run.collectId, collect: projectCollect(run) }
       }
       // Profile 互斥：采集（无头复用 Profile）与其他浏览器操作互斥；占用即拒绝。
-      const release = acquireProfileLock(accountId)
+      const release = deps.locks.acquireProfileLock(accountId)
       if (release === null) return { status: 'error', reason: 'PROFILE_BUSY' }
       const collectId = `col-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const run: CollectRun = { collectId, accountId, status: 'running', pagesDone: 0, notesTotal: 0, truncated: false, summary: null, error: null, release }
@@ -749,7 +752,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         if (run !== undefined) return { status: 'started', publishId: run.publishId, publish: projectPublish(run) }
       }
       // Profile 互斥：发布（有头）与登录/probe/采集互斥；占用即拒绝。
-      const release = acquireProfileLock(accountId)
+      const release = deps.locks.acquireProfileLock(accountId)
       if (release === null) return { status: 'error', reason: 'PROFILE_BUSY' }
       const publishId = `pub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const run: PublishRun = { publishId, accountId, status: 'running', step: 'prepare', error: null, release }

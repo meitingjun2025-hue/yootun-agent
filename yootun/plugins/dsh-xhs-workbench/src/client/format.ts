@@ -7,6 +7,7 @@
  * @module
  */
 import type { StableErrorCode } from '../errors.ts'
+import type { RouteRefusalReason } from '@yootun/dsh-workbench-host-kit'
 import type { XhsLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
@@ -80,6 +81,13 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, XhsLocaleKey>> = {
   'publish_id_required': 'reason.publish_id_required',
 } satisfies Readonly<Record<StableErrorCode, XhsLocaleKey>>
 
+/** 路由层拒绝 reason → 文案键（kit 路由字面量，不进稳定码白名单；对 ROUTE_REFUSAL_REASONS 类型穷尽的显式分支）。 */
+const ROUTE_REASON_KEYS: Readonly<Record<RouteRefusalReason, XhsLocaleKey>> = {
+  forbidden: 'reason.forbidden',
+  unknown_action: 'reason.unknown_action',
+  method_not_allowed: 'reason.method_not_allowed',
+}
+
 /**
  * 稳定 reason → 单行文案；已知码给可行动文案并保留原码，未知码给通用文案并保留
  * 原码。上传 machine 的 not_found/done 等状态不经本函数（machine 已归一为
@@ -89,7 +97,8 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, XhsLocaleKey>> = {
  * @returns 展示文案。
  */
 export function reasonText(reason: string, t: Translate): string {
-  const key = Object.hasOwn(REASON_KEYS, reason) ? REASON_KEYS[reason as StableErrorCode] : undefined
+  const key = (Object.hasOwn(REASON_KEYS, reason) ? REASON_KEYS[reason as StableErrorCode] : undefined)
+    ?? (Object.hasOwn(ROUTE_REASON_KEYS, reason) ? ROUTE_REASON_KEYS[reason as RouteRefusalReason] : undefined)
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
 }
