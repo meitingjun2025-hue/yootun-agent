@@ -115,7 +115,13 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填。
+2026-11-26（分支 `feat/host-lifecycle-budget`，本机 Linux/WSL2，无真机 Chrome；全部测试经注入 fake factory）：
+
+- 三插件 `pnpm --filter <pkg> test` 通过：douyin（19 个 `node --test` 文件含新增 lifecycle-budget 6 例 + vitest 149 例）、wx（8 个 `node --test` 文件含 lifecycle-budget 6 例 + vitest 103 例）、xhs（7 个 `node --test` 文件含 lifecycle-budget 7 例 + vitest 30 例）；三插件 `build`（tsc + tsdown + bundle 校验）通过。
+- 附录 B：G1–G5 由各插件 `tests/lifecycle-budget.test.ts` 承载（xhs 另含两条 publish 专项）；G6 由既有 dispose / abort / lifecycle3 / batch-concurrency / p0-fixes / profile-lock 用例在新预算缺省值下原样通过承载。
+- §5.1 grep `grep -rn "\.close()" yootun/plugins/dsh-*-workbench/src --include=*.ts | grep -v closeContext` 输出为空（exit 1）。
+- 仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs`（21 门）与 `git diff --check` 全部通过。
+- 开发期修掉两处实现缺陷（由本地测试暴露）：①`launchWithTimeout` / `closeContext` 对同步抛出的 launch/close 未清计时器（60s 悬挂 + unhandled rejection，p0-fixes 集成用例暴露）；②无界 `awaitSettled()` 会把 `Infinity` 预算传给 `setTimeout`（32 位溢出折成 1ms 轮询），已改为无界路径纯 settle 驱动、不设计时器。
 
 ## 附录 A：逐文件规格
 

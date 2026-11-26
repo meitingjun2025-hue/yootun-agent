@@ -64,9 +64,32 @@ function projectRecord(accountId: string, root: string, record: AccountRecord, s
   }
 }
 
-/** 便捷组合：探测 + 上报（批量控制器 probe 注入用）。 */
-export async function probeAndReport(workbench: WxWorkbenchFace, accountId: string, root: string, chromeFactory?: import('./session.ts').ChromeFactory): Promise<{ sessionStatus: string; reason: string | null; reported: boolean }> {
-  const state = await withProfileLock(accountId, () => refreshSessionState({ accountId, root, chromeFactory }))
+/**
+ * 便捷组合：探测 + 上报（批量控制器 probe 注入用）。
+ * @param budgets - 生命周期预算透传（Config.browserCloseTimeoutMs /
+ *   Config.launchTimeoutMs + 告警与登记接缝；缺省走 chrome.ts / session.ts 常量）。
+ */
+export async function probeAndReport(
+  workbench: WxWorkbenchFace,
+  accountId: string,
+  root: string,
+  chromeFactory?: import('./session.ts').ChromeFactory,
+  budgets?: {
+    launchTimeoutMs?: number | undefined
+    browserCloseTimeoutMs?: number | undefined
+    onBrowserCloseTimeout?: ((message: string) => void) | undefined
+    trackCleanup?: ((promise: Promise<void>) => void) | undefined
+  },
+): Promise<{ sessionStatus: string; reason: string | null; reported: boolean }> {
+  const state = await withProfileLock(accountId, () => refreshSessionState({
+    accountId,
+    root,
+    chromeFactory,
+    ...(budgets?.launchTimeoutMs !== undefined ? { launchTimeoutMs: budgets.launchTimeoutMs } : {}),
+    ...(budgets?.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: budgets.browserCloseTimeoutMs } : {}),
+    ...(budgets?.onBrowserCloseTimeout !== undefined ? { onBrowserCloseTimeout: budgets.onBrowserCloseTimeout } : {}),
+    ...(budgets?.trackCleanup !== undefined ? { trackCleanup: budgets.trackCleanup } : {}),
+  }))
   const reported = await reportSessionStatus(workbench, accountId, state)
   return { sessionStatus: state.sessionStatus, reason: state.reason, reported: reported.ok }
 }

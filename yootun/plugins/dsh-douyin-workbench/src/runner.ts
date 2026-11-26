@@ -19,6 +19,10 @@ import { withProfileLock } from './locks.ts'
 import { isPendingAccountId } from './session.ts'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
+import {
+  DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage,
+  closeContext, launchWithTimeout,
+} from './chrome.ts'
 import { launchChromeSession, refreshSessionState, type ChromeFactory, type DouyinProfile, type RefreshedSession } from './session.ts'
 import { bumpSessionSeqWith, nextSessionSeq } from './state.ts'
 
@@ -34,6 +38,10 @@ export interface RunnerDeps {
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   logger?: { warn(message: string): void } | undefined
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
 }
 
 function payloadOf(outcome: { structuredContent: unknown }): Record<string, unknown> {
@@ -274,6 +282,10 @@ export interface RunOptions {
   signal?: AbortSignal | undefined
   taskRegistry?: TaskRegistry | undefined
   chromeFactory?: ChromeFactory | undefined
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
 }
 
 /**
@@ -328,6 +340,9 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
   }
   let page: Page | null = null
   let closeSession: (() => Promise<void>) | null = null
+  const closeTimeoutMs = options.browserCloseTimeoutMs ?? deps.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS
+  const launchTimeoutMs = options.launchTimeoutMs ?? deps.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS
+  const warnCloseTimeout = (message: string): void => { deps.logger?.warn(message) }
   try {
     // 0) 会话前置：storage_state 缺失不建 run（readiness reason 透出）。
     emit({ phase: 'probing' })
@@ -337,7 +352,14 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
       return { status: 'collect_failed', reason: readiness.reason ?? 'session_required' }
     }
     // 1) 会话探测（本地实测优先；远端 floor 由 ok 恢复上报阶段自读）。
-    const session = await refreshSessionState({ accountId, root, chromeFactory: options.chromeFactory })
+    const session = await refreshSessionState({
+      accountId,
+      root,
+      chromeFactory: options.chromeFactory,
+      launchTimeoutMs,
+      browserCloseTimeoutMs: closeTimeoutMs,
+      onBrowserCloseTimeout: warnCloseTimeout,
+    })
     const report = await reportSessionStatus(deps, accountId, session, signal)
     if (!report.ok) emit({ phase: 'session_report_failed', error: report.error })
     if (session.sessionStatus !== 'ok') {
@@ -351,15 +373,25 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     if (aborted()) throw new DouyinError('collect_cancelled', 'collect_cancelled')
 
     // 3) 无头系统 Chrome + storage_state（采集专属 locale/timezone 与旧口径一致）。
+    //    启动受 launchTimeoutMs 预算；迟到成功的结果立即关闭（promise 登记任务表）。
     emit({ phase: 'session_open' })
     const factory = options.chromeFactory ?? launchChromeSession
-    const launched = await factory({
-      headless: true,
-      profileDir: paths(root).profileDir(accountId),
-      storageStatePath: paths(root).storageStatePath(accountId),
-      locale: 'zh-CN',
-      timezoneId: 'Asia/Shanghai',
-    })
+    const launched = await launchWithTimeout(
+      () => factory({
+        headless: true,
+        profileDir: paths(root).profileDir(accountId),
+        storageStatePath: paths(root).storageStatePath(accountId),
+        locale: 'zh-CN',
+        timezoneId: 'Asia/Shanghai',
+        browserCloseTimeoutMs: closeTimeoutMs,
+      }),
+      launchTimeoutMs,
+      result => {
+        const cleanup = closeContext(result, closeTimeoutMs, () => warnCloseTimeout(browserCloseTimeoutMessage(accountId))).catch(() => undefined)
+        options.taskRegistry?.track(cleanup)
+        return cleanup
+      },
+    )
     closeSession = launched.close
     page = launched.context.pages()[0] ?? await launched.context.newPage()
     void OPEN_TIMEOUT_MS
@@ -483,7 +515,7 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
     await persistFinalRun({ status: 'failed', error: reason })
     return { status: 'collect_failed', reason }
   } finally {
-    if (closeSession !== null) await closeSession().catch(() => undefined)
+    if (closeSession !== null) await closeContext({ close: closeSession }, closeTimeoutMs, () => warnCloseTimeout(browserCloseTimeoutMessage(accountId)))
   }
 }
 

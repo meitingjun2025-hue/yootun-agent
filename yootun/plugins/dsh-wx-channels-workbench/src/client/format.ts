@@ -56,6 +56,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
   account_id_required: 'reason.account_id_required',
   account_mismatch: 'collect.reason.account_mismatch',
   auth_data_unavailable: 'collect.reason.auth_data_unavailable',
+  browser_launch_timeout: 'reason.browser_launch_timeout',
   collect_busy: 'collect.reason.collect_busy',
   collect_cancelled: 'reason.collect_cancelled',
   host_unreachable: 'reason.host_unreachable',

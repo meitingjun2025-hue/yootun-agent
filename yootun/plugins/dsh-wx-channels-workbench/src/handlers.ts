@@ -7,13 +7,14 @@
  * @module
  */
 import type { BrowserStatus } from './chrome.ts'
+import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { safeCode } from './errors.ts'
 import {
   accountRemoveIdempotencyKey, accountSaveIdempotencyKey, sessionIdempotencyKey,
 } from './idempotency.ts'
 import { isPendingAccountId, loginWithQrCode, removeLocalAccount, type ChromeFactory } from './session.ts'
 import { tryWithProfileLock } from './locks.ts'
-import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
+import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
 import { checkCollectionReadiness, type CollectController } from './runner.ts'
 import { readRuns, removeAccountRuns, type RunRecord } from './runs.ts'
@@ -49,6 +50,12 @@ export interface WxHostDeps {
   taskRegistry: TaskRegistry
   /** dispose 开始后 route handler 稳定拒绝新 action（稳定码 plugin_disposing）。 */
   disposing: boolean
+  /** 卸载预算毫秒（Config.disposeBudgetMs 透传；dispose 收口用）。 */
+  disposeBudgetMs: number
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs: number
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs: number
   loginRuns: Map<string, LoginRun>
   collectLeaseHeld: boolean
   batchReserved: boolean
@@ -66,6 +73,12 @@ export function createWxHostDeps(options: {
   logger: { warn(message: string): void }
   chromeFactory?: ChromeFactory
   taskRegistry?: TaskRegistry
+  /** 卸载预算毫秒（缺省 20000；Config.disposeBudgetMs 透传）。 */
+  disposeBudgetMs?: number
+  /** 关闭预算毫秒（缺省 8000；Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number
+  /** 启动预算毫秒（缺省 60000；Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number
 }): WxHostDeps {
   return {
     root: options.root,
@@ -75,6 +88,9 @@ export function createWxHostDeps(options: {
     chromeFactory: options.chromeFactory,
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
     disposing: false,
+    disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
+    browserCloseTimeoutMs: options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS,
+    launchTimeoutMs: options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS,
     loginRuns: new Map(),
     collectLeaseHeld: false,
     batchReserved: false,
@@ -244,6 +260,9 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         accountId: key, root: deps.root, timeoutMs: LOGIN_TIMEOUT_MS,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
         onPage: async () => {
           if (run.attemptId !== attemptId) return
@@ -333,6 +352,9 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         accountId, root: deps.root, timeoutMs: LOGIN_TIMEOUT_MS,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
         trackCleanup: promise => { deps.taskRegistry.track(promise) },
         onPage: async () => {
           if (run.attemptId !== attemptId) return
@@ -365,13 +387,26 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
 
     'account.probe': async args => {
       const { probeAndReport } = await import('./probe.ts')
-      const probe = await deps.taskRegistry.runTracked(() => probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root, deps.chromeFactory))
+      const probe = await deps.taskRegistry.runTracked(() => probeAndReport(deps.workbench, asString(args, 'accountId'), deps.root, deps.chromeFactory, {
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+        trackCleanup: promise => { deps.taskRegistry.track(promise) },
+      }))
       return { status: 'ok', sessionStatus: probe.sessionStatus, reason: probe.reason, reported: probe.reported }
     },
 
     'account.promote': async args => {
       const { promotePendingAccount } = await import('./session.ts')
-      return { status: 'ok', ...await deps.taskRegistry.runTracked(() => promotePendingAccount({ accountId: asString(args, 'accountId'), root: deps.root, chromeFactory: deps.chromeFactory })) }
+      return { status: 'ok', ...await deps.taskRegistry.runTracked(() => promotePendingAccount({
+        accountId: asString(args, 'accountId'),
+        root: deps.root,
+        chromeFactory: deps.chromeFactory,
+        launchTimeoutMs: deps.launchTimeoutMs,
+        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+        trackCleanup: promise => { deps.taskRegistry.track(promise) },
+      })) }
     },
 
     'account.removeLocal': async args => {
@@ -420,7 +455,12 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         probe: async () => {
           const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
           if (!readiness.ready) return { ok: false, reason: readiness.reason ?? 'session_required' }
-          const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory)
+          const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory, {
+            launchTimeoutMs: deps.launchTimeoutMs,
+            browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+            onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+            trackCleanup: promise => { deps.taskRegistry.track(promise) },
+          })
           return session.sessionStatus === 'ok'
             ? { ok: true, reason: null }
             : { ok: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }

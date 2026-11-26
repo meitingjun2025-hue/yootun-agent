@@ -170,6 +170,8 @@ const LOCAL_ERROR_CODE_VALUES = [
   'account_mismatch',
   'collect_cancelled',
   'ingest_failed',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
   'start_failed',
   'stale_report',
   'session_report_rejected',
@@ -259,6 +261,7 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
   if (typeof direct === 'string' && (STABLE_ERROR_CODES as readonly string[]).includes(direct)) return direct as StableErrorCode
   const server = serverCodeOf(error)

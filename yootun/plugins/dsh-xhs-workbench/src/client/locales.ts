@@ -121,6 +121,7 @@ export const zh = {
   // 稳定码文案（与 Host STABLE_ERROR_CODES 一一对应；已知码出可行动文案）
   'reason.GOOGLE_CHROME_MISSING': '未检测到系统 Google Chrome，请安装后重试',
   'reason.PLAYWRIGHT_DRIVER_MISSING': '浏览器驱动缺失，请重新安装',
+  'reason.browser_launch_timeout': '启动浏览器超时，请确认 Chrome 可用后重试',
   'reason.SESSION_EXPIRED': '登录已过期，请重新扫码',
   'reason.LOGIN_TIMEOUT': '扫码超时，请重试',
   'reason.CAPTCHA_DETECTED': '出现安全验证，请在浏览器窗口中人工完成验证后重试',
@@ -577,6 +578,7 @@ export const en: Record<keyof typeof zh, string> = {
   'error.CHROME_DRIVER': 'Browser driver missing — reinstall it',
   'reason.GOOGLE_CHROME_MISSING': 'System Google Chrome not found — install it first',
   'reason.PLAYWRIGHT_DRIVER_MISSING': 'Browser driver missing — reinstall it',
+  'reason.browser_launch_timeout': 'Timed out starting the browser; check Chrome and retry',
   'reason.SESSION_EXPIRED': 'Sign-in expired, scan again',
   'reason.LOGIN_TIMEOUT': 'Scan timed out, retry',
   'reason.CAPTCHA_DETECTED': 'A security check appeared — complete it manually in the browser, then retry',

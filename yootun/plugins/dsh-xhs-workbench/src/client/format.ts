@@ -42,6 +42,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, XhsLocaleKey>> = {
   'XHS_HOTBOARD_INTERNAL_ERROR': 'reason.XHS_HOTBOARD_INTERNAL_ERROR',
   'GOOGLE_CHROME_MISSING': 'reason.GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING': 'reason.PLAYWRIGHT_DRIVER_MISSING',
+  'browser_launch_timeout': 'reason.browser_launch_timeout',
   'SESSION_EXPIRED': 'reason.SESSION_EXPIRED',
   'LOGIN_TIMEOUT': 'reason.LOGIN_TIMEOUT',
   'CAPTCHA_DETECTED': 'reason.CAPTCHA_DETECTED',

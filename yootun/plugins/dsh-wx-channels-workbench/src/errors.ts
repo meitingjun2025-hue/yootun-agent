@@ -70,6 +70,8 @@ const LOCAL_ERROR_CODE_VALUES = [
   // 批量取消批次 / 条目原因与采集启动空账号 ID（2026-11-26 起，wx-collect-all-concurrency 补齐）。
   'collect_cancelled',
   'account_id_required',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
 ] as const
 
 export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])
@@ -126,6 +128,7 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
   // 连接器新码显式投影（分册 08 §5.2：鉴权失败不伪装成通用服务不可用）。
   if (direct === 'workbench_unauthorized') return 'UNAUTHORIZED'

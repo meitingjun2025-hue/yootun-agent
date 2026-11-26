@@ -542,7 +542,8 @@ tools.dofe.ai dev
 - 本地凭证删除顺序；
 - 崩溃或重启后 run 恢复；
 - MCP 错误稳定投影；
-- 长任务取消无脏状态。
+- 长任务取消无脏状态；
+- 卸载时间预算（`disposeBudgetMs`）与浏览器关闭 / 启动超时（`browserCloseTimeoutMs` / `launchTimeoutMs`）：卸载等登记任务 settle 至多预算，耗尽告警后照常收口；context.close 挂起超时即放弃等待并告警，锁与 finally 清理照常执行；Chrome 启动超时投影稳定码 `browser_launch_timeout`。
 
 ### 12.5 Catalog 面
 

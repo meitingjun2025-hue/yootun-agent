@@ -39,7 +39,7 @@ test('action allowlist：全部 action 有 schema', () => {
 
 test('Tools 契约：插件 Config 可解析，vault 引用与账号级幂等键前缀精确', async () => {
   const { Config } = await import('../src/index.ts')
-  assert.deepEqual(Config({}), { stateDir: '', batchConcurrency: 3 })
+  assert.deepEqual(Config({}), { stateDir: '', batchConcurrency: 3, disposeBudgetMs: 20000, browserCloseTimeoutMs: 8000, launchTimeoutMs: 60000 })
   assert.equal(paths('/tmp/wx').vaultRef('a@finder'), 'vault://wx-channels/a@finder')
   assert.equal(
     ingestAccountMetricsIdempotencyKey('run-1', '2026-01-01', '2026-01-31'),

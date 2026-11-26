@@ -15,6 +15,7 @@ import { getAccount, hasStorageState, paths, stateRoot } from './state.ts'
 import { withProfileLock } from './locks.ts'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
+import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage, closeContext, launchWithTimeout } from './chrome.ts'
 import { asCollectorPage, launchChrome, refreshSessionState, type ChromeFactory } from './session.ts'
 import { markSessionExpired, markSessionOk, reportSessionStatus } from './probe.ts'
 import { accountSaveIdempotencyKey } from './idempotency.ts'
@@ -95,6 +96,10 @@ export interface RunnerDeps {
   workbench: WxWorkbenchFace
   chromeFactory?: ChromeFactory | undefined
   root: string
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
 }
 
 /**
@@ -119,6 +124,10 @@ export async function runCollection(options: {
   signal?: AbortSignal | undefined
   /** 任务登记：runs.json 写盘（runId barrier/进度/终态）纳入 dispose 等待。 */
   taskRegistry?: TaskRegistry | undefined
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
 }): Promise<CollectResult> {
   const root = options.root ?? stateRoot()
   // attemptId 是这次采集在 runs.json 的稳定 key：调用方（collect.start）传入
@@ -146,11 +155,15 @@ async function runCollectionWithinProfileLock(options: {
   logger?: { warn(message: string): void } | undefined
   signal?: AbortSignal | undefined
   taskRegistry?: TaskRegistry | undefined
+  browserCloseTimeoutMs?: number | undefined
+  launchTimeoutMs?: number | undefined
 }): Promise<CollectResult> {
   const root = options.root
   const accountId = options.accountId
   const attemptId = options.attemptId
   const signal = options.signal
+  const closeTimeoutMs = options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS
+  const launchTimeoutMs = options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS
   /** runs.json 写盘纳入 dispose 等待（registry 等待层吞 rejection，调用方各自处理）。 */
   const trackWrite = (write: Promise<unknown>): void => { options.taskRegistry?.track(write) }
   const emit = (event: Record<string, unknown>): void => {
@@ -207,7 +220,15 @@ async function runCollectionWithinProfileLock(options: {
       // 不阻断本地实测。
       void error
     }
-    const session = await refreshSessionState({ accountId: options.accountId, root, chromeFactory: options.chromeFactory })
+    const session = await refreshSessionState({
+      accountId: options.accountId,
+      root,
+      chromeFactory: options.chromeFactory,
+      launchTimeoutMs,
+      browserCloseTimeoutMs: closeTimeoutMs,
+      onBrowserCloseTimeout: message => { options.logger?.warn(message) },
+      trackCleanup: promise => { trackWrite(promise) },
+    })
     await reportSessionStatus(options.workbench, options.accountId, session)
     if (session.sessionStatus !== 'ok') {
       const reason = session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed'
@@ -220,10 +241,15 @@ async function runCollectionWithinProfileLock(options: {
     if (signal?.aborted) throw new SessionInvalidError('cancelled')
 
     // 2) 无头系统 Chrome（独立 Profile + storage_state；外层已持账号 profile 锁，
-    //    launch 只是全程临界区的第一段，不再单独包锁）。
+    //    launch 只是全程临界区的第一段，不再单独包锁）。启动受 launchTimeoutMs
+    //    预算；迟到成功的结果立即关闭（promise 登记任务表）。
     const profileDir = paths(root).profileDir(options.accountId)
     const factory = options.chromeFactory ?? launchChrome
-    ;({ context } = await factory({ headless: true, profileDir }))
+    ;({ context } = await launchWithTimeout(() => factory({ headless: true, profileDir }), launchTimeoutMs, result => {
+      const cleanup = closeContext(result.context, closeTimeoutMs, () => options.logger?.warn(browserCloseTimeoutMessage(accountId))).catch(() => undefined)
+      trackWrite(cleanup)
+      return cleanup
+    }))
     const page = context.pages()[0] ?? await context.newPage()
     const surface = asCollectorPage(page)
     await page.goto(ASSISTANT_ORIGIN, { waitUntil: 'domcontentloaded', timeout: OPEN_TIMEOUT_MS })
@@ -364,7 +390,7 @@ async function runCollectionWithinProfileLock(options: {
     await persistFinalRun({ status: 'failed', error: reason })
     return { status: 'failed', runId: null, reason }
   } finally {
-    if (context !== null) await context.close().catch(() => undefined)
+    if (context !== null) await closeContext(context, closeTimeoutMs, () => options.logger?.warn(browserCloseTimeoutMessage(accountId)))
   }
 }
 
@@ -462,6 +488,10 @@ export interface CollectControllerDeps {
   root: string
   chromeFactory?: ChromeFactory | undefined
   logger?: { warn(message: string): void } | undefined
+  /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
+  browserCloseTimeoutMs?: number | undefined
+  /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
+  launchTimeoutMs?: number | undefined
 }
 
 /** 单账号采集控制器（createCollectController 返回值）。 */
@@ -530,6 +560,8 @@ export function createCollectController(deps: CollectControllerDeps, hooks: {
       logger: deps.logger,
       signal,
       taskRegistry: hooks.taskRegistry,
+      ...(deps.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: deps.browserCloseTimeoutMs } : {}),
+      ...(deps.launchTimeoutMs !== undefined ? { launchTimeoutMs: deps.launchTimeoutMs } : {}),
     })
     record.task = task
     hooks.taskRegistry?.track(task

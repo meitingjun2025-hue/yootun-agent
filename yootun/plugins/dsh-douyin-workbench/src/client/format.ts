@@ -113,6 +113,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, DouyinLocaleKey>> = {
   'IDEMPOTENCY_OUTCOME_UNKNOWN': 'reason.IDEMPOTENCY_OUTCOME_UNKNOWN',
   'GOOGLE_CHROME_MISSING': 'reason.GOOGLE_CHROME_MISSING',
   'PLAYWRIGHT_DRIVER_MISSING': 'reason.PLAYWRIGHT_DRIVER_MISSING',
+  'browser_launch_timeout': 'reason.browser_launch_timeout',
   'workbench_not_activated': 'reason.workbench_not_activated',
   'workbench_credential_unavailable': 'reason.workbench_credential_unavailable',
   'workbench_tool_denied': 'reason.workbench_tool_denied',

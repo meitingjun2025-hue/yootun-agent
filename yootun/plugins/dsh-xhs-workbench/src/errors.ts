@@ -74,6 +74,8 @@ const LOCAL_ERROR_CODE_VALUES = [
   'host_unreachable',
   'login_aborted',
   'plugin_disposing',
+  // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
+  'browser_launch_timeout',
   'xhs_operation_request_failed',
   // 旧 session.js 探测/会话判定的小写原因码（ProbeResult.reason 可携带，client 半据此映射提示）。
   'storage_state_missing',
@@ -155,6 +157,7 @@ export function safeCode(error: unknown): StableErrorCode {
   const name = error instanceof Error ? error.name : undefined
   if (name === 'ChromeMissingError') return 'GOOGLE_CHROME_MISSING'
   if (name === 'DriverMissingError') return 'PLAYWRIGHT_DRIVER_MISSING'
+  if (name === 'BrowserLaunchTimeoutError') return 'browser_launch_timeout'
   const direct = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
   if (direct === 'workbench_unauthorized') return 'UNAUTHORIZED'
   if (direct === 'workbench_server_error') return 'xhs_operation_request_failed'

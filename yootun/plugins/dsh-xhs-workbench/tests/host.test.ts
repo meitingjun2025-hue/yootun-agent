@@ -100,7 +100,7 @@ test('action allowlist：X6 白名单 28 项且全部有 schema', () => {
 })
 
 test('插件 Config 可解析（stateDir 缺省空串）', () => {
-  assert.deepEqual(Config({}), { stateDir: '' })
+  assert.deepEqual(Config({}), { stateDir: '', disposeBudgetMs: 20000, browserCloseTimeoutMs: 8000, launchTimeoutMs: 60000 })
 })
 
 test('schema：未知字段拒绝、未知 action 拒绝、类型拒绝、字符串截断', () => {

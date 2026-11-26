@@ -26,7 +26,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/batch-concurrency.test.ts && node --test tests/p0-fixes.test.ts && node --test tests/profile-lock.test.ts && node --test tests/runs.test.ts && node --test tests/dispose.test.ts && vitest run"
+    "test": "node --test tests/host.test.ts && node --test tests/batch-concurrency.test.ts && node --test tests/p0-fixes.test.ts && node --test tests/profile-lock.test.ts && node --test tests/runs.test.ts && node --test tests/dispose.test.ts && node --test tests/lifecycle-budget.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {
