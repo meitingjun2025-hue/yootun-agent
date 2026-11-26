@@ -6,8 +6,8 @@
  * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
  * 异常）。handler 经 deps 注入，本模块不持有业务状态。
  *
- * action 集合按批次扩充：已实现 28 项（X1+X2 骨架 10 + X4 任务 4 + X5 看板 12 + X6 发布 2）；hotboard
- * 其余、publish/upload 各 action 随对应批次加入（assistant 已定案不做，D-6），未实现项按
+ * action 集合按批次扩充：已实现 30 项（X1+X2 骨架 8 + 采集 1 + X4 任务 4 + X5 看板 15 + X6 发布
+ * 2）；hotboard 其余、upload 各 action 随对应批次加入（assistant 已定案不做，D-6），未实现项按
  * unknown_action 拒绝（fail loud，不做静默半实现）。
  * @module
  */
@@ -40,6 +40,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.removeLocal': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collect.start': { fields: { accountId: 'string', idempotencyKey: 'string' }, limits: { accountId: 128, idempotencyKey: 128 } },
   'collect.status': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
+  'collect.cancel': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
   'task.create': {
     fields: {
       mediaType: 'string', theme: 'string', direction: 'string', refNote: 'string', refAccount: 'string',

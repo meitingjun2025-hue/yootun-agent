@@ -291,6 +291,9 @@ export async function collectNotes(options: {
       if (await detectCaptcha(page)) throw new CollectError('CAPTCHA_DETECTED', 'captcha detected')
     }
 
+    // 快照只在未取消时落盘：终局 break 之后 abort 仍可能到达（最后一页取数或
+    // 翻页间隔期间取消），此处复查，避免「已取消却写入本次快照/回写最近采集时间」。
+    if (aborted()) throw new CollectError('COLLECT_FAILED', 'collect_aborted')
     const snapshot = {
       schemaVersion: 1 as const,
       accountId,

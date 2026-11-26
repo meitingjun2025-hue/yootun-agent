@@ -1,5 +1,5 @@
 /**
- * 已实现 16 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集均为
+ * 已实现 30 项 action 的 Host 实现（与 route.ts allowlist 同数；依赖注入面 + 处理器表）。登录/采集均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；profile
  * 互斥按旧口径即时占（登录/采集全程持锁，probe/删除 try 语义立即拒绝）。响应
  * 形状沿用旧路由契约（status: ready/started/created/error），client 半按同形状
@@ -108,7 +108,7 @@ export interface LoginRun {
 export interface CollectRun {
   collectId: string
   accountId: string
-  status: 'running' | 'completed' | 'failed'
+  status: 'running' | 'completed' | 'failed' | 'cancelled'
   pagesDone: number
   notesTotal: number
   truncated: boolean
@@ -499,6 +499,9 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
 
     'accounts.list': async () => {
       const local = await readAccounts(deps.root)
+      // 发布窗口投影：存在 running 发布 run 即该账号浏览器窗口仍打开；run 落终态
+      // （context close）后标识自然消失，不另起轮询。
+      const openAccounts = new Set([...deps.publishRuns.values()].filter(publishRun => publishRun.status === 'running').map(publishRun => publishRun.accountId))
       const accounts: Array<Record<string, unknown>> = []
       for (const record of Object.values(local.accounts)) {
         if (record === null || typeof record !== 'object' || typeof record.accountId !== 'string' || record.accountId === '') continue
@@ -509,6 +512,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           sessionStatus: record.sessionStatus ?? 'unknown',
           sessionCheckedAt: record.sessionCheckedAt ?? null,
           lastCollectedAt: record.lastCollectedAt ?? null,
+          publishWindowOpen: openAccounts.has(record.accountId),
         }
         const summary = await projectSnapshotSummary(deps, record.accountId)
         if (summary !== null) entry.summary = summary
@@ -671,12 +675,28 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           run.notesTotal = Number.isFinite(progress.notesTotal) ? progress.notesTotal : run.notesTotal
         },
       }).then(result => {
+        // 迟到成功不覆盖取消终态（快照检查点之后的极小窗口内 abort 已受理）：
+        // 投影保持 cancelled，不回写已完成摘要。
+        if (controller.signal.aborted === true) {
+          run.status = 'cancelled'
+          run.error = 'collect_cancelled'
+          return
+        }
         run.status = 'completed'
         run.pagesDone = result.pagesDone
         run.notesTotal = result.notesTotal
         run.summary = result.summary
         run.truncated = result.truncated === true
       }).catch((error: unknown) => {
+        // 取消终态只认本 run 的 abort 信号：collect.cancel 已直接置 cancelled /
+        // collect_cancelled；abort 后仍抛出的带码 CollectError（如迟到的
+        // SESSION_EXPIRED）不得改判为普通失败（XH4）。非取消失败维持 failed 原码。
+        if (controller.signal.aborted === true) {
+          run.status = 'cancelled'
+          run.error = 'collect_cancelled'
+          return
+        }
+        if (run.status === 'cancelled') return
         run.status = 'failed'
         run.error = error instanceof CollectError && (STABLE_ERROR_CODES as readonly string[]).includes(error.code)
           ? error.code
@@ -692,6 +712,23 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const collectId = stringValue(args, 'collectId')
       const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
       if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
+      return { status: 'ready', collect: projectCollect(run) }
+    },
+
+    // 采集取消（1126 xhs-collect-cancel-and-publish-state §2.1）：abort 该 run 的
+    // controller 并同步落取消终态；锁由采集 promise 的既有 finally 释放。
+    'collect.cancel': async args => {
+      const collectId = stringValue(args, 'collectId')
+      const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
+      // 未知 run 与 collect.status 同口径。
+      if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
+      if (run.status !== 'running') {
+        // 已是终态：原样返回既有投影，不改写（取消与自然结束竞争时幂等）。
+        return { status: 'ready', collect: projectCollect(run) }
+      }
+      deps.collectSignals.get(collectId)?.abort()
+      run.status = 'cancelled'
+      run.error = 'collect_cancelled'
       return { status: 'ready', collect: projectCollect(run) }
     },
 

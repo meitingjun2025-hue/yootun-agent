@@ -113,7 +113,10 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（含与生命周期单的冲突预演）。
+- 开发完成：2026-11-26，分支 `feat/xhs-collect-cancel-and-publish-state`（自生命周期单分支切出，两单改动点不重叠，无文本冲突）。
+- 与 [host-lifecycle-budget.md](host-lifecycle-budget.md) 的叠加：本单在其之后实施，`collect.start` 的取消判定加在该单建立的 `deps.taskRegistry.track(...)` 登记与 `launchTimeoutMs` / `browserCloseTimeoutMs` / `trackCleanup` 透传之后（`then`/`catch`/`finally` 链原样保留）；登记与预算透传未动。
+- 行为叠加说明：dispose 与 `collect.cancel` 共用同一取消判定口径（`controller.signal.aborted === true` → `cancelled / collect_cancelled`），dispose 中途 abort 的采集 run 由旧 `failed(collect_aborted)` 变为 `cancelled(collect_cancelled)`，`tests/dispose.test.ts` 对应用例已随行为更新。
+- 自动验收（2026-11-26）：`pnpm --filter @yootun/dsh-xhs-workbench test` 通过（node --test 七个文件 45/13/22/3/7/16/15 全绿 + vitest 4 文件 33 用例）、`build` 通过；仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs`、`git diff --check` 全部通过。附录 B 用例对照：XH1→host.test.ts「action allowlist：白名单 30 项…（XH1）」；XH2→host.test.ts「collect.cancel：运行中取消落 cancelled/collect_cancelled…（XH2）」与「collect.cancel：取消时不写本次快照…（XH2）」；XH3→host.test.ts「collect.cancel：终态后取消不改写…（XH3）」；XH4→host.test.ts「collect.start：会话失效收敛 SESSION_EXPIRED…（XH4…）」；XH5→host.test.ts「accounts.list：running 发布 run 投影 publishWindowOpen…（XH5）」；XC1→xhs-accounts.test.tsx「采集运行中按钮变「取消采集」…（XC1）」与「采集自然结束后按钮回「采集」…（XC1/X2）」；XC2→xhs-accounts.test.tsx「publishWindowOpen 账号卡显示…（XC2）」；XC3→xhs-page.test.tsx「en 与 zh 键集完全一致」+ xhs-bundle.test.ts「REASON_KEYS 覆盖 Host STABLE_ERROR_CODES 全集」。
 
 ## 附录 A：逐文件规格
 

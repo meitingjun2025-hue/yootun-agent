@@ -59,6 +59,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, XhsLocaleKey>> = {
   'UNAUTHORIZED': 'reason.UNAUTHORIZED',
   'host_unreachable': 'reason.host_unreachable',
   'login_aborted': 'reason.login_aborted',
+  'collect_cancelled': 'reason.collect_cancelled',
   'plugin_disposing': 'reason.plugin_disposing',
   'xhs_operation_request_failed': 'reason.xhs_operation_request_failed',
   'storage_state_missing': 'reason.storage_state_missing',

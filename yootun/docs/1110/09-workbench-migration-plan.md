@@ -506,7 +506,7 @@ workbench_tos_upload_authorize
 browser.status
 accounts.list
 account.beginLogin / loginStatus / probe / removeLocal
-collect.start / collect.status
+collect.start / collect.status / collect.cancel
 upload.pick / upload.start / upload.status / upload.media
 task.create / status / result / cancel
 hotboard.overview / noteDetail / keywords / keywordSave

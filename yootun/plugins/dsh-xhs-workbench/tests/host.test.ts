@@ -5,7 +5,7 @@
  * 运行：`node --test tests/host.test.ts`。
  */
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -84,10 +84,10 @@ test('稳定码集合无重复元素（本地码表与去重后的全集）', ()
   assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
 })
 
-test('action allowlist：X6 白名单 28 项且全部有 schema', () => {
+test('action allowlist：白名单 30 项且全部有 schema（含 collect.cancel，XH1）', () => {
   const expected = [
     'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus',
-    'account.probe', 'account.removeLocal', 'collect.start', 'collect.status',
+    'account.probe', 'account.removeLocal', 'collect.start', 'collect.status', 'collect.cancel',
     'task.create', 'task.status', 'task.result', 'task.cancel',
     'hotboard.overview', 'hotboard.noteDetail', 'hotboard.noteTagUpdate', 'hotboard.noteExclude',
     'hotboard.keywords', 'hotboard.keywordSave', 'hotboard.runStart', 'hotboard.runGet',
@@ -487,7 +487,7 @@ test('collect.start：profile 锁占用时同账号操作即拒绝（即时占�
   await rm(root, { recursive: true, force: true })
 })
 
-test('collect.start：会话失效收敛 SESSION_EXPIRED（登录框可见），run 落 failed', async () => {
+test('collect.start：会话失效收敛 SESSION_EXPIRED（登录框可见），run 落 failed（XH4：非取消失败不被误判为取消）', async () => {
   const root = await tempRoot()
   const { deps, state } = await testDeps(root)
   state.loginBoxVisible = true
@@ -498,6 +498,123 @@ test('collect.start：会话失效收敛 SESSION_EXPIRED（登录框可见），
   const collect = status.collect as Record<string, unknown>
   assert.equal(collect.collectStatus, 'failed')
   assert.equal(collect.error, 'SESSION_EXPIRED')
+  assert.notEqual(collect.collectStatus, 'cancelled')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('collect.cancel：运行中取消落 cancelled/collect_cancelled，锁释放，abort 后迟到失败不改写（XH2）', async () => {
+  const root = await tempRoot()
+  const fake = createFakeChrome()
+  // 挂起的 Chrome 启动让采集停在 running，给取消留窗口；释放后按会话失效抛
+  // 带码 CollectError——取消判定只认本 run 的 abort，迟到失败不得改判。
+  fake.state.loginBoxVisible = true
+  const gate = Promise.withResolvers<void>()
+  const deps = createXhsHostDeps({
+    root,
+    workbench: createFakeWorkbench().face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+    chromeFactory: async () => {
+      await gate.promise
+      return { context: fake.context }
+    },
+  })
+  const handlers = buildRouteHandlers(deps)
+  const started = await handlers['collect.start']!({ accountId: 'acc-x', idempotencyKey: 'k-x1' }) as Record<string, unknown>
+  assert.equal(started.status, 'started')
+  assert.ok(isProfileLocked('acc-x'))
+  const cancel = await handlers['collect.cancel']!({ collectId: String(started.collectId) }) as Record<string, unknown>
+  assert.equal(cancel.status, 'ready')
+  assert.equal((cancel.collect as Record<string, unknown>).collectStatus, 'cancelled')
+  assert.equal((cancel.collect as Record<string, unknown>).error, 'collect_cancelled')
+  // 释放挂起的启动：collectNotes 抛 SESSION_EXPIRED，catch 保持取消终态。
+  gate.resolve()
+  await deps.taskRegistry.awaitSettled()
+  const status = await handlers['collect.status']!({ collectId: String(started.collectId) }) as Record<string, unknown>
+  const collect = status.collect as Record<string, unknown>
+  assert.equal(collect.collectStatus, 'cancelled')
+  assert.equal(collect.error, 'collect_cancelled')
+  // 锁随采集 promise 的 finally 释放：账号可立即再次采集。
+  const release = acquireProfileLock('acc-x')
+  assert.notEqual(release, null)
+  release()
+  await rm(root, { recursive: true, force: true })
+})
+
+test('collect.cancel：取消时不写本次快照、不回写最近采集时间（XH2）', async () => {
+  const root = await tempRoot()
+  const fake = createFakeChrome()
+  // 会话一直失效且启动挂起：取消后收敛，全程不应有快照落盘。
+  fake.state.loginBoxVisible = true
+  const gate = Promise.withResolvers<void>()
+  const deps = createXhsHostDeps({
+    root,
+    workbench: createFakeWorkbench().face,
+    browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    logger: { warn: () => undefined },
+    chromeFactory: async () => {
+      await gate.promise
+      return { context: fake.context }
+    },
+  })
+  const handlers = buildRouteHandlers(deps)
+  const started = await handlers['collect.start']!({ accountId: 'acc-snap', idempotencyKey: 'k-s1' }) as Record<string, unknown>
+  const cancel = await handlers['collect.cancel']!({ collectId: String(started.collectId) }) as Record<string, unknown>
+  assert.equal((cancel.collect as Record<string, unknown>).collectStatus, 'cancelled')
+  gate.resolve()
+  await deps.taskRegistry.awaitSettled()
+  const dataDir = join(root, 'data', 'acc-snap')
+  const entries = await readdir(dataDir).catch(() => [] as string[])
+  assert.equal(entries.filter(name => name.startsWith('notes-')).length, 0, '取消不得写入快照文件')
+  const accountsRaw = await readFile(join(root, 'accounts.json'), 'utf8').catch(() => '')
+  assert.equal(accountsRaw.includes('lastCollectedAt'), false, '取消不得回写最近采集时间')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('collect.cancel：终态后取消不改写；未知 id 与 collect.status 同口径（XH3）', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps)
+  // 自然完成：completed 后取消原样返回既有终态，不改写为 cancelled。
+  state.postedResponses.push(postedPage([{ id: 'n1', display_title: '一' }], null))
+  const started = await handlers['collect.start']!({ accountId: 'acc-1', idempotencyKey: 'k-c1' }) as Record<string, unknown>
+  await deps.taskRegistry.awaitSettled()
+  const cancel = await handlers['collect.cancel']!({ collectId: String(started.collectId) }) as Record<string, unknown>
+  assert.equal(cancel.status, 'ready')
+  const collect = cancel.collect as Record<string, unknown>
+  assert.equal(collect.collectStatus, 'completed')
+  assert.notEqual(collect.error, 'collect_cancelled')
+  // 自然失败：failed 后取消同样不改写。
+  state.loginBoxVisible = true
+  const failedStart = await handlers['collect.start']!({ accountId: 'acc-1', idempotencyKey: 'k-c2' }) as Record<string, unknown>
+  await deps.taskRegistry.awaitSettled()
+  const failedCancel = await handlers['collect.cancel']!({ collectId: String(failedStart.collectId) }) as Record<string, unknown>
+  assert.equal((failedCancel.collect as Record<string, unknown>).collectStatus, 'failed')
+  assert.equal((failedCancel.collect as Record<string, unknown>).error, 'SESSION_EXPIRED')
+  // 未知 id：collect_id_required（与 collect.status 同口径）。
+  const unknown = await handlers['collect.cancel']!({ collectId: 'col-none' }) as Record<string, unknown>
+  assert.equal(unknown.status, 'error')
+  assert.equal(unknown.reason, 'collect_id_required')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('accounts.list：running 发布 run 投影 publishWindowOpen，终态/无 run 为 false（XH5）', async () => {
+  const root = await tempRoot()
+  await writeAccounts({
+    version: 1,
+    accounts: { 'acc-open': { accountId: 'acc-open' }, 'acc-closed': { accountId: 'acc-closed' } },
+  }, root)
+  const { deps } = await testDeps(root)
+  const release = (): void => undefined
+  deps.publishRuns.set('pub-open', { publishId: 'pub-open', accountId: 'acc-open', status: 'running', step: 'open', error: null, release })
+  deps.publishRuns.set('pub-done', { publishId: 'pub-done', accountId: 'acc-closed', status: 'completed', step: 'done', error: null, release })
+  const handlers = buildRouteHandlers(deps)
+  const payload = await handlers['accounts.list']!({}) as Record<string, unknown>
+  const accounts = payload.accounts as Array<Record<string, unknown>>
+  const open = accounts.find(account => account.accountId === 'acc-open')
+  const closed = accounts.find(account => account.accountId === 'acc-closed')
+  assert.equal(open?.publishWindowOpen, true)
+  assert.equal(closed?.publishWindowOpen, false)
   await rm(root, { recursive: true, force: true })
 })
 

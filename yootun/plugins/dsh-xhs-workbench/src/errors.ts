@@ -73,6 +73,8 @@ const LOCAL_ERROR_CODE_VALUES = [
   'UNAUTHORIZED',
   'host_unreachable',
   'login_aborted',
+  // 采集取消终态（collect.cancel；run.status='cancelled' 的固定 error 码）。
+  'collect_cancelled',
   'plugin_disposing',
   // Chrome 启动超预算（host-lifecycle-budget；launchWithTimeout，safeCode 按类名映射）。
   'browser_launch_timeout',
