@@ -1096,7 +1096,7 @@ export function createBatchCollectController(options: {
   }
 }
 
-/** 批量入口的候选筛选（缓存口径，纯本地：pending/非 ok/无凭证 → skipped）。 */
+/** 批量入口的候选筛选：缓存口径只排除确定不可采的账号；会话有效性一律由阶段 1 实测决定。 */
 export async function batchCandidates(deps: RunnerDeps, signal?: AbortSignal): Promise<Array<{ accountId: string; skipped: boolean; reason: string | null }>> {
   const local = await readAccounts(deps.root)
   const result: Array<{ accountId: string; skipped: boolean; reason: string | null }> = []
@@ -1106,10 +1106,6 @@ export async function batchCandidates(deps: RunnerDeps, signal?: AbortSignal): P
     if (aborted()) throw new DouyinError('collect_cancelled', 'batch candidates aborted')
     if (isPendingAccountId(record.accountId)) {
       result.push({ accountId: record.accountId, skipped: true, reason: 'pending_account' })
-      continue
-    }
-    if (record.sessionStatus !== 'ok') {
-      result.push({ accountId: record.accountId, skipped: true, reason: 'session_required' })
       continue
     }
     if (!(await hasStorageState(record.accountId, deps.root))) {

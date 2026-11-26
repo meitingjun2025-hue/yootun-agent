@@ -1,6 +1,6 @@
 {
   "name": "@yootun/dsh-douyin-workbench",
-  "description": "yootun 抖音工作台：Host 半（`/api/desktop/yootun/douyin-workbench` 同源路由 + 56 个 action 契约 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile 管理 + 经 Workbench MCP 的按域放行调用）+ client 半（root main 中央面板与 sidebar.panellist 入口，7 个顶级 Tab：账号总览/账号作品/发布排期看板/爆款素材看板/爆款拆解/爆款基因库/AI 报表，已随 D9 集成批次接入 bundle）",
+  "description": "yootun 抖音工作台：Host 半（`/api/desktop/yootun/douyin-workbench` 同源路由 + 57 个 action 契约 + 系统 Chrome 扫码/采集状态机 + 本地 storage_state/profile 管理 + 经 Workbench MCP 的按域放行调用）+ client 半（root main 中央面板与 sidebar.panellist 入口，7 个顶级 Tab：账号总览/账号作品/发布排期看板/爆款素材看板/爆款拆解/爆款基因库/AI 报表，已随 D9 集成批次接入 bundle）",
   "version": "0.2.2-rc.5",
   "type": "module",
   "main": "lib/index.js",
