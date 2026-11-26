@@ -173,21 +173,29 @@ export async function updateRun(root: string, accountId: string, attemptId: stri
  * 是否重新采集。不删任何记录。running 记录只在 run 真正启动后存在，因此
  * interrupted 不是幻影。
  * @param root - state root.
- * @returns the number of records marked interrupted.
+ * @returns the interruption summary（count 与去重的 accountIds，供中断横幅）.
  */
-export async function recoverInterruptedRuns(root: string): Promise<number> {
+/** 启动中断摘要（横幅的操作范围；accountIds 去重）。 */
+export interface InterruptedRunsSummary {
+  /** 本次被标记为 interrupted 的去重账号数（与 accountIds 一致）。 */
+  count: number
+  /** 被中断的账号（去重；与 2.5 横幅的「重新采集 / 重新采集全部」范围对应）。 */
+  accountIds: string[]
+}
+
+export async function recoverInterruptedRuns(root: string): Promise<InterruptedRunsSummary> {
   return runInRootQueue(root, async () => {
     const runs = await readRuns(root)
-    let count = 0
+    const accountIds = new Set<string>()
     for (const record of Object.values(runs)) {
       if (record.status === 'running') {
         record.status = 'interrupted'
         record.finishedAt = new Date().toISOString()
-        count += 1
+        accountIds.add(record.accountId)
       }
     }
-    if (count > 0) await writeRuns(root, runs)
-    return count
+    if (accountIds.size > 0) await writeRuns(root, runs)
+    return { count: accountIds.size, accountIds: [...accountIds].sort() }
   })
 }
 

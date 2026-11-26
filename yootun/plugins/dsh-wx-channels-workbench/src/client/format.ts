@@ -68,7 +68,6 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
   plugin_disposing: 'collect.reason.plugin_disposing',
   probe_failed: 'collect.reason.probe_failed',
   risk_paused: 'reason.risk_paused',
-  refresh_not_allowed: 'reason.refresh_not_allowed',
   run_state_corrupt: 'reason.run_state_corrupt',
   session_required: 'collect.reason.session_required',
   storage_state_missing: 'collect.reason.storage_state_missing',

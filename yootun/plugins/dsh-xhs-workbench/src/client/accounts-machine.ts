@@ -78,7 +78,7 @@ export interface AccountsMachinePorts {
   probe(args: { accountId: string }): Promise<{ status?: string; sessionStatus?: string }>
   removeLocal(args: { accountId: string }): Promise<unknown>
   startCollect(args: { accountId: string; idempotencyKey: string }): Promise<{ collect?: CollectState }>
-  collectStatus(args: { collectId: string }): Promise<{ status?: string; collect?: CollectState | null }>
+  collectStatus(args: { collectId: string } | { accountId: string }): Promise<{ status?: string; collect?: CollectState | null }>
   cancelCollect(args: { collectId: string }): Promise<{ status?: string; collect?: CollectState | null }>
   browserStatus(): Promise<{ chromeAvailable?: boolean }>
   intervalMs?: number
@@ -140,6 +140,8 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
   const listeners = new Set<() => void>()
   let timer: unknown = null
   let active = false
+  // 挂载恢复的代次守卫：用户已点「采集」（startCollectFlow）则丢弃在途恢复响应。
+  let restoreGeneration = 0
 
   const setState = (patch: Partial<AccountsSnapshot>): void => {
     snapshot = { ...snapshot, ...patch }
@@ -324,6 +326,26 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
       const loginWaiting = snapshot.login !== null && snapshot.login.status === 'waiting'
       const collectRunning = snapshot.collect !== null && snapshot.collect.collectStatus === 'running'
       if (loginWaiting || collectRunning) ensurePolling()
+      // 挂载恢复（2.1）：账号列表就绪且选中账号确定后，按账号查询一次采集状态；
+      // 运行中 → 写入 collect 并启动轮询；用户已点「采集」则丢弃该响应。
+      const generationAtRestore = restoreGeneration
+      void (async () => {
+        if (snapshot.loaded !== true) await refresh()
+        if (!active) return
+        const selectedId = snapshot.selectedId
+        if (selectedId === null || restoreGeneration !== generationAtRestore) return
+        try {
+          const result = await ports.collectStatus({ accountId: selectedId })
+          if (!active || restoreGeneration !== generationAtRestore) return
+          const next = result?.collect ?? null
+          if (next !== null && next.collectStatus === 'running') {
+            setState({ collect: next })
+            ensurePolling()
+          }
+        } catch (error: unknown) {
+          void error // 恢复查询失败不打断挂载。
+        }
+      })()
     },
     stop() {
       active = false
@@ -396,6 +418,7 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
       }
     },
     async startCollectFlow(accountId) {
+      restoreGeneration += 1
       const collect = snapshot.collect
       if (collect !== null && collect.collectStatus === 'running') return
       if (this.chromeBlocked()) {

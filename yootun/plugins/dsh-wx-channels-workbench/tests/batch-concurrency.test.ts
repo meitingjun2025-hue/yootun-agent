@@ -381,8 +381,8 @@ test('U7b 生产接线（与 index.ts apply 同构）：批量阶段 2 复用阶
 
 // --- B1 action 清单 ---
 
-test('B1 action 清单含 collect.running（23 项），ACTION_SCHEMAS 为空字段', () => {
-  assert.equal(Object.keys(ACTION_SCHEMAS).length, 23, `action 总数应为 23: ${String(Object.keys(ACTION_SCHEMAS).length)}`)
+test('B1 action 清单含 collect.running（22 项；mount-restore 单删除 account.refreshLoginQr），ACTION_SCHEMAS 为空字段', () => {
+  assert.equal(Object.keys(ACTION_SCHEMAS).length, 22, `action 总数应为 22: ${String(Object.keys(ACTION_SCHEMAS).length)}`)
   assert.ok('collect.running' in ACTION_SCHEMAS)
   assert.deepEqual(ACTION_SCHEMAS['collect.running']?.fields, {})
   // collect.status 增可选 accountId（≤128）。

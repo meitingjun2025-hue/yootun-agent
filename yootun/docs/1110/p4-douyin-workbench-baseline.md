@@ -295,6 +295,8 @@ UI 文案映射沿用旧插件各模块的 reason→文案字典（schedule 的 
 
 ## 11. 缺口与观察清单
 
+2026-11-27 偏离（[1126/features/mount-restore-and-login-alignment.md](../1126/features/mount-restore-and-login-alignment.md)）：`account.loginStatus` 的登录终态记录由「读完即删」改为保留 30 分钟、读取时顺带清理（三工作台统一口径）；`disposeHostTasks` 清空登录记录表；`collect.status` / `collectAll.status` 出参增加 `interrupted` 启动中断摘要（下一次采集成功启动后置空），采集中断提示由 toast 改为页面内横幅。
+
 - **G-1 collect.cancel**：`douyin_collect_run_cancel` 工具与幂等键模板（`douyin:run_cancel:{runId}`）已登记，且采集编排层（ingest.js 取消路径）有真实调用；但旧 Host action 分发 56 项中无独立取消入口（无 collect.cancel），页面不可主动取消进行中采集。09 册 §4.3 建议的新 action 清单含 collect.cancel。是否在新 Host 暴露用户可触发的取消由 D1 决定，本册不猜测实现。
 - **G-2 run 恢复**：旧插件采集控制器状态是 Host 进程内存（runs Map / batch 单飞 / loginRuns），进程重启后在途 run 的本地状态丢失；远端 run 仅可经 collect_run_get 查询。09 册 §12.4 要求「崩溃或重启后 run 恢复」，旧基线没有该能力——新实现的状态恢复设计是 D1 交付物。
 - **G-3 折叠态持久化**：已发布折叠状态旧基线是会话内内存态；新宿主是否跨会话保留由 D1/UI 决定。

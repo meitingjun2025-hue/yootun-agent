@@ -93,7 +93,7 @@ function stableOr(code: string, fallback: StableErrorCode): StableErrorCode {
   return (STABLE_ERROR_CODES as readonly string[]).includes(code) ? code as StableErrorCode : fallback
 }
 
-/** 登录等待状态（页面轮询 loginStatus；终态读取一次即清理）。 */
+/** 登录等待状态（页面轮询 loginStatus；终态保留 30 分钟供重复读取，2.3）。 */
 export interface LoginRun {
   key: string
   status: 'waiting' | 'ok' | 'timeout' | 'failed'
@@ -102,6 +102,8 @@ export interface LoginRun {
   avatar: string | null
   error: string | null
   release: ProfileLockRelease
+  /** 进入终态的时刻（Date.now()；终态保留 30 分钟的计龄起点）。 */
+  settledAt?: number
 }
 
 /** 单账号采集 run（进程内；页面 2s 轮询 collect.status）。 */
@@ -115,6 +117,8 @@ export interface CollectRun {
   summary: SnapshotSummary | null
   error: string | null
   release: ProfileLockRelease
+  /** 进入终态的时刻（Date.now()；2.2 终态保留 30 分钟的计龄起点）。 */
+  settledAt?: number
 }
 
 /** 发布 run（进程内；浏览器保持打开，锁随 context close 释放）。 */
@@ -156,6 +160,8 @@ export interface XhsHostDeps {
   collectRuns: Map<string, CollectRun>
   /** 创建型幂等：idempotencyKey → collectId 重放既有 run（旧 index.js 口径）。 */
   collectIdempotency: Map<string, string>
+  /** 账号 → 最近一条 run 的 collectId（2.1 按账号查询的索引）。 */
+  collectLatestByAccount: Map<string, string>
   /** 发布 run（进程内；页面 2s 轮询 publish.status）。 */
   publishRuns: Map<string, PublishRun>
   /** 创建型幂等：idempotencyKey → publishId（旧 index.js 口径）。 */
@@ -200,6 +206,7 @@ export function createXhsHostDeps(options: {
     collectSignals: new Map(),
     collectRuns: new Map(),
     collectIdempotency: new Map(),
+    collectLatestByAccount: new Map(),
     publishRuns: new Map(),
     publishIdempotency: new Map(),
   }
@@ -479,6 +486,48 @@ function localErrorCode(error: unknown, fallback: string): string {
   return (STABLE_ERROR_CODES as readonly string[]).includes(code) ? code : fallback
 }
 
+/** 登录终态记录保留时长（2.3；三工作台统一口径，视频号同名常量）。 */
+const LOGIN_RECORD_TTL_MS = 30 * 60 * 1000
+
+/** 采集终态记录保留时长（2.2；下一次 collect.start / collect.status 时清理）。 */
+const COLLECT_RECORD_TTL_MS = 30 * 60 * 1000
+
+/**
+ * 清理已过期的登录终态记录（2.3 读取时顺带清理，不依赖定时器）：pending 键与
+ * resolvedId 指向同一条 run 时两者同时清理。
+ */
+function sweepLoginRuns(deps: XhsHostDeps, nowMs: number): void {
+  const expired = new Set<LoginRun>()
+  for (const run of deps.loginRuns.values()) {
+    if (run.status !== 'waiting' && run.settledAt !== undefined && nowMs - run.settledAt > LOGIN_RECORD_TTL_MS) expired.add(run)
+  }
+  if (expired.size === 0) return
+  for (const [key, run] of deps.loginRuns) {
+    if (expired.has(run)) deps.loginRuns.delete(key)
+  }
+}
+
+/**
+ * 清理已过期的采集终态 run（2.2）：删除 run、其幂等映射与账号索引（索引只在
+ * 仍指向该 run 时删除）；运行中的 run 不清理。
+ */
+function sweepCollectRuns(deps: XhsHostDeps, nowMs: number): void {
+  const expired = new Set<CollectRun>()
+  for (const run of deps.collectRuns.values()) {
+    if (run.status !== 'running' && run.settledAt !== undefined && nowMs - run.settledAt > COLLECT_RECORD_TTL_MS) expired.add(run)
+  }
+  if (expired.size === 0) return
+  for (const [key, run] of deps.collectRuns) {
+    if (expired.has(run)) deps.collectRuns.delete(key)
+  }
+  for (const [key, collectId] of deps.collectIdempotency) {
+    if (!deps.collectRuns.has(collectId)) deps.collectIdempotency.delete(key)
+  }
+  for (const [accountId, collectId] of deps.collectLatestByAccount) {
+    if (!deps.collectRuns.has(collectId)) deps.collectLatestByAccount.delete(accountId)
+  }
+}
+
 /**
  * Build the action handler table (X1+X2: browser/accounts/login/probe/remove/
  * collect). Each handler is wrapped with the disposing guard and the task
@@ -529,6 +578,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const requested = stringValue(args, 'accountId')
       // 重复调用返回既有 waiting run（幂等；页面刷新重试不重复弹窗）：
       // 显式账号按 accountId 匹配；新增账号（无 accountId）全进程同时只开一个扫码 run。
+      sweepLoginRuns(deps, Date.now())
       for (const run of deps.loginRuns.values()) {
         if (run.status !== 'waiting') continue
         if (requested !== '' ? run.key === requested : isPendingAccountId(run.key)) {
@@ -558,6 +608,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       }).then(async (result: LoginResult) => {
         if (result.status === 'ok') {
           run.status = 'ok'
+          run.settledAt = Date.now()
           run.accountId = result.accountId
           run.nickname = result.profile?.nickname ?? null
           run.avatar = result.profile?.avatar ?? null
@@ -569,6 +620,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           }
         } else {
           run.status = result.status === 'timeout' ? 'timeout' : 'failed'
+          run.settledAt = Date.now()
           // 错误码收敛到受控白名单：不透出原始异常名。
           run.error = result.status === 'timeout'
             ? 'LOGIN_TIMEOUT'
@@ -576,6 +628,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         }
       }).catch((error: unknown) => {
         run.status = 'failed'
+        run.settledAt = Date.now()
         run.error = localErrorCode(error, 'LOGIN_FAILED')
       }).finally(() => {
         release()
@@ -585,16 +638,13 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
     },
 
     'account.loginStatus': async args => {
+      // 2.3 读取时顺带清理过期终态记录（幂等：重复读取同一终态结果一致）。
+      sweepLoginRuns(deps, Date.now())
       const key = stringValue(args, 'loginId') || stringValue(args, 'accountId')
       const run = key !== '' ? deps.loginRuns.get(key) : undefined
       if (run === undefined) {
-        // 无进行中登录：返回 idle（页面刷新后直接查账号列表即可）。
+        // 只在「没有记录或记录已过期」时返回 idle（2.3）。
         return { status: 'ready', login: { status: 'idle', loginId: key !== '' ? key : null } }
-      }
-      if (run.status !== 'waiting') {
-        // 终态 run 保留供 loginStatus 查询一次，读取后即清理。
-        deps.loginRuns.delete(run.key)
-        if (run.accountId !== null && run.accountId !== run.key) deps.loginRuns.delete(run.accountId)
       }
       return { status: 'ready', login: projectLogin(run) }
     },
@@ -648,6 +698,8 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const idempotencyKey = stringValue(args, 'idempotencyKey')
       // 幂等键必填：采集是有副作用操作（写本地快照）。
       if (idempotencyKey === '') return { status: 'error', reason: 'idempotency_key_required' }
+      // 2.2 入口清理：终态超保留期的 run 连同幂等映射与账号索引一起清。
+      sweepCollectRuns(deps, Date.now())
       if (deps.collectIdempotency.has(idempotencyKey)) {
         // 幂等重放：返回既有 run 的当前状态（不重复创建采集任务）。
         const run = deps.collectRuns.get(deps.collectIdempotency.get(idempotencyKey) ?? '')
@@ -660,6 +712,8 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       const run: CollectRun = { collectId, accountId, status: 'running', pagesDone: 0, notesTotal: 0, truncated: false, summary: null, error: null, release }
       deps.collectRuns.set(collectId, run)
       deps.collectIdempotency.set(idempotencyKey, collectId)
+      // 2.1 按账号查询的最近 run 索引（同一账号新 run 覆盖旧索引）。
+      deps.collectLatestByAccount.set(accountId, collectId)
       const controller = new AbortController()
       deps.collectSignals.set(collectId, controller)
       // 采集是后台长动作：立即返回 started，结果落设备端快照（不入库，Q10）。
@@ -682,10 +736,12 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         // 投影保持 cancelled，不回写已完成摘要。
         if (controller.signal.aborted === true) {
           run.status = 'cancelled'
+          run.settledAt = Date.now()
           run.error = 'collect_cancelled'
           return
         }
         run.status = 'completed'
+        run.settledAt = Date.now()
         run.pagesDone = result.pagesDone
         run.notesTotal = result.notesTotal
         run.summary = result.summary
@@ -696,11 +752,13 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
         // SESSION_EXPIRED）不得改判为普通失败（XH4）。非取消失败维持 failed 原码。
         if (controller.signal.aborted === true) {
           run.status = 'cancelled'
+          run.settledAt = Date.now()
           run.error = 'collect_cancelled'
           return
         }
         if (run.status === 'cancelled') return
         run.status = 'failed'
+        run.settledAt = Date.now()
         run.error = error instanceof CollectError && (STABLE_ERROR_CODES as readonly string[]).includes(error.code)
           ? error.code
           : localErrorCode(error, 'COLLECT_FAILED')
@@ -712,10 +770,22 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
     },
 
     'collect.status': async args => {
+      // 2.2 入口清理（与 collect.start 同口径）。
+      sweepCollectRuns(deps, Date.now())
       const collectId = stringValue(args, 'collectId')
-      const run = collectId !== '' ? deps.collectRuns.get(collectId) : undefined
-      if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
-      return { status: 'ready', collect: projectCollect(run) }
+      const accountId = stringValue(args, 'accountId')
+      if (collectId === '' && accountId === '') return { status: 'error', reason: 'collect_id_required' }
+      // 都给时以 collectId 为准（2.1）；按 collectId 查不到维持既有 collect_id_required
+      // （页面轮询依赖它判定「宿主重启后 run 丢失」）。
+      if (collectId !== '') {
+        const run = deps.collectRuns.get(collectId)
+        if (run === undefined) return { status: 'error', reason: 'collect_id_required' }
+        return { status: 'ready', collect: projectCollect(run) }
+      }
+      // 2.1 按账号查询：运行中的优先；否则最近结束且仍在保留期内的；都没有 → collect: null。
+      const latest = deps.collectLatestByAccount.get(accountId)
+      const run = latest !== undefined ? deps.collectRuns.get(latest) : undefined
+      return { status: 'ready', collect: run === undefined ? null : projectCollect(run) }
     },
 
     // 采集取消（1126 xhs-collect-cancel-and-publish-state §2.1）：abort 该 run 的
@@ -731,6 +801,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
       }
       deps.collectSignals.get(collectId)?.abort()
       run.status = 'cancelled'
+      run.settledAt = Date.now()
       run.error = 'collect_cancelled'
       return { status: 'ready', collect: projectCollect(run) }
     },

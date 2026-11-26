@@ -39,6 +39,7 @@ test('disposeHostTasks：置位 → abort 全部信号 → 等 settle → 清理
     assert.equal(deps.disposing, true, 'dispose 后 handler 以 plugin_disposing 拒绝新 action')
     assert.equal(settled, true, 'abort 在 settle 等待前发生')
     assert.equal(deps.signals.size, 0, '信号表已清空')
+    assert.equal(deps.loginRuns.size, 0, '登录记录表随卸载清空（mount-restore 2.3）')
     assert.equal(deps.taskRegistry.activeCount, 0, '任务全部 settle')
     // 置位后 handler 拒绝新 action。
     await assert.rejects(() => buildRouteHandlers(deps)['browser.status']({}), /plugin is disposing/)

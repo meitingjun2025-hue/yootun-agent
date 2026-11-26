@@ -2,14 +2,31 @@
 // @vitest-environment jsdom
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
-afterEach(cleanup)
+const apiMock = vi.hoisted(() => ({ hostAction: vi.fn() }))
+vi.mock('../../src/client/api.ts', () => apiMock)
 
-const t = (key: WxLocaleKey): string => en[key] ?? key
+afterEach(() => {
+  cleanup()
+  apiMock.hostAction.mockReset()
+  apiMock.hostAction.mockImplementation(async (action: string) => {
+    if (action === 'browser.status') return { status: 'ok', chrome: 'available', driver: 'available' }
+    if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+    if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null }
+    if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0 }
+    throw new Error(`unexpected action ${action}`)
+  })
+})
+
+const t = (key: WxLocaleKey, values?: Record<string, string | number>): string => {
+  const text = en[key] ?? key
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+}
 
 describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
@@ -55,6 +72,26 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
     expect(tabs[0]?.getAttribute('aria-selected')).toBe('true')
     expect(tabs[1]?.getAttribute('aria-selected')).toBe('false')
     void container
+  })
+
+  it('I3(wx) 挂载恢复：collect.status 带中断摘要 → 横幅出现（应用退出重开主场景）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
+      if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+      // 挂载恢复的选中账号状态查询：带中断摘要（重启后内存记录为 null，只有 lastRun）。
+      if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    // 横幅出现（多账号文案），不再有 toast。
+    await waitFor(() => expect(screen.getByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull(), { timeout: 4000 })
+    // 账号列表为空：无选中账号 → 无「重新采集」；有「重新采集全部」与关闭。
+    expect(screen.queryByRole('button', { name: en['run.recollect'] })).toBeNull()
+    expect(screen.getByRole('button', { name: en['run.recollectAll'] })).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
   })
 
   it('采集与账号不再是顶级 tab（旧四 tab 契约废除）', () => {

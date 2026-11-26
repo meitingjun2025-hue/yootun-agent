@@ -19,8 +19,8 @@ import { reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { zh as wxZh } from './locales.ts'
 import {
-  readBatchStatus, readBrowserState, readOverview, readWorksPage,
-  type BatchStatusView, type BrowserState, type OverviewData, type WorkRow, type WorksPage,
+  readBatchStatus, readBrowserState, readInterrupted, readOverview, readWorksPage,
+  type BatchStatusView, type BrowserState, type InterruptedView, type OverviewData, type WorkRow, type WorksPage,
 } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { DEFAULT_OVERVIEW_FILTERS, OverviewPage, type OverviewFilters } from './OverviewPage.tsx'
@@ -154,6 +154,10 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const toastSeqRef = useRef(0)
   /** 用户发起过采集 / 批量的标记：挂载恢复的迟到响应让位，不覆盖用户操作。 */
   const userStartedRef = useRef({ collect: false, batch: false })
+  // 2.5 中断横幅：Host 启动中断摘要 + 本页面会话内的关闭标记（不持久化；
+  // 下一次成功启动采集后随 Host 摘要清空）。
+  const [interrupted, setInterrupted] = useState<InterruptedView | null>(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   /** 挂载恢复只执行一次：依赖的轮询回调随词典函数重建时不重复查询。 */
   const restoredRef = useRef(false)
   useEffect(() => { selectedIdRef.current = selectedAccountId }, [selectedAccountId])
@@ -425,6 +429,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     let settledHandled = false
     const tick = (): void => {
       void hostAction('collect.status', { accountId }).then(statusRes => {
+        const interruptedView = readInterrupted(statusRes)
+        if (interruptedView !== null) setInterrupted(interruptedView)
         const record = readCollectRecord(statusRes.collect)
         // 运行中集合以响应为准（单账号与批量 worker 账号都在其中）。
         setCollectRunningIds(readRunningIds(statusRes.runningAccountIds))
@@ -484,6 +490,9 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         setCollectStartReason(typeof res.reason === 'string' ? res.reason : 'unknown')
         return
       }
+      // 成功启动：Host 已清启动中断摘要，页面横幅随之收起。
+      setInterrupted(null)
+      setBannerDismissed(false)
       beginCollectPolling(accountId)
       collectClaimRef.current = ''
     }).catch(error => {
@@ -510,6 +519,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     stopBatchPolling()
     const tick = (): void => {
       void hostAction('collectAll.status').then(batchRes => {
+        const interruptedView = readInterrupted(batchRes)
+        if (interruptedView !== null) setInterrupted(interruptedView)
         const next = readBatchStatus(batchRes)
         setBatch(next)
         if (next.ready) {
@@ -535,6 +546,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         notify(`${t('batch.startFailed')}：${reasonText(typeof res.reason === 'string' ? res.reason : 'unknown', t)}`)
         return
       }
+      setInterrupted(null)
+      setBannerDismissed(false)
       beginBatchPolling()
     }).catch(error => {
       // 任何异步失败都必须清掉乐观投影，否则面板停在「采集中」且宿主无批量状态可纠正。
@@ -569,6 +582,16 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         hostAction('collect.status', { accountId: selectedIdRef.current ?? '' }),
         hostAction('collectAll.status'),
       ])
+      // 2.5 中断摘要：挂载恢复的两路状态响应都读取 interrupted（应用退出重开
+      // 后的主要入口；摘要由 Host 在下一次采集成功启动前置空）。
+      if (selectedRes.status === 'fulfilled') {
+        const interruptedView = readInterrupted(selectedRes.value)
+        if (interruptedView !== null) setInterrupted(interruptedView)
+      }
+      if (batchRes.status === 'fulfilled') {
+        const interruptedView = readInterrupted(batchRes.value)
+        if (interruptedView !== null) setInterrupted(interruptedView)
+      }
       if (!userStartedRef.current.collect) {
         const runningRecord = runningRes.status === 'fulfilled' ? readCollectRecord(runningRes.value.collect) : null
         const selectedPayload = selectedRes.status === 'fulfilled' ? selectedRes.value : null
@@ -768,6 +791,47 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                   onNotice={text => { notify(text) }}
                 />
                 <section className={css.worksPanel} aria-label={t('tab.works')}>
+                  {bannerDismissed === false && interrupted !== null && !(batch !== null && batch.ready === false) && (
+                    <div className={css.interruptedBanner} role='status'>
+                      <span className={css.interruptedText}>
+                        {interrupted.count >= 2 ? t('run.interruptedBanner', { count: interrupted.count }) : t('run.interruptedBannerOne')}
+                      </span>
+                      <span className={css.interruptedActions}>
+                        {selectedAccountId !== null && interrupted.accountIds.includes(selectedAccountId) && (
+                          <button
+                            type='button'
+                            className={css.interruptedButton}
+                            onClick={() => {
+                              setBannerDismissed(true)
+                              startCollect(selectedAccountId)
+                            }}
+                          >
+                            {t('run.recollect')}
+                          </button>
+                        )}
+                        {interrupted.count >= 2 && (
+                          <button
+                            type='button'
+                            className={css.interruptedButton}
+                            onClick={() => {
+                              setBannerDismissed(true)
+                              startBatch()
+                            }}
+                          >
+                            {t('run.recollectAll')}
+                          </button>
+                        )}
+                        <button
+                          type='button'
+                          className={css.interruptedClose}
+                          aria-label={t('run.dismissBanner')}
+                          onClick={() => { setBannerDismissed(true) }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </div>
+                  )}
                   <WorksPanel
                     t={t}
                     localeTag={localeTagOf(t)}

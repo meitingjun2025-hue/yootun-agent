@@ -29,6 +29,10 @@ export async function disposeHostTasks(options: {
     loginSignals: Map<string, AbortController>
     probeSignals: Map<string, AbortController>
     collectSignals: Map<string, AbortController>
+    loginRuns: Map<string, unknown>
+    collectRuns: Map<string, unknown>
+    collectIdempotency: Map<string, unknown>
+    collectLatestByAccount: Map<string, unknown>
     taskRegistry: TaskRegistry
   }
 }, budget: {
@@ -45,4 +49,9 @@ export async function disposeHostTasks(options: {
   deps.loginSignals.clear()
   deps.probeSignals.clear()
   deps.collectSignals.clear()
+  // 登录与采集记录随卸载清空（2.2 / 2.3 卸载行）。
+  deps.loginRuns.clear()
+  deps.collectRuns.clear()
+  deps.collectIdempotency.clear()
+  deps.collectLatestByAccount.clear()
 }

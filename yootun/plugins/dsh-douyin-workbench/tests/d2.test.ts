@@ -80,19 +80,25 @@ test('accounts.list：远端失败不整体失败，remoteError 透出', async (
   }
 })
 
-test('account.loginStatus：无 run 回 idle；终态读取一次即清理', async () => {
+test('L1/L2 account.loginStatus：无 run 回 idle；终态保留 30 分钟内重复读取一致，过期清理后 idle', async () => {
   const { deps, cleanup } = await d2Deps()
   try {
     const handlers = buildRouteHandlers(deps)
     const idle = await handlers['account.loginStatus']({ accountId: 'nobody' })
     assert.equal((idle.login as Record<string, unknown>).status, 'idle')
-    // 手工注入终态 run 验证读后即删。
+    // 手工注入终态 run（settledAt = 现在）：保留期内重复读取一致（L1）。
     const { loginRuns } = deps
-    loginRuns.set('k1', { key: 'k1', status: 'timeout', accountId: null, error: 'login_timeout', saveError: null, startedAt: new Date().toISOString() })
+    loginRuns.set('k1', { key: 'k1', status: 'timeout', accountId: null, error: 'login_timeout', saveError: null, startedAt: new Date().toISOString(), settledAt: Date.now() })
     const first = await handlers['account.loginStatus']({ accountId: 'k1' })
     assert.equal((first.login as Record<string, unknown>).status, 'timeout')
     const second = await handlers['account.loginStatus']({ accountId: 'k1' })
-    assert.equal((second.login as Record<string, unknown>).status, 'idle')
+    assert.equal((second.login as Record<string, unknown>).status, 'timeout', 'L1：保留期内重复读取结果一致')
+    // 回拨 settledAt（等效时钟推进 31 分钟）：下一次读取清理 → idle（L2）。
+    const run = loginRuns.get('k1') as { settledAt?: number }
+    run.settledAt = Date.now() - 31 * 60 * 1000
+    const third = await handlers['account.loginStatus']({ accountId: 'k1' })
+    assert.equal((third.login as Record<string, unknown>).status, 'idle', 'L2：过期终态清理后 idle')
+    assert.equal(loginRuns.has('k1'), false)
   } finally {
     await cleanup()
   }
@@ -162,8 +168,8 @@ test('G-2 run 恢复：running 记录重启后标 interrupted；collect.status �
     const { updateRun } = await import('../src/runs.ts')
     await updateRun(root, 'g2-acc', 'attempt-g2', { status: 'running', runId: 'run-9', publishSince: '2026-05-31T16:00:00Z' })
     const { recoverInterruptedRuns, readRuns } = await import('../src/runs.ts')
-    const marked = await recoverInterruptedRuns(root)
-    assert.equal(marked, 1)
+    const summary = await recoverInterruptedRuns(root)
+    assert.deepEqual(summary, { count: 1, accountIds: ['g2-acc'] })
     const runs = await readRuns(root)
     assert.equal(runs['attempt-g2']?.status, 'interrupted')
     // runs.json 不含 Cookie / storage_state / profile 路径。

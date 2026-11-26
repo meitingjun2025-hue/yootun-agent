@@ -154,19 +154,38 @@ export function readLogin(payload: Record<string, unknown>): LoginView {
   }
 }
 
+/** 启动中断摘要（2.5 横幅数据源；collect.status / collectAll.status 出参）。 */
+export interface InterruptedView {
+  count: number
+  accountIds: string[]
+}
+
+/** payload.interrupted → 白名单视图（缺省 / 形态不符 → null）。 */
+export function readInterrupted(payload: Record<string, unknown>): InterruptedView | null {
+  const record = recordOf(payload.interrupted)
+  if (record === undefined) return null
+  const count = record.count
+  const rawIds = record.accountIds
+  if (typeof count !== 'number' || !Number.isFinite(count) || !Array.isArray(rawIds)) return null
+  const accountIds = rawIds.filter((item): item is string => typeof item === 'string')
+  return { count, accountIds }
+}
+
 /** collect.status → CollectView | null（含 G-2 恢复投影 recovery/lastRun）。 */
 export function readCollectStatus(payload: Record<string, unknown>): {
   collect: CollectView | null
   recovery: string | null
   lastRun: CollectView | null
+  interrupted: InterruptedView | null
 } {
   const lastRunRecord = recordOf(payload.lastRun)
   const lastRun = lastRunRecord === undefined ? null : runViewOf(lastRunRecord)
+  const interrupted = readInterrupted(payload)
   if (payload.collect === null || payload.collect === undefined) {
-    return { collect: null, recovery: textOf(payload.recovery), lastRun }
+    return { collect: null, recovery: textOf(payload.recovery), lastRun, interrupted }
   }
   const record = recordOf(payload.collect)
-  return { collect: record === undefined ? null : runViewOf(record), recovery: null, lastRun }
+  return { collect: record === undefined ? null : runViewOf(record), recovery: null, lastRun, interrupted }
 }
 
 /** RunRecord → 白名单视图。 */

@@ -189,11 +189,15 @@ test('dispose：挂起登录被 abort 并 settle，context close、临时 profil
   await waitForCondition(() => deps.loginRuns.get('acc1')?.state === 'waiting_confirm')
   assert.equal(deps.loginSignals.has('acc1'), true)
   assert.ok(deps.taskRegistry.activeCount >= 1, '登录任务应已登记')
+  // 登录记录表随卸载清空（mount-restore 2.3 卸载行）：保留 run 对象引用以断言
+  // abort 后的 settle 终态（timeout 分支 close+清理）。
+  const runRef = deps.loginRuns.get('acc1')
 
   await disposeHostTasks({ deps, batch: { stop() {} } })
 
   assert.equal(deps.loginSignals.size, 0, 'loginSignals 清空')
-  assert.equal(deps.loginRuns.get('acc1')?.state, 'timeout', 'abort 后登录 settle（timeout 分支 close+清理）')
+  assert.equal(deps.loginRuns.size, 0, '登录记录表已清空')
+  assert.equal(runRef?.state, 'timeout', 'abort 后登录 settle（timeout 分支 close+清理）')
   await Promise.race([closeCalled.promise, timeoutReject(1000, 'context 未 close')])
   assert.equal(deps.locks.isProfileLocked('acc1'), false, '无 profile lock 残留')
   const pendingLeft = existsSync(join(root, 'profiles'))

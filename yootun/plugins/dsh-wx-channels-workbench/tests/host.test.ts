@@ -27,13 +27,13 @@ import {
 
 test('action allowlist：全部 action 有 schema', () => {
   const expected = [
-    'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus', 'account.refreshLoginQr',
+    'browser.status', 'accounts.list', 'account.beginLogin', 'account.loginStatus',
     'account.probe', 'account.promote', 'account.removeLocal', 'account.removeRemote', 'collect.start',
     'collect.status', 'collect.running', 'collect.cancel', 'collectAll.start', 'collectAll.status',
     'collectAll.cancel', 'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview',
     'fans.profile.get', 'overview.accounts',
   ]
-  assert.equal(expected.length, 23)
+  assert.equal(expected.length, 22, 'mount-restore 单删除 account.refreshLoginQr：22 项')
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
 
@@ -639,4 +639,104 @@ test('overview.accounts：空参数只带 window/sort，账号与会话状态按
   // 路由 schema：日期字段 limit 10，未知字段拒绝。
   assert.equal(validateActionArgs('overview.accounts', { fromDay: '2026-11-17', toDay: '2026-11-23' }).fromDay, '2026-11-17')
   assert.throws(() => validateActionArgs('overview.accounts', { bogus: 'x' }), /unknown field/)
+})
+
+// --- L 系列：登录终态保留（mount-restore 2.3；wx 计龄沿用 startedAt） ---
+
+test('L1/L2 登录终态：30 分钟内重复读取一致；过期后清理返回 idle', async () => {
+  const root = join(tmpdir(), `wx-l12-${String(Math.random()).slice(2)}`)
+  try {
+    const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+    const deps = createWxHostDeps({
+      root,
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+    })
+    const handlers = buildRouteHandlers(deps, {
+      status: {
+        ready: true, phase: 'ready', batchId: null, items: [], total: 0, currentAccountIndex: -1,
+        currentAccountId: null, currentRunId: null, runningAccountIds: [], concurrency: 0, error: null,
+        startedAt: null, finishedAt: null, completedCount: 0, partialCount: 0, failedCount: 0,
+        skippedCount: 0, summary: null,
+      },
+      running: false,
+      start: async () => ({ started: false }),
+      stop: () => undefined,
+    }, {
+      start: () => ({ started: false, record: null, reason: 'collect_busy' }),
+      status: () => null,
+      running: () => null,
+      runningAccountIds: () => [],
+      hasRunning: () => false,
+      wait: async () => null,
+      cancel: () => false,
+    })
+    // 手工注入终态 run（startedAt = 现在）。
+    deps.loginRuns.set('k1', {
+      state: 'timeout', accountId: null, profile: null,
+      startedAt: new Date().toISOString(), updatedAt: null, reason: 'login_timeout', attemptId: 0,
+      controller: new AbortController(),
+    })
+    const first = await handlers['account.loginStatus']!({ accountId: 'k1' })
+    assert.equal(first.state, 'timeout')
+    const second = await handlers['account.loginStatus']!({ accountId: 'k1' })
+    assert.equal(second.state, 'timeout', 'L1：保留期内重复读取结果一致')
+    // 回拨 startedAt（等效时钟推进 31 分钟）：下一次读取清理 → idle（L2）。
+    const run = deps.loginRuns.get('k1') as { startedAt: string }
+    run.startedAt = new Date(Date.now() - 31 * 60 * 1000).toISOString()
+    const third = await handlers['account.loginStatus']!({ accountId: 'k1' })
+    assert.equal(third.state, 'idle', 'L2：过期终态清理后 idle')
+    assert.equal(deps.loginRuns.has('k1'), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+// --- I2：collect.status / collectAll.status 附带启动中断摘要；成功启动清空 ---
+
+test('I2 collect.status / collectAll.status 附带中断摘要；单账号采集成功启动后清空', async () => {
+  const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
+  const root = join(tmpdir(), `wx-i2-${String(Math.random()).slice(2)}`)
+  await mkdir(join(root, 'storage-state'), { recursive: true })
+  writeFile(join(root, 'storage-state', 'acc-i2.json'), '{"cookies":[]}', { mode: 0o600 })
+  await writeFile(join(root, 'accounts.json'), JSON.stringify({ accounts: { 'acc-i2': { accountId: 'acc-i2', sessionStatus: 'ok', sessionSeq: 1 } } }), { mode: 0o600 })
+  try {
+    const deps = createWxHostDeps({
+      root,
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+      chromeFactory: async () => { throw new Error('no chrome in I2') },
+    })
+    deps.startupInterruption = { count: 2, accountIds: ['a1', 'a2'] }
+    const handlers = buildRouteHandlers(deps, {
+      get status() { return { ready: true, phase: 'ready', batchId: null, items: [], total: 0, currentAccountIndex: -1, currentAccountId: null, currentRunId: null, runningAccountIds: [], concurrency: 0, error: null, startedAt: null, finishedAt: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, summary: null } as never },
+      get running() { return false },
+      start: async () => ({ started: false }),
+      stop: () => undefined,
+    }, {
+      // 采集本体假件：start 直接受理（I2 只断言摘要清空；启动链路见其他用例）。
+      start: () => ({ started: true, record: null }),
+      status: () => null,
+      running: () => null,
+      runningAccountIds: () => [],
+      hasRunning: () => false,
+      wait: async () => null,
+      cancel: () => false,
+    })
+    const status = await handlers['collect.status']!({ accountId: 'acc-i2' })
+    assert.deepEqual(status.interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collect.status 附带摘要')
+    const batchStatus = await handlers['collectAll.status']!({})
+    assert.deepEqual(batchStatus.interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collectAll.status 附带摘要')
+    // 单账号采集成功启动 → 摘要清空。
+    const started = await handlers['collect.start']!({ accountId: 'acc-i2' })
+    assert.equal(started.status, 'ok')
+    assert.equal(started.started, true)
+    assert.equal(deps.startupInterruption, null, '成功启动后摘要清空')
+    const statusAfter = await handlers['collect.status']!({ accountId: 'acc-i2' })
+    assert.equal(statusAfter.interrupted, undefined)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

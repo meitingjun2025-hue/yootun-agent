@@ -79,8 +79,11 @@ export function apply(ctx: Context, config: Config): void {
   // 迟到启动清理/runs 写盘/批量整次 run 全部纳入，dispose 统一等 settle。
   const registry = deps.taskRegistry
 
-  // 启动时标记 interrupted runs（崩溃恢复）；登记以便 dispose 等待完成。
-  registry.track(recoverInterruptedRuns(root).catch((error: unknown) => {
+  // 启动时标记 interrupted runs（崩溃恢复）；摘要进 deps 供 2.5 中断横幅，
+  // 下一次采集成功启动后置空。登记以便 dispose 等待完成。
+  registry.track(recoverInterruptedRuns(root).then((summary: { count: number; accountIds: string[] }) => {
+    if (summary.count > 0) deps.startupInterruption = { count: summary.count, accountIds: summary.accountIds }
+  }).catch((error: unknown) => {
     ctx.logger.warn('wx-workbench: runs.json recovery failed', error)
   }))
 

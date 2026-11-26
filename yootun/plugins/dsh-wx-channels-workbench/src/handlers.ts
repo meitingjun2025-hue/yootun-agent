@@ -27,6 +27,18 @@ const ACTIVE_LOGIN_STATES = new Set(['waiting_qr', 'waiting_confirm'])
 const LOGIN_TIMEOUT_MS = 5 * 60 * 1000
 const LOGIN_RECORD_TTL_MS = 30 * 60 * 1000
 
+/**
+ * 清理已过期的登录终态记录（2.3：读取时顺带清理，不依赖定时器；beginLogin 与
+ * loginStatus 入口共用）。以 startedAt 计龄（视频号既有口径）。
+ */
+function sweepLoginRuns(deps: Pick<WxHostDeps, 'loginRuns'>, nowMs: number): void {
+  for (const [runKey, entry] of deps.loginRuns) {
+    if (!ACTIVE_LOGIN_STATES.has(entry.state) && nowMs - Date.parse(entry.startedAt || '0') > LOGIN_RECORD_TTL_MS) {
+      deps.loginRuns.delete(runKey)
+    }
+  }
+}
+
 interface LoginRun {
   state: 'waiting_qr' | 'waiting_confirm' | 'ok' | 'timeout' | 'failed'
   accountId: string | null
@@ -52,6 +64,8 @@ export interface WxHostDeps {
   locks: ProfileLocks
   /** dispose 开始后 route handler 稳定拒绝新 action（稳定码 plugin_disposing）。 */
   disposing: boolean
+  /** 启动时的中断摘要（2.5 横幅数据源；下一次采集成功启动后置空）。 */
+  startupInterruption: { count: number; accountIds: string[] } | null
   /** 卸载预算毫秒（Config.disposeBudgetMs 透传；dispose 收口用）。 */
   disposeBudgetMs: number
   /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
@@ -90,6 +104,7 @@ export function createWxHostDeps(options: {
     chromeFactory: options.chromeFactory,
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
     locks: createProfileLocks(),
+    startupInterruption: null,
     disposing: false,
     disposeBudgetMs: options.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS,
     browserCloseTimeoutMs: options.browserCloseTimeoutMs ?? DEFAULT_BROWSER_CLOSE_TIMEOUT_MS,
@@ -169,6 +184,18 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     }],
     'run.get': args => ['workbench_wx_collect_run_get', { runId: asString(args, 'runId') }],
   }
+  /** 2.5 中断摘要：ok 载荷附带启动中断摘要（空摘要时原样返回）。 */
+  const withInterrupted = (handler: (args: ActionArgs) => Promise<HandlerPayload>): (args: ActionArgs) => Promise<HandlerPayload> => async args => {
+    const payload = await handler(args)
+    if (payload.status !== 'ok' || deps.startupInterruption === null) return payload
+    return { ...payload, interrupted: deps.startupInterruption }
+  }
+
+  /** 采集成功启动后清空启动中断摘要（2.5）。 */
+  const clearStartupInterruption = (): void => {
+    if (deps.startupInterruption !== null) deps.startupInterruption = null
+  }
+
   const runPassthrough = async (action: string, args: ActionArgs): Promise<HandlerPayload> => {
     const build = workbenchActions[action]
     // handler 表只由 route 按 ACTION_SCHEMAS 分发命中，此分支不可达；保持
@@ -245,12 +272,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         return { status: 'ok', loginKey: key, state: existing.state }
       }
       if (existing !== undefined) deps.loginRuns.delete(key)
-      const nowMs = Date.now()
-      for (const [runKey, entry] of deps.loginRuns) {
-        if (!ACTIVE_LOGIN_STATES.has(entry.state) && nowMs - Date.parse(entry.startedAt || '0') > LOGIN_RECORD_TTL_MS) {
-          deps.loginRuns.delete(runKey)
-        }
-      }
+      sweepLoginRuns(deps, Date.now())
       const attemptId = 0
       const controller = new AbortController()
       const run: LoginRun = {
@@ -329,67 +351,13 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     },
 
     'account.loginStatus': async args => {
+      sweepLoginRuns(deps, Date.now())
       const run = deps.loginRuns.get(asString(args, 'accountId'))
       if (run === undefined) return { status: 'ok', state: 'idle' }
       return {
         status: 'ok', state: run.state, accountId: run.accountId, profile: run.profile,
         reason: run.reason, startedAt: run.startedAt, updatedAt: run.updatedAt,
       }
-    },
-
-    'account.refreshLoginQr': async args => {
-      const accountId = asString(args, 'accountId')
-      const run = deps.loginRuns.get(accountId)
-      if (run === undefined || run.state === 'ok') {
-        return { status: 'error', reason: 'refresh_not_allowed', state: run?.state ?? 'idle' }
-      }
-      // abort 旧流程（loginWithQrCode 信号关窗+停轮询+清临时 profile，P2-12）。
-      const oldController = deps.loginSignals.get(accountId)
-      oldController?.abort()
-      run.attemptId += 1
-      run.state = 'waiting_qr'
-      run.reason = null
-      run.updatedAt = new Date().toISOString()
-      const attemptId = run.attemptId
-      const controller = new AbortController()
-      run.controller = controller
-      deps.loginSignals.set(accountId, controller)
-      deps.taskRegistry.track(loginWithQrCode({
-        accountId, root: deps.root, timeoutMs: LOGIN_TIMEOUT_MS,
-        locks: deps.locks,
-        signal: controller.signal,
-        chromeFactory: deps.chromeFactory,
-        launchTimeoutMs: deps.launchTimeoutMs,
-        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
-        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
-        trackCleanup: promise => { deps.taskRegistry.track(promise) },
-        onPage: async () => {
-          if (run.attemptId !== attemptId) return
-          run.state = 'waiting_confirm'
-          run.updatedAt = new Date().toISOString()
-        },
-      }).then(result => {
-        if (run.attemptId !== attemptId) return
-        run.updatedAt = new Date().toISOString()
-        if (result.status === 'ok') {
-          run.state = 'ok'
-          run.accountId = result.accountId
-          run.profile = { nickname: result.profile?.nickname ?? null, avatar: result.profile?.avatar ?? null, feedsCount: result.profile?.feedsCount ?? null }
-        } else if (result.status === 'timeout') {
-          run.state = 'timeout'
-          run.reason = 'login_timeout'
-        } else {
-          run.state = 'failed'
-          run.reason = result.reason || 'login_failed'
-        }
-      }).catch((error: unknown) => {
-        if (run.attemptId !== attemptId) return
-        run.state = 'failed'
-        run.reason = safeCode(error) === 'WX_TOOL_UNAVAILABLE' ? 'login_aborted' : safeCode(error)
-      }).finally(() => {
-        if (deps.loginSignals.get(accountId) === controller) deps.loginSignals.delete(accountId)
-      }))
-      return { status: 'ok', loginKey: accountId, state: run.state }
     },
 
     'account.probe': async args => {
@@ -476,10 +444,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         beforeLaunch: () => (deps.disposing ? 'plugin_disposing' : null),
       })
       if (!started.started) return { status: 'ok', started: false, reason: started.reason ?? 'collect_failed' }
+      clearStartupInterruption()
       return { status: 'ok', started: true }
     },
 
-    'collect.status': async args => {
+    'collect.status': withInterrupted(async args => {
       // 合并内存实时态与持久化态：lastRun 是 runs.json 中最近启动的一条完整
       // 记录——进程重启后内存记录为空，lastRun 提供上次 run 的终态投影
       // （attemptId/runId/status/finishedAt/error）。读失败（如 runs.json 语义
@@ -505,7 +474,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         lastRun,
         ...(reason !== null ? { reason } : {}),
       }
-    },
+    }),
 
     'collect.running': async () => ({
       status: 'ok',
@@ -538,10 +507,11 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
         deps.batchReserved = false
       }
       if (!started.started) return { status: 'ok', started: false, reason: started.reason }
+      clearStartupInterruption()
       return { status: 'ok', started: true, batchId: started.batchId, accounts: started.accounts, batch: batch.status }
     },
 
-    'collectAll.status': async () => ({ status: 'ok', ...batch.status }),
+    'collectAll.status': withInterrupted(async () => ({ status: 'ok', ...batch.status })),
 
     'collectAll.cancel': async () => {
       batch.stop()

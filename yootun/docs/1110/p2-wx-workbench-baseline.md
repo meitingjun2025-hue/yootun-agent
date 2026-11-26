@@ -12,7 +12,7 @@
 | accounts.list | 本地 accounts.json ∪ 远端 account_list 合并投影；远端失败独立降级（remoteOk=false） | 远端改经 workbench `workbench_wx_account_list` |
 | account.beginLogin | loginRuns 状态机（waiting_qr/waiting_confirm/ok/timeout/failed）；终态 TTL 30min；成功后 account_save + session_status_report（先 save 后翻 ok） | 同语义；save/report 改经 workbench |
 | account.loginStatus | loginRuns 投影（idle/状态/资料/reason） | 同 |
-| account.refreshLoginQr | attemptId 代次守卫；关旧上下文防旧回写（P2-12） | 同 |
+| account.refreshLoginQr | attemptId 代次守卫；关旧上下文防旧回写（P2-12） | **2026-11-27 删除**（[1126/features/mount-restore-and-login-alignment.md](../1126/features/mount-restore-and-login-alignment.md) 2.4：页面无调用方、成功分支缺远端建号；Host action 23 → 22 项）。同单：登录终态记录保留改为 30 分钟 + 读取时顺带清理（与旧「终态 TTL 30min」口径对齐），`disposeHostTasks` 清空登录记录表 |
 | account.probe | refreshSessionState 实测 + session_status_report；白名单投影（不回显 seq/vaultRef） | 同 |
 | account.promote | pending- 账号提升（探活后改名迁移 profile/storage_state） | 同 |
 | account.removeLocal | 本地凭证与 profile 清理 | 同 |

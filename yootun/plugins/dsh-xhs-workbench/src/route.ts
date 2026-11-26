@@ -43,7 +43,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.probe': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.removeLocal': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collect.start': { fields: { accountId: 'string', idempotencyKey: 'string' }, limits: { accountId: 128, idempotencyKey: 128 } },
-  'collect.status': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
+  'collect.status': { fields: { collectId: 'string', accountId: 'string' }, limits: { collectId: 128, accountId: 128 } },
   'collect.cancel': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
   'task.create': {
     fields: {

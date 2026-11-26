@@ -38,7 +38,6 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'accounts.list': { fields: {} },
   'account.beginLogin': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.loginStatus': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
-  'account.refreshLoginQr': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.probe': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.promote': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.removeLocal': { fields: { accountId: 'string' }, limits: { accountId: 128 } },

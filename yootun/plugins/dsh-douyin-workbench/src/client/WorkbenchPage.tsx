@@ -27,12 +27,10 @@ import { hostAction } from './api.ts'
 import { DEFAULT_WORK_SORT, reasonText, type Translate, type WorkSortState } from './format.ts'
 import css from './workbench.module.css'
 import { zh as douyinZh } from './locales.ts'
-import {
-  readAccounts, readBatchStatus, readBrowserState, readCollectRunning, readCollectStatus, readLogin,
+import { readAccounts, readBatchStatus, readBrowserState, readCollectRunning, readCollectStatus, readLogin,
   readWorkDetail, readWorksPage, readWorkTrend, type AccountRow, type BatchView,
   type CollectView, type HotWorkRow, type WorkDetailView, type WorkRow, type WorksPage,
-  type WorksSummary,
-} from './schema.ts'
+  type WorksSummary, readInterrupted, type InterruptedView } from './schema.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { AnalysisPage, attemptId } from './AnalysisPage.tsx'
 import { BreakdownPage } from './BreakdownPage.tsx'
@@ -136,6 +134,10 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const batchInitiatedRef = useRef(false)
   // 挂载恢复一次性标记（账号列表就绪、选中账号确定时触发）。
   const collectRestoreDoneRef = useRef(false)
+  // 2.5 中断横幅：Host 启动中断摘要（collect.status / collectAll.status 出参）+
+  // 本页面会话内的关闭标记（不持久化；下一次成功启动采集后随 Host 摘要清空）。
+  const [interrupted, setInterrupted] = useState<InterruptedView | null>(null)
+  const [bannerDismissed, setBannerDismissed] = useState(false)
   const worksSeqRef = useRef(0)
   const worksCacheRef = useRef(new Map<string, WorksPage>())
   const worksRowsRef = useRef<{ accountId: string; rows: WorkRow[] }>({ accountId: '', rows: [] })
@@ -341,13 +343,14 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     const tick = (): void => {
       void hostAction('collect.status', { accountId }).then(statusRes => {
         const statusView = readCollectStatus(statusRes)
+        if (statusView.interrupted !== null) setInterrupted(statusView.interrupted)
         if (statusView.collect === null) {
           // 宿主重启/插件重载丢 collectRecord：清乐观 running 态避免永不清除。
+          // 中断的提示由横幅承载（2.5），此处不再弹 toast。
           stopCollectPolling()
           setCollectBusy(false)
           setCollectRecord(null)
-          if (statusView.recovery === 'recovery_required') notify(t('run.interrupted'))
-          else notify(t('works.collectLost'))
+          if (statusView.recovery !== 'recovery_required') notify(t('works.collectLost'))
           return
         }
         setCollectRecord(statusView.collect)
@@ -380,6 +383,9 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         return
       }
       setCollectRecord(view.collect)
+      // 成功启动：Host 已清启动中断摘要，页面横幅随之收起。
+      setInterrupted(null)
+      setBannerDismissed(false)
       beginCollectPolling(accountId)
     }).catch(error => {
       stopCollectPolling()
@@ -400,6 +406,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     stopBatchPolling()
     const tick = (): void => {
       void hostAction('collectAll.status', {}).then(batchRes => {
+        const interruptedView = readInterrupted(batchRes)
+        if (interruptedView !== null) setInterrupted(interruptedView)
         const next = readBatchStatus(batchRes)
         setBatch(next)
         if (next.status !== null && next.status !== 'running') {
@@ -422,6 +430,8 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
       // resolve 即已启动：Host 失败走 error envelope（hostAction 抛出，入 catch）。
       batchStartInFlightRef.current = false
       setBatch(readBatchStatus(res))
+      setInterrupted(null)
+      setBannerDismissed(false)
       beginBatchPolling()
     }).catch(error => {
       batchStartInFlightRef.current = false
@@ -454,10 +464,10 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
     void hostAction('collect.status', { accountId }).then(res => {
       if (collectInitiatedRef.current) return
       const view = readCollectStatus(res)
+      if (view.interrupted !== null) setInterrupted(view.interrupted)
       const recovered = view.collect
       if (recovered === null) {
-        // G-2：重启后内存丢失且无法安全对账 → 提示中断，不进入运行态。
-        if (view.recovery === 'recovery_required') notify(t('run.interrupted'))
+        // G-2：重启后内存丢失且无法安全对账 → 中断由横幅承载（2.5），不进运行态。
         return
       }
       if (recovered.status === 'running') {
@@ -788,6 +798,47 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                   onNotice={notify}
                 />
                 <section className={css.worksPanel} aria-label={t('tab.works')}>
+                  {bannerDismissed === false && interrupted !== null && batchBusy === false && (
+                    <div className={css.interruptedBanner} role="status">
+                      <span className={css.interruptedText}>
+                        {interrupted.count >= 2 ? t('run.interruptedBanner', { count: interrupted.count }) : t('run.interruptedBannerOne')}
+                      </span>
+                      <span className={css.interruptedActions}>
+                        {selectedAccountId !== null && interrupted.accountIds.includes(selectedAccountId) && (
+                          <button
+                            type="button"
+                            className={css.interruptedButton}
+                            onClick={() => {
+                              setBannerDismissed(true)
+                              startCollect(selectedAccountId)
+                            }}
+                          >
+                            {t('run.recollect')}
+                          </button>
+                        )}
+                        {interrupted.count >= 2 && (
+                          <button
+                            type="button"
+                            className={css.interruptedButton}
+                            onClick={() => {
+                              setBannerDismissed(true)
+                              startBatch()
+                            }}
+                          >
+                            {t('run.recollectAll')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={css.interruptedClose}
+                          aria-label={t('run.dismissBanner')}
+                          onClick={() => { setBannerDismissed(true) }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    </div>
+                  )}
                   <WorksPanel
                     t={t}
                     localeTag={localeTag}

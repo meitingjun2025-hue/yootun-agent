@@ -12,6 +12,7 @@ import { test } from 'node:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ACTION_SCHEMAS, MAX_BODY_BYTES, createRouteHandler, permitted, validateActionArgs } from '../src/route.ts'
 import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, XhsError, safeCode } from '../src/errors.ts'
+import { disposeHostTasks } from '../src/lifecycle.ts'
 import { buildRouteHandlers, createXhsHostDeps, type XhsHostDeps } from '../src/handlers.ts'
 import { writeAccounts } from '../src/state.ts'
 import { Config } from '../src/index.ts'
@@ -254,6 +255,67 @@ test('accounts.list：本地投影排序、头像白名单、快照摘要', asyn
   await rm(root, { recursive: true, force: true })
 })
 
+// --- L 系列：登录终态记录保留（mount-restore 2.3） ---
+
+test('L2 超过 30 分钟的登录终态记录在下一次读取时被清理，返回 idle', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  state.cookies = sessionCookie()
+  state.profileJson = userInfoPayload('real-l2', null, null)
+  const handlers = buildRouteHandlers(deps)
+  const begin = await handlers['account.beginLogin']!({}) as Record<string, unknown>
+  const waiting = begin.login as Record<string, unknown>
+  await deps.taskRegistry.awaitSettled()
+  // 回拨 settledAt 到 31 分钟前（等效时钟推进）。
+  const run = deps.loginRuns.get(String(waiting.loginId))
+  assert.ok(run !== undefined)
+  run.settledAt = Date.now() - 31 * 60 * 1000
+  if (run.accountId !== null && run.accountId !== run.key) {
+    const mapped = deps.loginRuns.get(run.accountId)
+    if (mapped !== undefined) mapped.settledAt = run.settledAt
+  }
+  const status = await handlers['account.loginStatus']!({ loginId: String(waiting.loginId) }) as Record<string, unknown>
+  assert.equal((status.login as Record<string, unknown>).status, 'idle', '过期终态被清理 → idle')
+  assert.equal(deps.loginRuns.size, 0, '过期记录的键全部清理')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('L3 dispose 后登录记录表为空', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  state.cookies = sessionCookie()
+  state.profileJson = userInfoPayload('real-l3', null, null)
+  const handlers = buildRouteHandlers(deps)
+  const begin = await handlers['account.beginLogin']!({}) as Record<string, unknown>
+  assert.equal(begin.status, 'ready')
+  await deps.taskRegistry.awaitSettled()
+  assert.ok(deps.loginRuns.size > 0)
+  await disposeHostTasks({ deps }, { disposeBudgetMs: 5000 })
+  assert.equal(deps.loginRuns.size, 0, '登录记录表随卸载清空')
+  await rm(root, { recursive: true, force: true })
+})
+
+test('L4 pending 键与 resolvedId 指向同一条记录时同时清理', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  state.cookies = sessionCookie()
+  state.profileJson = userInfoPayload('real-l4', null, null)
+  const handlers = buildRouteHandlers(deps)
+  const begin = await handlers['account.beginLogin']!({}) as Record<string, unknown>
+  const waiting = begin.login as Record<string, unknown>
+  await deps.taskRegistry.awaitSettled()
+  const run = deps.loginRuns.get(String(waiting.loginId))
+  assert.ok(run !== undefined)
+  assert.ok(run.accountId !== null && run.accountId !== run.key, 'pending 键与 resolvedId 双映射存在')
+  // 回拨后清理：两个键同时消失。
+  run.settledAt = Date.now() - 31 * 60 * 1000
+  const status = await handlers['account.loginStatus']!({ accountId: 'real-l4' }) as Record<string, unknown>
+  assert.equal((status.login as Record<string, unknown>).status, 'idle')
+  assert.equal(deps.loginRuns.has(String(waiting.loginId)), false, 'pending 键清理')
+  assert.equal(deps.loginRuns.has('real-l4'), false, 'resolvedId 键清理')
+  await rm(root, { recursive: true, force: true })
+})
+
 test('account.beginLogin：扫码成功落账号（pending → resolved 迁移），资料缺失落 unknown', async () => {
   const root = await tempRoot()
   const { deps, state } = await testDeps(root)
@@ -270,9 +332,10 @@ test('account.beginLogin：扫码成功落账号（pending → resolved 迁移�
   assert.equal(login.status, 'ok')
   assert.equal(login.accountId, 'real-id')
   assert.equal(login.nickname, '昵称甲')
-  // 终态读取一次后清理：再次查询为 idle。
+  // 2.3 终态保留 30 分钟：保留期内重复读取结果一致（不再读完即删）。
   const again = await handlers['account.loginStatus']!({ loginId: 'real-id' }) as Record<string, unknown>
-  assert.equal((again.login as Record<string, unknown>).status, 'idle')
+  assert.equal((again.login as Record<string, unknown>).status, 'ok')
+  assert.equal((again.login as Record<string, unknown>).accountId, 'real-id')
   // 账号记录 ok + storage_state 备份落盘。
   const record = JSON.parse(await readFile(join(root, 'accounts.json'), 'utf8')) as { accounts: Record<string, { sessionStatus: string }> }
   assert.equal(record.accounts['real-id'].sessionStatus, 'ok')
@@ -451,6 +514,106 @@ test('collect.start：单页采集完成、快照落盘、摘要聚合', async (
   // 采集完成回写 lastCollectedAt。
   const accounts = await readFile(join(root, 'accounts.json'), 'utf8')
   assert.ok(accounts.includes('"lastCollectedAt"'))
+  await rm(root, { recursive: true, force: true })
+})
+
+// --- X 系列：collect.status 按账号查询、终态保留与清理（mount-restore 2.1/2.2） ---
+
+test('X1 按账号查询：运行中返回该 run；只有终态且在保留期内返回终态 run；无则 collect null', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps) as Record<string, (args: Record<string, string>) => Promise<Record<string, unknown>>>
+  // 先完成一次采集：账号索引指向已完成的终态 run。
+  state.postedResponses.push(postedPage([{ id: 'n-x1', display_title: '一', view_count: 1, likes: 0, collected_count: 0, comments_count: 0, shared_count: 0, visible_time: 1700000000, type: 'video', images_list: [] }], 1))
+  state.postedResponses.push(postedPage([], null))
+  const started = await handlers['collect.start']!({ accountId: 'acc-x1', idempotencyKey: 'k-x1' })
+  assert.equal(started.status, 'started')
+  await deps.taskRegistry.awaitSettled()
+  const byAccount = await handlers['collect.status']!({ accountId: 'acc-x1' })
+  assert.equal(byAccount.status, 'ready')
+  const collect = byAccount.collect as Record<string, unknown>
+  assert.notEqual(collect, null, '保留期内的终态 run 按账号返回')
+  assert.equal(collect.collectStatus, 'completed')
+  // 无记录账号 → collect: null。
+  const missing = await handlers['collect.status']!({ accountId: 'acc-none' })
+  assert.equal(missing.collect, null)
+  await rm(root, { recursive: true, force: true })
+})
+
+test('X2 两者都缺 → collect_id_required；同时给且不一致 → 以 collectId 为准', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps) as Record<string, (args: Record<string, string>) => Promise<Record<string, unknown>>>
+  const missing = await handlers['collect.status']!({})
+  assert.equal(missing.status, 'error')
+  assert.equal(missing.reason, 'collect_id_required')
+  state.postedResponses.push(postedPage([], null))
+  const started = await handlers['collect.start']!({ accountId: 'acc-x2', idempotencyKey: 'k-x2' })
+  const collectId = String(started.collectId)
+  const both = await handlers['collect.status']!({ collectId, accountId: 'acc-other' })
+  assert.equal(both.status, 'ready')
+  assert.notEqual(both.collect, null, '以 collectId 为准')
+  await deps.taskRegistry.awaitSettled()
+  await rm(root, { recursive: true, force: true })
+})
+
+test('X3 终态 run 30 分钟后在下一次 collect.start / collect.status 被清理；运行中的不清理', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps) as Record<string, (args: Record<string, string>) => Promise<Record<string, unknown>>>
+  state.postedResponses.push(postedPage([], null))
+  const started = await handlers['collect.start']!({ accountId: 'acc-x3', idempotencyKey: 'k-x3' })
+  const collectId = String(started.collectId)
+  await deps.taskRegistry.awaitSettled()
+  // 回拨 settledAt（等效时钟推进 31 分钟）。
+  const run = deps.collectRuns.get(collectId)
+  assert.ok(run !== undefined)
+  run.settledAt = Date.now() - 31 * 60 * 1000
+  // collect.status 入口触发清理。
+  const status = await handlers['collect.status']!({ accountId: 'acc-x3' })
+  assert.equal(status.collect, null, '过期终态 run 已清理')
+  assert.equal(deps.collectRuns.has(collectId), false)
+  assert.equal(deps.collectIdempotency.has('k-x3'), false, '幂等映射同步清理')
+  assert.equal(deps.collectLatestByAccount.has('acc-x3'), false, '账号索引同步清理')
+  // 运行中的不清理：再造一个 run（sweep 后幂等映射已清，用新键）。
+  state.postedResponses.push(postedPage([], null))
+  const running = await handlers['collect.start']!({ accountId: 'acc-x3', idempotencyKey: 'k-x3b' })
+  const runningId = String(running.collectId)
+  assert.equal(deps.collectRuns.get(runningId)?.status, 'running')
+  await deps.taskRegistry.awaitSettled()
+  await rm(root, { recursive: true, force: true })
+})
+
+test('X4 同一账号先后两次采集，按账号查询返回后一次', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps) as Record<string, (args: Record<string, string>) => Promise<Record<string, unknown>>>
+  state.postedResponses.push(postedPage([], null))
+  const first = await handlers['collect.start']!({ accountId: 'acc-x4', idempotencyKey: 'k-x4a' })
+  await deps.taskRegistry.awaitSettled()
+  state.postedResponses.push(postedPage([], null))
+  const second = await handlers['collect.start']!({ accountId: 'acc-x4', idempotencyKey: 'k-x4b' })
+  await deps.taskRegistry.awaitSettled()
+  const byAccount = await handlers['collect.status']!({ accountId: 'acc-x4' })
+  const collect = byAccount.collect as Record<string, unknown> | null
+  assert.notEqual(collect, null)
+  assert.equal(collect?.collectId, String(second.collectId), '索引指向后一次 run')
+  assert.notEqual(String(first.collectId), String(second.collectId))
+  await rm(root, { recursive: true, force: true })
+})
+
+test('X5 dispose 后 collectRuns / collectIdempotency / 账号索引为空', async () => {
+  const root = await tempRoot()
+  const { deps, state } = await testDeps(root)
+  const handlers = buildRouteHandlers(deps) as Record<string, (args: Record<string, string>) => Promise<Record<string, unknown>>>
+  state.postedResponses.push(postedPage([], null))
+  await handlers['collect.start']!({ accountId: 'acc-x5', idempotencyKey: 'k-x5' })
+  await deps.taskRegistry.awaitSettled()
+  assert.ok(deps.collectRuns.size > 0)
+  await disposeHostTasks({ deps }, { disposeBudgetMs: 5000 })
+  assert.equal(deps.collectRuns.size, 0)
+  assert.equal(deps.collectIdempotency.size, 0)
+  assert.equal(deps.collectLatestByAccount.size, 0)
   await rm(root, { recursive: true, force: true })
 })
 

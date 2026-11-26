@@ -32,6 +32,7 @@ export async function disposeHostTasks(options: {
     disposing: boolean
     loginSignals: Map<string, AbortController>
     collectSignals: Map<string, AbortController>
+    loginRuns: Map<string, unknown>
     taskRegistry: TaskRegistry
   }
   batch: { stop(): void }
@@ -48,4 +49,6 @@ export async function disposeHostTasks(options: {
   if (outcome.exhausted) budget.warn?.(`lifecycle: dispose budget exhausted, ${outcome.pending} tasks pending`)
   deps.loginSignals.clear()
   deps.collectSignals.clear()
+  // 登录终态记录随卸载清空（2.3 卸载行）。
+  deps.loginRuns.clear()
 }

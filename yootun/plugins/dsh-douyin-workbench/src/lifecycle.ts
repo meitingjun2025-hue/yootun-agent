@@ -26,6 +26,7 @@ export async function disposeHostTasks(options: {
   deps: {
     disposing: boolean
     signals: Map<string, AbortController>
+    loginRuns: Map<string, unknown>
     taskRegistry: TaskRegistry
   }
 }, budget: {
@@ -38,4 +39,6 @@ export async function disposeHostTasks(options: {
   const outcome = await deps.taskRegistry.awaitSettled(budget.disposeBudgetMs ?? DEFAULT_DISPOSE_BUDGET_MS)
   if (outcome.exhausted) budget.warn?.(`lifecycle: dispose budget exhausted, ${outcome.pending} tasks pending`)
   deps.signals.clear()
+  // 登录终态记录随卸载清空（mount-restore 2.3 卸载行）。
+  deps.loginRuns.clear()
 }

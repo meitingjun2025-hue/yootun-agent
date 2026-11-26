@@ -1286,14 +1286,15 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
     }
   })
 
-  it('D4 recovery_required：提示 run.interrupted，不进入运行态', async () => {
+  it('D4/I3 recovery_required：横幅「上次采集被中断」出现且 toast 不弹，不进入运行态', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
       if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
       if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
       if (action === 'collect.status') {
-        return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
+        // 单账号（count=1）：挂载恢复读取 interrupted（2.5 横幅数据源）。
+        return { status: 'ready', collect: null, recovery: 'recovery_required', interrupted: { count: 1, accountIds: ['acc-1'] }, lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
       }
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
@@ -1301,11 +1302,48 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
     render(<WorkbenchPage t={t} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
-    expect(await screen.findByText(en['run.interrupted'])).not.toBeNull()
+    // 横幅出现（单账号文案），旧 toast 文案不再出现（I3）。
+    expect(await screen.findByText(en['run.interruptedBannerOne'])).not.toBeNull()
+    // 旧 toast 键已删：若回归会渲染键名回退（t 返回 en[key] ?? key），断言键名不出现。
+    expect(screen.queryByText('run.interrupted')).toBeNull()
+    // 选中账号在 accountIds 内 → 「重新采集」按钮；count<2 无「重新采集全部」。
+    expect(screen.getByRole('button', { name: en['run.recollect'] })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: en['run.recollectAll'] })).toBeNull()
     // 不进入运行态：按钮可用、无进度文案。
     expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).toBeNull()
     expect(screen.queryByRole('button', { name: en['works.collecting'] })).toBeNull()
     expect(screen.queryByText(en['works.progress.fallback'])).toBeNull()
+    // I4：点「重新采集」走账号栏「采集」同一启动路径（collect.start）。
+    fireEvent.click(screen.getByRole('button', { name: en['run.recollect'] }))
+    await vi.waitFor(() => {
+      const startCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.start')
+      expect(startCalls.length).toBeGreaterThan(0)
+      expect((startCalls[0]?.[1] as Record<string, unknown>).accountId).toBe('acc-1')
+    })
+  })
+
+  it('D4b/I4 关闭按钮：横幅隐藏且不再出现（本页面会话内），Host 摘要仍在', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') {
+        // 双账号摘要 + 「重新采集全部」入口（count >= 2 分支）。
+        return { status: 'ready', collect: null, recovery: 'recovery_required', interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] }, lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
+      }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await settleMount()
+    // count >= 2：多账号文案 + 「重新采集全部」按钮出现。
+    expect(await screen.findByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: en['run.recollectAll'] })).not.toBeNull()
+    // 点关闭：横幅消失。
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
   })
 
   it('D5 批量运行中恢复：面板与账号栏按返回值渲染，轮询继续；终态显示汇总不轮询', async () => {

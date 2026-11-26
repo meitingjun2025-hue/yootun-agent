@@ -92,9 +92,10 @@ describe('账号管理页（12 册 §4）', () => {
       if (action === 'collect.start') {
         return { status: 'started', collectId: 'col-run', collect: { collectId: 'col-run', accountId: args?.accountId, collectStatus: 'running', pagesDone: 1, notesTotal: 3, truncated: false, error: null } }
       }
-      if (action === 'collect.status') {
+      if (action === 'collect.status' && (args as Record<string, unknown> | undefined)?.collectId !== undefined) {
         return { status: 'ready', collect: { collectId: 'col-run', accountId: 'acc-a', collectStatus: 'running', pagesDone: 2, notesTotal: 4, truncated: false, error: null } }
       }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
       if (action === 'collect.cancel') {
         return { status: 'ready', collect: { collectId: 'col-run', accountId: 'acc-a', collectStatus: 'cancelled', pagesDone: 2, notesTotal: 4, truncated: false, error: 'collect_cancelled' } }
       }
@@ -189,6 +190,73 @@ describe('账号管理页（12 册 §4）', () => {
     // 阻断态下点击添加账号：不动浏览器，直接受控提示。
     fireEvent.click(screen.getByRole('button', { name: en['accounts.add'] }))
     expect((await screen.findAllByText(/System Google Chrome not found/)).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('X6 挂载恢复：Host 按账号返回 running → 进入运行态并按 collectId 轮询', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux' }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [ACCOUNT_A, ACCOUNT_B] }
+      // 挂载恢复查询（只有 accountId 无 collectId）：返回运行中的 run。
+      if (action === 'collect.status' && args?.accountId === 'acc-a') {
+        return { status: 'ready', collect: { collectId: 'col-restore', accountId: 'acc-a', collectStatus: 'running', pagesDone: 1, notesTotal: 2, truncated: false, error: null } }
+      }
+      if (action === 'collect.status' && args?.collectId === 'col-restore') {
+        return { status: 'ready', collect: { collectId: 'col-restore', accountId: 'acc-a', collectStatus: 'running', pagesDone: 2, notesTotal: 3, truncated: false, error: null } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    await renderAccounts()
+    // 恢复进入运行态：取消按钮出现（进度条随之显示）。
+    const cancelBtn = await screen.findByRole('button', { name: en['collect.cancel'] }, { timeout: 4000 })
+    expect(cancelBtn).not.toBeNull()
+    expect(screen.getByText(/Collecting… \(\d+ pages \/ \d+ notes\)/)).not.toBeNull()
+    // 轮询按恢复到的 collectId 继续（后续 collect.status 带 collectId）。
+    await waitFor(() => {
+      const polls = apiMock.hostAction.mock.calls.filter(([action, args]) => action === 'collect.status' && (args as Record<string, unknown>).collectId === 'col-restore')
+      expect(polls.length).toBeGreaterThan(0)
+    }, { timeout: 4000 })
+  })
+
+  it('X7 恢复响应到达前用户已点「采集」→ 恢复结果丢弃（machine 级代次守卫）', async () => {
+    const { createAccountsMachine } = await import('../../src/client/accounts-machine.ts')
+    let restoreReleased: (() => void) | undefined
+    let restoreCalled = false
+    const restoreGate = new Promise<{ status: string; collect: CollectState | null }>(resolve => {
+      restoreReleased = () => resolve({ status: 'ready', collect: { collectId: 'col-restore', accountId: 'acc-a', collectStatus: 'running', pagesDone: 9, notesTotal: 9, truncated: false, error: null } })
+    })
+    const accountRow = { accountId: 'acc-a', nickname: '甲', avatar: null, publishWindowOpen: false, sessionStatus: 'ok', lastCollectedAt: null, followers: 0 }
+    const machine = createAccountsMachine({
+      listAccounts: async () => ({ status: 'ready', accounts: [accountRow] }),
+      beginLogin: async () => ({ login: { status: 'waiting', loginId: 'l1' } }),
+      loginStatus: async () => ({ login: { status: 'idle' } }),
+      probe: async () => ({ status: 'ready', accountId: 'acc-a', sessionStatus: 'ok' }),
+      removeLocal: async () => ({ status: 'ready', removed: { profile: true, storageState: true } }),
+      startCollect: async () => ({ status: 'started', collectId: 'col-mine', collect: { collectId: 'col-mine', accountId: 'acc-a', collectStatus: 'running', pagesDone: 0, notesTotal: 0, truncated: false, error: null } }),
+      collectStatus: async (args: { collectId: string } | { accountId: string }) => {
+        if ('accountId' in args) {
+          // 挂载恢复查询：登记已发出后挂 gate（用户点击先发生，代次已 +1）。
+          restoreCalled = true
+          return await restoreGate
+        }
+        // 用户 run 的轮询。
+        return { status: 'ready', collect: { collectId: 'col-mine', accountId: 'acc-a', collectStatus: 'running', pagesDone: 1, notesTotal: 1, truncated: false, error: null } }
+      },
+      cancelCollect: async () => ({ status: 'ready', collect: null }),
+      browserStatus: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
+    })
+    machine.init()
+    await waitFor(() => expect(machine.get().loaded).toBe(true))
+    // 等恢复查询已发出（挂在 gate 上，尚未完成）。
+    await waitFor(() => expect(restoreCalled).toBe(true))
+    // 用户点击：代次 +1；startCollect 的结果（col-mine）进入状态。
+    await machine.startCollectFlow('acc-a')
+    expect(machine.get().collect?.collectId).toBe('col-mine')
+    // 释放挂起的恢复响应（col-restore running）：代次不匹配 → 丢弃，用户 run 保持权威。
+    restoreReleased?.()
+    await machine.tick()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(machine.get().collect?.collectId).toBe('col-mine')
+    machine.stop()
   })
 })
 

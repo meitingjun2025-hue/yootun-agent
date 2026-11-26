@@ -54,7 +54,7 @@ test('§1 startup 等待期 dispose 竞态：等待中的请求被 abort，不�
       root,
       workbenchFace: hanging.face,
       chromeFactory: fastFailChrome,
-      recovery: async () => { await gate; return 0 },
+      recovery: async () => { await gate; return { count: 0, accountIds: [] } },
     })
     const handlers = buildRouteHandlers(deps)
     // recovery gate pending 时发起 works.list。
