@@ -30,7 +30,7 @@ P0、P1 的 16 张单状态为草案：待用户审查通过后再切特性分�
 | P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | 草案 |
 | P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 待实施（进入客户端开发前需用户确认） |
 | P2 | [report-kernel-extraction.md](features/report-kernel-extraction.md) | 抖音 AI 报表的服务端机制（周期、状态机与租约、投递与对账、定时补建、重建与版本、模型调用与重试、输出校验、提示词加载）抽成平台无关内核，抖音改为「平台适配 + 调用内核」；对外行为逐字节不变 | 开发完成（自动验收通过），待合入 `dev` |
-| P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 待实施 |
+| P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 实施中 |
 | P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report`，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 待实施（进入客户端开发前需用户确认） |
 
 ## 推进顺序
@@ -45,7 +45,7 @@ P1 内部的先后：先合 [workbench-host-kit.md](features/workbench-host-kit.
 
 分支规则见 [cross-repo-sync.md §5.1](../cross-repo-sync.md#51-分支)：实施单提交在 `main`，代码走 `feat/<slug>` 特性分支，验收通过后合入。P0 与 P1 一起推进，不设发版观察期（2026-11-26 确认）；视频号并发的风控信号在发版后照常观察，`batchConcurrency: 1` 可即时回退。
 
-P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；[report-kernel-extraction.md](features/report-kernel-extraction.md) 先合入 `dev`（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 与去 PDF 单合入 `main`、且服务端已部署测试环境之后开始，动代码前先按该单 0.3 核对合入后的客户端代码，在最新代码上开发。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
+P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；先完成 [report-kernel-extraction.md](features/report-kernel-extraction.md)（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署；其特性分支从内核单的分支切出，两单一并合入 `dev`）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 与去 PDF 单合入 `main`、且服务端已部署测试环境之后开始，动代码前先按该单 0.3 核对合入后的客户端代码，在最新代码上开发。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
 
 ## 对现有功能的影响
 

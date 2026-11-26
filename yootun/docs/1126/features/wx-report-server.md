@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表服务端 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：实施中（2026-11-26 开始，特性分支 `feat/wx-report-server`） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -26,7 +26,7 @@
 
 视频号新增与抖音同构的 AI 报表：机构级日报与周报、定时生成、手动重建、历史版本。数据口径与多账号总览同源，使用视频号专属的提示词，异步任务走视频号专属队列 `tools.wx_channels_operation`。
 
-本单只做服务端。桌面端的报表页与智能体工具在 [wx-report-client.md](wx-report-client.md)。前置单是 [report-kernel-extraction.md](report-kernel-extraction.md)：本单的服务层以第二个平台适配接入内核，不复制机制代码。
+本单只做服务端。桌面端的报表页与智能体工具在 [wx-report-client.md](wx-report-client.md)。前置单是 [report-kernel-extraction.md](report-kernel-extraction.md)：本单的服务层以第二个平台适配接入内核，不复制机制代码。内核单开发完成时尚未合入 `dev`，本单的特性分支从内核单的特性分支切出，两单一并合入（2026-11-26 回填）。
 
 ## 1. 范围
 
@@ -256,7 +256,7 @@ yootun-agent：本单不改桌面端代码；`yootun/docs/1126/00-overview.md` �
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
 | 文档（本文、1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
-| tools 合入 `dev` | | `feat/wx-report-server` | 前置：[report-kernel-extraction.md](report-kernel-extraction.md) 已合入 `dev` |
+| tools 合入 `dev` | | `feat/wx-report-server` | 前置：内核单开发完成；本单分支自 `feat/report-kernel-extraction` 切出，两单一并合入 `dev` |
 | docker-helm 部署测试环境 | | | 部署后 `tools/list` 核对 8 个新工具名（旧域 3、Agent 2、Workbench 3） |
 | yootun-agent 合入 `main` | — | — | 不涉及 |
 | 发版 | | | 随 [wx-report-client.md](wx-report-client.md) 一并发版 |
