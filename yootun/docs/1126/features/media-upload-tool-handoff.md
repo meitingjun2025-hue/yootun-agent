@@ -1,6 +1,6 @@
 # media-upload-会话工具承接卡片 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -10,7 +10,7 @@
 
 ### 0.2 目标
 
-模型调用 `media_upload` 后，页面在 3 秒内弹出「上传请求」卡片；用户在卡片内用原生文件选择器选文件，字节经既有 `uploadStart` 路由回流宿主并直传，卡片显示进度，完成后工具返回公网 URL。用户可以取消，工具在 2 秒内返回 `user_cancelled`。页面自己发起的上传（小红书爆款仿写页）不触发卡片。
+模型调用 `media_upload` 后，页面在 3 秒内弹出「上传请求」卡片；用户在卡片内用原生文件选择器选文件，字节经既有 `uploadStart` 路由回流宿主并直传，卡片显示进度，完成后工具返回公网 URL。卡片标注本次请求的短编号：工具执行上下文只有工具调用标识、没有会话标识，无法标注来源会话。用户可以取消，工具在 2 秒内返回 `user_cancelled`。页面自己发起的上传（小红书爆款仿写页）不触发卡片。
 
 ## 1. 范围
 
@@ -40,7 +40,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 | 字段 | 取值 | 写入方 |
 |---|---|---|
 | `origin` | `'page'` ｜ `'tool'` | `pick-file` 写 `page`；会话工具写 `tool` |
-| `context` | 可选 `{ sessionId?: string; toolCallId?: string }` | 会话工具在 `exec` 提供这两个标识时写入；`pick-file` 会话不写 |
+| `context` | 可选 `{ sessionId?: string; toolCallId?: string }` | 会话工具在 `exec` 提供标识时写入；`pick-file` 会话不写。dsh-tools 的执行上下文目前只有 `callId`（写入 `toolCallId`），`sessionId` 恒缺省 |
 
 `context` 只保存标识，不保存任何输入内容；投影给页面时原样返回，缺失时省略键。
 
@@ -48,7 +48,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 
 | 项 | 内容 |
 |---|---|
-| 请求 | `content-type: application/json` 可省略；有体时必须是对象且不含任何字段，否则 400 `invalid_request` |
+| 请求 | `content-type: application/json` 可省略（省略时不读体）；带 content-type 时必须是 JSON（否则 415），有体时必须是对象且不含任何字段，否则 400 `invalid_request` |
 | 响应 200 | `{ sessions: Array<{ uploadId, kind, state: 'waiting' \| 'uploading', progress, createdAt, context? }> }` |
 | 过滤 | 只含 `origin === 'tool'` 且 `state ∈ { awaiting, uploading }` 的会话，按创建时间升序 |
 | 字段 | `state` 沿用 `uploadStatus` 的口径（awaiting → waiting）；`progress` 取整 0..100；不含 name / size / contentType / url / 本地路径 |
@@ -83,7 +83,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 | 键 | zh | en |
 |---|---|---|
 | `handoff.title` | 上传请求 | Upload request |
-| `handoff.fromSession` | 来自会话 {id} | From session {id} |
+| `handoff.requestRef` | 请求编号 {id} | Request {id} |
 | `handoff.hint` | 智能体需要一份文件：请在下方选择，选好后自动上传 | The assistant needs a file: pick one below and it uploads automatically |
 | `handoff.pick` | 选择文件 | Choose file |
 | `handoff.picking` | 正在上传 {progress}% | Uploading {progress}% |
@@ -126,7 +126,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 | 文档（本文 + 08 册 §6 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查；审查通过后提交 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/media-upload-tool-handoff` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/media-upload-tool-handoff`（基于 `feat/xhs-collect-cancel-and-publish-state`） | 包内 `test`（node --test 35 用例、vitest 12 用例）、`build`（含两个 bundle 校验）、小红书包 `test` / `build` 回归、`pnpm --filter '@yootun/*' run build`、仓库根 `pnpm run build`（10 门）、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -145,7 +145,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 
 | # | 步骤 | 预期 |
 |---|---|---|
-| H1 | 普通会话里让模型「上传一张本地图片并把链接给我」 | 模型调用 `media_upload` 后 ≤3 秒出现「上传请求」卡片，说明来自哪个会话 |
+| H1 | 普通会话里让模型「上传一张本地图片并把链接给我」 | 模型调用 `media_upload` 后 ≤3 秒出现「上传请求」卡片，标注本次请求的短编号（执行上下文没有会话标识，不标注来源会话） |
 | H2 | 卡片内点「选择文件」，选一张 jpg | 卡片显示上传百分比；完成后显示「已上传」并在 2 秒后收起；模型收到公网 URL 并回复 |
 | H3 | 重复 H1，卡片出现后点「取消」 | 卡片收起；模型在 2 秒内收到取消结果并告知用户 |
 | H4 | 重复 H1，选一个超出上限的文件或不在白名单的类型 | 卡片显示失败原因与「重新选择」；重新选择合法文件后成功 |
@@ -157,7 +157,16 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：联调环境、覆盖项、按联调修订的预期、留在 5.2 的未覆盖项、`exec` 上下文字段核对结果）。
+- 联调环境：本仓工作区（Linux/WSL2），分支 `feat/media-upload-tool-handoff`，Host 半以真实 Cordis 组合 + 假授权/假 TOS 驱动（`tests/media-upload.test.ts`），client 半以 jsdom + 假同源路由（全局 fetch 桩）驱动（`tests/client/handoff-card.test.tsx`）。浏览器/桌面实机联调未做，全部留在 5.2。
+- 覆盖项：附录 B.1 H1–H8、B.2 C1–C9 每条均有对应用例并通过；5.1 自动验收命令全部本地执行通过（media-upload test 35+11、build 含双校验、xhs test 15+33 与 build、`@yootun/*` build、仓库根 build、lint/typecheck/i18n/jsdoc/empty-catch/test:docs）。
+- `exec` 上下文字段核对结果：`@deepseek-ai/dsh-tools` 执行上下文（`ToolRunContext`）携带 `callId: ToolCallId`（模型调用标识），不携带 sessionId；`contextOf` 经 `typeof exec.callId === 'string'` 判定后映射为 `context.toolCallId`，`sessionId` 恒缺省（2.1 的 context 键集不变）。
+- 按实现修订的预期：
+  - `UploadSessionRegistry.settleFailed` 增加终态守卫（终态会话保留先落错误码），这是 A1「后到 abort 回调不改写终态」的落地；既有调用点行为不变（dispose/过期路径先于管线 settle）。
+  - client 半 `sendUploadBytes` 返回 `{ ok, error? }`（小红书副本为 boolean），`pollUploadStatus` 增加 `error` 透出：承接卡片需要 uploadStart 的稳定码映射失败原因（H4）；小红书副本按单不改。
+  - `verify-bundle-stylesheets.mjs` 按本包适配：本包不依赖 dsh-client-ui-kit，仅校验自身 `handoff.module.css` 的安装元数据与冻结类名（wx 版的 kit 页壳断言不适用）。
+  - A6 的「按 `--dsh-frame-*` 安全区变量留白」：frame 变量只有顶部（`--dsh-frame-top-clearance`/`--dsh-frame-overlay-top`）与前导带（`--dsh-frame-leading-clearance`），右下角无对应变量；卡片以 16px 视口边距对齐 `--dsh-frame-overlay-top` 的 20px 边距量级，宽度按单执行。
+  - `tsconfig.json` 由 Host face 切到 client base（`tsconfig.base.client.json` + node/client types），Host 半与 client 半同一程序编译——xhs/wx 双半插件同款；references 增补 locale/ui-primitives/ui-slots/ui-layout/ui-renderer。
+- 留在 5.2 的未覆盖项：H1–H9 全部真机步骤（含 GIF 录制）待用户执行。
 
 ## 附录 A：逐文件规格
 
@@ -166,7 +175,7 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 - `UploadSession` 增 `origin: 'page' | 'tool'` 与 `context?: { sessionId?: string; toolCallId?: string }`；
 - `create(kind: string, origin: 'page' | 'tool' = 'page', context?: UploadSession['context'])`；`snapshot()` 不变；
 - 新增 `pendingToolSessions(): Array<{ uploadId: string; kind: string; state: 'waiting' | 'uploading'; progress: number; createdAt: string; context?: UploadSession['context'] }>`：遍历 `sessions`，先对每个会话调用一次 `snapshot()` 触发惰性过期，再过滤 `origin === 'tool'` 且 `state ∈ { awaiting, uploading }`，按 `startedAt` 升序；`progress` 与 `uploadStatus` 同一算式；
-- 新增 `cancel(id: string): 'cancelled' | 'not_running' | 'not_found'`：不存在 → `not_found`；终态 → `not_running`；否则 `controller.abort()` 并 `settleFailed(session, 'user_cancelled')` → `cancelled`。上传管线在 catch 里读到 `user_cancelled`，按既有路径清理暂存；abort 监听里 `exec?.signal?.aborted === true ? 'user_cancelled' : 'upload_timeout'` 的分支只服务工具超时，路由取消先落终态，后到的 abort 回调被 `settle` 的幂等判定挡住；
+- 新增 `cancel(id: string): 'cancelled' | 'not_running' | 'not_found'`：不存在 → `not_found`；终态 → `not_running`；否则 `controller.abort()` 并 `settleFailed(session, 'user_cancelled')` → `cancelled`；`settleFailed` 对已终态会话保留先落的错误码（后到的管线 / 超时回调不改写）。上传管线在 catch 里读到 `user_cancelled`，按既有路径清理暂存；abort 监听里 `exec?.signal?.aborted === true ? 'user_cancelled' : 'upload_timeout'` 的分支只服务工具超时，路由取消先落终态，后到的 abort 回调被 `settle` 的幂等判定挡住；
 - `destroy()` 不变。
 
 ### A2 `src/routes.ts`
@@ -195,11 +204,11 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 
 - 状态机（每个会话一份）：`picking`（等待选文件）→ `uploading` → `done`（2 秒后移除）｜`failed`（显示原因，可「重新选择」或「关闭」）；取消后立即移除；
 - 轮询：挂载且 `document.visibilityState === 'visible'` 时每 3000ms 调 `pendingUploads()`；`visibilitychange` 时隐藏即停、可见立即拉一次；组件卸载清除定时器与在途请求的代次守卫；
-- 服务端返回的会话集合是事实源：不在 `pending` 里的本地面板条目立即移除（避免宿主已取消或过期后卡片残留）；本地已进入 `uploading` 的条目在 `pending` 仍含该 id 时保留本地进度视图；
+- 服务端返回的会话集合是事实源：不在 `pending` 里的本地面板条目立即移除（避免宿主已取消或过期后卡片残留）；本地已进入 `uploading` 的条目在 `pending` 仍含该 id 时保留本地进度视图；`pending` 请求暂态失败（非 2xx / 载荷不合法）不等于已清空，跳过对账并保留本地条目；本地已终态（done / failed）的条目不被对账移除；
 - 选文件：`<input type="file" accept={accept.join(',')}>` 隐藏，`pick` 按钮触发；选中后 `sendUploadBytes({ uploadId, file })`；接受后每 1000ms `pollUploadStatus`；`done` 不展示 URL（URL 由工具返回模型），`failed` 显示 `reason` 经词典映射；
 - 取消：`cancelUpload(uploadId)` 成功后立即移除；请求失败保留卡片并重试一次；
 - 可访问性：卡片 `role="status"` + `aria-live="polite"`；进度用文本百分比；按钮均有可见文案；不拦截 Escape（必须选择或取消）；新卡片出现不抢焦点；
-- 布局：`position: fixed` 右下角，距底边与侧栏按 `--dsh-frame-*` 安全区变量留白；宽度 `min(360px, calc(100vw - 32px))`；层叠低于官方 Modal；
+- 布局：`position: fixed` 右下角，16px 视口边距（frame 安全区变量只有顶部与前导带，右下角无对应变量）；宽度 `min(360px, calc(100vw - 32px))`；层叠低于官方 Modal；
 - 视觉：`--dsw-alias-bg-layer-2`、`--dsw-radius-panel`、`--dsw-elevation-prominent`；无字面色值；`prefers-reduced-motion` 下无入场动画。
 
 ### A7 `src/client/index.ts`
@@ -242,3 +251,4 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 | C7 | `pending` 不再包含某本地 waiting 条目 → 该条目移除 |
 | C8 | 超过 3 个待处理会话 → 显示折叠计数 |
 | C9 | 词典 zh / en 键集一致；无硬编码文案（`verify-client-ui-i18n`） |
+| C10 | `pending` 暂态失败（非 2xx / 载荷不合法）不等于服务端已清空：本地条目保留，服务端明确返回空集合才移除 |
