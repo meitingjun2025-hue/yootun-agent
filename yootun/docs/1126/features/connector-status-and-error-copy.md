@@ -1,6 +1,6 @@
 # infra-workbench-连接器状态分类与错误码文案闭环 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -53,11 +53,11 @@ MCP 工具：无。
 
 ### 2.2 `tools/list` 刷新
 
-`callTool` 在域门通过、`connection.toolNames.has(name)` 为 false 时：若该连接距上次刷新 ≥ 60 秒，则对 `connection.client` 调一次 `listTools`（带本次调用剩余的超时预算），成功则就地更新 `toolNames` 后重新判定；刷新失败按 2.1 投影；60 秒内已刷新过的，直接返回 `workbench_tool_unavailable`。
+`callTool` 在域门通过、`connection.toolNames.has(name)` 为 false 时：若该连接距上次刷新 ≥ 60 秒，则对 `connection.client` 调一次 `listTools`（带本次调用剩余的超时预算），成功则就地更新 `toolNames` 后重新判定；刷新失败按 2.1 投影；60 秒内已刷新过的，直接返回 `workbench_tool_unavailable`。并发的未广播调用共享同一次刷新（单飞）；共享刷新以首发调用方的取消或超时收尾时，未取消的后到调用方以自己的剩余预算重试且仅重试一次，其余投影所有等待者原样共享。
 
 ### 2.3 失效后的重连
 
-`workbench_unauthorized` 与 `workbench_protocol_error`（404 / 410）发生后调用一次 `invalidate()`，使下一次调用重新连接（服务端为无状态 Streamable HTTP，重连无副作用）；写操作不自动重试。
+`workbench_unauthorized` 与 `workbench_protocol_error`（404 / 410）发生后调用一次 `invalidate()`，使下一次调用重新连接（服务端为无状态 Streamable HTTP，重连无副作用）；写操作不自动重试。刷新（`tools/list`）在途时连接被失效或插件卸载，本次调用以 `workbench_unavailable` 结束、不盖 `refreshedAt`、不发 `tools/call`（与 `open()` 的在途失效口径一致）。
 
 ### 2.4 Host 投影
 
@@ -98,7 +98,7 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 
 ### 2.7 文案回退格式
 
-三插件统一：有映射 → 本地化文案；无映射（只可能是 Host 未登记的新码，运行时防御）→ `error.unknownWithCode`（「未知错误（{code}）」）。抖音的 `domainErrorText(domain, code)` 改为：`code` 为空 → `domain.error.default`；否则走统一映射（不再按域分表）。
+三插件统一：有映射 → 本地化文案；无映射（只可能是 Host 未登记的新码，运行时防御）→ `error.unknownWithCode`（「未知错误（{code}）」）。抖音的 `domainErrorText(domain, code)` 改为：`code` 为空 → `domain.error.default`；词典已有 `${domain}.error.${code}` 分域文案 → 用它（保持各域页面既有措辞，多个分域对同一码措辞不同的约 10 个码靠这一级恢复各自文案）；否则走统一映射；仍未登记 → `error.unknownWithCode`。统一映射仍是 `Record<StableErrorCode, …>` 穷尽表（编译期保证不能丢码），多域措辞不同的码在其中取中性措辞、只服务不带域的展示路径（如 toast 走的 `reasonText`）。
 
 ## 3. 影响面
 
@@ -112,7 +112,7 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 | yootun-agent | `yootun/plugins/dsh-douyin-workbench/src/{errors,client/locales}.ts`、`src/client/{api,format,locales}.ts`、`tests/*` | 登记新码、文案、统一映射、`hostAction` 替换 | 是 | 抖音消费面 |
 | yootun-agent | `yootun/plugins/dsh-wx-channels-workbench/src/{errors,client/locales}.ts`、`src/client/{api,format,locales}.ts`、`tests/*` | 同上 | 是 | 视频号消费面 |
 | yootun-agent | `yootun/plugins/dsh-xhs-workbench/src/{errors,client/locales}.ts`、`src/client/{api,format,locales}.ts`、`tests/*` | 同上 | 是 | 小红书消费面 |
-| yootun-agent | `yootun/plugins/dsh-media-upload/src/errors.ts` | `workbench_unauthorized` → `uploader_not_configured` 的映射补齐（现只识别 `workbench_not_activated` / `workbench_tool_denied`） | 是 | 授权失败的原因要准确 |
+| yootun-agent | `yootun/plugins/dsh-media-upload/src/authorize.ts`、`tests/media-upload.test.ts` | `authorizeUpload` 的 catch 识别 `workbench_unauthorized`（与 `workbench_not_activated` / `workbench_tool_denied` 同映射 `uploader_not_configured`）；`workbench_server_error` 落既有 `storage_unavailable`；`src/errors.ts` 只映射服务端业务码，不动 | 是 | 授权失败的原因要准确 |
 | yootun-agent | `yootun/docs/1110/08-plugin-mcp.md` §5.2 | 稳定码表与刷新语义 | 是 | 分册是桌面接入契约记录 |
 | yootun-agent | `yootun/docs/1126/00-overview.md` | 索引行状态随第 4 节回填 | 是 | 目录索引 |
 
@@ -123,7 +123,7 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 | 文档（本文 + 08 册 §5.2 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/connector-status-and-error-copy` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/connector-status-and-error-copy`（基于 `feat/douyin-batch-candidates-live-probe`） | 包内 `test`（workbench-mcp node --test 32 用例；kit vitest 80 用例；抖音 node --test 18 文件、vitest 149 用例；视频号 node --test 5 文件、vitest 99 用例；小红书 node --test 6 文件、vitest 30 用例；media-upload node --test 27 用例）、六个包 `build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -150,7 +150,15 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：SDK 错误类导出核对、假 server 的 401/500/新增工具刷新用例、编译期穷尽检查验证）。
+SDK 错误类导出核对（`@modelcontextprotocol/client` 2.2.0，按 node_modules 实际类型声明与运行时代码核对）：`UnauthorizedError`（运行时置 `this.name = 'UnauthorizedError'`；401 且无 auth provider 时由 Streamable HTTP transport 抛出）与 `SdkHttpError extends SdkError`（运行时置 `this.name = 'SdkHttpError'`；POST 非 2xx 统一抛出，`get status(): number` 读取 `data.status` 即响应的真实 HTTP 状态码；带 auth provider 重试后的 401 也抛 `SdkHttpError(status: 401)`）。两类错误经 SDK 内部 `markAuthSeamEscape` 时保持对象同一性，`name` 不变，故 `classifyTransportError` 按 `name` + 数字 `status` 判定成立：401/403 → unauthorized、≥500/408/429 → server_error、其余数字状态 → protocol_error、其它（连接被拒、DNS、SDK 内部超时等）→ network_error，不解析 message。
+
+假 server 用例（fixture 增加原始 HTTP 状态故障注入与运行中新增广播工具两个形态）：401/403 → `workbench_unauthorized`，payload 为空、message 不含响应体（K1）；500/503/429 → `workbench_server_error`（K2）；404 → `workbench_protocol_error`，随后下一次调用重新 initialize（以请求计数增量 ≥2 判定重连，K3）；服务端新增工具后，满窗调用先发 `tools/list` 再发 `tools/call` 并成功（K4）；60 秒窗口内第二次未广播调用零请求（K5，经服务构造器注入的可控时钟前拨验证）；连接被拒 → `workbench_network_error` 与既有超时/取消/业务错误/serverName 不匹配用例全部保持通过（K6/K7）。
+
+编译期穷尽检查：三插件 `STABLE_ERROR_CODES` 原以 `Object.freeze([...])` 直接派生类型，数组字面量在泛型推断中放宽为 `string[]`，`StableErrorCode` 实为 `string`，`Record<StableErrorCode, LocaleKey>` 不构成穷尽；已改为 `as const` 值元组加 `Object.freeze([...值元组])` 导出（运行时值不变），`StableErrorCode` 成为真实字面量联合。验证方式：抖音删除 `WORK_NOT_FOUND`、视频号删除 `WORK_NOT_FOUND`、小红书删除 `TASK_NOT_FOUND` 各一处映射键后，各自 `tsc -p tsconfig.json --noEmit` 均以 TS2741/TS1360 失败（exit 2），恢复后通过。类型收紧连带的运行时收敛点两处：抖音 `handlers.ts` 的 `collect.start`（控制器宽字符串 reason 经 `isStableCode` 守卫，未登记值收敛 `collect_busy`）、小红书 `handlers.ts` 的 `account.probe`（经既有 `stableOr` 守卫，未登记值收敛 `PROBE_FAILED`）。
+
+验收返工（2026-11-26 第二轮）：2.3 失效规则补齐刷新路径——`callTool` 的 `tools/list` 刷新与调用共用同一失效判定，刷新遇 401 / 403 / 404 / 410 同样 `invalidate()`（新用例 K8：未广播触发刷新、刷新 401 → `workbench_unauthorized`，下一次调用重新握手）；刷新并发单飞——同一连接已有刷新在途时后到调用共享同一次 `tools/list`（新用例 K9：假 server 对请求注入延迟，两个并发未广播调用只产生一次刷新请求；fixture 增加全请求延迟注入形态）；`refreshedAt` 改为只由缓存服务层盖章（连接时置 0，`open()` 与每次成功刷新后写入，接口 JSDoc 同步）。抖音 `domainErrorText` 按 2.7 修订口径分域优先（K5 用例同时修正为真实建立连接后满窗触发一次刷新），素材页对 `ASYNC_RUN_NOT_FOUND` / `PROVIDER_ERROR` / `ONEAPI_BUDGET_EXHAUSTED` / `DOUYIN_TOOL_UNAVAILABLE` 恢复本域措辞，统一表新增中性键 `reason.ASYNC_RUN_NOT_FOUND`；会话状态上报链路五条文案（`stale_report` / `session_report_rejected` / `already_ok` / `remote_account_unavailable` / `profile_unverified`）按 `reportSessionStatus` / `reportSessionOkAfterCollect` 实际触发场景改写（zh / en 成对）。码集合去重：抖音 `LOCAL_ERROR_CODES` 不再二次展开连接器码（运行时码集不变），视频号 `STABLE_ERROR_CODES` 对服务端与本域同码的 `LOCAL_CLEARED_REQUIRED` 去重，三插件各加「`STABLE_ERROR_CODES` 与 `LOCAL_ERROR_CODES` 无重复元素」断言。
+
+健壮性返工（2026-11-26 第三轮）：单飞刷新的后到调用方不再继承首发调用方的取消与超时——此前 `refreshToolNames` 让后到者直接返回在途 Promise，悬挂刷新被首发调用方取消时未取消的后到者同样得到 `workbench_call_cancelled`；现在后到者在共享刷新以取消 / 超时收尾且自身未取消时，以自己的剩余预算（传入预算减去加入后经过的墙钟，`client.ts` 无时钟注入缝、以 `Date.now()` 计量）重试且仅重试一次，传输层投影仍由所有等待者原样共享（新用例 K10：首发取消后 A 得 `workbench_call_cancelled`、B 以 `workbench_tool_unavailable` 收尾，两次 `tools/list`、零次 `tools/call`；SDK 对被中止的在途请求按协议补发一条 `notifications/cancelled` POST，请求计数按 3 断言）。`callTool` 第 4 步刷新在途未做失效自检——悬挂刷新期间 `dispose` 或凭证更新会让调用方得到误导性的 `workbench_network_error`，成功分支还会给已失效连接盖 `refreshedAt` 并在关闭的连接上继续 `tools/call`；现在刷新返回后与 catch 入口都先判 `stopped` / 连接同一世代，不成立即抛 `workbench_unavailable`（与 `open()` 在途失效同口径），不盖 `refreshedAt`、不发 `tools/call`、不走失效重连判定（新用例 K11：卸载与凭证更新两个子场景各断言 `workbench_unavailable` 且零新增 `tools/call`，凭证更新后下一次调用以请求计数增量 ≥ 2 重新握手）。
 
 ## 附录 A：逐文件规格
 
@@ -181,7 +189,7 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 ### A5 三插件 `src/client/format.ts` 与 `locales.ts`
 
 - 视频号、小红书：`REASON_KEYS: Readonly<Record<StableErrorCode, LocaleKey>> = { ... } satisfies Readonly<Record<StableErrorCode, LocaleKey>>`（类型从 `../errors.ts` 以 `import type` 引入）；词典为每个码提供 `reason.<CODE>`（zh / en 成对）；
-- 抖音：新增 `REASON_KEYS: Readonly<Record<StableErrorCode, DouyinLocaleKey>>`；`domainErrorText` 改为 `code === null → domain.error.default`，否则 `t(REASON_KEYS[code])`；
+- 抖音：新增 `REASON_KEYS: Readonly<Record<StableErrorCode, DouyinLocaleKey>>`；`domainErrorText` 改为 `code === null/'' → domain.error.default`，词典已有 `${domain}.error.${code}` → 用它，否则 `t(REASON_KEYS[code])`，仍未登记 → `error.unknownWithCode`（2.7 修订口径）；
 - 回退：映射表类型穷尽后运行时不可能缺键；仍保留 `error.unknownWithCode` 作为防御分支（`REASON_KEYS[code] ?? t('error.unknownWithCode', { code })`）；
 - 文案口径（三插件一致）：`UNAUTHORIZED` / `workbench_unauthorized` → 「密钥无权限或已失效，请到设置重新激活」；`workbench_server_error` → 「服务暂时不可用，请稍后重试」；`host_unreachable` → 「无法连接本地服务，请重启应用」；`LOCAL_CLEARED_REQUIRED` → 「请先清除本地登录信息，再删除远端账号」；`IDEMPOTENCY_IN_PROGRESS` → 「上一次操作仍在处理，请稍后查询结果」；`IDEMPOTENCY_OUTCOME_UNKNOWN` → 「无法确认上一次操作的结果，请刷新后核对，不要重复提交」；`IDEMPOTENCY_CONFLICT` → 「操作与上一次提交的内容不一致，请刷新后重试」。
 
@@ -191,7 +199,7 @@ export function createHostAction(path: string, options?: HostActionOptions): (ac
 - `index.ts` 导出 `createHostAction`、`HostActionError`、`HostActionError` 类型、`HostResponse`；
 - kit 无 Host 依赖，保持纯 client 库。
 
-### A7 `dsh-media-upload/src/errors.ts` 与 `authorize.ts`
+### A7 `dsh-media-upload/src/authorize.ts`
 
 - `authorizeUpload` 的 catch：`workbench_unauthorized` 与 `workbench_not_activated`、`workbench_tool_denied` 同样映射为 `uploader_not_configured`；`workbench_server_error` 与网络错误同映射为 `storage_unavailable`。
 
