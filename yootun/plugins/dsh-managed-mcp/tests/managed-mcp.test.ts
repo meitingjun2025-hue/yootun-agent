@@ -16,6 +16,7 @@ import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
 import { McpClientHost } from '@deepseek-ai/dsh-mcp-client'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
 import * as ManagedMcp from '../src/index.ts'
+import { createAgentStatusRouteHandler, permitted } from '../src/status-route.ts'
 import { classifyAgentTool, AGENT_TOOL_NAMES } from '../src/guard.ts'
 import { ACCESS_CREDENTIAL_REF } from '../src/constants.ts'
 import { startAgentFixture, type AgentFixture } from './fixture-agent-server.ts'
@@ -108,6 +109,101 @@ async function shutdown(booted: Booted): Promise<void> {
   booted.restoreEnv()
   await booted.ctx.fiber.dispose()
   await booted.fixture.close().catch(() => undefined)
+}
+
+/** 自愈 / 快照用例的组合环境：真实服务 + 直接构造的监督器（注入测试缝）。 */
+interface SupervisorBooted {
+  ctx: Context
+  fixture: AgentFixture
+  supervisor: ManagedMcp.AgentSupervisor
+  registeredNames(): string[]
+  setKey(value: string | undefined): void
+  emitCredentialUpdate(): void
+  restoreEnv(): void
+}
+
+interface SupervisorBootOptions {
+  /** 预建 fixture（可先 setMode 控制请求行为）；缺省新建 healthy fixture。 */
+  fixture?: AgentFixture | undefined
+  /** `yootun-access` namespace 的 settings 值；缺省为已激活快照。 */
+  access?: Record<string, unknown> | undefined
+  /** MODELS_API_KEY 解析值。 */
+  keyValue?: string | undefined
+  /** 自愈退避基值毫秒。 */
+  rebuildBackoffMs: number
+  /** 退避抖动随机源注入（定值 → 延迟无抖动）。 */
+  random?: (() => number) | undefined
+  /** 官方重连策略覆盖（测试缝：小预算加速 `failed`）。 */
+  reconnect?: ManagedMcp.SupervisorOptions['reconnect']
+}
+
+/**
+ * Boot the services the supervisor's child needs, then create the supervisor
+ * directly with the injected seams so tests hold its snapshot handle.
+ */
+async function bootSupervisor(options: SupervisorBootOptions): Promise<SupervisorBooted> {
+  const fixture = options.fixture ?? await startAgentFixture()
+  const previousUrl = process.env.YOOTUN_AGENT_MCP_URL
+  process.env.YOOTUN_AGENT_MCP_URL = fixture.url
+  const ctx = new Context()
+  let accessValue: Record<string, unknown> = options.access ?? ACTIVATED_SNAPSHOT
+  let keyValue: string | undefined = options.keyValue ?? 'test-model-key'
+  ctx.reflect.provide('settings', {
+    describe: () => [{ ns: ManagedMcp.ACCESS_NAMESPACE, value: accessValue }],
+  })
+  ctx.reflect.provide('credentials', {
+    resolve: async () => keyValue === undefined ? undefined : { source: 'test' as const, value: keyValue },
+  })
+  try {
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
+    const supervisor = ManagedMcp.createSupervisor(ctx, {
+      rebuildBackoffMs: options.rebuildBackoffMs,
+      ...(options.random !== undefined ? { random: options.random } : {}),
+      ...(options.reconnect !== undefined ? { reconnect: options.reconnect } : {}),
+    })
+    supervisor.reevaluate('test boot')
+    const registeredNames = (): string[] =>
+      (ctx.tools.schemas() as Array<{ name: string }>).map(schema => schema.name)
+    return {
+      ctx,
+      fixture,
+      supervisor,
+      registeredNames,
+      setKey(value) { keyValue = value },
+      emitCredentialUpdate() { ctx.emit('credentials/reference-updated', credentialRef(ACCESS_CREDENTIAL_REF) as CredentialRef) },
+      restoreEnv() { process.env.YOOTUN_AGENT_MCP_URL = previousUrl },
+    }
+  } catch (error: unknown) {
+    process.env.YOOTUN_AGENT_MCP_URL = previousUrl
+    await fixture.close()
+    await ctx.fiber.dispose()
+    throw error
+  }
+}
+
+async function shutdownSupervisor(booted: SupervisorBooted): Promise<void> {
+  booted.restoreEnv()
+  await booted.supervisor.dispose()
+  await booted.ctx.fiber.dispose()
+  await booted.fixture.close().catch(() => undefined)
+}
+
+/** 自愈用例的重连覆盖：官方 client 一次失败即 `failed`，加速状态机收敛。 */
+const FAST_FAILED_RECONNECT = { enabled: true, initialDelayMs: 20, maxDelayMs: 100, maxAttempts: 1 } as const
+
+/** 状态路由的响应替身（结构面，无 cast）：记录状态码与响应体。 */
+class FakeStatusResponse implements ManagedMcp.StatusRouteResponse {
+  code = 0
+  body = ''
+
+  get statusCode(): number { return this.code }
+  set statusCode(value: number) { this.code = value }
+
+  setHeader(): void {}
+
+  end(body?: string | undefined): void { this.body = body ?? '' }
 }
 
 test('已分类 Agent 工具无重复、全有归类，Catalog 与 Workbench 名不归类', () => {
@@ -362,6 +458,199 @@ test('guard 对 serverName 大小写变体同样拒绝', async () => {
     assert.equal(batch.results.length, 2)
     for (const outcome of batch.results) assert.equal(outcome.result.isError, true, '大小写变体仍被拒绝')
     assert.equal(booted.fixture.toolCalls.length, 0, '变体调用不到达 Agent 面')
+  } finally {
+    await shutdown(booted)
+  }
+})
+
+test('S1：门禁通过后挂载，快照 connecting → connected，count 为登记工具数', async () => {
+  const fixture = await startAgentFixture()
+  fixture.setMode('hold')
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000 })
+  try {
+    await waitFor(() => booted.supervisor.snapshot().state === 'connecting', 'connecting while the fixture holds')
+    assert.equal(booted.supervisor.snapshot().attempt, 0)
+    fixture.setMode('healthy')
+    fixture.release()
+    await waitFor(() => booted.supervisor.snapshot().state === 'connected', 'connected after release')
+    const snap = booted.supervisor.snapshot()
+    assert.equal(snap.count, AGENT_TOOL_NAMES.length, 'count 取官方登记的工具数')
+    assert.equal(snap.attempt, 0)
+    assert.equal(Number.isNaN(Date.parse(snap.since)), false, 'since 为可解析的 ISO 8601')
+    assert.equal(snap.retryAt, undefined, 'connected 无 retryAt')
+  } finally {
+    await shutdownSupervisor(booted)
+  }
+})
+
+test('S2：failed 后无事件按退避自愈重建，第二次失败延迟约为两倍', async () => {
+  const fixture = await startAgentFixture()
+  fixture.setMode('reject')
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  try {
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'first failure exhausts the official attempt budget')
+    assert.equal(Number.isNaN(Date.parse(booted.supervisor.snapshot().retryAt ?? 'invalid')), false, 'failed 期间快照带排定的 retryAt')
+    const firstFailedAt = Date.now()
+    const attemptsAfterFirstFailure = booted.fixture.authorization.length
+    // 无任何门禁事件：第一次自愈重建的挂载请求 + 新一轮 failed。
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterFirstFailure, 'second failure follows the first self-heal rebuild')
+    const secondFailedAt = Date.now()
+    const firstDelay = secondFailedAt - firstFailedAt
+    assert.ok(firstDelay >= 850, `第一次自愈延迟 ${String(firstDelay)}ms 达到基值量级`)
+    assert.ok(firstDelay <= 1800, `第一次自愈延迟 ${String(firstDelay)}ms 在基值窗内`)
+
+    const attemptsAfterSecondFailure = booted.fixture.authorization.length
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterSecondFailure, 'third failure follows the doubled-backoff rebuild')
+    const thirdFailedAt = Date.now()
+    const secondDelay = thirdFailedAt - secondFailedAt
+    assert.ok(secondDelay >= 1700, `第二次自愈延迟 ${String(secondDelay)}ms 达到两倍量级`)
+    assert.ok(secondDelay <= 2900, `第二次自愈延迟 ${String(secondDelay)}ms 在两倍窗内`)
+    assert.ok(secondDelay > firstDelay, '第二次延迟严格大于第一次（退避倍增）')
+  } finally {
+    await shutdownSupervisor(booted)
+  }
+})
+
+test('S3：connected 后退避复位，下一次失败回到基值', async () => {
+  const fixture = await startAgentFixture()
+  fixture.setMode('reject')
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  try {
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'first failure (backoff at base)')
+    fixture.setMode('healthy')
+    await waitFor(() => booted.supervisor.snapshot().state === 'connected', 'self-heal rebuild connects')
+    // connected 复位退避（触发时翻倍的值回到基值）。用凭证重建制造下一次失败：
+    // 该既有路径不触碰退避，失败后的退避值只反映 connected 的复位。
+    fixture.setMode('reject')
+    booted.setKey('rotated-model-key')
+    booted.emitCredentialUpdate()
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'failure #2 after the credential rebuild')
+    const failedAt = Date.now()
+    const attemptsAfterSecondFailure = booted.fixture.authorization.length
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterSecondFailure, 'self-heal rebuild from the reset backoff')
+    const delay = Date.now() - failedAt
+    assert.ok(delay >= 850, `复位后延迟 ${String(delay)}ms 达到基值量级`)
+    assert.ok(delay <= 1800, `复位后延迟 ${String(delay)}ms 是基值而非翻倍值`)
+  } finally {
+    await shutdownSupervisor(booted)
+  }
+})
+
+test('S4：dispose 清除待触发的重建，不再 mount', async () => {
+  const fixture = await startAgentFixture()
+  fixture.setMode('reject')
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  try {
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'failure schedules the rebuild')
+    await booted.supervisor.dispose()
+    const attemptsAtDispose = fixture.authorization.length
+    fixture.setMode('healthy')
+    await new Promise(resolve => setTimeout(resolve, 1400))
+    assert.equal(fixture.authorization.length, attemptsAtDispose, 'dispose 后原定的重建不再发生（无新连接尝试）')
+    assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0, 'dispose 后无 yootun 工具')
+  } finally {
+    await shutdownSupervisor(booted)
+  }
+})
+
+test('S5：未激活时快照 disabled、attempt 0、零连接', async () => {
+  const booted = await bootSupervisor({ access: { setupComplete: false, validationVersion: Number(VALIDATION_VERSION) }, rebuildBackoffMs: 1000 })
+  try {
+    await new Promise(resolve => setTimeout(resolve, 200))
+    const snap = booted.supervisor.snapshot()
+    assert.equal(snap.state, 'disabled')
+    assert.equal(snap.attempt, 0)
+    assert.equal(snap.count, 0)
+    assert.equal(snap.retryAt, undefined)
+    assert.equal(booted.fixture.authorization.length, 0, 'disabled 零网络')
+    assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0)
+  } finally {
+    await shutdownSupervisor(booted)
+  }
+})
+
+test('S6：状态路由 POST 快照、405/403/503 与空体契约', async () => {
+  let snapshot: ManagedMcp.AgentFaceSnapshot = { state: 'connected', attempt: 0, since: '2026-11-26T00:00:00.000Z', count: 3 }
+  let disposing = false
+  const handler = createAgentStatusRouteHandler(() => 'http://127.0.0.1:1', { snapshot: () => snapshot }, () => disposing)
+
+  const request = (overrides: { method?: string | undefined; remote?: string | undefined; headers?: Record<string, string> | undefined; body?: string | undefined } = {}): ManagedMcp.StatusRouteRequest => {
+    const method = overrides.method ?? 'POST'
+    const remote = overrides.remote ?? '127.0.0.1'
+    const headers = overrides.headers ?? {}
+    const body = overrides.body ?? ''
+    async function* iterate(): AsyncGenerator<Buffer> {
+      if (body.length > 0) yield Buffer.from(body)
+    }
+    return { method, socket: { remoteAddress: remote }, headers, [Symbol.asyncIterator]: iterate }
+  }
+
+  // POST 无体（Desktop 转发剥双头形态）→ 200 快照，字段恰为契约集合。
+  const ok = new FakeStatusResponse()
+  await handler(request(), ok)
+  assert.equal(ok.code, 200)
+  const payload = JSON.parse(ok.body) as Record<string, unknown>
+  assert.deepEqual(Object.keys(payload).sort(), ['attempt', 'count', 'since', 'state', 'status'])
+  assert.equal(payload.status, 'ok')
+  assert.equal(payload.state, 'connected')
+  assert.equal(payload.count, 3)
+
+  // 显式空对象体同样 200；failed 快照带 retryAt。
+  snapshot = { state: 'failed', attempt: 4, since: '2026-11-26T00:00:30.000Z', count: 0, retryAt: '2026-11-26T00:01:00.000Z' }
+  const emptyBody = new FakeStatusResponse()
+  await handler(request({ body: '{}' }), emptyBody)
+  assert.equal(emptyBody.code, 200)
+  const failedPayload = JSON.parse(emptyBody.body) as Record<string, unknown>
+  assert.deepEqual(Object.keys(failedPayload).sort(), ['attempt', 'count', 'retryAt', 'since', 'state', 'status'])
+
+  // 非 POST → 405。
+  const notPost = new FakeStatusResponse()
+  await handler(request({ method: 'GET' }), notPost)
+  assert.equal(notPost.code, 405)
+
+  // 信任判定：异源 Origin、显式 cross-site、非 loopback → 403（同源 Origin + loopback 已由上文覆盖）。
+  for (const untrusted of [
+    request({ headers: { origin: 'https://evil.example' } }),
+    request({ headers: { origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'cross-site' } }),
+    request({ remote: '10.0.0.1' }),
+  ]) {
+    const denied = new FakeStatusResponse()
+    await handler(untrusted, denied)
+    assert.equal(denied.code, 403)
+  }
+
+  // 卸载中 → 503 plugin_disposing（先于体校验，理由固定）。
+  disposing = true
+  const disposingRes = new FakeStatusResponse()
+  await handler(request({ body: '{"key":"x"}' }), disposingRes)
+  assert.equal(disposingRes.code, 503)
+  assert.equal((JSON.parse(disposingRes.body) as Record<string, unknown>).reason, 'plugin_disposing')
+  disposing = false
+
+  // 体契约：非空对象、非法 JSON、超限体 → 400。
+  for (const invalid of [
+    request({ body: '{"key":"x"}' }),
+    request({ body: 'not-json' }),
+    request({ body: `"${'a'.repeat(70 * 1024)}"` }),
+  ]) {
+    const rejected = new FakeStatusResponse()
+    await handler(invalid, rejected)
+    assert.equal(rejected.code, 400)
+  }
+
+  // permitted 直测：loopback 形态全放行，标记语义与视频号路由对齐。
+  assert.equal(permitted(request(), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(request({ headers: { origin: 'http://127.0.0.1:1', 'sec-fetch-site': 'same-origin' } }), 'http://127.0.0.1:1'), true)
+  assert.equal(permitted(request({ headers: { origin: 'null' } }), 'http://127.0.0.1:1'), false)
+  assert.equal(permitted(request({ remote: '::1' }), 'http://127.0.0.1:1'), true)
+})
+
+test('S6：无 webServer 时不注册状态路由且插件照常加载', async () => {
+  const booted = await boot()
+  try {
+    assert.equal(booted.ctx.get('webServer'), undefined, '组合未提供 webServer')
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered without a webServer')
+    assert.equal(booted.fixture.authorization.length > 0, true, '监督器挂载不受影响')
   } finally {
     await shutdown(booted)
   }

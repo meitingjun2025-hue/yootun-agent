@@ -17,6 +17,9 @@ export const ACCESS_CREDENTIAL_REF = 'MODELS_API_KEY'
 export const ACCESS_VALIDATE_PATH = '/api/desktop/dofe/validate'
 export const ACCESS_MODELS_PATH = '/api/desktop/dofe/models'
 
+/** 智能体工具状态路由（host 半 managed-mcp 只读快照，client 设置区块轮询）。 */
+export const ACCESS_AGENT_STATUS_PATH = '/api/desktop/yootun/agent-status'
+
 /** 表单请求共享的有界超时（毫秒）。 */
 export const REQUEST_TIMEOUT_MS = 30_000
 

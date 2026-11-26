@@ -116,7 +116,11 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填。
+官方 `McpConnectionStatusHandle` 核对（`packages/mcp/mcp-client/src/status.ts`，2026-11-26）：`current(): McpConnectionStatus`、`closure(): McpCloseResult`、`onChange(callback): () => void`（回调同步按发布顺序执行、单回调异常被容器化）。状态机（`types.ts`）取值：`closed` / `waiting-credentials` / `waiting-authorization` / `connecting`（带 `attempt`，首次为 0）/ `connected`（带 `toolCount` 与 `connectedAt`）/ `reconnecting`（带 `attempt` / `maxAttempts` / `nextRetryAtMs`）/ `failed`（`reason: 'gave-up' | 'reconnect-disabled' | 'unclosed-generation'`）。状态单元初值 `{ state: 'connecting', attempt: 0 }`。
+
+与附录 A1 的两处出入（按官方事实实施）：官方 `connected` 事件自带 `toolCount`（实时工具代登记数），监督器无需在 `ready` 后主动 `listTools`，`count` 直接取自该事件；官方 `failed` 不携带 `attempt`，快照保留耗尽前的最后一次计数。官方重连默认策略核对（`connection.ts` `RECONNECT_DEFAULTS`）：enabled、500ms 起倍增、30s 封顶、10 次，耗尽约 8.5 分钟——自愈只需覆盖 `failed` 终态。`reconnecting`（官方自动重连预算内）对外投影为 `connecting`；`waiting-authorization` 与 `closed` 在本组合不可达，分别保守投影为 `waiting-credentials` 与 `connecting`。
+
+本地验证（`feat/agent-face-self-heal`）：`pnpm --filter @yootun/dsh-managed-mcp test` 20/20 通过（含附录 B S1–S6，S7 为既有回归用例），`pnpm --filter @yootun/dsh-client-ui-access test` 9/9 通过（含 U1–U3）；两包 `build`（tsc + tsdown + 运行时 bundle 门）通过。自愈用例以注入缝驱动：`rebuildBackoffMs=1000` + 定值随机源（抖动因子恰为 1.0）+ 官方重连覆盖 `maxAttempts: 1`（测试缝，产品组合不设置），经 fixture 的 reject 模式连续失败循环测得延迟 ≈1000ms → ≈2000ms（倍增）与 connected 复位后 ≈1000ms。状态路由以结构化 req/res 替身直测（405 / 403 / 503 / 400 / 200 与字段集合）。
 
 ## 附录 A：逐文件规格
 

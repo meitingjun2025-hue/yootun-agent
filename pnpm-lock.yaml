@@ -20982,6 +20982,9 @@ importers:
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:../../../packages/mcp/mcp-client
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       '@yootun/dsh-client-ui-access':
         specifier: workspace:*
         version: link:../../packages/dsh-client-ui-access
@@ -20995,6 +20998,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:*
         version: link:../../../packages/credentials/credentials
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:*
+        version: link:../../../packages/host/webserver
       '@deepseek-ai/dsh-settings':
         specifier: workspace:*
         version: link:../../../packages/settings/settings

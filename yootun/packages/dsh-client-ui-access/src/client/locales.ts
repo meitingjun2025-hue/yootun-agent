@@ -41,6 +41,13 @@ export const zh = {
   modelError: '无法获取模型列表，请检查 Key 与模型服务',
   saveError: '保存失败，请检查配置后重试',
   removeError: '移除失败，请稍后重试',
+  'agent.title': '智能体工具',
+  'agent.connected': '已连接，共 {count} 个工具可用',
+  'agent.connecting': '正在连接（第 {attempt} 次）',
+  'agent.failed': '连接失败，{seconds} 秒后自动重试',
+  'agent.disabled': '未激活，激活后可用',
+  'agent.waitingCredentials': '等待密钥',
+  'agent.notLoaded': '未加载，请重启应用',
 } as const
 
 export type AccessLocaleKey = keyof typeof zh
@@ -76,6 +83,13 @@ export const en: Record<AccessLocaleKey, string> = {
   modelError: 'Could not load models; check the key and the model service',
   saveError: 'Could not save the configuration',
   removeError: 'Could not remove the key',
+  'agent.title': 'Agent tools',
+  'agent.connected': 'Connected, {count} tools available',
+  'agent.connecting': 'Connecting (attempt {attempt})',
+  'agent.failed': 'Connection failed, retrying in {seconds}s',
+  'agent.disabled': 'Not activated; available after activation',
+  'agent.waitingCredentials': 'Waiting for the key',
+  'agent.notLoaded': 'Not loaded, restart the app',
 }
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

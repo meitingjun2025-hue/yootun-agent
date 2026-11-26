@@ -4,7 +4,7 @@
  * 生成常量（yootun/brand/brand.json），这里只 re-export，不复制第二套定义。
  * @module
  */
-import { ACCESS_CREDENTIAL_REF as GATEWAY_CREDENTIAL_REF, ACCESS_NAMESPACE as GATEWAY_ACCESS_NAMESPACE, TENANT } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
+import { ACCESS_AGENT_STATUS_PATH as GATEWAY_AGENT_STATUS_PATH, ACCESS_CREDENTIAL_REF as GATEWAY_CREDENTIAL_REF, ACCESS_NAMESPACE as GATEWAY_ACCESS_NAMESPACE, TENANT } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
 
 /** Agent 面 serverName（与 Tools 服务端 domain 同名，无版本号）。 */
 export const AGENT_SERVER_NAME = 'yootun-agent'
@@ -27,6 +27,9 @@ export const ACCESS_NAMESPACE = GATEWAY_ACCESS_NAMESPACE
 
 /** 公司头：网关按租户路由（与 llm provider 的 X-Company-Code 同值）。 */
 export const TENANT_CODE = TENANT
+
+/** Agent 面状态路由路径（设置页「智能体工具」轮询；单一来源同生成常量）。 */
+export const STATUS_PATH = GATEWAY_AGENT_STATUS_PATH
 
 /** dsh-mcp-client 公共工具名前缀：`mcp__<serverName>__<rawName>`。 */
 export const MCP_TOOL_PREFIX = 'mcp__'

@@ -204,6 +204,12 @@
   overflow-wrap: anywhere;
 }
 
+.agentState {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @keyframes modalEnter {
   from { opacity: 0; }
   to { opacity: 1; }
