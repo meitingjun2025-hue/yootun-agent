@@ -1,6 +1,6 @@
 # douyin-workbench-采集全部候选实测 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -63,7 +63,7 @@ MCP 工具：无。
 | 文档（本文 + 15 册 §11 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/douyin-batch-candidates-live-probe` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/douyin-batch-candidates-live-probe`（自 `main` 切出） | 包内 `test`（node --test 18 文件 215 用例、vitest 151 用例）、`build`、`pnpm run lint` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
