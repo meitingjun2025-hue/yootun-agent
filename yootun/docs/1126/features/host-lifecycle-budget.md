@@ -1,12 +1,12 @@
 # workbench-Host 生命周期时间预算 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
 ### 0.1 现状
 
-三工作台 Host 的卸载收口（`src/lifecycle.ts` `disposeHostTasks`）按「拒绝新请求 → abort 全部信号 → `awaitSettled()` 等全部登记任务结束」执行，`awaitSettled()` 是一个无上限的 `while (pending.size > 0)` 循环。登记任务里包含浏览器相关 promise：三插件共 28 处 `context.close()`，全部无超时。Chrome 进程挂起时 `close()` 永不返回，profile 锁随 `finally` 永不释放，插件卸载与应用退出被拖死，该账号之后的登录 / 探测 / 采集全部返回 `collect_busy` 或 `PROFILE_BUSY`，直到重启电脑。
+三工作台 Host 的卸载收口（`src/lifecycle.ts` `disposeHostTasks`）按「拒绝新请求 → abort 全部信号 → `awaitSettled()` 等全部登记任务结束」执行，`awaitSettled()` 是一个无上限的 `while (pending.size > 0)` 循环。登记任务里包含浏览器相关 promise：三插件共 26 处 `context.close()`，全部无超时。Chrome 进程挂起时 `close()` 永不返回，profile 锁随 `finally` 永不释放，插件卸载与应用退出被拖死，该账号之后的登录 / 探测 / 采集全部返回 `collect_busy` 或 `PROFILE_BUSY`，直到重启电脑。
 
 小红书的发布是另一处：`publish.start` 用 `void publishDraft(...)` 启动，promise 没有登记到任务表，dispose 不等它；Chrome 启动若挂起，profile 锁被占住且无人释放。
 
@@ -20,7 +20,7 @@
 
 - 三插件 Config 新增 `disposeBudgetMs`（缺省 20000，1000..120000）与 `browserCloseTimeoutMs`（缺省 8000，1000..60000）；
 - `createTaskRegistry({ now })` 的 `awaitSettled(budgetMs)`：超时后记录剩余任务数与类型并 resolve（调用方决定是否继续）；
-- 各插件新增 `closeContext(context, timeoutMs, logger)`：`close()` 与超时赛跑，超时后告警并 resolve；28 处 `context.close()` 全部改用它；
+- 各插件新增 `closeContext(context, timeoutMs, logger)`：`close()` 与超时赛跑，超时后告警并 resolve；26 处 `context.close()` 全部改用它；
 - 小红书 `publish.start` 的 promise 登记；`publishDraft` 的 Chrome 启动加超时（`launchTimeoutMs`，缺省 60000）；
 - 抖音 / 视频号采集与探测路径上的启动同样走带超时的启动封装（复用 `launchTimeoutMs`）。
 
@@ -48,7 +48,7 @@ MCP 工具：无。
 
 | 场景 | 现状 | 变更 |
 |---|---|---|
-| 插件卸载时某任务挂起 | 永不完成 | 等待 `disposeBudgetMs` 后记录 `lifecycle: dispose budget exhausted, N tasks pending (types)` 并完成卸载；被 abort 的任务若随后结束，其 finally（含锁释放）照常执行 |
+| 插件卸载时某任务挂起 | 永不完成 | 等待 `disposeBudgetMs` 后记录 `lifecycle: dispose budget exhausted, N tasks pending` 并完成卸载；被 abort 的任务若随后结束，其 finally（含锁释放）照常执行 |
 | `context.close()` 挂起 | 永不返回，锁不释放 | 等待 `browserCloseTimeoutMs` 后记录 `browser close timed out (<accountId 摘要>)` 并继续执行 finally 的其余部分（锁释放） |
 | 小红书发布启动中卸载 | 不等待 | 等待（在预算内）；Chrome 启动超过 `launchTimeoutMs` → `PublishError('PUBLISH_FAILED', 'launch timeout')`，锁释放 |
 | 采集 / 探测启动超过 `launchTimeoutMs` | 跟随 Playwright 默认（30 秒）抛错 | 按配置超时，稳定码 `PLAYWRIGHT_DRIVER_MISSING` 之外新增 `browser_launch_timeout` |
@@ -75,7 +75,7 @@ MCP 工具：无。
 | docker-helm.dofe.ai | — | 无 | 否 | 无路由变化 |
 | yootun-agent | `yootun/plugins/dsh-{wx-channels,douyin,xhs}-workbench/src/lifecycle.ts` | `awaitSettled(budgetMs)`；`createTaskRegistry({ now })` 测试接缝 | 是 | 预算执行点 |
 | yootun-agent | 三插件 `src/chrome.ts`（视频号、抖音、小红书各一份） | `closeContext`、`launchWithTimeout` 封装 | 是 | 浏览器生命周期单一来源 |
-| yootun-agent | 三插件 `src/{runner,session,probe,collector,publisher}.ts` 中 28 处 `context.close()` 与启动调用 | 改用封装 | 是 | 本单主体 |
+| yootun-agent | 三插件 `src/{runner,session,probe,collector,publisher}.ts` 中 26 处 `context.close()` 与启动调用 | 改用封装 | 是 | 本单主体 |
 | yootun-agent | 三插件 `src/index.ts` | Config 三个字段与透传 | 是 | 可调参数必须是 Config 字段 |
 | yootun-agent | 三插件 `src/errors.ts`、`src/client/locales.ts` | `browser_launch_timeout` 与文案 | 是 | 稳定码与 locale-owned 文案 |
 | yootun-agent | 小红书 `src/handlers.ts` `publish.start` | promise 登记；`publishDraft` 启动超时 | 是 | 发布生命周期 |
@@ -90,7 +90,7 @@ MCP 工具：无。
 | 文档（本文 + 08 册 §12.4 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/host-lifecycle-budget` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/host-lifecycle-budget`（基于 `feat/wx-collect-all-concurrency`） | 三插件包内 `test`（抖音 node --test 19 文件 223 用例、vitest 149 用例；视频号 node --test 8 文件 107 用例、vitest 103 用例；小红书 node --test 7 文件 117 用例、vitest 30 用例）、`build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，5.1 的 close grep 输出为空，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -115,7 +115,14 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填。
+2026-11-26（分支 `feat/host-lifecycle-budget`，本机 Linux/WSL2，无真机 Chrome；全部测试经注入 fake factory）：
+
+- 三插件 `pnpm --filter <pkg> test` 通过：douyin（19 个 `node --test` 文件含新增 lifecycle-budget 6 例 + vitest 149 例）、wx（8 个 `node --test` 文件含 lifecycle-budget 6 例 + vitest 103 例）、xhs（7 个 `node --test` 文件含 lifecycle-budget 7 例 + vitest 30 例）；三插件 `build`（tsc + tsdown + bundle 校验）通过。
+- 附录 B：G1–G5 由各插件 `tests/lifecycle-budget.test.ts` 承载（xhs 另含两条 publish 专项）；G6 由既有 dispose / abort / lifecycle3 / batch-concurrency / p0-fixes / profile-lock 用例在新预算缺省值下原样通过承载。
+- §5.1 grep `grep -rn "\.close()" yootun/plugins/dsh-*-workbench/src --include=*.ts | grep -v closeContext` 输出为空（exit 1）。
+- 仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs`（21 门）与 `git diff --check` 全部通过。
+- 抖音 `launchChromeSession` 构造的 `close()` 内层也按关闭预算赛跑（不告警；factory 只有 profileDir，本地路径不进日志），调用方外层再包一层带账号告警的 `closeContext`：调用方最多等一个关闭预算，内层被放弃的关闭各自有界。
+- 开发期修掉两处实现缺陷（由本地测试暴露）：①`launchWithTimeout` / `closeContext` 对同步抛出的 launch/close 未清计时器（60s 悬挂 + unhandled rejection，p0-fixes 集成用例暴露）；②无界 `awaitSettled()` 会把 `Infinity` 预算传给 `setTimeout`（32 位溢出折成 1ms 轮询），已改为无界路径纯 settle 驱动、不设计时器。
 
 ## 附录 A：逐文件规格
 
@@ -127,12 +134,12 @@ MCP 工具：无。
 
 ### A2 `src/chrome.ts`（三插件）
 
-- `export async function closeContext(context: BrowserContext, timeoutMs: number, onTimeout: () => void): Promise<void>`：`Promise.race([context.close().catch(() => undefined), sleep(timeoutMs).then(() => 'timeout')])`；超时 → `onTimeout()`；不抛；
-- `export async function launchWithTimeout<T>(launch: () => Promise<T>, timeoutMs: number): Promise<T>`：超时抛各插件的 `ChromeMissingError` 同体系的 `BrowserLaunchTimeoutError`（`name = 'BrowserLaunchTimeoutError'`），`safeCode` 映射为 `browser_launch_timeout`；超时后若 launch 迟到成功，立即 `closeContext` 清理（与登录流程的「晚 factory 清理」同口径，交 `trackCleanup` 登记）。
+- `export async function closeContext(target: { close(): Promise<void> }, timeoutMs: number, onTimeout: () => void): Promise<void>`（最小结构：抖音临时模式的 `Browser.close()` 与 session 包装的复合 `close()` 走同一封装）：`Promise.race([context.close().catch(() => undefined), sleep(timeoutMs).then(() => 'timeout')])`；超时 → `onTimeout()`；不抛；
+- `export async function launchWithTimeout<T>(launch: () => Promise<T>, timeoutMs: number, onLateResult?: (result: T) => Promise<void> | void): Promise<T>`（迟到结果的清理在 `onLateResult` 内完成并同步交任务登记表）：超时抛各插件的 `ChromeMissingError` 同体系的 `BrowserLaunchTimeoutError`（`name = 'BrowserLaunchTimeoutError'`），`safeCode` 映射为 `browser_launch_timeout`；超时后若 launch 迟到成功，立即 `closeContext` 清理（与登录流程的「晚 factory 清理」同口径，交 `trackCleanup` 登记）。
 
 ### A3 调用点替换
 
-- 28 处 `context.close()` → `closeContext(context, config.browserCloseTimeoutMs, () => logger.warn(...))`；
+- 26 处 `context.close()` → `closeContext(context, config.browserCloseTimeoutMs, () => logger.warn(...))`；
 - `chromeFactory({ headless, profileDir })` 调用点（采集、探测、登录、发布）包一层 `launchWithTimeout`，超时后不再进入后续步骤；
 - 登录流程的 abort 竞速（`launchOrAbort`）保留，叠加启动超时。
 
