@@ -185,7 +185,9 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：环境、空闲态挂载查询、与并行的 P0 单冲突预演）。
+2026-11-26 开发侧回填。环境：WSL2（Linux 6.18.58.1-microsoft-standard-WSL2，node v25.9.0，pnpm 11.28.5），分支 `feat/wx-collect-all-concurrency`（自 `feat/connector-status-and-error-copy` 切出，S2 已在本分支基线内，改动直接叠加、无冲突文件；与并行的 P0 单的冲突预演即 S2 码表叠加，`src/errors.ts` 仅追加了 `risk_paused` 一项）。自动验收全绿：`pnpm --filter @yootun/dsh-wx-channels-workbench test`（node --test 六文件 26+20+6+12+21+15 例，vitest 三文件 100 例）与 `build`（tsc + tsdown + 样式安装元数据与 runtime bundle 校验）通过；仓库根 `pnpm run lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`、`verify-empty-catch`、`test:docs` 与 `git diff --check` 通过。空闲态挂载查询：三路查询（`collect.running` / `collect.status`（选中账号）/ `collectAll.status`）各一次、无运行中采集不进入运行态不启动轮询、批量 `ready` 无面板，已由自动化用例锁定（`tests/client/wx-data.test.tsx` 挂载恢复组 D1）。并发调度、错峰与熔断经注入 rand/sleep 的确定性用例覆盖（`tests/batch-concurrency.test.ts` B1–B17 与并发峰值=1 补例），真实 Chrome 并发留给 5.2 真机验收；dispose 收口（B13/B18）见 `tests/dispose.test.ts`（含三账号并发在途场景）。
+
+2026-11-26 验收复核后补齐一轮（同分支叠加，未提交）。R4 补齐：页面新增选中驱动的单账号轮询——选中账号属于运行中集合（单账号 `collectRunningIds` ∪ 批量 `runningAccountIds`）且不在发起/恢复路目标上时，另起一路 `collect.status({ accountId })` 轮询（首跳立即、间隔沿用 POLL_MS）并把该账号运行中记录写入 `collectRecord`，作品面板显示其进度；切到未运行账号停表并清掉该账号记录，切回重新开始；选中路终态一次性收尾（清记录、仍被选中时刷新一次该账号数据、不弹 toast，批量内部账号结果由批量面板汇总）；发起/恢复路与批量轮询不因切换选中停止或改目标，发起账号经点击瞬间的乐观登记（`collectClaimRef`）让位选中路，同一时刻至多两路单账号轮询加一路批量轮询。稳定码补登记（2.6 增量，回填归档）：`collect_cancelled`（批量取消批次 / 条目原因）与 `account_id_required`（采集启动空账号 ID）入 `LOCAL_ERROR_CODES`，配 `reason.collect_cancelled`（zh「采集已取消」/ en「Collection cancelled」）与 `reason.account_id_required`（zh「缺少账号 ID，请刷新后重试」/ en「Account id is required; refresh and retry」）。新增用例 D8（批量运行中切换选中到运行中账号：发起该账号查询并显示进度、切到未开始账号停表无查询、点回恢复）与 D9（切换选中不影响发起/恢复账号终态：失败 toast 与数据刷新恰好各一次）；D9 取挂载恢复形态（发起账号与另一账号并发运行中），因页面发起采集与批量运行互斥（works.collect 按钮禁用），「页面发起 + 批量运行中切换」不可经 UI 达到。同步文档：11 册 §6.1 补选中轮询条款、p2 册 §1 `collect.status` 行补按账号轮询显示进度。补齐后自动验收复跑全绿（`pnpm --filter @yootun/dsh-wx-channels-workbench test` vitest 102 例与 node --test 六文件、`build`，仓库根 `lint` / `typecheck` / 三 verify / `test:docs` / `git diff --check`）。
 
 ## 附录 A：调度设计
 

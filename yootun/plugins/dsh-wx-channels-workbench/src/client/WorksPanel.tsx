@@ -64,7 +64,9 @@ export interface WorksPanelProps {
   /** 同账号后台刷新摘要中：摘要卡淡化呈现（数据与骨架不整块替换）。 */
   summaryRefreshing: boolean
   onRetrySummary: () => void
+  /** 任一账号采集运行中（宿主互斥的提前反馈：采集与刷新按钮禁用）。 */
   collectBusy: boolean
+  /** 本账号的运行中采集记录（页面按账号轮询的投影；终态即清除）。 */
   collectRecord: SingleCollectRecord | null
   collectStartReason: string | null
   onStartCollect: (accountId: string) => void
@@ -91,8 +93,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
   const detailSeqRef = useRef(0)
 
   const running = props.collectBusy
-  const collectHere = props.collectRecord !== null
-    && (props.collectRecord.accountId === props.accountId || props.collectRecord.accountId === null)
+  const collectHere = props.collectRecord !== null && props.collectRecord.accountId === props.accountId
   const statusText = running && collectHere
     ? progressTextOf(props.collectRecord?.progress, t)
     : props.refreshFailedParts.length > 0

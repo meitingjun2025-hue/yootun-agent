@@ -417,3 +417,246 @@ function payloadOf(outcome: { structuredContent: unknown }): Record<string, unkn
     ? outcome.structuredContent as Record<string, unknown>
     : {}
 }
+
+// ---- 单账号采集控制器（collect.start / 批量阶段 2 共用的进程内状态机）----
+
+/** 单账号采集 run 记录（进程内按账号 Map 维护；页面经 collect.status 投影）。 */
+export interface CollectRecord {
+  accountId: string
+  status: 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+  startedAt: string
+  finishedAt: string | null
+  attemptId: string | null
+  progress: Record<string, unknown> | null
+  result: { runId: string | null; works: number } | null
+  error: string | null
+  /** 本次采集的 runCollection promise（wait 直接 await；不进投影）。 */
+  task?: Promise<CollectResult>
+}
+
+/** 单账号控制器的启动入参。 */
+export interface CollectStartInput {
+  accountId: string
+  /** 透传 runCollection（页面路径显式传布尔；批量内部走缺省 true）。 */
+  newAttempt?: boolean
+  /**
+   * 批量控制器的内部启动：不做前置探测（阶段 1 已实测，runCollection 开头
+   * 自带会话刷新），且不受批量互斥钩子拦截；页面发起的采集由 `batchHasRunning`
+   * 钩子拒绝（collect_busy）。
+   */
+  fromBatch?: boolean
+  /** 批次级信号：abort 转发到该账号的 AbortController（dispose/cancel 仍走 signals 表）。 */
+  signal?: AbortSignal
+  /**
+   * 页面路径前置探测（同步等待）：就绪检查 + 会话实测上报。探测期间记录
+   * progress.phase = 'probing'；不通过 → started:false 与原因，记录落终态。
+   */
+  probe?: (() => Promise<{ ok: boolean; reason: string | null }>) | undefined
+  /** 启动前复查（探测通过后、runCollection 启动前）：返回拒绝 reason 或 null。 */
+  beforeLaunch?: (() => string | null) | undefined
+}
+
+/** 单账号控制器的注入面（workbench face / chrome factory 可注入测试）。 */
+export interface CollectControllerDeps {
+  workbench: WxWorkbenchFace
+  root: string
+  chromeFactory?: ChromeFactory | undefined
+  logger?: { warn(message: string): void } | undefined
+}
+
+/** 单账号采集控制器（createCollectController 返回值）。 */
+export interface CollectController {
+  /** Start (or refuse) one account's collect run; the record stays queryable via `status`. */
+  start(input: CollectStartInput): Promise<{ started: boolean; record: CollectRecord | null; reason?: string }>
+  /** 该账号最近一条记录（运行中或终态）的投影；无记录为 null。 */
+  status(accountId: string): Record<string, unknown> | null
+  /** 首个运行中记录的投影；无运行中采集为 null。 */
+  running(): Record<string, unknown> | null
+  /** 运行中的账号（按启动顺序）。 */
+  runningAccountIds(): string[]
+  /** 是否有任一账号运行中。 */
+  hasRunning(): boolean
+  /**
+   * 等待该账号的采集任务收敛并返回结果；记录不存在（未启动过）为 null。
+   * @param accountId - 目标账号。
+   */
+  wait(accountId: string): Promise<CollectResult | null>
+  /** 中止该账号的在途采集；返回是否确有在途任务被中止。 */
+  cancel(accountId: string): boolean
+}
+
+/**
+ * 单账号采集控制器：按账号 Map 维护运行中与最近终态记录（终态保留到下一次
+ * 同账号启动时覆盖），同账号单飞（运行中再次 start → collect_busy）、账号
+ * 之间互不阻塞。批量互斥经 `batchHasRunning` 钩子注入；AbortController 登记
+ * `signals`（collect.cancel 与 dispose 复用同一 abort 链路）；采集任务（含
+ * 终态写回）登记 `taskRegistry`（dispose 统一等待 settle）。
+ * @param deps - runCollection 的公共依赖。
+ * @param hooks - 批量互斥钩子、任务登记表与 AbortController 登记表。
+ * @returns the controller with start/status/running/runningAccountIds/hasRunning/wait/cancel.
+ */
+export function createCollectController(deps: CollectControllerDeps, hooks: {
+  batchHasRunning?: (() => boolean) | undefined
+  taskRegistry?: TaskRegistry | undefined
+  signals?: Map<string, AbortController> | undefined
+} = {}): CollectController {
+  const runs = new Map<string, CollectRecord>()
+  const project = (record: CollectRecord): Record<string, unknown> => ({
+    accountId: record.accountId,
+    attemptId: record.attemptId,
+    status: record.status,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    error: record.error,
+    progress: record.progress,
+    result: record.result,
+  })
+  /** 启动 runCollection 并挂终态写回（与旧 collect.start handler 内的编排一致）。 */
+  const launch = (record: CollectRecord, input: CollectStartInput, signal: AbortSignal): Promise<CollectResult> => {
+    const accountId = record.accountId
+    const attemptId = createAttemptId(accountId)
+    record.attemptId = attemptId
+    const task = runCollection({
+      workbench: deps.workbench,
+      accountId,
+      root: deps.root,
+      attemptId,
+      chromeFactory: deps.chromeFactory,
+      newAttempt: input.newAttempt ?? true,
+      onProgress: event => {
+        const progress = progressFromEvent(event)
+        if (progress !== null) record.progress = progress
+      },
+      logger: deps.logger,
+      signal,
+      taskRegistry: hooks.taskRegistry,
+    })
+    record.task = task
+    hooks.taskRegistry?.track(task
+      .then(result => {
+        record.status = result.status === 'completed' || result.status === 'partial' ? result.status : result.reason === 'collect_cancelled' ? 'cancelled' : 'failed'
+        record.error = record.status === 'failed' ? result.reason ?? 'collect_failed' : null
+        record.result = { runId: result.runId, works: result.works ?? 0 }
+        record.finishedAt = new Date().toISOString()
+      })
+      .catch((error: unknown) => {
+        // 兜底终态（runner 自身已 catch 一切；此处只覆盖磁盘级穿透）。
+        // 写失败再 warn：终态可见性不允许静默。写盘纳入登记表。
+        record.status = 'failed'
+        record.error = safeCode(error)
+        record.finishedAt = new Date().toISOString()
+        hooks.taskRegistry?.track(updateRun(deps.root, accountId, attemptId, { status: 'failed', finishedAt: new Date().toISOString(), error: record.error }).catch((persistError: unknown) => {
+          deps.logger?.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(persistError)}`)
+        }))
+      }))
+    return task
+  }
+  return {
+    async start(input: CollectStartInput): Promise<{ started: boolean; record: CollectRecord | null; reason?: string }> {
+      const accountId = input.accountId
+      if (accountId === '') return { started: false, record: null, reason: 'account_id_required' }
+      const existing = runs.get(accountId)
+      if (existing !== undefined && existing.status === 'running') {
+        return { started: false, record: existing, reason: 'collect_busy' }
+      }
+      if (input.fromBatch !== true && hooks.batchHasRunning?.() === true) {
+        return { started: false, record: null, reason: 'collect_busy' }
+      }
+      // 重新启动覆盖旧终态记录；delete+set 让 Map 迭代序跟随本次启动顺序。
+      runs.delete(accountId)
+      const record: CollectRecord = {
+        accountId,
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        attemptId: null,
+        // 页面路径在探测期间给页面一个确定的阶段投影；批量内部首个探测事件随即覆盖。
+        progress: input.probe === undefined ? null : { phase: 'probing' },
+        result: null,
+        error: null,
+      }
+      runs.set(accountId, record)
+      const controller = new AbortController()
+      const signals = hooks.signals
+      signals?.set(accountId, controller)
+      const forwardBatchAbort = (): void => { controller.abort() }
+      if (input.signal !== undefined) {
+        if (input.signal.aborted) controller.abort()
+        else input.signal.addEventListener('abort', forwardBatchAbort, { once: true })
+      }
+      const releaseSignal = (): void => {
+        if (signals?.get(accountId) === controller) signals.delete(accountId)
+        input.signal?.removeEventListener('abort', forwardBatchAbort)
+      }
+      // 批量内部启动：阶段 1 已实测，直接启动。
+      if (input.probe === undefined) {
+        const task = launch(record, input, controller.signal)
+        void task.then(() => undefined, () => undefined).finally(releaseSignal)
+        return { started: true, record }
+      }
+      // 页面路径：就绪检查 → 实测上报（同步等待）→ 启动前复查 → 启动。
+      const probeResult = await input.probe().catch((error: unknown) => ({ ok: false, reason: safeCode(error) }))
+      if (!probeResult.ok) {
+        record.status = 'failed'
+        record.error = probeResult.reason ?? 'probe_failed'
+        record.finishedAt = new Date().toISOString()
+        releaseSignal()
+        return { started: false, record, reason: record.error }
+      }
+      // dispose 可能在探测期间完成（探测经 guard 登记被 dispose 等待）：启动前
+      // 复查，避免「dispose 返回后采集才启动——abort 丢失且无人等待」。
+      const blocked = input.beforeLaunch?.() ?? null
+      if (blocked !== null) {
+        record.status = 'failed'
+        record.error = blocked
+        record.finishedAt = new Date().toISOString()
+        releaseSignal()
+        return { started: false, record, reason: blocked }
+      }
+      if (controller.signal.aborted) {
+        record.status = 'failed'
+        record.error = 'collect_cancelled'
+        record.finishedAt = new Date().toISOString()
+        releaseSignal()
+        return { started: false, record, reason: 'collect_cancelled' }
+      }
+      const task = launch(record, input, controller.signal)
+      void task.then(() => undefined, () => undefined).finally(releaseSignal)
+      return { started: true, record }
+    },
+    status(accountId: string): Record<string, unknown> | null {
+      const record = runs.get(accountId)
+      return record === undefined ? null : project(record)
+    },
+    running(): Record<string, unknown> | null {
+      for (const record of runs.values()) {
+        if (record.status === 'running') return project(record)
+      }
+      return null
+    },
+    runningAccountIds(): string[] {
+      const ids: string[] = []
+      for (const record of runs.values()) {
+        if (record.status === 'running') ids.push(record.accountId)
+      }
+      return ids
+    },
+    hasRunning(): boolean {
+      for (const record of runs.values()) {
+        if (record.status === 'running') return true
+      }
+      return false
+    },
+    async wait(accountId: string): Promise<CollectResult | null> {
+      const record = runs.get(accountId)
+      if (record?.task === undefined) return null
+      return await record.task.then(result => result, () => null)
+    },
+    cancel(accountId: string): boolean {
+      const controller = hooks.signals?.get(accountId)
+      if (controller === undefined) return false
+      controller.abort()
+      return true
+    },
+  }
+}

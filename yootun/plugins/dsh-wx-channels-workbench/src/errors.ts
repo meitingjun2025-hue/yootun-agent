@@ -65,6 +65,11 @@ const LOCAL_ERROR_CODE_VALUES = [
   'LOCAL_CLEARED_REQUIRED',
   // Host action 传输收敛码（2026-11-26 起 kit createHostAction 统一产出）。
   'host_unreachable',
+  // 批量采集批内熔断批次原因 / 条目原因（2026-11-26 起，wx-collect-all-concurrency）。
+  'risk_paused',
+  // 批量取消批次 / 条目原因与采集启动空账号 ID（2026-11-26 起，wx-collect-all-concurrency 补齐）。
+  'collect_cancelled',
+  'account_id_required',
 ] as const
 
 export const LOCAL_ERROR_CODES = Object.freeze([...LOCAL_ERROR_CODE_VALUES])

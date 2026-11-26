@@ -20,6 +20,7 @@ import {
   withProfileLock, withProfileLocks,
 } from '../src/locks.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
+import { createCollectController } from '../src/runner.ts'
 import type { ChromeFactory } from '../src/session.ts'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
@@ -160,7 +161,11 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory): { deps: Retu
     start: async () => ({ started: false }),
     stop: () => undefined,
   }
-  return { deps, handlers: buildRouteHandlers(deps, batch as never) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  const collect = createCollectController(
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
 }
 
 async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string>): Promise<Record<string, unknown>> {
@@ -208,7 +213,7 @@ test('profile 锁：collect 全程持锁，同账号 probe 排队等待、不同
   assert.equal(probe.sessionStatus, 'ok', 'collect 释放锁后同账号 probe 应成功执行')
 
   await waitForCondition(async () => {
-    const st = await callHandler(handlers, 'collect.status', {})
+    const st = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
     return st.busy === false && (st.collect as { status?: string } | null)?.status === 'failed'
   })
   cleanup(root)
@@ -277,7 +282,8 @@ test('profile 锁：collect.cancel abort 后 runCollection settle、锁释放、
   // 模拟 Playwright goto 因 abort/context 关闭而失败（真实浏览器语义）。
   rejectGoto(new Error('goto aborted'))
   await waitForCondition(() => !isProfileLocked('acc1'), 5000)
-  const st = await callHandler(handlers, 'collect.status', {})
+  // busy 表示任一账号运行中；终态记录按账号查询。
+  const st = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
   assert.equal(st.busy, false)
   assert.equal((st.collect as { status?: string } | null)?.status, 'cancelled')
   // signal 已清理：重复 cancel 报 not_running。
@@ -461,7 +467,7 @@ test('profile 锁：collect.start 经 buildRouteHandlers 失败路径不挂起�
   assert.equal(first.status, 'ok')
   assert.equal(first.started, true)
   await waitForCondition(async () => {
-    const st = await callHandler(handlers, 'collect.status', {})
+    const st = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
     return st.busy === false && (st.collect as { status?: string } | null)?.status === 'failed'
   }, 3000)
   assert.equal(isProfileLocked('acc1'), false, 'runCollection 失败收尾后锁必须释放')

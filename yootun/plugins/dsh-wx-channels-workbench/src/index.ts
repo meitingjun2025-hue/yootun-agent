@@ -16,6 +16,7 @@ import { createBatchCollectController } from './collect-all.ts'
 import { buildRouteHandlers, createWxHostDeps, type WxHostDeps } from './handlers.ts'
 import { disposeHostTasks } from './lifecycle.ts'
 import { ROUTE_PATH, createRouteHandler } from './route.ts'
+import { createCollectController, type CollectController } from './runner.ts'
 import { browserStatus } from './chrome.ts'
 import { stateRoot } from './state.ts'
 import { recoverInterruptedRuns } from './runs.ts'
@@ -27,17 +28,21 @@ export const name = 'yootun-wx-workbench'
 /** Host services required before the route registers. */
 export const inject = ['webServer', 'yootunWorkbench']
 
-/** 插件配置：状态目录（缺省旧目录，env 已在 state.ts 处理）。 */
+/** 插件配置：状态目录（缺省旧目录，env 已在 state.ts 处理）与批量并发度。 */
 export interface Config {
   /** 状态根目录覆盖；空串走 `~/.dofe/...` 与 `WX_CHANNELS_OPERATION_STATE_DIR`。 */
   stateDir: string
+  /** 批量采集并发度（阶段 2 worker 数；生效值 = min(本值, 探测通过账号数)）。 */
+  batchConcurrency: number
 }
 
-type ConfigInput = Partial<{ stateDir: unknown }>
+type ConfigInput = Partial<{ stateDir: unknown; batchConcurrency: unknown }>
 
 export const Config = z.object({
   /** 默认空串：沿用旧目录与 env 覆盖链。 */
   stateDir: z.string().default(''),
+  /** 默认 3；1..5 整数，越界/非整数由 schema 拒绝（插件加载失败）。 */
+  batchConcurrency: z.number().min(1).max(5).step(1).default(3),
 }) as z<ConfigInput, Config>
 
 /**
@@ -64,14 +69,28 @@ export function apply(ctx: Context, config: Config): void {
     ctx.logger.warn('wx-workbench: runs.json recovery failed', error)
   }))
 
-  const batch = createBatchCollectController({
-    collect: async input => {
-      const { runCollection } = await import('./runner.ts')
-      return registry.track(runCollection({
-        workbench, accountId: input.accountId, root,
-        onProgress: input.onProgress, logger: deps.logger,
-        signal: input.signal, taskRegistry: registry,
-      }))
+  // 单账号控制器（按账号 Map）：批量运行中页面发起被拒（钩子含 batchReserved
+  // 预留窗），批量内部启动（fromBatch）放行；AbortController 登记
+  // deps.collectSignals（cancel 与 dispose 复用同一 abort 链路）。
+  let batch: ReturnType<typeof createBatchCollectController>
+  const collect: CollectController = createCollectController(
+    { workbench, root, chromeFactory: deps.chromeFactory, logger: deps.logger },
+    {
+      batchHasRunning: () => batch.running || deps.batchReserved,
+      taskRegistry: registry,
+      signals: deps.collectSignals,
+    },
+  )
+
+  const batchController = createBatchCollectController({
+    collect: {
+      start: input => collect.start({
+        accountId: input.accountId,
+        fromBatch: true,
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      }),
+      wait: accountId => collect.wait(accountId),
+      hasRunning: () => collect.hasRunning(),
     },
     probe: async accountId => {
       const { probeAndReport } = await import('./probe.ts')
@@ -79,8 +98,10 @@ export function apply(ctx: Context, config: Config): void {
     },
     logger: deps.logger,
     trackRun: promise => { registry.track(promise) },
+    concurrency: config.batchConcurrency,
   })
-  deps.setBatch(batch)
+  batch = batchController
+  deps.setBatch(batchController)
 
   // 卸载：route 拒绝新请求 → abort 全部登录/采集信号 → batch.stop → 等所有
   // 登记任务 settle（含晚 factory 清理与 runs 写盘）→ 清理 controllers。
@@ -92,7 +113,7 @@ export function apply(ctx: Context, config: Config): void {
     () => ctx.webServer.register({
       kind: 'exact',
       path: ROUTE_PATH,
-      handler: createRouteHandler(() => ctx.webServer.getOrigin(), buildRouteHandlers(deps, batch)),
+      handler: createRouteHandler(() => ctx.webServer.getOrigin(), buildRouteHandlers(deps, batchController, collect)),
     }),
     'yootun-wx-workbench: route',
   )
@@ -103,7 +124,7 @@ export { STABLE_ERROR_CODES, SERVER_ERROR_CODES, LOCAL_ERROR_CODES, WxError, saf
 export * from './idempotency.ts'
 export { stateRoot, paths, safeSegment, readAccounts, writeAccounts, getAccount, updateAccount, bumpSessionSeq, bumpSessionSeqWith, nextSessionSeq, ensureProfileDir, moveProfile, moveStorageState, saveStorageState, hasStorageState, clearLocalCredentials, type AccountRecord, type AccountsState, type StatePaths } from './state.ts'
 export { browserStatus, resolveSystemChrome, chromeCandidates, LAUNCH_ARGS, ChromeMissingError, DriverMissingError, type BrowserStatus } from './chrome.ts'
-export { checkCollectionReadiness, ensureRemoteAccount, runCollection, progressFromEvent, BATCH_SKIP_REASONS, DEFAULT_MAX_PAGES, type CollectResult } from './runner.ts'
+export { checkCollectionReadiness, ensureRemoteAccount, runCollection, progressFromEvent, BATCH_SKIP_REASONS, DEFAULT_MAX_PAGES, createCollectController, type CollectResult, type CollectRecord, type CollectStartInput, type CollectControllerDeps, type CollectController } from './runner.ts'
 export { createIngestClient, ingestCollectedData, resolveClientStatus, type IngestClient, type IngestAllResult } from './ingest.ts'
 export { createBatchCollectController, type BatchStatus, type BatchItem, type BatchController } from './collect-all.ts'
 export { createTaskRegistry, disposeHostTasks, type TaskRegistry } from './lifecycle.ts'

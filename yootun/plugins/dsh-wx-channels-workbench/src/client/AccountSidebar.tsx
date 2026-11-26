@@ -36,10 +36,8 @@ export interface AccountSidebarProps {
   browserBlocked: boolean
   /** 登录进行中：添加账号禁用（不重复开浏览器抢轮询）。 */
   loginActive: boolean
-  /** 单账号采集运行中。 */
-  collectBusy: boolean
-  /** 单账号采集运行中的账号（无运行中采集为 null）；账号栏状态点数据源之一。 */
-  collectingAccountId: string | null
+  /** 采集运行中的账号（单账号轮询集合 ∪ 批量运行中集合）；状态点与互斥锁定的数据源。 */
+  collectingIds: string[]
   batch: BatchStatusView | null
   onSelect: (accountId: string) => void
   onCollectAll: () => void
@@ -144,17 +142,16 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
   }, [props, t])
 
   const batchRunning = props.batch !== null && props.batch.ready !== true && props.batch.phase !== 'finished'
-  // 采集中状态点：单账号采集的账号 + 批量当前账号；只作展示，不改变卡片点击与选中。
-  const collectingIds = new Set<string>()
-  if (props.collectingAccountId !== null) collectingIds.add(props.collectingAccountId)
-  const batchCurrentId = batchRunning && props.batch !== null ? props.batch.currentAccountId : null
-  if (batchCurrentId !== null) collectingIds.add(batchCurrentId)
+  // 采集中状态点：运行中的采集账号（页面已合并单账号与批量两路投影）；
+  // 只作展示，不改变卡片点击与选中。
+  const collectingIds = new Set(props.collectingIds)
+  const collectBusy = collectingIds.size > 0
   const collectable = props.accounts.some(row => row.deleteState !== 'remote_deleted' && row.sessionStatus === 'ok')
   // 动作依赖拆分：探活 / 提升 / 重新扫码都要打开系统 Chrome（probe →
   // refreshSessionState、promote → probeSession、relogin → 扫码窗口），随
   // chromeLocked 禁用；登录进行中不再叠开浏览器，随 loginActive 只禁重新扫码。
   // 删除只走本地 / 远端清理，不依赖 Chrome，也不受登录态影响。
-  const collectLocked = props.collectBusy || batchRunning
+  const collectLocked = collectBusy || batchRunning
   const chromeLocked = props.browserBlocked
 
   const batchPanel = batchPanelOf(props, batchRunning, t)
@@ -364,25 +361,25 @@ function AccountCard(props: {
 }
 
 /**
- * 批量采集面板：挂在标题行下方、账号列表上方；运行中显示总进度 + 当前账号 +
- * 细粒度进度 + 四类计数；终态显示汇总与失败 / 跳过 / 部分完成账号逐行稳定原因。
+ * 批量采集面板：挂在标题行下方、账号列表上方；运行中显示阶段进度（探测为
+ * 「正在检查会话 i/n」，采集为「已完成 x/n 个账号」+ 运行中账号列表 + 并发度）
+ * 与四类计数；熔断（error = risk_paused）显示暂停提示与剩余数；终态显示汇总
+ * 与失败 / 跳过 / 部分完成账号逐行稳定原因（risk_paused 条目用批次暂停文案）。
  */
 function batchPanelOf(props: AccountSidebarProps, running: boolean, t: Translate): ReactNode {
   const batch = props.batch
   if (batch === null) return null
   if (!running && batch.phase !== 'finished') return null
   const total = batch.total ?? 0
-  const index = Math.min(total, (batch.currentAccountIndex ?? 0) + 1)
   const progressText = running
     ? (batch.phase === 'probing'
-        ? (total > 0 ? t('batch.progress.checking', { index, total }) : t('batch.progress.fallback'))
-        : batch.phase === 'collecting' || batch.phase === 'stopping'
-          ? (total > 0 ? t('batch.progress.collecting', { index, total }) : t('batch.progress.fallback'))
+        ? (total > 0 ? t('batch.progress.checking', { index: Math.min(total, (batch.currentAccountIndex ?? 0) + 1), total }) : t('batch.progress.fallback'))
+        : total > 0
+          ? t('batch.progress.concurrent', { done: (batch.completedCount ?? 0) + (batch.partialCount ?? 0) + (batch.failedCount ?? 0), total })
           : t('batch.progress.fallback'))
     : null
-  const current = batch.currentAccountId === null
-    ? null
-    : t('batch.current', { name: accountNameOf(props.accounts, batch.currentAccountId) })
+  const runningNames = batch.runningAccountIds.map(accountId => accountNameOf(props.accounts, accountId))
+  const pausedCount = batch.items.filter(item => item.reason === 'risk_paused').length
   // 未完成明细必须包含 partial（部分作品缺失），否则汇总与明细自相矛盾。
   const unfinished: BatchItemView[] = running
     ? []
@@ -396,13 +393,17 @@ function batchPanelOf(props: AccountSidebarProps, running: boolean, t: Translate
       aria-live={running ? 'polite' : undefined}
       aria-busy={running || undefined}
     >
+      {batch.error === 'risk_paused' && (
+        <p className={css.batchPaused} role='alert'>{t('batch.paused', { remaining: pausedCount })}</p>
+      )}
       {running && (
         <>
           <p className={css.batchProgress}>
             <StateDot state='ongoing' />
             <span>{progressText}</span>
           </p>
-          {current !== null && <p className={css.batchLine}>{current}</p>}
+          {runningNames.length > 0 && <p className={css.batchLine}>{t('batch.currentList', { names: runningNames.join('、') })}</p>}
+          {(batch.concurrency ?? 0) > 0 && <p className={css.batchLine}>{t('batch.concurrency', { count: batch.concurrency ?? 0 })}</p>}
           <p className={css.batchLine}>
             {t('batch.counts', {
               completed: batch.completedCount ?? 0,
@@ -433,7 +434,7 @@ function batchPanelOf(props: AccountSidebarProps, running: boolean, t: Translate
               {unfinished.map(item => (
                 <p key={item.accountId} className={css.batchItem}>
                   <span className={css.batchItemName}>{accountNameOf(props.accounts, item.accountId)}</span>
-                  <span className={css.batchItemReason}>{item.reason === null ? t('collect.reason.unknown') : reasonText(item.reason, t)}</span>
+                  <span className={css.batchItemReason}>{item.reason === null ? t('collect.reason.unknown') : item.reason === 'risk_paused' ? t('batch.reason.riskPaused') : reasonText(item.reason, t)}</span>
                 </p>
               ))}
             </div>

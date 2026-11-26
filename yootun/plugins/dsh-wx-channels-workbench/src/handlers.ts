@@ -1,7 +1,8 @@
 /**
- * 19+3 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集/批量均为
+ * 19+4 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集/批量均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；
- * collect 与 batch 互斥沿用旧插件三态同步守卫。所有 Workbench 调用经
+ * 单账号采集按账号控制器维护（同账号单飞、账号间并发），与批量互斥经
+ * `batchHasRunning` 钩子 + batchReserved 同步预留守卫。所有 Workbench 调用经
  * `ctx.yootunWorkbench.callTool`。
  * @module
  */
@@ -14,8 +15,8 @@ import { isPendingAccountId, loginWithQrCode, removeLocalAccount, type ChromeFac
 import { tryWithProfileLock } from './locks.ts'
 import { createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
 import { hasStorageState, readAccounts, getAccount, paths } from './state.ts'
-import { checkCollectionReadiness, progressFromEvent } from './runner.ts'
-import { createAttemptId, readRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
+import { checkCollectionReadiness, type CollectController } from './runner.ts'
+import { readRuns, removeAccountRuns, type RunRecord } from './runs.ts'
 import type { BatchStatus } from './collect-all.ts'
 import type { WxWorkbenchFace } from './ingest.ts'
 import type { ActionArgs, ActionHandler } from './route.ts'
@@ -49,10 +50,8 @@ export interface WxHostDeps {
   /** dispose 开始后 route handler 稳定拒绝新 action（稳定码 plugin_disposing）。 */
   disposing: boolean
   loginRuns: Map<string, LoginRun>
-  collectBusy: boolean
   collectLeaseHeld: boolean
   batchReserved: boolean
-  collectRecord: Record<string, unknown> | null
   collectSignals: Map<string, AbortController>
   loginSignals: Map<string, AbortController>
   batchSignal: AbortController | undefined
@@ -77,10 +76,8 @@ export function createWxHostDeps(options: {
     taskRegistry: options.taskRegistry ?? createTaskRegistry(),
     disposing: false,
     loginRuns: new Map(),
-    collectBusy: false,
     collectLeaseHeld: false,
     batchReserved: false,
-    collectRecord: null,
     collectSignals: new Map(),
     loginSignals: new Map(),
     batchSignal: undefined,
@@ -122,7 +119,7 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
   readonly running: boolean
   start(accountIds: string[]): Promise<{ started: boolean; reason?: string; batchId?: string; accounts?: number }>
   stop(): void
-}): Record<string, ActionHandler> {
+}, collect: CollectController): Record<string, ActionHandler> {
   const asString = (args: ActionArgs, key: string): string => (typeof args[key] === 'string' ? args[key] as string : '')
   const asInteger = (args: ActionArgs, key: string): number | undefined => (typeof args[key] === 'number' ? args[key] as number : undefined)
 
@@ -411,94 +408,34 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     },
 
     'collect.start': async args => {
-      const { runCollection } = await import('./runner.ts')
       const { probeAndReport } = await import('./probe.ts')
       const accountId = asString(args, 'accountId')
-      if (deps.collectBusy || batch.running || deps.batchReserved) {
-        return { status: 'ok', started: false, reason: 'collect_busy' }
-      }
-      deps.collectBusy = true
-      deps.collectRecord = {
-        accountId, attemptId: null, status: 'not_started', startedAt: new Date().toISOString(),
-        finishedAt: null, error: null, progress: { phase: 'probing' }, result: null,
-      }
-      let started = false
-      let attemptId = ''
-      try {
-        const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
-        if (!readiness.ready) {
-          return { status: 'ok', started: false, reason: readiness.reason ?? 'session_required' }
-        }
-        const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory)
-        if (session.sessionStatus !== 'ok') {
-          return { status: 'ok', started: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
-        }
-        // dispose 可能在 probe 期间完成（probe 经 guard 统一登记，dispose 会等
-        // 它 settle）：启动前复查 disposing，避免「dispose 返回后采集才启动——
-        // abort 丢失且无人等待」的竞态窗口。
-        if (deps.disposing) return { status: 'ok', started: false, reason: 'plugin_disposing' }
-        // 稳定 attemptId：内存 collectRecord 与 runs.json 从此引用同一条记录。
-        attemptId = createAttemptId(accountId)
-        const controller = new AbortController()
-        deps.collectSignals.set(accountId, controller)
-        const record = deps.collectRecord as Record<string, unknown>
-        record.attemptId = attemptId
-        record.status = 'running'
-        record.startedAt = new Date().toISOString()
-        started = true
-        // runs.json 的唯一写入方是 runner（running 记录在采集锁内启动时创建，
-        // progress/终态更新同一条）；这里只维护内存实时态。采集任务（含其内部
-        // runs 写盘 promise）纳入登记表，dispose 统一等待。
-        deps.taskRegistry.track(runCollection({
-          workbench: deps.workbench, accountId, root: deps.root, attemptId,
-          chromeFactory: deps.chromeFactory,
-          newAttempt: args.newAttempt === true,
-          onProgress: event => {
-            const progress = progressFromEvent(event)
-            if (progress !== null) record.progress = progress
-          },
-          logger: deps.logger,
-          signal: controller.signal,
-          taskRegistry: deps.taskRegistry,
-        }).then(result => {
-          record.status = result.status === 'completed' || result.status === 'partial' ? result.status : result.reason === 'collect_cancelled' ? 'cancelled' : 'failed'
-          record.error = record.status === 'failed' ? result.reason ?? 'collect_failed' : null
-          record.result = { runId: result.runId, works: result.works ?? 0 }
-          record.finishedAt = new Date().toISOString()
-        }).catch((error: unknown) => {
-          record.status = 'failed'
-          record.error = safeCode(error)
-          record.finishedAt = new Date().toISOString()
-          // 兜底终态（runner 自身已 catch 一切；此处只覆盖磁盘级穿透）。
-          // 写失败再 warn：终态可见性不允许静默。写盘纳入登记表。
-          deps.taskRegistry.track(updateRun(deps.root, accountId, attemptId, { status: 'failed', finishedAt: new Date().toISOString(), error: record.error as string | null }).catch((persistError: unknown) => {
-            deps.logger.warn(`wx runs.json final state write failed (${attemptId}): ${safeCode(persistError)}`)
-          }))
-        }).finally(() => {
-          deps.collectBusy = false
-          deps.collectSignals.delete(accountId)
-        }))
-        return { status: 'ok', started: true }
-      } finally {
-        // 所有 failed-to-start 路径统一复位：collectBusy / collectSignals / record。
-        if (!started) {
-          deps.collectBusy = false
-          deps.collectSignals.delete(accountId)
-          const record = deps.collectRecord as Record<string, unknown> | null
-          if (record !== null && record.status === 'not_started') {
-            record.status = 'failed'
-            record.error = 'start_failed'
-            record.finishedAt = new Date().toISOString()
-          }
-        }
-      }
+      // 页面路径：就绪检查 → 实测上报（同步等待，记录 progress.phase='probing'）
+      // → dispose 复查 → 启动。探测不通过返回 started:false 与原因；同账号
+      // 运行中或批量运行中（含 batchReserved 预留窗）由控制器/钩子拒绝
+      // collect_busy（口径见实施单 2.2）。
+      const started = await collect.start({
+        accountId,
+        newAttempt: args.newAttempt === true,
+        probe: async () => {
+          const readiness = await checkCollectionReadiness({ accountId, root: deps.root, busy: false })
+          if (!readiness.ready) return { ok: false, reason: readiness.reason ?? 'session_required' }
+          const session = await probeAndReport(deps.workbench, accountId, deps.root, deps.chromeFactory)
+          return session.sessionStatus === 'ok'
+            ? { ok: true, reason: null }
+            : { ok: false, reason: session.sessionStatus === 'expired' ? 'session_required' : 'probe_failed' }
+        },
+        beforeLaunch: () => (deps.disposing ? 'plugin_disposing' : null),
+      })
+      if (!started.started) return { status: 'ok', started: false, reason: started.reason ?? 'collect_failed' }
+      return { status: 'ok', started: true }
     },
 
-    'collect.status': async () => {
+    'collect.status': async args => {
       // 合并内存实时态与持久化态：lastRun 是 runs.json 中最近启动的一条完整
-      // 记录——进程重启后内存 collectRecord 为 null，lastRun 提供上次 run 的
-      // 终态投影（attemptId/runId/status/finishedAt/error）。读失败（如
-      // runs.json 语义损坏）不伪装成空记录：稳定 reason 暴露给调用方。
+      // 记录——进程重启后内存记录为空，lastRun 提供上次 run 的终态投影
+      // （attemptId/runId/status/finishedAt/error）。读失败（如 runs.json 语义
+      // 损坏）不伪装成空记录：稳定 reason 暴露给调用方。
       let lastRun: RunRecord | null = null
       let reason: string | null = null
       try {
@@ -509,19 +446,33 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       } catch (error) {
         reason = safeCode(error)
       }
-      return { status: 'ok', busy: deps.collectBusy, collect: deps.collectRecord, lastRun, ...(reason !== null ? { reason } : {}) }
+      // busy 现在表示「任一账号运行中」；按账号查询时 collect 是该账号最近
+      // 一条记录（运行中或终态），未传账号时是首个运行中记录（无则 null）。
+      const accountId = asString(args, 'accountId')
+      return {
+        status: 'ok',
+        busy: collect.hasRunning(),
+        collect: accountId !== '' ? collect.status(accountId) : collect.running(),
+        runningAccountIds: collect.runningAccountIds(),
+        lastRun,
+        ...(reason !== null ? { reason } : {}),
+      }
     },
+
+    'collect.running': async () => ({
+      status: 'ok',
+      collect: collect.running(),
+      batchRunning: batch.running,
+    }),
 
     'collect.cancel': async args => {
       const accountId = asString(args, 'accountId')
-      const controller = deps.collectSignals.get(accountId)
-      if (controller === undefined) return { status: 'ok', cancelled: false, reason: 'not_running' }
-      controller.abort()
+      if (!collect.cancel(accountId)) return { status: 'ok', cancelled: false, reason: 'not_running' }
       return { status: 'ok', cancelled: true }
     },
 
     'collectAll.start': async () => {
-      if (batch.running || deps.collectBusy || deps.batchReserved) {
+      if (batch.running || collect.hasRunning() || deps.batchReserved) {
         return { status: 'ok', started: false, reason: 'collect_busy' }
       }
       deps.batchReserved = true

@@ -4,7 +4,7 @@
 
 ## 1. 旧 Host action（19 项）与新路由映射
 
-新路由固定 `/api/desktop/yootun/wx-workbench`（旧为 `/api/desktop/yootun/wx-channels-operation`）。action 集合与旧一致，全部保留；每项新增 schema 校验 + 未知字段拒绝（旧实现只做长度截断，属本次加固）。
+新路由固定 `/api/desktop/yootun/wx-workbench`（旧为 `/api/desktop/yootun/wx-channels-operation`）。action 集合与旧一致，全部保留；每项新增 schema 校验 + 未知字段拒绝（旧实现只做长度截断，属本次加固）。2026-11-26 起新增本地只读 `collect.running`，Host action 22 项 → 23 项；同日 `collect.status` / `collectAll.status` 出参与 `collectAll.start` 并发口径随「采集全部并发」实施单更新（[1126/features/wx-collect-all-concurrency.md](../1126/features/wx-collect-all-concurrency.md)）。
 
 | action | 旧行为要点 | 新实现差异 |
 |---|---|---|
@@ -17,12 +17,12 @@
 | account.promote | pending- 账号提升（探活后改名迁移 profile/storage_state） | 同 |
 | account.removeLocal | 本地凭证与 profile 清理 | 同 |
 | account.removeRemote | 本地 storage_state 仍存在 → 拒绝（LOCAL_CLEARED_REQUIRED）；再远端 remove（confirm+localCleared+幂等键） | 同；远端经 workbench |
-| collect.start | 互斥（collectBusy/batch running/batchReserved 三态同步守卫）；readiness 检查；会话实测上报；单槽 collectRecord 投影；newAttempt 语义 | 增加 run 记录持久化（runs.json）、取消（AbortSignal）与同步互斥预留（TOCTOU 修复） |
+| collect.start | 互斥（collectBusy/batch running/batchReserved 三态同步守卫）；readiness 检查；会话实测上报；单槽 collectRecord 投影；newAttempt 语义 | 增加 run 记录持久化（runs.json）、取消（AbortSignal）与同步互斥预留（TOCTOU 修复）。2026-11-26 起互斥改为按账号控制器：同账号运行中或批量运行中（含 batchReserved 预留窗）→ collect_busy；页面路径仍为 readiness → probeAndReport 同步等待 → 启动前 disposing 复查；批量内部 fromBatch 启动免前置探测 |
 | collect.cancel（新增） | 旧插件无取消入口 | AbortController 中止当前采集；远端补偿 run_cancel 用独立 cleanup signal（不复用已 aborted 的调用 signal）；已完成批次保留，本地投影 cancelled |
-| collectAll.cancel（新增） | 旧插件一期无批量取消 | 停止当前账号、后续账号标 skipped(cancelled)；批量 controller stop/dispose 语义 |
-| collect.status | busy + collectRecord 投影 | 增加持久化 run 恢复投影 |
-| collectAll.start | batchReserved 同步预留防 TOCTOU（P2-6）；非 pending 账号列表串行采集 | 同 |
-| collectAll.status | batchController.status 投影；重启后回 ready | 同 |
+| collectAll.cancel（新增） | 旧插件一期无批量取消 | 2026-11-26 起并发口径：stopping → 在途账号 abort 并结算 failed/collect_cancelled、后续账号不启动 → 全部 settle 后 finished |
+| collect.status | busy + collectRecord 投影 | 增加持久化 run 恢复投影。2026-11-26 起：入参增可选 accountId（≤128）；busy=任一账号运行中；collect 传账号返回该账号最近一条记录（运行中或终态）、未传返回首个运行中；出参增 runningAccountIds（按启动顺序）；新增本地只读 collect.running（collect 首个运行中 + batchRunning）；选中运行中的批量账号时页面按账号轮询显示进度 |
+| collectAll.start | batchReserved 同步预留防 TOCTOU（P2-6）；非 pending 账号列表串行采集 | 2026-11-26 起改并发采集：阶段 1 逐账号串行探测不变，阶段 2 worker 队列按 Config.batchConcurrency（缺省 3，1..5）并发采集 ready 账号（items 按 accountId 排序、worker 启动错峰、批内风控熔断）；互斥仍拒 batch running / 任一单账号运行中 / batchReserved |
+| collectAll.status | batchController.status 投影；重启后回 ready | 2026-11-26 起出参增 runningAccountIds、concurrency（=min(配置, ready 数)，未启动为 0）、error（risk_paused / collect_cancelled / no_eligible_account）；currentAccountId 保留（=runningAccountIds[0]）；items[].reason 增 risk_paused、终态条目写 finishedAt |
 | run.get | 远端 collect_run_get 透传 | 经 workbench |
 | works.list / work.get / work.trend | 远端透传（sort/order 长度截断） | 经 workbench；参数 schema 化。2026-11-25 起 `works.list` 另收 `limit` / `offset`（整数 1..100 / 0..1,000,000），`sort` / `order` 为封闭枚举，路由 schema 新增 integer 字段类型 |
 | account.overview | window 参数透传 | 经 workbench |
