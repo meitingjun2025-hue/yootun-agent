@@ -244,7 +244,7 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 
 ## 6. `@yootun/dsh-media-upload`
 
-旧 `dsh-yootun-tos-upload` 迁移为 `@yootun/dsh-media-upload`，仍是纯 Host 插件。
+旧 `dsh-yootun-tos-upload` 迁移为 `@yootun/dsh-media-upload`，为 Host + client 双半插件（2026-11-26 起带会话工具承接卡片）。
 
 保留本地同源路由：
 
@@ -255,11 +255,24 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 /_dsh/uploader/media
 ```
 
+承接卡片新增两条同源路由（信任判定、体上限、错误码口径与既有四条一致）：
+
+```text
+/_dsh/uploader/pending
+/_dsh/uploader/cancel
+```
+
+`pending` 是只读投影：只返回工具创建（`origin: 'tool'`）且仍在等待或上传中的会话，字段只有 uploadId、kind、state（awaiting 记作 waiting）、取整进度、createdAt 与可选的调用标识 context（工具执行上下文目前只提供 toolCallId）；不含文件名、大小、类型、URL 与任何本地路径。`cancel` 取消一个进行中的会话（不限来源）：宿主先把会话落 `failed`/`user_cancelled` 终态再中止在途直传，工具随之返回 `user_cancelled`；终态会话返回 `not_running`，未知 id 返回 403 `session_not_found`。
+
 保留会话工具：
 
 ```text
 media_upload
 ```
+
+工具创建的会话标 `origin: 'tool'`，`exec` 携带调用标识时写入 `context`；页面 `pick-file` 创建的会话标 `origin: 'page'`，不进入 `pending`。
+
+client 半（`exports["./client"]`）在 `shell.overlay` 注册「上传请求」承接卡片（标注本次请求的短编号；执行上下文没有会话标识，卡片不标注来源会话）：轮询 `pending` 发现工具创建的会话（页面自己发起的上传不触发卡片）、卡片内经原生 file input 选择文件、字节经既有 `uploadStart` 回流直传、按 `uploadStatus` 显示进度、经 `cancel` 路由取消；轮询只在页面可见时进行，`done` 不展示 URL（URL 由工具返回模型）。
 
 授权调用改为 Workbench 面：
 
@@ -276,7 +289,8 @@ workbench_tos_upload_authorize
 - 预签名 URL 不进入响应、日志或会话；
 - 本地路径与 object key 不回传；
 - 上传前后执行 MIME、大小、普通文件、TOCTOU 和授权响应校验；
-- 返回给上层的是公网 URL 和非敏感元信息。
+- 返回给上层的是公网 URL 和非敏感元信息；
+- `pending` 投影只含标识与进度，卡片不泄露文件名、大小、类型与 URL。
 
 ## 7. 三个工作台迁移
 

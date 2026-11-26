@@ -1,0 +1,97 @@
+/* 「上传请求」承接卡片（shell.overlay）：右下角浮层卡片列表。颜色、圆角、
+   阴影、层级全部走官方 --dsw-* token；无字面色值、无 !important、无全局
+   选择器。shell.overlay 宿主层本身低于官方 Modal，卡片不再叠更高层级。 */
+
+.layer {
+  position: fixed;
+  /* 距边留白对齐官方 overlay 安全区口径（--dsh-frame-overlay-top 的 20px
+     边距量级）；frame 变量只有顶部/前导带，右下角用同一量级的视口边距。 */
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: var(--dsw-radius-panel);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: var(--dsw-elevation-prominent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  animation: dsh-handoff-in 160ms ease-out;
+}
+
+/* 原生 file input 只作选择器载体：按钮触发 click，本体不占布局与焦点序。 */
+.input {
+  display: none;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title {
+  font-weight: 500;
+}
+
+.session {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint,
+.progress,
+.done {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.failed {
+  margin: 0;
+  color: var(--dsw-alias-state-warn-label);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.more {
+  padding: 4px 16px 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  text-align: right;
+}
+
+@keyframes dsh-handoff-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Reduced motion drops the slide-in; appearance stays instant. */
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
+}

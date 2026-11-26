@@ -1,10 +1,13 @@
 /**
- * yootun 媒体上传插件（纯 Host）：`/_dsh/uploader/*` 同源路由与
- * `media_upload` 会话工具。选文件由页面用浏览器原生 file input 完成，字节
- * 经同源路由回流宿主暂存；授权经 Workbench 面
- * `workbench_tos_upload_authorize`（只传 filename/contentType/size）；直传
- * 使用预签名 PUT，授权 URL 只在宿主内使用。插件不持有 TOS 凭证/桶/地域/
- * endpoint；本地路径与 object key 从不存在于对外结果。
+ * yootun 媒体上传插件（Host 半 + client 半）：`/_dsh/uploader/*` 同源路由与
+ * `media_upload` 会话工具；client 半在 shell.overlay 注册「上传请求」承接
+ * 卡片，轮询 pending 路由发现工具创建的会话、经原生 file input 选文件、
+ * uploadStart 回流字节、uploadStatus 显示进度、cancel 路由取消。选文件由
+ * 页面用浏览器原生 file input 完成，字节经同源路由回流宿主暂存；授权经
+ * Workbench 面 `workbench_tos_upload_authorize`（只传
+ * filename/contentType/size）；直传使用预签名 PUT，授权 URL 只在宿主内
+ * 使用。插件不持有 TOS 凭证/桶/地域/endpoint；本地路径与 object key 从不
+ * 存在于对外结果。
  * @module @yootun/dsh-media-upload
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -17,11 +20,18 @@ import { uploaderRoutes } from './routes.ts'
 import { registerMediaUploadTool } from './tool.ts'
 import type { UploaderDeps } from './deps.ts'
 
-export { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, TOOL_NAME, AUTHORIZE_TOOL_NAME } from './constants.ts'
+export { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, PENDING_PATH, CANCEL_PATH, TOOL_NAME, AUTHORIZE_TOOL_NAME } from './constants.ts'
 export { validateAuthorizationResponse, isForbiddenPublicHost, type UploadAuthorization, type AuthorizeValidationOverrides } from './authorize.ts'
 export { ERROR_CODES, toPublicCode, mapServerErrorCode, type MediaUploadErrorCode } from './errors.ts'
 export { bytesMatchDeclaration, sniffContentType, guessContentType, extensionOf } from './mime.ts'
-export { UploadSessionRegistry, type UploadSnapshot, type UploadSession } from './sessions.ts'
+export {
+  UploadSessionRegistry,
+  type UploadSnapshot,
+  type UploadSession,
+  type UploadSessionOrigin,
+  type UploadSessionContext,
+  type PendingToolSession,
+} from './sessions.ts'
 export { StagingArea, type StagedFile } from './staging.ts'
 export { uploaderRoutes, type UploadRoute, type UploadRouteHandler } from './routes.ts'
 export type { UploaderDeps } from './deps.ts'

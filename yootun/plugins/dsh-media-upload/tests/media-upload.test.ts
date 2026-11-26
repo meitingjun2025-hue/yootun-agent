@@ -1,13 +1,13 @@
 /**
  * 媒体上传状态机测试（node --test，真实 Cordis 组合 + 假授权 + 假 TOS）：
  * 路由信任判定（Desktop 转发双头缺失放行、跨站/异源/非 loopback 拒绝）、
- * pick/uploadStart/uploadStatus/media 全流程、授权响应校验、
- * MIME/大小/TOCTOU 拒绝、截断/超时/失败/重试、成功只回公网 URL、失败不泄
- * 预签名 URL 与路径、media_upload 不接受路径。
+ * pick/uploadStart/uploadStatus/media 全流程、pending/cancel 承接路由、
+ * 授权响应校验、MIME/大小/TOCTOU 拒绝、截断/超时/失败/重试、成功只回公网
+ * URL、失败不泄预签名 URL 与路径、media_upload 不接受路径。
  * 运行：`pnpm --filter @yootun/dsh-media-upload test`。
  */
 import assert from 'node:assert/strict'
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createServer, request as httpRequest } from 'node:http'
 import type { IncomingMessage } from 'node:http'
@@ -20,6 +20,7 @@ import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
 import * as MediaUpload from '../src/index.ts'
 import { permitted } from '../src/routes.ts'
 import type { UploaderDeps } from '../src/deps.ts'
+import type { UploadSessionRegistry } from '../src/sessions.ts'
 import type { ToolCallOutcome } from '@yootun/dsh-workbench-mcp'
 
 const ORIGIN = 'http://127.0.0.1:5757'
@@ -1178,7 +1179,7 @@ test('插件 dispose 等待异步清理：真实 apply 路由可用、暂存目�
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(MediaUpload)
-    assert.equal(registeredRoutes.length, 4, '真实 apply 注册四条上传路由')
+    assert.equal(registeredRoutes.length, 6, '真实 apply 注册六条上传路由（含 pending/cancel）')
     // 路由捕获完成后才起本地 server。
     browser = await startRouteServer(registeredRoutes)
     const pick = await (await clientFetch(browser.origin, '/_dsh/uploader/pick-file', {
@@ -1275,7 +1276,7 @@ test('dispose 等 staging 在途请求 settle：handler-settled 先于 dispose-d
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(MediaUpload)
-    assert.equal(registeredRoutes.length, 4)
+    assert.equal(registeredRoutes.length, 6)
 
     // 1. pick-file 创建会话。
     const pick = await (await clientFetch(origin, '/_dsh/uploader/pick-file', {
@@ -1361,5 +1362,298 @@ test('admission 生命周期：release 即出集合，destroy 后拒绝新请求
   } finally {
     registry.destroy()
     await staging.destroy()
+  }
+})
+
+// ---------------------------------------------------------------------------
+// 承接卡片 Host 面（实施单附录 B.1 H1–H8）：会话来源、pending 投影与加固、
+// cancel 取消语义（终态先行、暂存清理、终态不可改写）、exec 标识投影、
+// dispose 后拒绝。
+
+/** uploadStart 便捷封装：把 PNG 字节推进一个会话（新测试共用）。 */
+async function pushBytes(origin: string, uploadId: string, size = 256): Promise<void> {
+  const bytes = pngBytes(size)
+  await clientFetch(origin, '/_dsh/uploader/uploadStart', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/octet-stream',
+      'x-yootun-upload-id': uploadId,
+      'x-yootun-filename': 'photo.png',
+      'x-yootun-content-type': 'image/png',
+      'x-yootun-size': String(bytes.byteLength),
+    },
+    body: bytes,
+  })
+}
+
+/** 轮询等待工具创建的 tool 会话出现，返回 uploadId（超时返回空串）。 */
+async function waitForToolSession(registry: UploadSessionRegistry, kind = 'media'): Promise<string> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const id = registry.ids().find(candidate => {
+      const live = registry.getLive(candidate)
+      return live?.origin === 'tool' && live.kind === kind
+    }) ?? ''
+    if (id !== '') return id
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  return ''
+}
+
+/** 真实工具组合：Context + 假授权/假 TOS + 路由服务器 + applyUploaderWiring。 */
+async function toolHarness(options: { tos?: FakeTos } = {}): Promise<{
+  ctx: Context
+  registry: UploadSessionRegistry
+  origin: string
+  dispose: () => Promise<void>
+}> {
+  const tos = options.tos ?? await startFakeTos()
+  const wb = fakeWorkbench({ tos })
+  const state = MediaUpload.createUploaderState(() => ORIGIN, wb, { maxUploadBytes: 1024 * 1024 }, undefined)
+  const deps = { ...state.deps, transport: 'loopback-test' } as UploaderDeps
+  const routes: MediaUpload.UploadRoute[] = MediaUpload.uploaderRoutes(deps)
+  const ctx = new Context()
+  ctx.reflect.provide('webServer', { getOrigin: () => ORIGIN, register: () => () => undefined })
+  ctx.reflect.provide('yootunWorkbench', wb)
+  await ctx.plugin(SystemPrompt)
+  await ctx.plugin(ToolRuntime)
+  await ctx.plugin(NativeToolExecutor)
+  await ctx.plugin({ inject: ['tools'], apply: scope => { MediaUpload.applyUploaderWiring(scope, deps, 30_000) } })
+  const browser = await startRouteServer(routes)
+  return {
+    ctx,
+    registry: state.registry,
+    origin: browser.origin,
+    dispose: async () => {
+      await browser.close()
+      state.registry.destroy()
+      await state.staging.destroy()
+      await ctx.fiber.dispose()
+      await tos.close()
+    },
+  }
+}
+
+test('H1 会话来源：pick-file 会话 origin page，工具与显式 tool 创建为 tool', async () => {
+  const h = await harness()
+  try {
+    const pick = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    })).json() as { uploadId: string }
+    assert.equal(h.state.registry.getLive(pick.uploadId)?.origin, 'page', 'pick-file 会话来自页面')
+    // 缺省 origin 保持 page（既有调用点不改也能通过）。
+    assert.equal(h.state.registry.create('image').origin, 'page')
+    assert.equal(h.state.registry.create('image', 'tool').origin, 'tool')
+  } finally {
+    await h.close()
+  }
+})
+
+test('H2 pending 投影：只含 tool 会话的 waiting/uploading，升序，无敏感字段', async () => {
+  const h = await harness({ tos: await makeHangingTos() })
+  try {
+    // page 会话：不得出现在投影。
+    const page = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    })).json() as { uploadId: string }
+    // tool 会话 a（waiting）、b（uploading，悬挂 PUT）、c（已取消终态）。
+    const a = h.state.registry.create('image', 'tool')
+    const b = h.state.registry.create('image', 'tool')
+    await pushBytes(h.origin, b.id)
+    const c = h.state.registry.create('image', 'tool')
+    assert.equal(h.state.registry.cancel(c.id), 'cancelled')
+
+    const response = await clientFetch(h.origin, '/_dsh/uploader/pending', { method: 'POST' })
+    assert.equal(response.status, 200)
+    const body = await response.json() as { sessions: Array<Record<string, unknown>> }
+    assert.deepEqual(body.sessions.map(session => session.uploadId), [a.id, b.id], '只含 tool 且未终态的会话，按创建时间升序')
+    assert.equal(body.sessions[0]?.state, 'waiting')
+    assert.equal(body.sessions[1]?.state, 'uploading')
+    assert.equal(body.sessions[0]?.progress, 0, 'waiting 会话尚未绑定字节，进度 0')
+    for (const session of body.sessions) {
+      assert.deepEqual(Object.keys(session).sort(), ['createdAt', 'kind', 'progress', 'state', 'uploadId'], '无 context 时省略键，无 name/size/URL')
+    }
+    const serialized = JSON.stringify(body)
+    assert.ok(!serialized.includes('should-never-leak'), '投影不含预签名 URL')
+    assert.ok(!serialized.includes('/tmp/'), '投影不含本地路径')
+    assert.ok(!serialized.includes('"name"'), '投影不含文件名')
+    assert.ok(!ids(body.sessions).includes(page.uploadId), 'page 会话不在投影')
+    assert.ok(!ids(body.sessions).includes(c.id), '终态会话不在投影')
+  } finally {
+    await h.close()
+  }
+})
+
+/** 会话投影 uploadId 列表。 */
+function ids(sessions: Array<Record<string, unknown>>): string[] {
+  return sessions.map(session => String(session.uploadId))
+}
+
+test('H3 pending 加固：非 POST 405、不信任来源 403、有体含字段 400', async () => {
+  const h = await harness()
+  try {
+    const get = await clientFetch(h.origin, '/_dsh/uploader/pending')
+    assert.equal(get.status, 405)
+    const foreign = await fetch(`${h.origin}/_dsh/uploader/pending`, {
+      method: 'POST',
+      headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' },
+      body: '{}',
+    })
+    assert.equal(foreign.status, 403)
+    const extra = await clientFetch(h.origin, '/_dsh/uploader/pending', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ verbose: true }),
+    })
+    assert.equal(extra.status, 400)
+    assert.deepEqual(await extra.json(), { error: 'invalid_request' })
+    // 空对象体与无体同样放行（只读路由的体可省略）。
+    const empty = await clientFetch(h.origin, '/_dsh/uploader/pending', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    })
+    assert.equal(empty.status, 200)
+  } finally {
+    await h.close()
+  }
+})
+
+test('H4 cancel 取消 awaiting 会话：cancelled true、工具返回 user_cancelled、终态不被改写', async () => {
+  const h = await toolHarness()
+  try {
+    const startedAt = Date.now()
+    const batch = h.ctx.tools.execute({
+      signal: new AbortController().signal,
+      calls: [
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('media-cancel-1'), name: 'media_upload', arguments: '{}' },
+      ],
+    })
+    const uploadId = await waitForToolSession(h.registry)
+    assert.ok(uploadId !== '', '工具创建了上传会话')
+    const cancel = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId }),
+    })
+    assert.equal(cancel.status, 200)
+    assert.deepEqual(await cancel.json(), { cancelled: true })
+    const result = (await batch).results[0]?.result as { isError: boolean; value?: { ok: boolean; error?: string } }
+    assert.equal(result.isError, false, '取消是工具正常返回')
+    assert.equal(result.value?.ok, false)
+    assert.equal(result.value?.error, 'user_cancelled')
+    assert.ok(Date.now() - startedAt < 2000, '工具在 2 秒内拿到取消结果')
+    const snapshot = h.registry.snapshot(uploadId)
+    assert.equal(snapshot?.state, 'failed')
+    assert.equal(snapshot?.error, 'user_cancelled')
+    // 后到的超时回调（模拟 30 分钟预算或 sweep 先落 cancel 的竞态反面）不得改写终态码。
+    const live = h.registry.getLive(uploadId)
+    assert.ok(live !== undefined)
+    h.registry.settleFailed(live, 'upload_timeout')
+    assert.equal(h.registry.snapshot(uploadId)?.error, 'user_cancelled', 'settle 幂等挡住后到回调')
+  } finally {
+    await h.dispose()
+  }
+})
+
+test('H5 cancel 取消 uploading 会话：中止 PUT，暂存文件按失败路径清理', async () => {
+  const h = await harness({ tos: await makeHangingTos() })
+  try {
+    const session = h.state.registry.create('image', 'tool')
+    await pushBytes(h.origin, session.id)
+    const live = h.state.registry.getLive(session.id)
+    assert.equal(live?.state, 'uploading')
+    const stagedPath = live?.staged?.path
+    assert.ok(stagedPath !== undefined && stagedPath !== '', '悬挂上传期间暂存文件存在')
+
+    const cancel = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: session.id }),
+    })
+    assert.equal(cancel.status, 200)
+    assert.deepEqual(await cancel.json(), { cancelled: true })
+    // 失败路径异步清理暂存：等文件真正落盘删除（rm 完成晚于 staged 摘除）。
+    const deadline = Date.now() + 5000
+    let snapshot: MediaUpload.UploadSnapshot | undefined
+    while (Date.now() < deadline) {
+      snapshot = h.state.registry.snapshot(session.id)
+      if (snapshot?.state === 'failed' && !existsSync(stagedPath)) break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    assert.equal(snapshot?.state, 'failed')
+    assert.equal(snapshot?.error, 'user_cancelled', '先落的取消码不被管线后到的 abort 改写')
+    assert.equal(h.state.registry.getLive(session.id)?.staged, undefined)
+    assert.equal(existsSync(stagedPath), false, '暂存文件已删除（无孤儿）')
+  } finally {
+    await h.close()
+  }
+})
+
+test('H6 cancel 边界：终态 not_running、未知 id 403 session_not_found、未知字段 400', async () => {
+  const h = await harness()
+  try {
+    const session = h.state.registry.create('image', 'tool')
+    assert.equal(h.state.registry.cancel(session.id), 'cancelled')
+    const again = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: session.id }),
+    })
+    assert.equal(again.status, 200)
+    assert.deepEqual(await again.json(), { cancelled: false, reason: 'not_running' })
+    const unknown = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: 'nope' }),
+    })
+    assert.equal(unknown.status, 403)
+    assert.deepEqual(await unknown.json(), { error: 'session_not_found' })
+    const extra = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: session.id, force: true }),
+    })
+    assert.equal(extra.status, 400)
+    assert.deepEqual(await extra.json(), { error: 'invalid_request' })
+  } finally {
+    await h.close()
+  }
+})
+
+test('H7 pending 投影携带 exec 标识：工具会话带 context.toolCallId，缺省省略键；工具会话 origin tool', async () => {
+  const h = await toolHarness()
+  try {
+    const batch = h.ctx.tools.execute({
+      signal: new AbortController().signal,
+      calls: [
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('media-ctx-1'), name: 'media_upload', arguments: JSON.stringify({ kind: 'image' }) },
+      ],
+    })
+    const uploadId = await waitForToolSession(h.registry, 'image')
+    assert.ok(uploadId !== '', '工具创建了上传会话')
+    assert.equal(h.registry.getLive(uploadId)?.origin, 'tool', '工具创建的会话来源 tool（H1 工具侧）')
+    const response = await clientFetch(h.origin, '/_dsh/uploader/pending', { method: 'POST' })
+    const body = await response.json() as { sessions: Array<{ uploadId: string; context?: Record<string, unknown> }> }
+    const mine = body.sessions.find(session => session.uploadId === uploadId)
+    assert.deepEqual(mine?.context, { toolCallId: 'media-ctx-1' }, 'exec 的调用标识进入 context')
+    // registry 直接创建、不提供 context：投影省略 context 键。
+    const bare = h.registry.create('image', 'tool')
+    const bareResponse = await clientFetch(h.origin, '/_dsh/uploader/pending', { method: 'POST' })
+    const bareBody = await bareResponse.json() as { sessions: Array<Record<string, unknown>> }
+    const bareProjection = bareBody.sessions.find(session => session.uploadId === bare.id)
+    assert.ok(bareProjection !== undefined)
+    assert.equal('context' in bareProjection, false, '无标识时省略 context 键')
+    // 收尾：取消让工具返回，不留悬挂 promise。
+    await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId }),
+    })
+    await batch
+  } finally {
+    await h.dispose()
+  }
+})
+
+test('H8 dispose 后 pending / cancel 返回 503 uploader_not_configured', async () => {
+  const h = await harness()
+  try {
+    await h.state.registry.destroy()
+    const pending = await clientFetch(h.origin, '/_dsh/uploader/pending', { method: 'POST' })
+    assert.equal(pending.status, 503)
+    assert.deepEqual(await pending.json(), { error: 'uploader_not_configured' })
+    const cancel = await clientFetch(h.origin, '/_dsh/uploader/cancel', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId: 'whatever' }),
+    })
+    assert.equal(cancel.status, 503)
+    assert.deepEqual(await cancel.json(), { error: 'uploader_not_configured' })
+    assert.equal(h.state.registry.ids().length, 0, 'dispose 后不触碰会话（已清空）')
+  } finally {
+    await h.close()
   }
 })

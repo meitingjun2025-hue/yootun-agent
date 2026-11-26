@@ -157,7 +157,16 @@ MCP 工具：无。均为本地同源路由与插件内部契约。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填：联调环境、覆盖项、按联调修订的预期、留在 5.2 的未覆盖项、`exec` 上下文字段核对结果）。
+- 联调环境：本仓工作区（Linux/WSL2），分支 `feat/media-upload-tool-handoff`，Host 半以真实 Cordis 组合 + 假授权/假 TOS 驱动（`tests/media-upload.test.ts`），client 半以 jsdom + 假同源路由（全局 fetch 桩）驱动（`tests/client/handoff-card.test.tsx`）。浏览器/桌面实机联调未做，全部留在 5.2。
+- 覆盖项：附录 B.1 H1–H8、B.2 C1–C9 每条均有对应用例并通过；5.1 自动验收命令全部本地执行通过（media-upload test 35+11、build 含双校验、xhs test 15+33 与 build、`@yootun/*` build、仓库根 build、lint/typecheck/i18n/jsdoc/empty-catch/test:docs）。
+- `exec` 上下文字段核对结果：`@deepseek-ai/dsh-tools` 执行上下文（`ToolRunContext`）携带 `callId: ToolCallId`（模型调用标识），不携带 sessionId；`contextOf` 经 `typeof exec.callId === 'string'` 判定后映射为 `context.toolCallId`，`sessionId` 恒缺省（2.1 的 context 键集不变）。
+- 按实现修订的预期：
+  - `UploadSessionRegistry.settleFailed` 增加终态守卫（终态会话保留先落错误码），这是 A1「后到 abort 回调不改写终态」的落地；既有调用点行为不变（dispose/过期路径先于管线 settle）。
+  - client 半 `sendUploadBytes` 返回 `{ ok, error? }`（小红书副本为 boolean），`pollUploadStatus` 增加 `error` 透出：承接卡片需要 uploadStart 的稳定码映射失败原因（H4）；小红书副本按单不改。
+  - `verify-bundle-stylesheets.mjs` 按本包适配：本包不依赖 dsh-client-ui-kit，仅校验自身 `handoff.module.css` 的安装元数据与冻结类名（wx 版的 kit 页壳断言不适用）。
+  - A6 的「按 `--dsh-frame-*` 安全区变量留白」：frame 变量只有顶部（`--dsh-frame-top-clearance`/`--dsh-frame-overlay-top`）与前导带（`--dsh-frame-leading-clearance`），右下角无对应变量；卡片以 16px 视口边距对齐 `--dsh-frame-overlay-top` 的 20px 边距量级，宽度按单执行。
+  - `tsconfig.json` 由 Host face 切到 client base（`tsconfig.base.client.json` + node/client types），Host 半与 client 半同一程序编译——xhs/wx 双半插件同款；references 增补 locale/ui-primitives/ui-slots/ui-layout/ui-renderer。
+- 留在 5.2 的未覆盖项：H1–H9 全部真机步骤（含 GIF 录制）待用户执行。
 
 ## 附录 A：逐文件规格
 
