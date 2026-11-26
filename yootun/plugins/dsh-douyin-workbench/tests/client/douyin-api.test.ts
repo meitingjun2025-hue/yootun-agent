@@ -1,56 +1,43 @@
 /**
- * client Host 响应边界验证测试（jsdom）：validateHostResponse 五态 + hostAction
- * malformed JSON 收敛。HTTP 状态码不误当业务 status。
+ * client Host 调用测试（jsdom）：插件的 `hostAction` 即 kit `createHostAction`
+ * 绑定本工作台路由的实例（通用契约由 kit 测试覆盖）；本文件锁定插件侧事实：
+ * 同源路径、传输失败收敛 `host_unreachable`（不再是 `douyin_operation_request_failed`）、
+ * error envelope 以稳定 reason 抛出、载荷透传。
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hostAction, validateHostResponse } from '../../src/client/api.ts'
+import { HostActionError } from '@yootun/dsh-client-ui-kit/src/host-action.ts'
+import { HOST_PATH, hostAction } from '../../src/client/api.ts'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('validateHostResponse 边界验证', () => {
-  it('status 非法拒绝（含把 HTTP 数字码误当 status 的形态）', () => {
-    expect(() => validateHostResponse({ status: 200 })).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse({ status: 'ok-ish' })).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse({})).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse('ready')).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse([1])).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse(null)).toThrow('douyin_operation_request_failed')
+describe('插件侧 hostAction 绑定', () => {
+  it('绑定本工作台同源路由', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ready', accounts: [] }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const res = await hostAction('accounts.list')
+    expect(res.status).toBe('ready')
+    expect(res.accounts).toEqual([])
+    const [path] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(path).toBe(HOST_PATH)
+    expect(HOST_PATH).toBe('/api/desktop/yootun/douyin-workbench')
   })
 
-  it('status=error 缺 reason 拒绝', () => {
-    expect(() => validateHostResponse({ status: 'error' })).toThrow('douyin_operation_request_failed')
-  })
-
-  it('reason 非字符串拒绝', () => {
-    expect(() => validateHostResponse({ status: 'ready', reason: 42 })).toThrow('douyin_operation_request_failed')
-    expect(() => validateHostResponse({ status: 'error', reason: { code: 'x' } })).toThrow('douyin_operation_request_failed')
-  })
-
-  it('ready/started/created 通过，其余字段保持透传', () => {
-    const ready = validateHostResponse({ status: 'ready', accounts: [{ accountId: 'a' }] })
-    expect(ready.status).toBe('ready')
-    expect(ready.accounts).toEqual([{ accountId: 'a' }])
-    expect(validateHostResponse({ status: 'started' }).status).toBe('started')
-    expect(validateHostResponse({ status: 'created' }).status).toBe('created')
-    expect(validateHostResponse({ status: 'error', reason: 'collect_busy' }).reason).toBe('collect_busy')
-  })
-})
-
-describe('hostAction 传输收敛', () => {
-  it('malformed JSON 收敛 douyin_operation_request_failed', async () => {
+  it('malformed JSON 收敛 host_unreachable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{not json', { status: 200, headers: { 'content-type': 'application/json' } })))
-    await expect(hostAction('accounts.list')).rejects.toThrow('douyin_operation_request_failed')
+    await expect(hostAction('accounts.list')).rejects.toMatchObject({ code: 'host_unreachable' })
   })
 
-  it('非对象 JSON（数组/字符串）收敛稳定错误', async () => {
+  it('非对象 JSON（数组/字符串）收敛 host_unreachable 且不透传原文', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('[1,2]', { status: 200 })))
-    await expect(hostAction('accounts.list')).rejects.toThrow('douyin_operation_request_failed')
+    const error = await hostAction('accounts.list').catch((e: unknown) => e as HostActionError)
+    expect(error).toBeInstanceOf(HostActionError)
+    expect(error.message).not.toContain('1,2')
   })
 
-  it('HTTP 403 的 error envelope 按 reason 透出（状态码不误当 status）', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status: 'error', reason: 'forbidden' }), { status: 403 })))
-    await expect(hostAction('accounts.list')).rejects.toThrow('forbidden')
+  it('error envelope 按 reason 透出（状态码不误当 status）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ status: 'error', reason: 'collect_busy' }), { status: 403 })))
+    await expect(hostAction('accounts.list')).rejects.toThrow('collect_busy')
   })
 })

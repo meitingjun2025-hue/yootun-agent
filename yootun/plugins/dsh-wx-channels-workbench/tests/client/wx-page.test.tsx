@@ -16,6 +16,20 @@ describe('词典键集', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
+  it('稳定码全集每个码都有词典文案（REASON_KEYS 编译期穷尽的运行时面）', async () => {
+    const { STABLE_ERROR_CODES } = await import('../../src/errors.ts')
+    const { reasonText } = await import('../../src/client/format.ts')
+    const interpolate = (key: string, values?: Record<string, string | number>): string =>
+      values === undefined ? (en[key as WxLocaleKey] ?? key) : `${en[key as WxLocaleKey] ?? key}:${String(values.code ?? '')}`
+    for (const code of STABLE_ERROR_CODES) {
+      expect(reasonText(code, interpolate).includes('error.unknownWithCode'), `reasonText ${code}`).toBe(false)
+    }
+    // 连接器鉴权投影与 Host 收敛码的口径（分册 08 §5.2 / 实施单 2.7）。
+    expect(reasonText('UNAUTHORIZED', interpolate)).toBe(`${en['reason.UNAUTHORIZED']}（UNAUTHORIZED）`)
+    expect(reasonText('host_unreachable', interpolate)).toBe(`${en['reason.host_unreachable']}（host_unreachable）`)
+    expect(reasonText('LOCAL_CLEARED_REQUIRED', interpolate)).toBe(`${en['reason.LOCAL_CLEARED_REQUIRED']}（LOCAL_CLEARED_REQUIRED）`)
+  })
+
   it('账号采集中状态点文案 zh / en 成对', () => {
     expect(zh['account.collecting']).toBe('采集中')
     expect(en['account.collecting']).toBe('Collecting')

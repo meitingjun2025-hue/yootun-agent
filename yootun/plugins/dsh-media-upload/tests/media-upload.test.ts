@@ -1028,6 +1028,66 @@ test('真实 Tools error.code 嵌套 envelope 的稳定映射', async () => {
   }
 })
 
+test('连接器传输新码的授权映射（2026-11-26，分册 08 §5.2）', async () => {
+  const awaitFailure = async (h: Awaited<ReturnType<typeof harness>>, uploadId: string): Promise<MediaUpload.UploadSnapshot | undefined> => {
+    let snapshot: MediaUpload.UploadSnapshot | undefined
+    for (let i = 0; i < 40; i += 1) {
+      snapshot = h.state.registry.snapshot(uploadId)
+      if (snapshot?.state === 'failed') break
+      await new Promise(resolve => setTimeout(resolve, 25))
+    }
+    return snapshot
+  }
+  const pushBytes = async (origin: string, uploadId: string): Promise<void> => {
+    const bytes = pngBytes(128)
+    await clientFetch(origin, '/_dsh/uploader/uploadStart', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-yootun-upload-id': uploadId,
+        'x-yootun-filename': 'photo.png',
+        'x-yootun-content-type': 'image/png',
+        'x-yootun-size': String(bytes.byteLength),
+      },
+      body: bytes,
+    })
+  }
+  // workbench_unauthorized（密钥被拒）与 not_activated / tool_denied 同映射：未配置。
+  const tosUnauthorized = await startFakeTos()
+  const hUnauthorized = await harness({
+    workbench: fakeWorkbench({ tos: tosUnauthorized, reject: { code: 'workbench_unauthorized' } }),
+  })
+  try {
+    const pick = await (await clientFetch(hUnauthorized.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })).json() as { uploadId: string }
+    await pushBytes(hUnauthorized.origin, pick.uploadId)
+    const snapshot = await awaitFailure(hUnauthorized, pick.uploadId)
+    assert.equal(snapshot?.state, 'failed')
+    assert.equal(snapshot?.error, 'uploader_not_configured')
+  } finally {
+    await hUnauthorized.close()
+    await tosUnauthorized.close()
+  }
+  // workbench_server_error 与网络错误同映射：存储不可用。
+  const tosServer = await startFakeTos()
+  const hServer = await harness({
+    workbench: fakeWorkbench({ tos: tosServer, reject: { code: 'workbench_server_error' } }),
+  })
+  try {
+    const pick = await (await clientFetch(hServer.origin, '/_dsh/uploader/pick-file', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
+    })).json() as { uploadId: string }
+    await pushBytes(hServer.origin, pick.uploadId)
+    const snapshot = await awaitFailure(hServer, pick.uploadId)
+    assert.equal(snapshot?.state, 'failed')
+    assert.equal(snapshot?.error, 'storage_unavailable')
+  } finally {
+    await hServer.close()
+    await tosServer.close()
+  }
+})
+
 test('pick-file 与 uploadStatus 拒绝未知字段（正反两向）', async () => {
   const h = await harness()
   try {

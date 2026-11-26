@@ -15,6 +15,24 @@ import { buildRouteHandlers } from '../src/index.ts'
 import { runsFilePath } from '../src/runs.ts'
 import { createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
 
+test('连接器新码原样投影与 host_unreachable 登记（2026-11-26，分册 08 §5.2）', () => {
+  const workbenchError = (code: string): Error => Object.assign(new Error(`x-${code}`), { name: 'WorkbenchMcpError', code })
+  // 抖音按登记表原样投影全部连接器稳定码（不收敛兜底）。
+  assert.equal(safeCode(workbenchError('workbench_unauthorized')), 'workbench_unauthorized')
+  assert.equal(safeCode(workbenchError('workbench_server_error')), 'workbench_server_error')
+  // host_unreachable 为本地新码，白名单直通。
+  assert.equal(safeCode(workbenchError('host_unreachable')), 'host_unreachable')
+  for (const code of ['workbench_unauthorized', 'workbench_server_error', 'host_unreachable']) {
+    assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
+    assert.equal((LOCAL_ERROR_CODES as readonly string[]).includes(code), code === 'host_unreachable' || code.startsWith('workbench_'), code)
+  }
+})
+
+test('稳定码集合无重复元素（LOCAL_ERROR_CODES 展开面与去重后的全集）', () => {
+  assert.equal(new Set(LOCAL_ERROR_CODES).size, LOCAL_ERROR_CODES.length)
+  assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
+})
+
 test('路由路径冻结：/api/desktop/yootun/douyin-workbench', () => {
   assert.equal(ROUTE_PATH, '/api/desktop/yootun/douyin-workbench')
 })

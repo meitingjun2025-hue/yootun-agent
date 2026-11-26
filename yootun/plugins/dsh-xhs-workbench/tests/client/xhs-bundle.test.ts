@@ -82,12 +82,17 @@ describe('稳定码 → 词典键覆盖（源码层，防新增稳定码漏文�
     const { COVERED_REASON_KEYS, reasonText } = await import('../../src/client/format.ts')
     const zh = (await import('../../src/client/locales.ts')).zh
     for (const code of STABLE_ERROR_CODES) {
-      expect(COVERED_REASON_KEYS.has(`reason.${code}`), `missing reason key for ${code}`).toBe(true)
-      expect(`reason.${code}` in zh, `missing zh copy for ${code}`).toBe(true)
+      // REASON_KEYS 已类型穷尽（缺键 build 失败）；这里锁定值指向的词典键确有文案。
+      const key = (COVERED_REASON_KEYS as Record<string, string>)[code]
+      expect(key, `missing reason key for ${code}`).toBe(`reason.${code}`)
+      expect(key in zh, `missing zh copy for ${code}`).toBe(true)
     }
     // 未知码走通用文案并保留原码（含上传 machine 归一形态）。
     const withValues = (key: string, values?: Record<string, string | number>): string =>
       values === undefined ? key : `${key}:${String(values.code ?? '')}`
     expect(reasonText('not_found_unknown', withValues)).toContain('not_found_unknown')
+    // 连接器鉴权投影与 Host 收敛码的口径（分册 08 §5.2 / 实施单 2.7）。
+    expect(reasonText('UNAUTHORIZED', withValues)).toBe('reason.UNAUTHORIZED（UNAUTHORIZED）')
+    expect(reasonText('host_unreachable', withValues)).toBe('reason.host_unreachable（host_unreachable）')
   })
 })

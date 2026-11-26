@@ -589,10 +589,7 @@ export function buildRouteHandlers(deps: XhsHostDeps): Record<string, ActionHand
           return { status: 'ready', accountId, sessionStatus: result.status }
         }
         // unknown（浏览器/驱动异常）→ 受控 PROBE_FAILED / 专码，不透出原始异常名。
-        const reason = (STABLE_ERROR_CODES as readonly string[]).includes(result.reason ?? '')
-          ? result.reason as string
-          : 'PROBE_FAILED'
-        return { status: 'error', reason }
+        return errorPayload(stableOr(result.reason ?? '', 'PROBE_FAILED'))
       } finally {
         if (deps.probeSignals.get(accountId) === controller) deps.probeSignals.delete(accountId)
       }

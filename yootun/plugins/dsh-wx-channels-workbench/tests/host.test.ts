@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ACTION_SCHEMAS, MAX_BODY_BYTES, createRouteHandler, permitted, validateActionArgs } from '../src/route.ts'
-import { STABLE_ERROR_CODES, WxError, safeCode, serverCodeOf } from '../src/errors.ts'
+import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, WxError, safeCode, serverCodeOf } from '../src/errors.ts'
 import {
   bumpSessionSeq, clearLocalCredentials, getAccount, hasStorageState, paths, readAccounts,
   safeSegment, stateRoot, updateAccount, writeAccounts,
@@ -224,6 +224,23 @@ test('稳定错误模型：Workbench envelope 嵌套码映射，未知码收敛'
   ]) {
     assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
   }
+})
+
+test('连接器新码显式投影与 host_unreachable 登记（2026-11-26，分册 08 §5.2）', () => {
+  const workbenchError = (code: string): Error => Object.assign(new Error(`x-${code}`), { name: 'WorkbenchMcpError', code })
+  // 鉴权失败投影 UNAUTHORIZED（既有服务端码），不再伪装成通用服务不可用。
+  assert.equal(safeCode(workbenchError('workbench_unauthorized')), 'UNAUTHORIZED')
+  assert.equal(safeCode(workbenchError('workbench_server_error')), 'WX_TOOL_UNAVAILABLE')
+  // host_unreachable 为本地新码，白名单直通。
+  assert.equal(safeCode(workbenchError('host_unreachable')), 'host_unreachable')
+  for (const code of ['UNAUTHORIZED', 'WX_TOOL_UNAVAILABLE', 'host_unreachable']) {
+    assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
+  }
+})
+
+test('稳定码集合无重复元素（服务端与本域同码去重后的全集）', () => {
+  assert.equal(new Set(LOCAL_ERROR_CODES).size, LOCAL_ERROR_CODES.length)
+  assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
 })
 
 // --- 状态目录兼容 ---

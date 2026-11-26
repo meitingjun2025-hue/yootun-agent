@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { ACTION_SCHEMAS, MAX_BODY_BYTES, createRouteHandler, permitted, validateActionArgs } from '../src/route.ts'
-import { STABLE_ERROR_CODES, XhsError } from '../src/errors.ts'
+import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, XhsError, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers, createXhsHostDeps, type XhsHostDeps } from '../src/handlers.ts'
 import { isProfileLocked, acquireProfileLock } from '../src/locks.ts'
 import { writeAccounts } from '../src/state.ts'
@@ -64,6 +64,25 @@ async function testDeps(root: string, options: {
 }
 
 // --- 路由 schema 层 ---
+
+test('连接器新码显式投影与本地新码登记（2026-11-26，分册 08 §5.2）', () => {
+  const workbenchError = (code: string): Error => Object.assign(new Error(`x-${code}`), { name: 'WorkbenchMcpError', code })
+  // 鉴权失败投影 UNAUTHORIZED（本地新码），不再收敛到兜底码。
+  assert.equal(safeCode(workbenchError('workbench_unauthorized')), 'UNAUTHORIZED')
+  // 服务端故障投影兜底码（xhs 无 WX_TOOL_UNAVAILABLE 同位码）。
+  assert.equal(safeCode(workbenchError('workbench_server_error')), 'xhs_operation_request_failed')
+  // host_unreachable 为本地新码，白名单直通。
+  assert.equal(safeCode(workbenchError('host_unreachable')), 'host_unreachable')
+  assert.equal(safeCode(new XhsError('host_unreachable', 'x')), 'host_unreachable')
+  for (const code of ['UNAUTHORIZED', 'host_unreachable']) {
+    assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(code), true, code)
+  }
+})
+
+test('稳定码集合无重复元素（本地码表与去重后的全集）', () => {
+  assert.equal(new Set(LOCAL_ERROR_CODES).size, LOCAL_ERROR_CODES.length)
+  assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
+})
 
 test('action allowlist：X6 白名单 28 项且全部有 schema', () => {
   const expected = [

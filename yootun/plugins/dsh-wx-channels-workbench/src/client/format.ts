@@ -1,34 +1,82 @@
 /**
- * 页面展示格式化与稳定 reason → 文案映射。reason 只显示稳定码：已知码出
- * 可行动文案并附原码，未知码走通用失败文案并附原码（不透传内部信息）。
+ * 页面展示格式化与稳定 reason → 文案映射。映射表对稳定码全集类型穷尽：新增
+ * 稳定码而未提供文案时本包 `build` 编译报错。reason 只显示稳定码文案：已知码
+ * 出可行动文案并附原码，未知码走通用失败文案并附原码（不透传内部信息）。
  * @module
  */
+import type { StableErrorCode } from '../errors.ts'
 import type { WxLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
 export type Translate = (key: WxLocaleKey, values?: Record<string, string | number>) => string
 
-/** 已知稳定 reason 的文案键映射（其余走 unknownWithCode 通用文案）。 */
-const REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
-  collect_busy: 'collect.reason.collect_busy',
-  session_required: 'collect.reason.session_required',
-  session_expired: 'collect.reason.session_expired',
-  probe_failed: 'collect.reason.probe_failed',
-  plugin_disposing: 'collect.reason.plugin_disposing',
-  pending_account: 'collect.reason.pending_account',
-  storage_state_missing: 'collect.reason.storage_state_missing',
-  account_mismatch: 'collect.reason.account_mismatch',
-  identity_check_failed: 'collect.reason.identity_check_failed',
-  identity_not_stable: 'collect.reason.identity_not_stable',
-  no_session_cookie: 'collect.reason.no_session_cookie',
-  auth_data_unavailable: 'collect.reason.auth_data_unavailable',
-  partial: 'collect.reason.partial',
+/**
+ * 稳定 reason → 文案键（全集穷尽，`satisfies` 缺键即编译报错）。既有文案沿用
+ * 原词典键；新增码统一 `reason.<CODE>`。`UNAUTHORIZED` 为连接器鉴权投影的
+ * 本地稳定码（分册 08 §5.2）。
+ */
+const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
+  ACCOUNT_NOT_ACCESSIBLE: 'reason.ACCOUNT_NOT_ACCESSIBLE',
   ACCOUNT_NOT_FOUND: 'collect.reason.ACCOUNT_NOT_FOUND',
+  CONFIRMATION_REQUIRED: 'reason.CONFIRMATION_REQUIRED',
+  DELETE_CLEANUP_FAILED: 'reason.DELETE_CLEANUP_FAILED',
+  FIELD_LENGTH_MISMATCH: 'reason.FIELD_LENGTH_MISMATCH',
+  GOOGLE_CHROME_MISSING: 'error.CHROME',
+  HEARTBEAT_SEQ_REGRESSED: 'reason.HEARTBEAT_SEQ_REGRESSED',
+  IDEMPOTENCY_CONFLICT: 'reason.IDEMPOTENCY_CONFLICT',
+  IDEMPOTENCY_IN_PROGRESS: 'reason.IDEMPOTENCY_IN_PROGRESS',
+  IDEMPOTENCY_KEY_REQUIRED: 'reason.IDEMPOTENCY_KEY_REQUIRED',
+  IDEMPOTENCY_OUTCOME_UNKNOWN: 'reason.IDEMPOTENCY_OUTCOME_UNKNOWN',
+  INVALID_DAY_RANGE: 'reason.INVALID_DAY_RANGE',
+  INVALID_IDEMPOTENCY_KEY: 'reason.INVALID_IDEMPOTENCY_KEY',
+  INVALID_SORT: 'reason.INVALID_SORT',
   INVALID_TIME_WINDOW: 'collect.reason.INVALID_TIME_WINDOW',
+  LIST_INCOMPLETE: 'reason.LIST_INCOMPLETE',
+  LOCAL_CLEARED_REQUIRED: 'reason.LOCAL_CLEARED_REQUIRED',
+  PAYLOAD_TOO_LARGE: 'reason.PAYLOAD_TOO_LARGE',
+  PLAYWRIGHT_DRIVER_MISSING: 'error.CHROME_DRIVER',
+  RUN_ACCOUNT_MISMATCH: 'reason.RUN_ACCOUNT_MISMATCH',
+  RUN_COUNT_MISMATCH: 'reason.RUN_COUNT_MISMATCH',
+  RUN_LIST_META_REQUIRED: 'reason.RUN_LIST_META_REQUIRED',
+  RUN_NOT_FOUND: 'reason.RUN_NOT_FOUND',
+  RUN_NOT_RUNNING: 'reason.RUN_NOT_RUNNING',
+  RUN_STILL_ACTIVE: 'reason.RUN_STILL_ACTIVE',
+  TIME_SERIES_LENGTH_MISMATCH: 'reason.TIME_SERIES_LENGTH_MISMATCH',
+  TOO_MANY_ACCOUNTS: 'reason.TOO_MANY_ACCOUNTS',
+  UNAUTHORIZED: 'reason.UNAUTHORIZED',
+  VALIDATION_ERROR: 'reason.VALIDATION_ERROR',
+  WORK_NOT_FOUND: 'reason.WORK_NOT_FOUND',
+  WX_ROUTE_INVALID_REQUEST: 'reason.WX_ROUTE_INVALID_REQUEST',
+  WX_ROUTE_PAYLOAD_TOO_LARGE: 'reason.WX_ROUTE_PAYLOAD_TOO_LARGE',
+  WX_ROUTE_REFUSED: 'reason.WX_ROUTE_REFUSED',
+  WX_ROUTE_UNKNOWN_ACTION: 'reason.WX_ROUTE_UNKNOWN_ACTION',
+  WX_RUN_INTERRUPTED: 'reason.WX_RUN_INTERRUPTED',
   WX_SESSION_INVALID: 'error.WX_SESSION_INVALID',
   WX_TOOL_UNAVAILABLE: 'error.WX_TOOL_UNAVAILABLE',
-  GOOGLE_CHROME_MISSING: 'error.CHROME',
-  PLAYWRIGHT_DRIVER_MISSING: 'error.CHROME_DRIVER',
+  account_mismatch: 'collect.reason.account_mismatch',
+  auth_data_unavailable: 'collect.reason.auth_data_unavailable',
+  collect_busy: 'collect.reason.collect_busy',
+  host_unreachable: 'reason.host_unreachable',
+  login_failed: 'reason.login_failed',
+  login_timeout: 'reason.login_timeout',
+  no_session_cookie: 'collect.reason.no_session_cookie',
+  pending_account: 'collect.reason.pending_account',
+  plugin_disposing: 'collect.reason.plugin_disposing',
+  probe_failed: 'collect.reason.probe_failed',
+  run_state_corrupt: 'reason.run_state_corrupt',
+  session_required: 'collect.reason.session_required',
+  storage_state_missing: 'collect.reason.storage_state_missing',
+} satisfies Readonly<Record<StableErrorCode, WxLocaleKey>>
+
+/**
+ * 运行时 reason → 文案键：进 run reason 槽但不在稳定码全集的旧取值（不在
+ * 路由 reason 白名单内，本表只服务页面展示）。
+ */
+const RUNTIME_REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
+  identity_check_failed: 'collect.reason.identity_check_failed',
+  identity_not_stable: 'collect.reason.identity_not_stable',
+  partial: 'collect.reason.partial',
+  session_expired: 'collect.reason.session_expired',
 }
 
 /** 身份稳定类前缀（`identity_check_failed:<detail>`）共用同一文案键。 */
@@ -45,7 +93,8 @@ export function reasonText(reason: string, t: Translate): string {
   const normalized = reason.startsWith(`${IDENTITY_PREFIX}:`) || reason.startsWith(`${IDENTITY_PREFIX}_`)
     ? IDENTITY_PREFIX
     : reason
-  const key = REASON_KEYS[normalized]
+  const key = (Object.hasOwn(REASON_KEYS, normalized) ? REASON_KEYS[normalized as StableErrorCode] : undefined)
+    ?? RUNTIME_REASON_KEYS[normalized]
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
 }

@@ -583,7 +583,10 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       })
       if (!started.started) {
         if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
-        return { status: 'error', reason: started.reason ?? 'collect_busy' }
+        // started.reason 是控制器层的宽字符串；路由 reason 槽只收稳定码，
+        // 未登记值按 collect_busy 投影。
+        const reason = started.reason !== undefined && isStableCode(started.reason) ? started.reason : 'collect_busy'
+        return { status: 'error', reason }
       }
       deps.taskRegistry.track(controllers.collect.wait(resolved.accountId).then(() => undefined, () => undefined).then(() => {
         if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)

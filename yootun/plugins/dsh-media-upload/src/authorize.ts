@@ -169,10 +169,11 @@ export async function authorizeUpload(
     if (code === 'workbench_call_timeout') throw new MediaUploadError('upload_timeout', 'authorize timed out')
     if (code === 'workbench_call_cancelled') throw new MediaUploadError('user_cancelled', 'authorize cancelled')
     if (code === 'workbench_call_failed') throw new MediaUploadError(mapServerErrorCode(workbenchError.payload), 'authorize rejected by server')
-    if (code === 'workbench_not_activated' || code === 'workbench_tool_denied') {
+    if (code === 'workbench_not_activated' || code === 'workbench_tool_denied' || code === 'workbench_unauthorized') {
       throw new MediaUploadError('uploader_not_configured', 'upload authorization is not available in this composition')
     }
-    // 网络/协议/卸载统一按存储不可用投影（上传链路不得伪造成功）。
+    // 网络/协议/服务端故障（workbench_server_error）/卸载统一按存储不可用投影
+    // （上传链路不得伪造成功）。
     throw new MediaUploadError('storage_unavailable', 'authorize is unavailable')
   }
   const parsed = outcome.structuredContent ?? parseContentBlocks(outcome.content)

@@ -208,9 +208,20 @@ callTool(domain: 'xhs' | 'douyin' | 'wx' | 'viral' | 'tos', name: string, args: 
 7. 错误 envelope 安全投影；
 8. 新 domain/tool 审计辅助信息。
 
-连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具返回 `workbench_tool_unavailable`，不发请求。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
+连接器只校验 `serverName === 'yootun-workbench'`，不匹配以 `workbench_protocol_error` 拒连；不做 `tools/list` 子集校验（2026-11-24 起，原"白名单缺任一项拒连"作废，见 [实施单](../features/infra-whitelist-domain-gate.md)）。调用层按 caller×domain 放行：工具名必须是 `workbench_<domain>_<rest>` 且 `<domain>` 在该 caller 的 `CALLER_DOMAINS` 内，否则 `workbench_tool_denied`；通过域门但服务端 `tools/list` 未广播的工具，先按 60 秒窗口刷新一次广播集合再判定，仍不在则返回 `workbench_tool_unavailable`，不发请求（2026-11-26 起，服务端发版新增工具后无需重启或换密钥即可用）。服务端多广播的工具不可达；服务端未部署新版本时其余工具照常可用。yootun-agent 不持有 Workbench 工具名清单，`viral` 域仍仅由抖音工作台调用。
 
-连接器稳定码在 Host 侧的投影（2026-11-24 起）：抖音工作台以受 `WorkbenchErrorCode` 约束的登记表原样投影全部连接器稳定码，连接器新增稳定码而未登记时该包 `build` 类型报错，`workbench_tool_unavailable` 有对应的中英文文案；小红书、视频号工作台与 media-upload 对连接器稳定码统一投影到各自的兜底码，不逐码登记。
+传输层失败按错误类型与 HTTP 状态分类（2026-11-26 起，按 `@modelcontextprotocol/client` 2.2.0 实际导出核对；不解析消息文本）：
+
+| 稳定码 | 触发 |
+|---|---|
+| `workbench_unauthorized` | HTTP 401 / 403（含 SDK 的 `UnauthorizedError`） |
+| `workbench_server_error` | HTTP ≥ 500、408、429 |
+| `workbench_protocol_error` | 其它 4xx（含 404 / 410：端点不存在或已下线）与 `serverName` 不匹配 |
+| `workbench_network_error` | 连接被拒、DNS、TLS、socket 挂起、SDK 内部超时等其它传输异常 |
+
+连接、`tools/list`、广播刷新与 `tools/call` 阶段的失败走同一张表；`workbench_unauthorized` 与 `workbench_protocol_error`（404 / 410）发生后连接缓存立即失效，下一次调用重新 `initialize`（服务端无状态，重连无副作用；写操作不自动重试）。
+
+并发的未广播调用共享同一次广播刷新；共享刷新随首发调用方的取消或超时而失败时，未取消的后到调用方以自己的剩余预算重试一次（传输层投影仍由所有等待者原样共享）；刷新在途时连接被失效或插件卸载，本次调用以 `workbench_unavailable` 结束、不发 `tools/call`。
 
 ### 5.3 请求约束
 

@@ -1,9 +1,14 @@
 /**
  * Host API 客户端：页面只访问本地同源路由（`/api/desktop/yootun/xhs-workbench`
  * 与 `@yootun/dsh-media-upload` 的 `/_dsh/uploader/*` 四路由，D-2），不直连任何
- * 远端地址；错误只透出稳定 reason；预签名 URL 与本地路径不进入本层。
+ * 远端地址；工作台 action 的请求契约与错误收敛统一由 kit 的 `createHostAction`
+ * 承担：未知传输失败收敛为 `host_unreachable`，业务 envelope 以稳定 `reason`
+ * 抛出；预签名 URL 与本地路径不进入本层。
  * @module
  */
+// 从 kit 叶子模块源码路径导入（非桶）：本文件同时被 xhs Host 侧图（accounts-machine）
+// 引用，桶导出会把组件与其样式表拖进宿主 bundle。
+import { createHostAction, type HostResponse } from '@yootun/dsh-client-ui-kit/src/host-action.ts'
 import type { UploadStatusSnapshot } from '../upload-machine.ts'
 
 export const HOST_PATH = '/api/desktop/yootun/xhs-workbench'
@@ -13,32 +18,20 @@ export const UPLOAD_PICK_PATH = '/_dsh/uploader/pick-file'
 export const UPLOAD_START_PATH = '/_dsh/uploader/uploadStart'
 export const UPLOAD_STATUS_PATH = '/_dsh/uploader/uploadStatus'
 
-/** Host 响应的通用形状（旧路由契约：ready/started/created/error）。 */
-export interface HostResponse extends Record<string, unknown> {
-  status: string
-  reason?: string | undefined
-}
+export type { HostResponse }
 
 /**
- * POST one action to the local Host.
- * @param action - whitelisted action name.
- * @param args - action arguments (schema-checked by the Host).
- * @returns the Host payload; throws the stable `reason` on error envelopes.
+ * 同步探测类 action 的单独预算（毫秒）：返回前要同步等待一次浏览器探测
+ * （探测 45 秒 + 打开页面 60 秒 + 余量），预算不足时慢速失败会先被页面截断，
+ * 真实原因（probe_failed）会被误收敛为 host_unreachable。其余 action 用
+ * `createHostAction` 的 30 秒缺省预算。
  */
-export async function hostAction(action: string, args: Record<string, unknown> = {}): Promise<HostResponse & Record<string, unknown>> {
-  const response = await fetch(HOST_PATH, {
-    method: 'POST',
-    credentials: 'same-origin',
-    redirect: 'error',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ action, ...args }),
-  })
-  const payload: unknown = await response.json()
-  if (!payload || typeof payload !== 'object') throw new Error('xhs_operation_request_failed')
-  const record = payload as HostResponse & Record<string, unknown>
-  if (record.status === 'error') throw new Error(record.reason ?? 'xhs_operation_request_failed')
-  return record
-}
+const SYNC_PROBE_ACTION_TIMEOUTS_MS: Readonly<Record<string, number>> = Object.freeze({
+  'account.probe': 120_000,
+})
+
+/** 绑定到本工作台同源路由的 Host action 调用器（kit 统一实现）。 */
+export const hostAction = createHostAction(HOST_PATH, { actionTimeouts: SYNC_PROBE_ACTION_TIMEOUTS_MS })
 
 /** uploadStart 头（media-upload routes.ts 契约）。 */
 const UPLOAD_ID_HEADER = 'x-yootun-upload-id'
