@@ -1,6 +1,6 @@
 # xhs-workbench-采集取消与发布窗口状态 实施单
 
-状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -90,7 +90,7 @@ MCP 工具：无。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-26 | `feat/xhs-collect-cancel-and-publish-state`（基于 `feat/host-lifecycle-budget`） | 包内 `test`（node --test 七文件 121 用例、vitest 33 用例）、`build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-26 | `main` | 随 P0 八张批次一并合入（顶点分支 `feat/activation-gate-and-model-catalog`，合并无冲突），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

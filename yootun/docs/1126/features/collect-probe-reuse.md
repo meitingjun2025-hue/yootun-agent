@@ -1,6 +1,6 @@
 # workbench-采集前会话探测结果复用 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [wx-collect-all-concurrency.md](wx-collect-all-concurrency.md) 与 [douyin-batch-candidates-live-probe.md](douyin-batch-candidates-live-probe.md) 已合入。
 

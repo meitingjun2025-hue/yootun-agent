@@ -1,6 +1,6 @@
 # wx-workbench-采集全部并发 实施单
 
-状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 参照实现：抖音「采集全部」并发（[douyin-collect-all-concurrency.md](../../1125/features/douyin-collect-all-concurrency.md)），2026-11-25 合入后运行两天稳定，本单把同一调度模型移植到视频号。
 
@@ -154,7 +154,7 @@ bundle `cordis.patch.yml` 不写该字段，走缺省 3。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-26 | `feat/wx-collect-all-concurrency`（基于 `feat/connector-status-and-error-copy`） | 包内 `test`（node --test 六文件：host 27、batch-concurrency 20、p0-fixes 6、profile-lock 12、runs 21、dispose 15，共 101 用例；vitest 三文件 103 用例）、`build`、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-26 | `main` | 随 P0 八张批次一并合入（顶点分支 `feat/activation-gate-and-model-catalog`，合并无冲突），真机验收见 5.2 |
 | 发版 | | | 待填 |
 | 观察结论 | | | 待填：观察窗口与指标见附录 C.4 |
 

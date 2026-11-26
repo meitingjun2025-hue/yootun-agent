@@ -1,6 +1,6 @@
 # media-upload-上传体验与边界修复 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [media-upload-tool-handoff.md](media-upload-tool-handoff.md) 已合入（media-upload 已有 client 半）。
 

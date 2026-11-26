@@ -1,6 +1,6 @@
 # infra-workbench-Host 共享库 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 全部合入。本单迁移 [host-lifecycle-budget.md](host-lifecycle-budget.md) 在三插件内落地的 `closeContext` / `launchWithTimeout` 与 `createTaskRegistry`，并承接 [connector-status-and-error-copy.md](connector-status-and-error-copy.md) 明确留给本单的 `permitted()` / 路由合并。
 

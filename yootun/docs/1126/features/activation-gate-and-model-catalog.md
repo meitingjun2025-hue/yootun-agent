@@ -1,6 +1,6 @@
 # access-激活门禁三态与模型目录对齐 实施单
 
-状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -96,7 +96,7 @@ MCP 工具：无。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-26 | `feat/activation-gate-and-model-catalog`（基于 `feat/agent-face-self-heal`） | `@yootun/dsh-client-ui-access` `test`（node --test 21 用例）、`build`（generate 后生成产物零预期外 diff），`pnpm --filter '@yootun/*' run build`，仓库根 `pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；目录协议参数未核对（见 5.3）；真机验收见 5.2 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-26 | `main` | 随 P0 八张批次一并合入（顶点分支 `feat/activation-gate-and-model-catalog`，合并无冲突），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

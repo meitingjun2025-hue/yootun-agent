@@ -4,7 +4,7 @@
 
 本目录收纳 2026-11-26 建单的业务特性实施单，来源有两处：同日的三工作台全面审查（抖音 / 视频号 / 小红书，含 tools.dofe.ai 与 docker-helm.dofe.ai 的相关面，16 张），以及同日立项的视频号 AI 报表（4 张，登记为第二批）。实施单是三仓共享的唯一协调文件，固定五章（范围 / 契约增量 / 影响面 / 状态回填 / 验收），先建单再动代码；模板见 [feature-template.md](../feature-template.md)。
 
-P0 八张已开发完成（2026-11-26 自动验收通过，代码在各特性分支，待合入 `main`）；P1 八张与 P0 一起推进，不设发版观察期（2026-11-26 确认）。P2 四张单已于 2026-11-26 确认并开始推进，状态见下表；其中两张客户端单在动代码前需用户确认（见「推进顺序」）。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
+P0 八张已合入 `main`（2026-11-26 自动验收通过，待用户打包验证）；P1 八张已确认、待实施，与 P0 一起推进，不设发版观察期（2026-11-26 确认）。P2 四张单已于 2026-11-26 确认并开始推进，状态见下表；其中两张客户端单在动代码前需用户确认（见「推进顺序」）。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
 
 ## 实施单索引
 
@@ -12,22 +12,22 @@ P0 八张已开发完成（2026-11-26 自动验收通过，代码在各特性分
 
 | 批次 | 实施单 | 内容 | 状态 |
 |---|---|---|---|
-| P0 | [media-upload-tool-handoff.md](features/media-upload-tool-handoff.md) | `media_upload` 会话工具的承接卡片：工具创建的上传会话经 `/_dsh/uploader/pending` 暴露给页面，新增 `/_dsh/uploader/cancel`；media-upload 新增 client 半在 `shell.overlay` 弹「上传请求」卡片，用户在卡片内选文件、看进度、取消 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [douyin-batch-candidates-live-probe.md](features/douyin-batch-candidates-live-probe.md) | 抖音「采集全部」候选筛选不再按缓存的会话状态预筛：只跳过 pending 与无凭证账号，其余进阶段 1 实测 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [wx-collect-all-concurrency.md](features/wx-collect-all-concurrency.md) | 视频号「采集全部」对齐抖音的受控并发：单账号采集改为按账号 Map 的控制器，批量阶段 2 改 worker 队列，Config `batchConcurrency` 1..5 缺省 3，启动错峰、批内熔断，`collectAll.status` 增 `runningAccountIds` / `concurrency`，新增 `collect.running` 与稳定码 `risk_paused` | 开发完成（2026-11-26），待真机验收 |
-| P0 | [connector-status-and-error-copy.md](features/connector-status-and-error-copy.md) | Workbench 连接器按 HTTP 状态拆分稳定码（`workbench_unauthorized` / `workbench_server_error`），`workbench_tool_unavailable` 命中时刷新一次 `tools/list`；三工作台把连接器新码投影为可读文案；三个 client 的错误码 → 文案映射改为编译期穷尽；`hostAction` 统一为一份带超时与响应校验的实现并上移 kit | 开发完成（2026-11-26），待真机验收 |
-| P0 | [agent-face-self-heal.md](features/agent-face-self-heal.md) | Agent 面监督器订阅连接状态，重连耗尽后按退避自愈；新增只读路由 `POST /api/desktop/yootun/agent-status`；设置页「Yootun 接入」区块增加「智能体工具」连接状态一行 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [host-lifecycle-budget.md](features/host-lifecycle-budget.md) | 三工作台 Host 的 dispose 等待与浏览器 `close()` 加时间预算（Config 可调），超时告警并释放 profile 锁；小红书发布 promise 纳入任务登记表，Chrome 启动加超时 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [xhs-collect-cancel-and-publish-state.md](features/xhs-collect-cancel-and-publish-state.md) | 小红书新增 `collect.cancel`（Host action），取消落 `cancelled` 终态；`accounts.list` 投影 `publishWindowOpen`，账号卡显示「发布窗口打开中」 | 开发完成（2026-11-26），待真机验收 |
-| P0 | [activation-gate-and-model-catalog.md](features/activation-gate-and-model-catalog.md) | 激活门禁改三态（未知期间只渲染遮罩，不闪现卡片）；激活失败原因区分网络不可用与密钥无效；激活成功时把网关实时模型目录写入 `llm-pi-ai` provider；目录请求协议与实际承载协议对齐 | 开发完成（2026-11-26），待真机验收 |
-| P1 | [workbench-host-kit.md](features/workbench-host-kit.md) | 新建 Host 侧共享库 `@yootun/dsh-workbench-host-kit`（路由信任判定与分发、JSON 体读取、任务登记表、profile 锁、状态文件原子写与按 root 的写队列、系统 Chrome 探测与浏览器关闭 / 启动超时）；三插件删除本地副本改为消费；账号锁与批次序号随插件实例创建，门禁的模块级变量移入闭包；补齐小红书缺失的写队列（修复并发丢更新） | 草案 |
-| P1 | [client-workbench-hooks.md](features/client-workbench-hooks.md) | 抖音、视频号的 `WorkbenchPage` 把登录、单账号采集、批量采集、作品查询四条数据流拆为不依赖 React 的 machine（小红书已是该形态，不动），两份同构核心上移为纯 client 包 `@yootun/dsh-client-workbench-machines`；语言标签改取 locale 服务；`attemptId` 归位 | 草案 |
-| P1 | [douyin-tabs-regroup.md](features/douyin-tabs-regroup.md) | 抖音 7 个顶级 Tab 重组为 4 组 + 组内二级控制（默认进入「账号作品」），保留 keep-alive；作品与榜单表格增加显式「查看详情」入口 | 草案 |
-| P1 | [ui-accessibility-and-visual-cleanup.md](features/ui-accessibility-and-visual-cleanup.md) | 字重 ≤500（38 条）、字号 ≥12px（44 处）、容器查询替换视口媒体查询、`title=` 改 Tooltip 或就近文本（28 处，置灰原因经 kit 新增的 `ReasonButton`）、表格行打开详情统一为双击、门禁背景对辅助技术隐藏（不引入 `inert`）、规范标注助手 Dock 暂缓 | 草案 |
-| P1 | [collect-probe-reuse.md](features/collect-probe-reuse.md) | 采集前的会话探测结果带有效期在单次采集内复用，每账号每次采集少一次 Chrome 冷启动与一次会话状态上报（视频号单账号与「采集全部」、抖音「采集全部」） | 草案 |
-| P1 | [mount-restore-and-login-alignment.md](features/mount-restore-and-login-alignment.md) | 小红书补齐挂载恢复（按账号查询运行中的采集）；三工作台登录终态记录统一为保留 30 分钟；删除视频号无页面入口且成功分支缺远端建号的 `account.refreshLoginQr`（页面行为不变）；抖音、视频号的采集中断由 toast 改为带「重新采集」/「重新采集全部」的横幅 | 草案 |
-| P1 | [upload-experience-fixes.md](features/upload-experience-fixes.md) | 上传结果保留由 60 秒延长到 10 分钟、`UNAUTHORIZED` 映射为激活密钥问题、启动时清理已退出进程遗留的暂存目录、`isForbiddenPublicHost` 改按地址块判断（补齐 mapped / NAT64 / 6to4 / localhost 变体）、上传传输函数上移 kit 去重 | 草案 |
-| P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | 草案 |
+| P0 | [media-upload-tool-handoff.md](features/media-upload-tool-handoff.md) | `media_upload` 会话工具的承接卡片：工具创建的上传会话经 `/_dsh/uploader/pending` 暴露给页面，新增 `/_dsh/uploader/cancel`；media-upload 新增 client 半在 `shell.overlay` 弹「上传请求」卡片，用户在卡片内选文件、看进度、取消 | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [douyin-batch-candidates-live-probe.md](features/douyin-batch-candidates-live-probe.md) | 抖音「采集全部」候选筛选不再按缓存的会话状态预筛：只跳过 pending 与无凭证账号，其余进阶段 1 实测 | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [wx-collect-all-concurrency.md](features/wx-collect-all-concurrency.md) | 视频号「采集全部」对齐抖音的受控并发：单账号采集改为按账号 Map 的控制器，批量阶段 2 改 worker 队列，Config `batchConcurrency` 1..5 缺省 3，启动错峰、批内熔断，`collectAll.status` 增 `runningAccountIds` / `concurrency`，新增 `collect.running` 与稳定码 `risk_paused` | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [connector-status-and-error-copy.md](features/connector-status-and-error-copy.md) | Workbench 连接器按 HTTP 状态拆分稳定码（`workbench_unauthorized` / `workbench_server_error`），`workbench_tool_unavailable` 命中时刷新一次 `tools/list`；三工作台把连接器新码投影为可读文案；三个 client 的错误码 → 文案映射改为编译期穷尽；`hostAction` 统一为一份带超时与响应校验的实现并上移 kit | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [agent-face-self-heal.md](features/agent-face-self-heal.md) | Agent 面监督器订阅连接状态，重连耗尽后按退避自愈；新增只读路由 `POST /api/desktop/yootun/agent-status`；设置页「Yootun 接入」区块增加「智能体工具」连接状态一行 | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [host-lifecycle-budget.md](features/host-lifecycle-budget.md) | 三工作台 Host 的 dispose 等待与浏览器 `close()` 加时间预算（Config 可调），超时告警并释放 profile 锁；小红书发布 promise 纳入任务登记表，Chrome 启动加超时 | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [xhs-collect-cancel-and-publish-state.md](features/xhs-collect-cancel-and-publish-state.md) | 小红书新增 `collect.cancel`（Host action），取消落 `cancelled` 终态；`accounts.list` 投影 `publishWindowOpen`，账号卡显示「发布窗口打开中」 | 已合入 `main`（2026-11-26），待真机验收 |
+| P0 | [activation-gate-and-model-catalog.md](features/activation-gate-and-model-catalog.md) | 激活门禁改三态（未知期间只渲染遮罩，不闪现卡片）；激活失败原因区分网络不可用与密钥无效；激活成功时把网关实时模型目录写入 `llm-pi-ai` provider；目录请求协议与实际承载协议对齐 | 已合入 `main`（2026-11-26），待真机验收 |
+| P1 | [workbench-host-kit.md](features/workbench-host-kit.md) | 新建 Host 侧共享库 `@yootun/dsh-workbench-host-kit`（路由信任判定与分发、JSON 体读取、任务登记表、profile 锁、状态文件原子写与按 root 的写队列、系统 Chrome 探测与浏览器关闭 / 启动超时）；三插件删除本地副本改为消费；账号锁与批次序号随插件实例创建，门禁的模块级变量移入闭包；补齐小红书缺失的写队列（修复并发丢更新） | 待实施（2026-11-26 已确认） |
+| P1 | [client-workbench-hooks.md](features/client-workbench-hooks.md) | 抖音、视频号的 `WorkbenchPage` 把登录、单账号采集、批量采集、作品查询四条数据流拆为不依赖 React 的 machine（小红书已是该形态，不动），两份同构核心上移为纯 client 包 `@yootun/dsh-client-workbench-machines`；语言标签改取 locale 服务；`attemptId` 归位 | 待实施（2026-11-26 已确认） |
+| P1 | [douyin-tabs-regroup.md](features/douyin-tabs-regroup.md) | 抖音 7 个顶级 Tab 重组为 4 组 + 组内二级控制（默认进入「账号作品」），保留 keep-alive；作品与榜单表格增加显式「查看详情」入口 | 待实施（2026-11-26 已确认） |
+| P1 | [ui-accessibility-and-visual-cleanup.md](features/ui-accessibility-and-visual-cleanup.md) | 字重 ≤500（38 条）、字号 ≥12px（44 处）、容器查询替换视口媒体查询、`title=` 改 Tooltip 或就近文本（28 处，置灰原因经 kit 新增的 `ReasonButton`）、表格行打开详情统一为双击、门禁背景对辅助技术隐藏（不引入 `inert`）、规范标注助手 Dock 暂缓 | 待实施（2026-11-26 已确认） |
+| P1 | [collect-probe-reuse.md](features/collect-probe-reuse.md) | 采集前的会话探测结果带有效期在单次采集内复用，每账号每次采集少一次 Chrome 冷启动与一次会话状态上报（视频号单账号与「采集全部」、抖音「采集全部」） | 待实施（2026-11-26 已确认） |
+| P1 | [mount-restore-and-login-alignment.md](features/mount-restore-and-login-alignment.md) | 小红书补齐挂载恢复（按账号查询运行中的采集）；三工作台登录终态记录统一为保留 30 分钟；删除视频号无页面入口且成功分支缺远端建号的 `account.refreshLoginQr`（页面行为不变）；抖音、视频号的采集中断由 toast 改为带「重新采集」/「重新采集全部」的横幅 | 待实施（2026-11-26 已确认） |
+| P1 | [upload-experience-fixes.md](features/upload-experience-fixes.md) | 上传结果保留由 60 秒延长到 10 分钟、`UNAUTHORIZED` 映射为激活密钥问题、启动时清理已退出进程遗留的暂存目录、`isForbiddenPublicHost` 改按地址块判断（补齐 mapped / NAT64 / 6to4 / localhost 变体）、上传传输函数上移 kit 去重 | 待实施（2026-11-26 已确认） |
+| P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | 待实施（2026-11-26 已确认） |
 | P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 待实施（进入客户端开发前需用户确认） |
 | P2 | [report-kernel-extraction.md](features/report-kernel-extraction.md) | 抖音 AI 报表的服务端机制（周期、状态机与租约、投递与对账、定时补建、重建与版本、模型调用与重试、输出校验、提示词加载）抽成平台无关内核，抖音改为「平台适配 + 调用内核」；对外行为逐字节不变 | 已合入 `dev`（2026-11-26） |
 | P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 已合入 `dev`（2026-11-26；部署仓已合入 `master`，测试环境待部署） |
