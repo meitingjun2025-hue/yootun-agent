@@ -1,6 +1,6 @@
 # managed-mcp-Agent 面自愈与连接状态可见 实施单
 
-状态：草案（待审查） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-26，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -39,7 +39,7 @@ MCP 工具：无。
 |---|---|
 | 方法 / 体 | 只接受 `POST`；体可省略，有体时必须是空对象 |
 | 信任判定 | 与 yootun 其余同源路由同口径（loopback 远端、显式 Origin 精确匹配、显式 `sec-fetch-site: cross-site` 拒绝、双头缺失放行） |
-| 响应 200 | `{ status: 'ok', state, attempt, since }` |
+| 响应 200 | `{ status: 'ok', state, attempt, since, count, retryAt? }`（`count` 为 `connected` 时官方登记的工具数，其余状态为 0） |
 | `state` 取值 | `disabled`（门禁未通过：未激活 / 版本不符 / 无 key）· `connecting` · `connected` · `failed`（重连耗尽，等待退避重建）· `waiting-credentials` |
 | `attempt` | 官方状态句柄给出的尝试次数；`disabled` 时为 0 |
 | `since` | 当前状态首次出现的时间（ISO 8601），页面用于显示「已持续」 |
@@ -92,7 +92,7 @@ MCP 工具：无。
 | 文档（本文 + 08 册 §4.2 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/agent-face-self-heal` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/agent-face-self-heal`（基于 `feat/media-upload-tool-handoff`） | `@yootun/dsh-managed-mcp` `test`（node --test 20 用例）、`build`，`@yootun/dsh-client-ui-access` `test`（node --test 9 用例）、`build`，`pnpm --filter '@yootun/*' run build`，仓库根 `pnpm run build`（10 门）、`pnpm run lint`、`typecheck`、三个 verify 脚本与 `test:docs` 通过，验收独立复跑结果一致；真机验收见 5.2 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -116,16 +116,20 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填。
+官方 `McpConnectionStatusHandle` 核对（`packages/mcp/mcp-client/src/status.ts`，2026-11-26）：`current(): McpConnectionStatus`、`closure(): McpCloseResult`、`onChange(callback): () => void`（回调同步按发布顺序执行、单回调异常被容器化）。状态机（`types.ts`）取值：`closed` / `waiting-credentials` / `waiting-authorization` / `connecting`（带 `attempt`，首次为 0）/ `connected`（带 `toolCount` 与 `connectedAt`）/ `reconnecting`（带 `attempt` / `maxAttempts` / `nextRetryAtMs`）/ `failed`（`reason: 'gave-up' | 'reconnect-disabled' | 'unclosed-generation'`）。状态单元初值 `{ state: 'connecting', attempt: 0 }`。
+
+与附录 A1 的两处出入（按官方事实实施）：官方 `connected` 事件自带 `toolCount`（实时工具代登记数），监督器无需在 `ready` 后主动 `listTools`，`count` 直接取自该事件；官方 `failed` 不携带 `attempt`，快照保留耗尽前的最后一次计数。官方重连默认策略核对（`connection.ts` `RECONNECT_DEFAULTS`）：enabled、500ms 起倍增、30s 封顶、10 次，耗尽约 8.5 分钟——自愈只需覆盖 `failed` 终态。`reconnecting`（官方自动重连预算内）对外投影为 `connecting`；`waiting-authorization` 与 `closed` 在本组合不可达，分别保守投影为 `waiting-credentials` 与 `connecting`。
+
+本地验证（`feat/agent-face-self-heal`）：`pnpm --filter @yootun/dsh-managed-mcp test` 20/20 通过（含附录 B S1–S6，S7 为既有回归用例），`pnpm --filter @yootun/dsh-client-ui-access test` 9/9 通过（含 U1–U3）；两包 `build`（tsc + tsdown + 运行时 bundle 门）通过。自愈用例以注入缝驱动：`rebuildBackoffMs=1000` + 定值随机源（抖动因子恰为 1.0）+ 官方重连覆盖 `maxAttempts: 1`（测试缝，产品组合不设置），经 fixture 的 reject 模式连续失败循环测得延迟 ≈1000ms → ≈2000ms（倍增）与 connected 复位后 ≈1000ms。状态路由以结构化 req/res 替身直测（405 / 403 / 503 / 400 / 200 与字段集合）。
 
 ## 附录 A：逐文件规格
 
 ### A1 `src/supervisor.ts`
 
-- `AgentSupervisor` 增 `snapshot(): { state, attempt, since }`；`evaluate` 不变；
+- `AgentSupervisor` 增 `snapshot(): { state, attempt, since, count, retryAt? }`；`evaluate` 不变（入口先取消待触发的退避定时器）；
 - `mount()` 成功拿到 `handle` 后：`unsubscribe = handle.onChange(status => onStatus(status))`；保存 `unsubscribe`，unmount 与 dispose 时调用；
-- `onStatus(status)`：维护 `currentState` / `attempt` / `since`（状态变化时刷新 `since`）；`failed` → `scheduleRebuild()`；`connected` → `backoff = base`、`toolCount = handle` 最近一次 `tools/list` 数（监督器在 `ready` 后主动 `listTools` 一次，失败按 0 处理）；
-- `scheduleRebuild()`：已有定时器则忽略；延迟 = `min(backoff, 300000) × (0.8 + rand × 0.4)`；触发时 `backoff = min(backoff × 2, 300000)`，然后走 `evaluate('status failed')`（`credentialDirty` 不置位，`evaluate` 内 `rebuild = status.current().state === 'failed'` 分支已能重建）；
+- `onStatus(status)`：维护 `currentState` / `attempt` / `since`（状态变化时刷新 `since`）；`failed` → `scheduleRebuild()`；`connected` → `backoff = base`、`toolCount` 取官方 `connected` 事件自带的 `toolCount`（状态句柄没有 `listTools`）；
+- `scheduleRebuild()`：已有定时器则忽略；上限 = `max(rebuildBackoffMs, 300000)`；延迟 = `min(backoff, 上限) × (0.8 + rand × 0.4)`；触发时 `backoff = min(backoff × 2, 上限)`，然后走 `evaluate('status failed')`（`credentialDirty` 不置位，`evaluate` 内 `rebuild = status.current().state === 'failed'` 分支已能重建）；
 - `dispose()`：`stopped = true` → 清定时器 → `unsubscribe()` → 既有流程。
 
 ### A2 `src/index.ts` / `src/constants.ts`
@@ -136,7 +140,7 @@ MCP 工具：无。
 
 ### A3 `dsh-client-ui-access/src/client/section.tsx`
 
-- 在「激活状态」行下新增「智能体工具」行：`StateDot`（connected → done；connecting → ongoing；failed → error；disabled → idle）+ 文案；failed 时显示倒计时秒数（`max(0, ceil((since + rebuildBackoffMs) - now) / 1000)`，用 `since` 与路由返回的 `retryAt` 更准确：路由增加 `retryAt?: string`）；
+- 在「激活状态」行下新增「智能体工具」行：`StateDot`（connected → done；connecting → ongoing；failed → error；disabled → idle；waiting-credentials 与未加载 → warning）+ 文案（connecting 显示「第 attempt + 1 次」，官方 attempt 是此前失败的次数）；failed 时显示倒计时秒数（`max(0, ceil((since + rebuildBackoffMs) - now) / 1000)`，用 `since` 与路由返回的 `retryAt` 更准确：路由增加 `retryAt?: string`）；
 - 轮询：区块挂载且 `document.visibilityState === 'visible'` 时每 5 秒；隐藏即停；`fetch` 失败或 404 → `notLoaded`；卸载清除；
 - 路由常量 `ACCESS_AGENT_STATUS_PATH` 由 `scripts/generate-access-constants.mjs` 生成（与既有路径常量同源）。
 
