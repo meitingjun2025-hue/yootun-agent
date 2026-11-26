@@ -1,6 +1,6 @@
 # infra-workbench 白名单域级放行与 Agent 未分类转 ask 实施单
 
-状态：已实施并通过验收，待发版 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md) 第二节
+状态：已发版（`0.2.2-rc.5.4`） ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md) 第二节
 
 ## 1. 范围
 
@@ -54,7 +54,8 @@ tools 契约文档对齐：无工具变更，不需同步 `docs/1116/yootun-mcp.
 | 文档（本文 + cross-repo-sync + 08 册 + OVERVIEW） | 2026-11-24 | `main` | — |
 | 代码：dsh-workbench-mcp / dsh-managed-mcp / 抖音 Host 稳定码登记 / 各处计数清理 | 2026-11-24 | `main` | 第 5 节全部通过 |
 | docker-helm 计数清理 | 2026-11-24 | `master` | 已推送；一并删除同段的读写拆分计数与 `CLAUDE.md` 视频号域的工具计数 |
-| 发版 | 待 | | 随下一个 yootun 版本 |
+| 真机验收 | 2026-11-26 | — | 通过（版本 `0.2.2-rc.5.4`） |
+| 发版 | 2026-11-26 | — | 版本 `0.2.2-rc.5.4`，feed stable 通道（win-x64、mac-arm64 清单均为该版本） |
 
 ## 5. 验收（验证方逐项核对）
 

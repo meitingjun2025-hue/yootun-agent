@@ -1,6 +1,6 @@
 # douyin-wx-workbench-作品列表分页 实施单
 
-状态：已实施，本地三仓联调通过，待真机验收（tools 待合入 `dev` 并部署测试环境） ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已发版（`0.2.2-rc.5.4`），真机验收通过 ｜ 创建：2026-11-25 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -257,13 +257,14 @@ export interface PagerProps {
 | tools 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（tools 仓，自 `dev`） | `pytest tests/douyin_operation tests/wx_channels_operation tests/yootun` 850 通过；16 项迁移 / PG 用例因本机无建库权限报错，改动前同样如此；ruff 在改动文件上无新增 |
 | tools 分支同步最新 `dev`（对方新增 `workbench_wx_accounts_overview`） | 2026-11-25 | `feat/works-list-pagination`（tools 仓） | 合并 `origin/dev`：`wx_channels_operation/queries.py` 的 import 与服务目录快照两处冲突已解决，快照按脚本重新生成；`pytest tests/douyin_operation tests/wx_channels_operation tests/yootun tests/mcp` 1373 通过，1 个失败与 53 个错误均为本机 PG 建库权限 |
 | tools 合入 `dev` | 2026-11-25 | `feat/works-list-pagination` → `dev` | 已合并并推送到 `dev` |
-| docker-helm 部署测试环境 | | — | 待填：部署后 `curl tools/list` 核对，两工具带分页参数可调 |
+| docker-helm 部署测试环境 | — | — | 2026-11-26 真机验收通过，生产 Workbench 面的两个 `work_list` 工具已接受分页参数；`curl tools/list` 未单独核对 |
 | yootun-agent 开发完成（自动验收通过） | 2026-11-25 | `feat/works-list-pagination`（自 `main` 切出；kit `Pager`、抖音、视频号三个提交） | kit `test` 65、抖音 `test`（node --test 17 文件 + vitest 136）、视频号 `test`（node --test 76 + vitest 66），三包 `build`、oxlint 通过；真机验收见 5.2 |
 | yootun-agent 分支同步最新 `main`（视频号总览批次已先合入） | 2026-11-25 | `feat/works-list-pagination` | 合并 `origin/main`：抖音 `MaterialPage.tsx` 与视频号 `WorkbenchPage.tsx` 两处 import 冲突已解决，两边内容都保留；合并后 kit 70、抖音 191 + 136、视频号 77 + 74 全过，`build` 通过 |
 | 本地三仓联调（按落地顺序的本地临时预演分支） | 2026-11-25 | — | 通过，记录见 5.3；预演分支只在本地，不推送 |
 | yootun-agent 真实 UI 反馈修复 | 2026-11-25 | `feat/works-list-pagination` | 列表区域固定高度、空列表「暂无数据」、KPI 卡不重复失败提示；两个插件 `test`、`build` 通过，并入预演分支复跑，记录见 5.3 |
 | yootun-agent 合入 `main` | 2026-11-25 | `feat/works-list-pagination` → `main` | 按采集状态恢复 → 采集并发 → 分页的顺序合入 `main`；与前两单在 4 个文件的冲突按预演结果解决，代码与预演分支逐文件一致；已推送。部署时 tools 必须先于或同时于 yootun-agent 上线 |
-| 发版 | | | 待填 |
+| 真机验收 | 2026-11-26 | — | 通过（版本 `0.2.2-rc.5.4`），记录见 5.2 |
+| 发版 | 2026-11-26 | — | 版本 `0.2.2-rc.5.4`，feed stable 通道（win-x64、mac-arm64 清单均为该版本） |
 
 顺序约束：tools 的 DTO 是 `extra="forbid"`，旧服务端会拒绝新参数，所以 yootun-agent 的两个插件必须在 tools 部署测试环境之后合入；kit `Pager` 不依赖 tools，在分支内先行完成。
 
@@ -278,6 +279,8 @@ export interface PagerProps {
 - [x] 附录 A 的用例全部存在并通过（2026-11-25）。
 
 ### 5.2 真机验收（用户执行）
+
+验收记录：2026-11-26 用户真机验证通过（版本 `0.2.2-rc.5.4`），R1–R9、R11 全部通过。
 
 | # | 步骤 | 预期 |
 |---|---|---|

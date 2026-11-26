@@ -8,10 +8,10 @@
 
 | 实施单 | 内容 | 状态 |
 |---|---|---|
-| [douyin-collect-all-concurrency.md](features/douyin-collect-all-concurrency.md) | 抖音「采集全部」由逐账号串行改为 3 路并发（插件 Config 可调 1..5）：阶段 2 改 worker 队列、worker 启动错峰、批内熔断（新原因 `risk_paused`）、批量面板按多账号展示；探测阶段、单账号流程、互斥与取消语义不变 | 已合入并推送 `main`，待部署后真机验收 |
-| [works-list-pagination.md](features/works-list-pagination.md) | 抖音、视频号作品列表改服务端分页（固定 10 条/页）与服务端排序，列表接口随带 KPI 聚合（`total` / `summary`）；抖音作品页新增 5 卡 KPI 行与视频号同布局；分页控件 `Pager` 上移 kit；tools 两个 `work_list` 工具增量入参出参，不改工具清单 | 已合入并推送 `main` 与 tools 的 `dev`，本地三仓联调通过，待部署后真机验收 |
-| [collect-state-restore.md](features/collect-state-restore.md) | 抖音、视频号页面重新挂载时向 Host 查询并恢复采集状态：运行中的单账号采集与批量采集恢复进度与轮询，最近一次终态可见，其他账号在采在账号栏可见；抖音 Host 新增本地只读 action `collect.running`（56 → 57 项），视频号 Host 无变化 | 已合入并推送 `main`，待部署后真机验收 |
-| [device-review-fixes.md](features/device-review-fixes.md) | 真机客户端验收修复：抖音与视频号账号作品页的指标卡去掉「缺口作品」、批量面板并发文案；视频号计数满 1 万转「万」；视频号账号总览的表头、账号列、指标卡空态文案与关注者总数趋势按所选时间窗取点；kit 指标卡增加可选空态文案。tools 无改动 | 已合入并推送 `main`，待真机验收 |
+| [douyin-collect-all-concurrency.md](features/douyin-collect-all-concurrency.md) | 抖音「采集全部」由逐账号串行改为 3 路并发（插件 Config 可调 1..5）：阶段 2 改 worker 队列、worker 启动错峰、批内熔断（新原因 `risk_paused`）、批量面板按多账号展示；探测阶段、单账号流程、互斥与取消语义不变 | 已发版（`0.2.2-rc.5.4`），真机验收通过；发版后风控观察进行中 |
+| [works-list-pagination.md](features/works-list-pagination.md) | 抖音、视频号作品列表改服务端分页（固定 10 条/页）与服务端排序，列表接口随带 KPI 聚合（`total` / `summary`）；抖音作品页新增 5 卡 KPI 行与视频号同布局；分页控件 `Pager` 上移 kit；tools 两个 `work_list` 工具增量入参出参，不改工具清单 | 已发版（`0.2.2-rc.5.4`），真机验收通过 |
+| [collect-state-restore.md](features/collect-state-restore.md) | 抖音、视频号页面重新挂载时向 Host 查询并恢复采集状态：运行中的单账号采集与批量采集恢复进度与轮询，最近一次终态可见，其他账号在采在账号栏可见；抖音 Host 新增本地只读 action `collect.running`（56 → 57 项），视频号 Host 无变化 | 已发版（`0.2.2-rc.5.4`），真机验收通过 |
+| [device-review-fixes.md](features/device-review-fixes.md) | 真机客户端验收修复：抖音与视频号账号作品页的指标卡去掉「缺口作品」、批量面板并发文案；视频号计数满 1 万转「万」；视频号账号总览的表头、账号列、指标卡空态文案与关注者总数趋势按所选时间窗取点；kit 指标卡增加可选空态文案。tools 无改动 | 已发版（`0.2.2-rc.5.4`），真机验收通过 |
 
 ## 推进顺序
 
@@ -19,4 +19,4 @@
 
 ## 验收分工
 
-每张单第 5 节分两张清单：5.1 开发侧自动验收（测试、构建、静态核对），5.2 真机验收由用户执行，每项写明步骤与预期。本机联调与真机验收的数据库以 `tools.dofe.ai` 的 `.env` 指向的数据库为准（[cross-repo-sync.md 第五节](../cross-repo-sync.md#五顺序与门禁)）。 2026-11-25 三张单完成本地三仓联调，各单第 5 节另有 5.3 本地联调记录，写明结果、按联调修订的预期与留在 5.2 的未覆盖项。
+每张单第 5 节分两张清单：5.1 开发侧自动验收（测试、构建、静态核对），5.2 真机验收由用户执行，每项写明步骤与预期。本机联调与真机验收的数据库以 `tools.dofe.ai` 的 `.env` 指向的数据库为准（[cross-repo-sync.md 第五节](../cross-repo-sync.md#五顺序与门禁)）。 2026-11-25 三张单完成本地三仓联调，各单第 5 节另有 5.3 本地联调记录，写明结果、按联调修订的预期与留在 5.2 的未覆盖项。 2026-11-26 四张单真机验收通过，版本 `0.2.2-rc.5.4` 已在 feed stable 通道，发版与验收结论回填各单第 4 节。

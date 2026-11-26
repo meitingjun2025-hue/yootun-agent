@@ -1,6 +1,6 @@
 # wx-workbench-多账号数据汇总总览 实施单
 
-状态：已合入并推送，待发版前真机验收 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已发版（`0.2.2-rc.5.4`），真机验收通过 ｜ 创建：2026-11-24 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -194,9 +194,10 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 |---|---|---|---|
 | 文档（本文 + 11 册 §5） | 2026-11-25 | `feat/wx-multi-account-overview` → `main` | 阶段 1–3 验收通过；本地联调结论见附录 G，随代码一并合入 |
 | tools 合入 `dev` | 2026-11-25 | `feat/wx-accounts-overview` → `dev`，合并提交 `4d14134`，已推送 | 阶段 1 验收通过：966 passed / 2 skipped，ruff 0 新增；本地联调数据层对账 22 个场景全部一致（附录 G.2） |
-| docker-helm 部署测试环境 | — | — | docker-helm 无改动；测试环境部署与服务端 `tools/list` 核对未做，`dev` 已推送不等于服务端已上线 |
-| yootun-agent 合入 `main` | 2026-11-25 | `feat/wx-multi-account-overview` → `main`，合并提交「merge: 视频号多账号数据汇总总览批次合入 main」，已推送 | 本地联调通过（附录 G）；真机验收待发版前 |
-| 发版 | | | 待填 |
+| docker-helm 部署测试环境 | — | — | docker-helm 无改动；2026-11-26 真机验收通过，生产 Workbench 面已提供 `workbench_wx_accounts_overview`；`tools/list` 未单独核对 |
+| yootun-agent 合入 `main` | 2026-11-25 | `feat/wx-multi-account-overview` → `main`，合并提交「merge: 视频号多账号数据汇总总览批次合入 main」，已推送 | 本地联调通过（附录 G）；真机验收见下行 |
+| 真机验收 | 2026-11-26 | — | 通过（版本 `0.2.2-rc.5.4`），记录见第 5 节 |
+| 发版 | 2026-11-26 | — | 版本 `0.2.2-rc.5.4`，feed stable 通道（win-x64、mac-arm64 清单均为该版本） |
 
 ## 5. 验收
 
@@ -213,7 +214,7 @@ tools `docs/1116/yootun-mcp.md` §4.4 清单追加 `workbench_wx_accounts_overvi
 - [x] yootun-agent：wx 包 source-conventions 守护通过（无工具数量字面量、域门 whitelist 无工具名）；
 - [x] 本地联调 e2e：全部账号模式汇总值 = 各账号单账号工具返回值之和（`work_count` 不适用——单账号工具不产出该字段；`followerTotalCount` 在账号窗口内无 fans 行时回退账号记录值而单账号工具为 `null`，属 2.3 规定的口径差）；单账号模式 10 卡 / 4 卡 / 趋势 = 单账号工具返回值——`yesterday` / `last_7d` / `last_30d` 三档差异 0（附录 G.3）；
 - [x] 本地联调 e2e：页面选 `custom [Mon, Sun]` 的 10 卡 / 4 卡 / 趋势 / 账号表现表，与直接调用 `workbench_wx_accounts_overview(window='custom', fromDay=Mon, toDay=Sun)` 的返回逐字段一致（日报 / 周报对账基础）——42 个比对点数值全部一致（附录 G.3）；
-- [ ] 真机（待发版前）：三入口、明暗主题、三档容器宽度（1120 / 880 / 640）；筛选 chips 可清除；表格行键盘 Enter 选中账号；画像在全部账号模式为空态、单账号模式为五维；`custom` 时起止日期输入出现、`max` 为昨日、起 > 止时另一端跟随、空值不触发请求（jsdom 页面测试已覆盖交互逻辑，视觉目检待真机）；
+- [x] 真机（2026-11-26 通过，版本 `0.2.2-rc.5.4`）：三入口、明暗主题、三档容器宽度（1120 / 880 / 640）；筛选 chips 可清除；表格行键盘 Enter 选中账号；画像在全部账号模式为空态、单账号模式为五维；`custom` 时起止日期输入出现、`max` 为昨日、起 > 止时另一端跟随、空值不触发请求（jsdom 页面测试已覆盖交互逻辑）；
 - [x] 实施单第 4 节回填完整。
 
 ## 附录 A：数据读取方式
@@ -790,4 +791,4 @@ MCP 返回与 SQL 独立聚合（不引用实现代码）逐字段比对，22 �
 
 ### G.6 未覆盖项
 
-激活路由未调用；桌面端真机未验收；「200 账号 × 30 天单次请求 < 2s」未计时；测试数据为 SQL 直接写入，写入链路（幂等键、批次账本、服务端复核）未经过；tools 服务首次启动时出现过一次排序未生效，进程内直调与重启后均正确，原因未定位。
+激活路由未调用；桌面端真机未验收（2026-11-26 已随版本 `0.2.2-rc.5.4` 验收通过，见第 5 节）；「200 账号 × 30 天单次请求 < 2s」未计时；测试数据为 SQL 直接写入，写入链路（幂等键、批次账本、服务端复核）未经过；tools 服务首次启动时出现过一次排序未生效，进程内直调与重启后均正确，原因未定位。
