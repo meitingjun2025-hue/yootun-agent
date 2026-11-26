@@ -15,6 +15,16 @@
   animation: modalEnter var(--ds-transition-duration) var(--ds-ease-in-out);
 }
 
+/* 未知态遮罩（分册 05 §3.3 三态）：判定输入未就绪时只铺背板——无卡片、
+   无动画、aria-hidden 不抢焦点，盖住视口即阻断指针。 */
+.gateGate {
+  position: fixed;
+  inset: var(--dsh-frame-top-clearance, 0) 0 0 0;
+  z-index: 1000;
+  background: var(--dsw-alias-bg-mask-1);
+}
+
+
 
 .card {
   box-sizing: border-box;

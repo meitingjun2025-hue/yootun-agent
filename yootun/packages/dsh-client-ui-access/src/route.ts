@@ -4,15 +4,16 @@
  * the host side of the exchange and attach the tenant header themselves, so
  * the renderer sees neither CORS nor the raw gateway contract. Request-side
  * checks follow the old desktop shell's dofe-access-route (loopback peer,
- * same-origin fetch metadata, JSON body ceiling); the wire protocol is fixed
- * to Anthropic Messages because the 0.2.2 llm-deepseek adapter is the only
- * managed carrier (分册 03 B-3 查证定案).
+ * same-origin fetch metadata, JSON body ceiling). The managed carrier is the
+ * llm-pi-ai adapter serving the patched `yootun` provider over the
+ * openai-responses protocol（cordis.patch.yml）.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { TENANT, TENANT_ID } from './access-constants.ts'
 
 /** Gateway origins the routes forward to. Service-owned endpoints, zero client changes. */
 const TENANT_CONTEXT_URL = 'https://ixicai.cn/api/internal/auth/context'
+/** 目录协议参数待真实 key 核对（真机验收 V5 / V6），本机无 key 未发起请求，暂保持既有值。 */
 const MODEL_CATALOG_URL = 'https://ixicai.cn/api/v1/models?protocol=anthropic'
 
 /** Gateway request headers carried on every forwarded call. */
@@ -21,8 +22,13 @@ const GATEWAY_HEADERS: Readonly<Record<string, string>> = Object.freeze({ 'X-Com
 const MAX_BODY_BYTES = 16 * 1024
 const GATEWAY_TIMEOUT_MS = 10_000
 
-/** Why an activation step failed; the client maps each to localized copy. */
-export type AccessFailureReason = 'invalid_key' | 'tenant_mismatch' | 'tenant_unavailable'
+/**
+ * Why an activation step failed; the client maps each to localized copy.
+ * `invalid_key` is reserved for an explicit gateway rejection (401 / 403) or
+ * an empty catalog; fetch failures, timeouts, and 5xx read as
+ * `network_unavailable`.
+ */
+export type AccessFailureReason = 'invalid_key' | 'tenant_mismatch' | 'tenant_unavailable' | 'network_unavailable'
 
 export interface ValidateResult {
   valid: boolean
@@ -98,19 +104,26 @@ async function readRequest(req: IncomingMessage): Promise<{ key: string } | unde
 /**
  * Verify the key belongs to this product's tenant through the gateway's
  * internal auth context. A gateway that cannot confirm the tenant fails the
- * activation rather than granting it.
+ * activation rather than granting it. Transport-level failures (fetch throw,
+ * timeout, 5xx) read as `network_unavailable`; only a 401 / 403 is a key
+ * rejection; a 2xx body that cannot be parsed stays a tenant-side failure.
  * @param key - model_api_key the user entered.
  * @param fetcher - outbound fetch; injectable for tests.
  * @returns ok, or why the tenant check failed.
  */
 async function verifyTenant(key: string, fetcher: typeof fetch): Promise<{ ok: true } | { ok: false; reason: AccessFailureReason }> {
+  let response: Response
   try {
-    const response = await fetcher(TENANT_CONTEXT_URL, {
+    response = await fetcher(TENANT_CONTEXT_URL, {
       headers: { ...GATEWAY_HEADERS, Authorization: `Bearer ${key}`, Accept: 'application/json' },
       redirect: 'error',
       signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
     })
-    if (!response.ok) return { ok: false, reason: 'invalid_key' }
+  } catch {
+    return { ok: false, reason: 'network_unavailable' }
+  }
+  if (!response.ok) return { ok: false, reason: response.status === 401 || response.status === 403 ? 'invalid_key' : 'network_unavailable' }
+  try {
     const value: unknown = await response.json()
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return { ok: false, reason: 'tenant_unavailable' }
     const record = value as Record<string, unknown>
@@ -173,21 +186,35 @@ export function parseModelCatalog(value: unknown): GatewayModel[] {
   return models
 }
 
-/** Fetch and parse the Messages-protocol model catalog for one key. */
-async function loadModels(key: string, fetcher: typeof fetch): Promise<GatewayModel[]> {
-  const response = await fetcher(MODEL_CATALOG_URL, {
-    headers: { ...GATEWAY_HEADERS, Authorization: `Bearer ${key}`, Accept: 'application/json' },
-    redirect: 'error',
-    signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
-  })
-  if (!response.ok) return []
-  return parseModelCatalog(await response.json())
+/**
+ * Fetch and parse the model catalog for one key. Transport-level failures
+ * never throw out: they answer as `network_unavailable`, while a 401 / 403
+ * reads as a key rejection.
+ * @param key - model_api_key the user entered.
+ * @param fetcher - outbound fetch; injectable for tests.
+ * @returns the catalog, or why it could not load; `models` is empty on failure.
+ */
+async function loadModels(key: string, fetcher: typeof fetch): Promise<{ models: GatewayModel[]; reason?: AccessFailureReason }> {
+  try {
+    const response = await fetcher(MODEL_CATALOG_URL, {
+      headers: { ...GATEWAY_HEADERS, Authorization: `Bearer ${key}`, Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
+    })
+    if (!response.ok) {
+      return { models: [], reason: response.status === 401 || response.status === 403 ? 'invalid_key' : 'network_unavailable' }
+    }
+    return { models: parseModelCatalog(await response.json()) }
+  } catch {
+    return { models: [], reason: 'network_unavailable' }
+  }
 }
 
 /**
  * Same-origin key validation: tenant check, then a catalog probe that proves
  * the key can actually reach a model. Every outcome answers 200 with a JSON
- * verdict — transport-level failures degrade to `valid: false`.
+ * verdict — transport-level failures degrade to `network_unavailable`, an
+ * explicit gateway rejection to `invalid_key`.
  * @param req - incoming request.
  * @param res - response owned for the whole exchange.
  * @param expectedOrigin - the local client page origin.
@@ -203,10 +230,11 @@ export async function handleDofeValidateRequest(
   try {
     const tenant = await verifyTenant(request.key, fetcher)
     if (!tenant.ok) return finish(res, 200, { valid: false, reason: tenant.reason })
-    const models = await loadModels(request.key, fetcher)
-    finish(res, 200, models.length > 0 ? { valid: true } : { valid: false, reason: 'invalid_key' })
+    const catalog = await loadModels(request.key, fetcher)
+    if (catalog.reason !== undefined) return finish(res, 200, { valid: false, reason: catalog.reason })
+    finish(res, 200, catalog.models.length > 0 ? { valid: true } : { valid: false, reason: 'invalid_key' })
   } catch {
-    finish(res, 200, { valid: false, reason: 'invalid_key' })
+    finish(res, 200, { valid: false, reason: 'network_unavailable' })
   }
 }
 
@@ -228,8 +256,9 @@ export async function handleDofeModelsRequest(
   try {
     const tenant = await verifyTenant(request.key, fetcher)
     if (!tenant.ok) return finish(res, 200, { models: [], reason: tenant.reason })
-    finish(res, 200, { models: await loadModels(request.key, fetcher) })
+    const catalog = await loadModels(request.key, fetcher)
+    finish(res, 200, catalog.reason !== undefined ? { models: [], reason: catalog.reason } : { models: catalog.models })
   } catch {
-    finish(res, 200, { models: [], reason: 'invalid_key' })
+    finish(res, 200, { models: [], reason: 'network_unavailable' })
   }
 }

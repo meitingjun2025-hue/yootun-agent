@@ -12,14 +12,16 @@ import { AccessSection } from './section.tsx'
 import { mountGate } from './gate.tsx'
 import { en, NS, zh, type AccessLocaleKey } from './locales.ts'
 import { ACCESS_NAMESPACE } from '../access-constants.ts'
-import type { AccessForms, AccessSettings, CredentialsFace } from './logic.ts'
+import type { AccessForms, AccessSettings, CredentialsFace, ProviderModelsSection } from './logic.ts'
 
 /** Required services (cordis fiber inject). */
 export const inject = ['slots', 'locale', 'remote', 'remote.credentials', 'configForms']
 
-/** `llm-deepseek` section 的写入面（激活流程覆写网关默认目录）。 */
-/** `agent-default-model` section 的写入面。 */
+/** `agent-default-model` section 的写入面（激活流程覆写默认 provider 与模型）。 */
 type DefaultModelForm = ConfigForm<{ provider: string; model: string }>
+
+/** `llm-pi-ai` section 的读取面（激活流程写目录路径 providers.yootun.models）。 */
+type ManagedModelsForm = ConfigForm<ProviderModelsSection>
 
 /**
  * Mount the access gate and the settings section while the Host serves the
@@ -30,9 +32,19 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'yootun-ui-access: dictionaries')
 
+  // llm-pi-ai 的 patch entry id（cordis.patch.yml）：目录写入的读取面。get 是
+  // 同步注册表查找、不校验在服状态（分区缺位表现为快照 unavailable），这里的
+  // 兜底只在查找面本身抛错时跳过目录写入，不让它阻断门禁挂载。
+  let models: ManagedModelsForm | undefined
+  try {
+    models = ctx.configForms.get<ProviderModelsSection>('llm-pi-ai')
+  } catch {
+    models = undefined
+  }
   const forms: AccessForms = {
     access: ctx.configForms.get<AccessSettings>(ACCESS_NAMESPACE),
     defaultModel: ctx.configForms.get('agent-default-model') as DefaultModelForm,
+    models,
   }
   const credentials: CredentialsFace = {
     describe: refs => ctx.remote.credentials.describe(refs),

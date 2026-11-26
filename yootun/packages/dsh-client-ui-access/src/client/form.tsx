@@ -2,7 +2,7 @@
 import { useRef, useState } from 'react'
 import { Button, Input, Menu, Switch, IconChevronDownOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { GatewayModel } from '../route.ts'
-import { validateAndLoadModels, saveActivation, type AccessForms, type CredentialsFace } from './logic.ts'
+import { accessFailureKey, existingProviderModels, providerCatalogReadable, providerDeclaresModel, validateAndLoadModels, saveActivation, type AccessForms, type CredentialsFace } from './logic.ts'
 import css from './access.module.css'
 import type { AccessLocaleKey } from './locales.ts'
 
@@ -52,7 +52,7 @@ export function AccessForm(props: AccessFormProps) {
       if (found.length === 0) {
         setModels([])
         setModelId('')
-        setError(reason === 'tenant_mismatch' ? t('tenantMismatch') : reason === 'tenant_unavailable' ? t('tenantUnavailable') : t('modelError'))
+        setError(t(accessFailureKey(reason, 'modelError')))
         return
       }
       setModels(found)
@@ -76,7 +76,7 @@ export function AccessForm(props: AccessFormProps) {
     try {
       const verdict = await validateAndLoadModels(entered)
       if (verdict.models.length === 0) {
-        setError(verdict.reason === 'tenant_mismatch' ? t('tenantMismatch') : verdict.reason === 'tenant_unavailable' ? t('tenantUnavailable') : t('invalid'))
+        setError(t(accessFailureKey(verdict.reason, 'invalid')))
         return
       }
       const selected = verdict.models.find(model => model.id === modelId) ?? verdict.models[0]
@@ -84,10 +84,15 @@ export function AccessForm(props: AccessFormProps) {
         setError(t('invalid'))
         return
       }
-      if (!await saveActivation(forms, credentials, entered, selected.id)) {
-        setError(t('saveError'))
+      // provider 现有列表在写入前读取：目录写失败时列表不变，成员判定不受写后恢复读取影响。
+      const providerModels = existingProviderModels(forms)
+      const catalogReadable = providerCatalogReadable(forms)
+      const outcome = await saveActivation(forms, credentials, entered, selected.id, verdict.models)
+      if (!outcome.ok) {
+        setError(!outcome.catalogSynced && catalogReadable && !providerDeclaresModel(selected.id, providerModels) ? t('modelNotAvailable') : t('saveError'))
         return
       }
+      if (!outcome.catalogSynced) setError(t('catalogSyncFailed'))
       setKey('')
       setModels([])
       setModelId('')

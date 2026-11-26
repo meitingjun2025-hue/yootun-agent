@@ -121,7 +121,9 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（必填：真实 key 下 `?protocol=` 取值核对结果；`llm-pi-ai` 设置分区路径核对结果）。
+- 官方设置表单 API 核对（只读源码 `packages/client/ui-settings/src/client/config-form.ts`、`config-form-types.ts`、`packages/settings/settings/src/types.ts`）：`ctx.configForms.get<T>(entryId): ConfigForm<T>` 为同步注册表查找，按 entryId 惰性建 controller，不校验分区在服状态（分区缺位表现为快照 `unavailable`）；`ConfigForm.mutate(ops: readonly SettingsPathOpView[], expectedRevision?): Promise<boolean>`，`SettingsPathOpView = { op: 'set'; path: string[]; value: JsonValue } | { op: 'unset'; path: string[] }`；Host 拒绝写 → `mutate` 返回 false，分区缺位或传输失败 → promise rejection（目录写入以 try/catch 收敛为跳过）。
+- `llm-pi-ai` 设置分区路径核对：cordis.patch.yml entry `llm-pi-ai` 写 `config.providers.yootun`（`apiKeyEnv: MODELS_API_KEY`、`api: openai-responses`、`models` 为 23 项裸 `{ id }`）；llm-pi-ai Config schema（`packages/llm/llm-pi-ai/src/config.ts`）的 `models?: PiAiModelProfile[]` 语义为「显式列表整体替换安装目录、缺省字段按同 id 目录项回填」，写回裸 `{ id }` 并集与 patch 形态一致，网关新增模型走路由缺省（context window 1,000,000 / max tokens 128,000 / input [text]）。
+- `?protocol=` 取值核对：未核对——本机无可用真实 key，未对网关发起请求，`MODEL_CATALOG_URL` 保持原值 `protocol=anthropic` 不动，留待真机验收 V5 / V6 验证。
 
 ## 附录 A：逐文件规格
 

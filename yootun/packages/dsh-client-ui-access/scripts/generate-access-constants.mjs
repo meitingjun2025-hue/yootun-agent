@@ -34,7 +34,7 @@ export const TENANT_ID = '${brandConfig.tenantId}'
 /** 激活设置 namespace（= bundle patch 的 entry id，host 半 Config schema 暴露）。 */
 export const ACCESS_NAMESPACE = 'yootun-access'
 
-/** 托管模型凭证引用：llm-deepseek patch 的 apiKeyEnv 与 credential store 共用此名。 */
+/** 托管模型凭证引用：llm-pi-ai provider yootun 的 apiKeyEnv 与 credential store 共用此名。 */
 export const ACCESS_CREDENTIAL_REF = 'MODELS_API_KEY'
 
 /** 同源激活 API 路由（host 半 webServer 路由，client 同源相对路径调用）。 */
