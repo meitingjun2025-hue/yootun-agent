@@ -1,6 +1,6 @@
 # infra-report-服务端报表通用内核抽取 实施单
 
-状态：开发完成（自动验收通过），待合入 `dev`；真机验收待执行 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `dev`（2026-11-26 自动验收通过，随视频号报表服务端单一并合入并推送，特性分支已删除）；真机验收待执行 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -121,8 +121,8 @@ MCP 工具：无。
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
 | 文档（本文、1126 索引） | 2026-11-26 | `main` | 已确认 |
-| 开发完成（自动验收通过） | 2026-11-26 | `feat/report-kernel-extraction` | 5.1 通过，`make lint` 的情况见该项；已本地提交，未合入 `dev`、未推送 |
-| tools 合入 `dev` | | `feat/report-kernel-extraction` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-26 | `feat/report-kernel-extraction` | 5.1 通过，`make lint` 的情况见该项 |
+| tools 合入 `dev` | 2026-11-26 | `dev` | 随 [wx-report-server.md](wx-report-server.md) 一并合入并推送，特性分支已删除 |
 | docker-helm 部署测试环境 | — | — | 本单无部署变化；随 [wx-report-server.md](wx-report-server.md) 一并部署 |
 | yootun-agent 合入 `main` | — | — | 不涉及 |
 | 发版 | | | 随视频号报表一并发版 |

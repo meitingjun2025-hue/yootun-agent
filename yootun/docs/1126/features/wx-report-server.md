@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表服务端 实施单
 
-状态：开发完成（2026-11-26 自动验收通过，待合入 `dev`；特性分支 `feat/wx-report-server`，自内核分支 `feat/report-kernel-extraction` 切出） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入（2026-11-26 自动验收通过；tools 合入 `dev`，docker-helm 合入 `master`，均已推送，特性分支已删除；测试环境待部署） ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -259,9 +259,9 @@ yootun-agent：本单不改桌面端代码；`yootun/docs/1126/00-overview.md` �
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
 | 文档（本文、1126 索引） | 2026-11-26 | `main` | 已确认 |
-| 开发完成（自动验收通过） | 2026-11-26 | tools 与 docker-helm 各自的 `feat/wx-report-server` | 5.1 通过；两个仓都已本地提交，未合入、未推送 |
-| tools 合入 `dev` | | `feat/wx-report-server` | 待填；前置：内核单开发完成，本单分支自 `feat/report-kernel-extraction` 切出，两单一并合入 `dev` |
-| docker-helm 部署测试环境 | | `feat/wx-report-server` | 待填；部署后 `tools/list` 核对 8 个新工具名（旧域 3、Agent 2、Workbench 3） |
+| 开发完成（自动验收通过） | 2026-11-26 | tools 与 docker-helm 各自的 `feat/wx-report-server` | 5.1 通过 |
+| tools 合入 `dev` | 2026-11-26 | `dev` | 与内核单一并合入并推送；本单分支自内核分支切出，合入后两个特性分支都已删除 |
+| docker-helm 改动合入 `master` | 2026-11-26 | `master` | 已推送；测试环境部署后 `tools/list` 核对 8 个新工具名（旧域 3、Agent 2、Workbench 3） |
 | yootun-agent 合入 `main` | — | — | 不涉及 |
 | 发版 | | | 随 [wx-report-client.md](wx-report-client.md) 一并发版 |
 
