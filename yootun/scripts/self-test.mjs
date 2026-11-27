@@ -291,7 +291,7 @@ test('yootun Host 插件包发布完整运行时 JavaScript 产物', () => {
   for (const plugin of ['dsh-managed-mcp', 'dsh-workbench-mcp']) {
     const config = readFileSync(join(repositoryRoot, 'yootun', 'plugins', plugin, 'tsdown.config.ts'), 'utf8')
     assert.ok(
-      config.includes('alwaysBundle: [/^@yootun\\/dsh-client-ui-access(?:\\/.*)?$/u]'),
+      config.includes('alwaysBundle: [/^@yootun\\/dsh-client-ui-access(?:\\/.*)?$/u'),
       `${plugin} 内联接入层生成常量`,
     )
   }
