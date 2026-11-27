@@ -4,7 +4,7 @@
 
 本目录收纳 2026-11-26 建单的业务特性实施单，来源有两处：同日的三工作台全面审查（抖音 / 视频号 / 小红书，含 tools.dofe.ai 与 docker-helm.dofe.ai 的相关面，16 张），以及同日立项的视频号 AI 报表（4 张，登记为第二批）。实施单是三仓共享的唯一协调文件，固定五章（范围 / 契约增量 / 影响面 / 状态回填 / 验收），先建单再动代码；模板见 [feature-template.md](../feature-template.md)。
 
-P0 八张已合入 `main`（2026-11-26 自动验收通过，待用户打包验证）；P1 八张已确认、待实施，与 P0 一起推进，不设发版观察期（2026-11-26 确认）。P2 四张单已于 2026-11-26 确认并开始推进，状态见下表；其中两张客户端单在动代码前需用户确认（见「推进顺序」）。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
+P0 八张已合入 `main`（2026-11-26），P1 八张已合入 `main`（2026-11-27；与 P0 一起推进，不设发版观察期，2026-11-26 确认），十六张单都待真机验收。P2 四张单已于 2026-11-26 确认并开始推进，状态见下表；其中两张客户端单在 2026-11-27 按 P0、P1 合入后的代码做了基线核对并修订，等用户通知进入开发（见「推进顺序」）。审查结论为「本期不做」的项不在本目录建单：插件助手 Dock 及与之绑定的操作回执 / 撤销与「撤销上次保存」、Workbench 面 scope 与写操作限流（应用层与 nginx 入口）、多租户幂等收据隔离、工作台插件在官方插件页的可插拔开关。其中写操作配额与多租户收据的判断依据和落地形态记录在 [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) 的附录里，作为网关从 ixicai 迁移、按用户 key 隔离并加入团队时的输入。
 
 ## 实施单索引
 
@@ -20,18 +20,18 @@ P0 八张已合入 `main`（2026-11-26 自动验收通过，待用户打包验�
 | P0 | [host-lifecycle-budget.md](features/host-lifecycle-budget.md) | 三工作台 Host 的 dispose 等待与浏览器 `close()` 加时间预算（Config 可调），超时告警并释放 profile 锁；小红书发布 promise 纳入任务登记表，Chrome 启动加超时 | 已合入 `main`（2026-11-26），待真机验收 |
 | P0 | [xhs-collect-cancel-and-publish-state.md](features/xhs-collect-cancel-and-publish-state.md) | 小红书新增 `collect.cancel`（Host action），取消落 `cancelled` 终态；`accounts.list` 投影 `publishWindowOpen`，账号卡显示「发布窗口打开中」 | 已合入 `main`（2026-11-26），待真机验收 |
 | P0 | [activation-gate-and-model-catalog.md](features/activation-gate-and-model-catalog.md) | 激活门禁改三态（未知期间只渲染遮罩，不闪现卡片）；激活失败原因区分网络不可用与密钥无效；激活成功时把网关实时模型目录写入 `llm-pi-ai` provider；目录请求协议与实际承载协议对齐 | 已合入 `main`（2026-11-26），待真机验收 |
-| P1 | [workbench-host-kit.md](features/workbench-host-kit.md) | 新建 Host 侧共享库 `@yootun/dsh-workbench-host-kit`（路由信任判定与分发、JSON 体读取、任务登记表、profile 锁、状态文件原子写与按 root 的写队列、系统 Chrome 探测与浏览器关闭 / 启动超时）；三插件删除本地副本改为消费；账号锁与批次序号随插件实例创建，门禁的模块级变量移入闭包；补齐小红书缺失的写队列（修复并发丢更新） | 开发完成（2026-11-27），待真机验收 |
-| P1 | [client-workbench-hooks.md](features/client-workbench-hooks.md) | 抖音、视频号的 `WorkbenchPage` 把登录、单账号采集、批量采集、作品查询四条数据流拆为不依赖 React 的 machine（小红书已是该形态，不动），两份同构核心上移为纯 client 包 `@yootun/dsh-client-workbench-machines`；语言标签改取 locale 服务；`attemptId` 归位 | 开发完成（2026-11-27，`feat/client-workbench-hooks`，自动验收通过待合入） |
-| P1 | [douyin-tabs-regroup.md](features/douyin-tabs-regroup.md) | 抖音 7 个顶级 Tab 重组为 4 组 + 组内二级控制（默认进入「账号作品」），保留 keep-alive；作品与榜单表格增加显式「查看详情」入口 | 开发完成（2026-11-27，`feat/douyin-tabs-regroup`，自动验收通过待合入） |
-| P1 | [ui-accessibility-and-visual-cleanup.md](features/ui-accessibility-and-visual-cleanup.md) | 字重 ≤500（38 条）、字号 ≥12px（44 处）、容器查询替换视口媒体查询、`title=` 改 Tooltip 或就近文本（28 处，置灰原因经 kit 新增的 `ReasonButton`）、表格行打开详情统一为双击、门禁背景对辅助技术隐藏（不引入 `inert`）、规范标注助手 Dock 暂缓 | 开发完成（2026-11-27，`feat/ui-accessibility-cleanup`，自动验收通过待合入） |
-| P1 | [collect-probe-reuse.md](features/collect-probe-reuse.md) | 采集前的会话探测结果带有效期在单次采集内复用，每账号每次采集少一次 Chrome 冷启动与一次会话状态上报（视频号单账号与「采集全部」、抖音「采集全部」） | 开发完成（2026-11-27），待真机验收 |
-| P1 | [mount-restore-and-login-alignment.md](features/mount-restore-and-login-alignment.md) | 小红书补齐挂载恢复（按账号查询运行中的采集）；三工作台登录终态记录统一为保留 30 分钟；删除视频号无页面入口且成功分支缺远端建号的 `account.refreshLoginQr`（页面行为不变）；抖音、视频号的采集中断由 toast 改为带「重新采集」/「重新采集全部」的横幅 | 开发完成（2026-11-27），待真机验收 |
-| P1 | [upload-experience-fixes.md](features/upload-experience-fixes.md) | 上传结果保留由 60 秒延长到 10 分钟、`UNAUTHORIZED` 映射为激活密钥问题、启动时清理已退出进程遗留的暂存目录、`isForbiddenPublicHost` 改按地址块判断（补齐 mapped / NAT64 / 6to4 / localhost 变体）、上传传输函数上移 kit 去重 | 开发完成（2026-11-27），待真机验收 |
-| P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | 开发完成（2026-11-27，tools 仓 `feat/mcp-audit-identity` 本地提交，待合入 dev） |
-| P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 待实施（进入客户端开发前需用户确认） |
+| P1 | [workbench-host-kit.md](features/workbench-host-kit.md) | 新建 Host 侧共享库 `@yootun/dsh-workbench-host-kit`（路由信任判定与分发、JSON 体读取、任务登记表、profile 锁、状态文件原子写与按 root 的写队列、系统 Chrome 探测与浏览器关闭 / 启动超时）；三插件删除本地副本改为消费；账号锁与批次序号随插件实例创建，门禁的模块级变量移入闭包；补齐小红书缺失的写队列（修复并发丢更新） | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [client-workbench-hooks.md](features/client-workbench-hooks.md) | 抖音、视频号的 `WorkbenchPage` 把登录、单账号采集、批量采集、作品查询四条数据流拆为不依赖 React 的 machine（小红书已是该形态，不动），两份同构核心上移为纯 client 包 `@yootun/dsh-client-workbench-machines`；语言标签改取 locale 服务；`attemptId` 归位 | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [douyin-tabs-regroup.md](features/douyin-tabs-regroup.md) | 抖音 7 个顶级 Tab 重组为 4 组 + 组内二级控制（默认进入「账号作品」），保留 keep-alive；作品与榜单表格增加显式「查看详情」入口 | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [ui-accessibility-and-visual-cleanup.md](features/ui-accessibility-and-visual-cleanup.md) | 字重 ≤500（38 条）、字号 ≥12px（44 处）、容器查询替换视口媒体查询、`title=` 改 Tooltip 或就近文本（28 处，置灰原因经 kit 新增的 `ReasonButton`）、表格行打开详情统一为双击、门禁背景对辅助技术隐藏（不引入 `inert`）、规范标注助手 Dock 暂缓 | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [collect-probe-reuse.md](features/collect-probe-reuse.md) | 采集前的会话探测结果带有效期在单次采集内复用，每账号每次采集少一次 Chrome 冷启动与一次会话状态上报（视频号单账号与「采集全部」、抖音「采集全部」） | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [mount-restore-and-login-alignment.md](features/mount-restore-and-login-alignment.md) | 小红书补齐挂载恢复（按账号查询运行中的采集）；三工作台登录终态记录统一为保留 30 分钟；删除视频号无页面入口且成功分支缺远端建号的 `account.refreshLoginQr`（页面行为不变）；抖音、视频号的采集中断由 toast 改为带「重新采集」/「重新采集全部」的横幅 | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [upload-experience-fixes.md](features/upload-experience-fixes.md) | 上传结果保留由 60 秒延长到 10 分钟、`UNAUTHORIZED` 映射为激活密钥问题、启动时清理已退出进程遗留的暂存目录、`isForbiddenPublicHost` 改按地址块判断（补齐 mapped / NAT64 / 6to4 / localhost 变体）、上传传输函数上移 kit 去重 | 已合入 `main`（2026-11-27），待真机验收 |
+| P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | tools 侧已合入 `dev`（2026-11-27）；测试环境部署与日志字段白名单核对待填 |
+| P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 已确认，待实施（2026-11-27 基线核对后修订；等用户通知进入开发） |
 | P2 | [report-kernel-extraction.md](features/report-kernel-extraction.md) | 抖音 AI 报表的服务端机制（周期、状态机与租约、投递与对账、定时补建、重建与版本、模型调用与重试、输出校验、提示词加载）抽成平台无关内核，抖音改为「平台适配 + 调用内核」；对外行为逐字节不变 | 已合入 `dev`（2026-11-26） |
 | P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 已合入 `dev`（2026-11-26；部署仓已合入 `master`，测试环境待部署） |
-| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report`，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 待实施（进入客户端开发前需用户确认） |
+| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report` 并在包内按 UI 规范整改界面，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 已确认，待实施（2026-11-27 基线核对后修订；等用户通知进入开发） |
 
 ## 推进顺序
 
@@ -45,7 +45,7 @@ P1 内部的先后：先合 [workbench-host-kit.md](features/workbench-host-kit.
 
 分支规则见 [cross-repo-sync.md §5.1](../cross-repo-sync.md#51-分支)：实施单提交在 `main`，代码走 `feat/<slug>` 特性分支，验收通过后合入。P0 与 P1 一起推进，不设发版观察期（2026-11-26 确认）；视频号并发的风控信号在发版后照常观察，`batchConcurrency: 1` 可即时回退。
 
-P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；先完成 [report-kernel-extraction.md](features/report-kernel-extraction.md)（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署；其特性分支从内核单的分支切出，两单一并合入 `dev`）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 与去 PDF 单合入 `main`、且服务端已部署测试环境之后开始，动代码前先按该单 0.3 核对合入后的客户端代码，在最新代码上开发。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
+P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；先完成 [report-kernel-extraction.md](features/report-kernel-extraction.md)（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署；其特性分支从内核单的分支切出，两单一并合入 `dev`）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 与去 PDF 单合入 `main` 之后开始，分三步串行：纯上移、界面整改、视频号接入，每步验收通过后本地提交，三步都通过后一次合入（见该单附录 A1）。基线核对已于 2026-11-27 完成；开始开发当日再比对一次 `main`。服务端未部署测试环境时客户端可以先发，报表 Tab 只会显示暂不可用。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
 
 ## 对现有功能的影响
 
@@ -66,7 +66,8 @@ P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-rem
 | [上传](features/upload-experience-fixes.md) | 上传结果可查询的时间由 60 秒延长到 10 分钟；密钥问题的提示更准确 | 上传用户 | 无需回退 |
 | [会话工具承接卡片](features/media-upload-tool-handoff.md) | 模型调用 `media_upload` 后弹出卡片（原先是死路） | 用上传工具的用户 | 纯新增 |
 | [抖音去 PDF](features/douyin-report-remove-pdf.md) | 抖音 AI 报表详情少一个「导出 PDF」按钮（该按钮原本只能提示不支持） | 用抖音报表的用户 | 纯界面，按单回退 |
-| [视频号 AI 报表](features/wx-report-client.md) | 视频号工作台多一个「AI 报表」Tab；普通会话可以查询视频号报表 | 用视频号工作台的用户 | 纯新增 |
+| [抖音报表页界面](features/wx-report-client.md) | AI 报表的 KPI 卡、趋势图（标题、图例、浮层）、区段标题与分区间距按 UI 规范整改；加载更多失败时保留已加载的行。数据、文案含义、幂等与轮询行为不变 | 用抖音报表的用户 | 纯界面，按该单第 2 步的提交回退 |
+| [视频号 AI 报表](features/wx-report-client.md) | 视频号工作台多一个「AI 报表」Tab，界面是整改后的报表页；普通会话可以查询视频号报表 | 用视频号工作台的用户 | 纯新增 |
 
 既有流程不变、并有测试守住的部分：
 
@@ -74,7 +75,7 @@ P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-rem
 - MCP 工具契约：P0、P1 的 16 张单没有任何一张新增、修改或删除 tools 的工具，tools 仓唯一的改动是审计日志多几个身份字段；P2 新增 8 个工具名与一张表（见 [wx-report-server.md](features/wx-report-server.md)），既有工具的入参与出参不变；
 - 既有本地路由与 action 的入参与出参不变，新增的都是追加（`collect.running`、`collect.cancel`、`uploader/pending`、`uploader/cancel`、`agent-status`；`collect.status` 的可选入参；P2 的 `report.list`、`report.get`、`report.regenerate`）；
 - 小红书爆款仿写页的上传流程不改（承接卡片只响应会话工具发起的上传）；
-- 重构类单（Host 共享库、页面状态机、上传传输函数、报表服务端内核、报表页上移）以「既有用例断言零改动」为合入条件；行为变化类单逐条列出要改的断言。
+- 重构类单（Host 共享库、页面状态机、上传传输函数、报表服务端内核、报表页上移的第 1 步）以「既有用例断言零改动」为阶段验收条件；行为变化类单逐条列出要改的断言，报表页上移的第 2 步「界面整改」属于这一类。
 
 审查中发现并已在单内修正的风险：
 
@@ -85,7 +86,8 @@ P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-rem
 | 网关模型目录缺少某个内置模型时，整表覆盖会把用户正在用的默认模型移出列表 | 目录写入取并集，只增不删（激活单 2.3） |
 | 视频号并发的平台风控 | 启动错峰、批内熔断、发版后观察一周（并发单附录 C.4）；`batchConcurrency: 1` 可即时回退 |
 | 抖音 7 个 Tab 是与旧插件逐项对齐的冻结基线 | 导航重组在 15 册 §11 登记为有意偏离 |
-| 共享报表包的样式表如果不随消费它的插件进入 bundle 的样式安装元数据，样式会静默不生效（kit 的页面壳出过这个问题） | 两个插件的样式装载声明与产物校验清单都登记该样式表（[wx-report-client.md](features/wx-report-client.md) 2.4） |
+| 共享报表包的样式表如果不随消费它的插件进入 bundle 的样式安装元数据，样式会静默不生效（kit 的页面壳出过这个问题） | 两个插件的样式装载声明、产物校验清单与源码层守护用例都登记该样式表（[wx-report-client.md](features/wx-report-client.md) 2.4） |
+| 报表页按 UI 规范整改，与「抖音既有用例断言零改动」的合入条件互斥；上移与整改放在同一次合入，报表出问题时分不清是哪一步引入的 | 上移与整改分两步、各自单独提交：第 1 步只许改 import 路径，第 2 步逐条改绑定旧类名与旧浮层的断言（[wx-report-client.md](features/wx-report-client.md) 附录 A1） |
 | 部署流水线用全量服务列表的精确比较串决定部署分支，漏改新 worker 会让它不被部署 | 部署流水线与校验脚本在同一提交内同步（[wx-report-server.md](features/wx-report-server.md) 第 3 节） |
 
 ## 文档漂移

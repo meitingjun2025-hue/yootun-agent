@@ -1,6 +1,6 @@
 # media-upload-上传体验与边界修复 实施单
 
-状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [media-upload-tool-handoff.md](media-upload-tool-handoff.md) 已合入（media-upload 已有 client 半）。
 
@@ -127,7 +127,7 @@ MCP 工具：无。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/upload-experience-fixes`（基于 `feat/mount-restore-login-alignment`） | media-upload / client-ui-kit / xhs 三包 test 与 build、`lint`、`typecheck`、verify 脚本、`test:docs` 全过；附录 B D1/D2、E1/E2、T1–T5、F1–F5、K1 全部落地 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

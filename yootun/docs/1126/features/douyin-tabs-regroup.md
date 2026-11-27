@@ -1,6 +1,6 @@
 # douyin-workbench-顶级导航重组与详情入口 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -108,7 +108,7 @@ MCP 工具：无。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/douyin-tabs-regroup` | 分支基于 client-workbench-hooks 落地提交；抖音包 164 例全绿（新增 N1–N6/D1–D2 + 改 7 Tab 冻结用例），build/lint/verify-client-ui-i18n 过；页面 291 行、hook 1 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

@@ -1,6 +1,6 @@
 # client-工作台页面状态机拆分 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -119,7 +119,7 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/client-workbench-hooks` | 三步并一步落地：machines 包 + 抖音/视频号 flows 与页面拆分 + locale/attemptId 收口（见 5.3） |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

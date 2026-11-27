@@ -1,6 +1,6 @@
 # workbench-采集前会话探测结果复用 实施单
 
-状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 的 [wx-collect-all-concurrency.md](wx-collect-all-concurrency.md) 与 [douyin-batch-candidates-live-probe.md](douyin-batch-candidates-live-probe.md) 已合入。
 
@@ -99,7 +99,7 @@ interface ProbedSession<S> {
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/collect-probe-reuse`（基于 `feat/workbench-host-kit`） | 两包 test 与 build、`lint`、`typecheck`、四个 verify 脚本、`test:docs` 全过；附录 B U1–U9 全部落地 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

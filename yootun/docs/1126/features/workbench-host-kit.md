@@ -1,6 +1,6 @@
 # infra-workbench-Host 共享库 实施单
 
-状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 全部合入。本单迁移 [host-lifecycle-budget.md](host-lifecycle-budget.md) 在三插件内落地的 `closeContext` / `launchWithTimeout` 与 `createTaskRegistry`，并承接 [connector-status-and-error-copy.md](connector-status-and-error-copy.md) 明确留给本单的 `permitted()` / 路由合并。
 
@@ -154,7 +154,7 @@ type HandlerPayload<S extends string, C extends string> =
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/workbench-host-kit`（基于 P0 合入后的 `main`） | 两轮独立验收通过：kit 包 test 25 用例与 build（含类型段）、三工作台 / managed-mcp / media-upload / client-ui-access 各包 test 与 build、`lint`、`typecheck`、四个 verify 脚本、`test:docs`、5.1 两条 grep 全过；附录 B 全部 ID 存在且经变异检查证实有效 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

@@ -1,6 +1,6 @@
 # workbench-挂载恢复、登录终态与中断提示对齐 实施单
 
-状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 全部合入（[wx-collect-all-concurrency.md](wx-collect-all-concurrency.md) 给视频号补了挂载恢复，[xhs-collect-cancel-and-publish-state.md](xhs-collect-cancel-and-publish-state.md) 给小红书补了取消）。
 
@@ -134,7 +134,7 @@ Host：
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/mount-restore-login-alignment`（基于 `feat/collect-probe-reuse`） | 三插件 test 与 build、`lint`、`typecheck`、verify 脚本、`test:docs` 全过；附录 B X1–X7、L1–L4、W1、I1–I4 全部落地 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 随 P1 八张批次一并合入（含验收审查修复），真机验收见 5.2 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

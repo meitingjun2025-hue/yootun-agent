@@ -1,6 +1,6 @@
 # tools-审计归因（含写操作配额与多租户收据的暂缓决策） 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：tools 侧已合入 `dev`（2026-11-27），测试环境部署待填 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -73,7 +73,7 @@ MCP 工具：无。工具名、入参、出参与错误码都不变。
 | 节点 | 日期 | 分支 | 备注 |
 |---|---|---|---|
 | 文档（本文 + 契约 §7 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
-| tools 合入 `dev` | 2026-11-27 | tools 仓 `feat/mcp-audit-identity`（31dd69d） | 本地提交，验收见 5.1：observability 8 例全过、mcp 套件 512 过（38 个 error 为既有 real-SDK 探针环境依赖，干净树复现一致）；密钥字段 grep 仅注释命中 |
+| tools 合入 `dev` | 2026-11-27 | tools 仓 `feat/mcp-audit-identity` | 已合入 `dev`；合入前验收见 5.1：observability 8 例全过、mcp 套件 512 过（38 个 error 为既有 real-SDK 探针环境依赖，干净树复现一致）；密钥字段 grep 仅注释命中 |
 | docker-helm 部署测试环境 | | | 待填（含日志字段白名单核对结果） |
 | 发版 | | | 待填 |
 
