@@ -10,8 +10,8 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartFrame, DataCard, DataState, FilterMenu } from '@yootun/dsh-client-ui-kit'
+import { Button, Modal, RiskConfirmation, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ChartFrame, DataCard, DataState, FilterMenu, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import {
   basisLines, domainErrorText, fanDelta, formatAgeBucket, formatCount, formatDateTime,
@@ -379,13 +379,13 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                           className={work.promoted ? css.rowPromoted : undefined}
                           aria-label={t('row.detailAria', { title: work.title ?? work.workId })}
                           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onOpenWork(props.accountId, work) } }}
-                          onDoubleClick={() => { props.onOpenWork(props.accountId, work) }}
+                          onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpenWork(props.accountId, work) }}
                         >
                           <td>{work.rank ?? index + 1}</td>
                           <td className={css.cellMain}>
-                            <button type='button' className={css.workLinkButton} title={work.title ?? work.workId} onClick={() => { props.onOpenWork(props.accountId, work) }}>
+                            <Tooltip label={work.title ?? work.workId} onlyWhenClipped portal><button type='button' className={css.workLinkButton} aria-label={work.title ?? work.workId} onClick={() => { props.onOpenWork(props.accountId, work) }}>
                               {work.title ?? work.workId}
-                            </button>
+                            </button></Tooltip>
                             {work.promoted && <Tag tone='danger'>{t('promotion.badge')}</Tag>}
                           </td>
                           <td>{formatDateTime(work.publishTime)}</td>
@@ -654,7 +654,7 @@ function EvidenceChips(props: {
               key={workId}
               type='button'
               className={css.aiChip}
-              title={title ?? workId}
+              aria-label={title ?? workId}
               onClick={() => {
                 props.onOpenWork('', { workId, accountId: null, accountNickname: null, title, publishTime: null, playCount: null, engagementRatePct: null, fansGainCount: null, basis: null, labels: null, promoted: false, rank: null })
               }}

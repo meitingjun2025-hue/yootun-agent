@@ -9,7 +9,7 @@
  */
 import { useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Button, Checkbox, Input, MarkdownText, Modal, StateDot, type StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
-import { KpiCard } from '@yootun/dsh-client-ui-kit'
+import { KpiCard, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import css from './workbench.module.css'
 import {
@@ -314,7 +314,7 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
     hub.askConfirm(tf(props.t, 'hb.confirmExcludeNote', { title: note.title ?? note.noteId }), () => { void hub.noteExclude(note.noteId) })
   }
   return (
-    <tr className={css.hbRow} onClick={() => { void hub.openNote(note.noteId) }}>
+    <tr className={css.hbRow} onDoubleClick={event => { if (!isOnInteractiveTarget(event)) void hub.openNote(note.noteId) }}>
       <td data-label={t('hb.colCase')} className={css.hbCellCase}>
         <span className={css.hbCellFlex}>
           <NoteThumb note={note} t={t} />
@@ -358,10 +358,10 @@ function BoardRow(props: { note: HotboardNoteRow; state: HotboardSnapshot; hub: 
       <td data-label={t('hb.colDupGroup')}>{note.duplicateGroupId !== null && note.duplicateGroupId !== undefined ? `${t('hb.dupGroupShort')} ${String(note.duplicateGroupId).slice(0, 8)}` : t('hb.mainRecord')}</td>
       <td data-label={t('hb.colActions')}>
         <span className={css.hbCellActions}>
-          <Button variant='primary' size='sm' onClick={event => { event.stopPropagation(); void hub.openNote(note.noteId) }}>
+          <Button variant='primary' size='sm' onClick={() => { void hub.openNote(note.noteId) }}>
             {t('hb.viewDetail')}
           </Button>
-          <Button variant='toolbar' size='sm' className={css.hbSoftAction} disabled={disabled} onClick={event => { event.stopPropagation(); exclude() }}>
+          <Button variant='toolbar' size='sm' className={css.hbSoftAction} disabled={disabled} onClick={() => { exclude() }}>
             {t('hb.exclude')}
           </Button>
         </span>

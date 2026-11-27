@@ -28,7 +28,7 @@
 
 .value {
   font-size: 22px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 30px;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-primary);

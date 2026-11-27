@@ -13,8 +13,8 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, SegmentedControl, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState, FilterMenu, Pager } from '@yootun/dsh-client-ui-kit'
+import { Button, Input, Modal, SegmentedControl, StateDot, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DataCard, DataState, FilterMenu, Pager, ReasonButton } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
@@ -756,18 +756,19 @@ function BoardRow(props: {
       <td className={css.cellMain}>
         {row.shareUrl !== null
           ? (
-            <a
-              className={css.matVideoTitle}
-              href={row.shareUrl}
-              target='_blank'
-              rel='noreferrer noopener'
-              title={row.title ?? row.shareUrl}
-              aria-label={row.title ?? row.candidateId}
-            >
-              {row.title ?? '—'}
-            </a>
+            <Tooltip label={row.title ?? row.shareUrl} onlyWhenClipped portal>
+              <a
+                className={css.matVideoTitle}
+                href={row.shareUrl}
+                target='_blank'
+                rel='noreferrer noopener'
+                aria-label={row.title ?? row.candidateId}
+              >
+                {row.title ?? '—'}
+              </a>
+            </Tooltip>
           )
-          : <span className={css.matVideoTitle} title={row.title ?? undefined} aria-label={row.title ?? row.candidateId}>{row.title ?? '—'}</span>}
+          : <Tooltip label={row.title ?? '—'} onlyWhenClipped portal><span className={css.matVideoTitle} aria-label={row.title ?? row.candidateId}>{row.title ?? '—'}</span></Tooltip>}
         <span className={css.matTags}>
           {row.tags !== null && row.tags.length > 0
             ? row.tags.map((tag, index) => <span key={`${tag}:${index}`} className={css.matTag}>{tag}</span>)
@@ -794,7 +795,7 @@ function BoardRow(props: {
         <Button variant='primary' size='sm' onClick={props.onOpenReason}>{t('mat.action.reason')}</Button>
         {row.shareUrl !== null
           ? <Button variant='toolbar' size='sm' className={css.softAction} onClick={() => { props.onStartBreakdown(row.shareUrl ?? '') }}>{t('mat.action.breakdown')}</Button>
-          : <Button variant='toolbar' size='sm' className={css.softAction} disabled title={t('mat.action.breakdownDisabled')}>{t('mat.action.breakdown')}</Button>}
+          : <ReasonButton variant='toolbar' size='sm' className={css.softAction} disabled reason={t('mat.action.breakdownDisabled')}>{t('mat.action.breakdown')}</ReasonButton>}
       </td>
     </tr>
   )
@@ -873,14 +874,16 @@ function SeedTable(props: {
           {props.rows.map(row => {
             const account = row as AccountSeedRow
             return (
-              <tr key={account.accountSeedId} title={account.lastResolutionError !== null ? account.lastResolutionError : undefined}>
-                <td className={css.cellMain}><span className={css.matEllipsis} title={account.displayName ?? undefined}>{account.displayName ?? '—'}</span></td>
-                <td><span className={css.matSeedInput} title={account.inputValue}>{account.inputValue}</span></td>
+              <tr key={account.accountSeedId}>
+                <td className={css.cellMain}><Tooltip label={account.displayName ?? '—'} onlyWhenClipped portal><span className={css.matEllipsis}>{account.displayName ?? '—'}</span></Tooltip></td>
+                <td><Tooltip label={account.inputValue} onlyWhenClipped portal><span className={css.matSeedInput}>{account.inputValue}</span></Tooltip></td>
                 <td>{t(`mat.inputForm.${account.inputForm}` as 'mat.inputForm.douyin_id')}</td>
                 <td>
                   {account.resolved
                     ? <Tag tone='success'>{t('mat.seed.resolved')}</Tag>
-                    : <Tag tone={account.verificationStatus === 'resolution_failed' ? 'danger' : 'neutral'}>{t(account.verificationStatus === 'resolution_failed' ? 'mat.seed.resolveFailed' : 'mat.seed.unresolved')}</Tag>}
+                    : account.verificationStatus === 'resolution_failed'
+                      ? <Tooltip label={account.lastResolutionError ?? t('mat.seed.resolveFailed')} portal><Tag tone='danger'>{t('mat.seed.resolveFailed')}</Tag></Tooltip>
+                      : <Tag tone='neutral'>{t('mat.seed.unresolved')}</Tag>}
                 </td>
                 <td><Tag tone={account.status === 'active' ? 'success' : 'neutral'}>{t(account.status === 'active' ? 'mat.seed.status.active' : 'mat.seed.status.disabled')}</Tag></td>
                 <td>{formatDateTime(account.lastContentFetchedAt)}</td>
@@ -961,7 +964,7 @@ function ReasonDrawer(props: { row: MaterialCandidateRow; seedAccounts: AccountS
         <h3>{t('mat.reason.title')}</h3>
         <Button variant='ghost' size='sm' onClick={props.onClose}>{t('mat.close')}</Button>
       </div>
-      <p className={css.inlineHint} title={row.title ?? undefined}>{row.title ?? '—'}</p>
+      <Tooltip label={row.title ?? '—'} onlyWhenClipped portal><p className={css.inlineHint}>{row.title ?? '—'}</p></Tooltip>
       <dl className={css.metaList}>
         <div className={css.metaRow}>
           <dt>{t('mat.reason.score')}</dt>
@@ -977,7 +980,7 @@ function ReasonDrawer(props: { row: MaterialCandidateRow; seedAccounts: AccountS
         </div>
         <div className={css.metaRow}>
           <dt>{t('mat.reason.videoLink')}</dt>
-          <dd>{row.shareUrl !== null ? <a href={row.shareUrl} target='_blank' rel='noreferrer noopener' title={t('mat.reason.openVideo')}>{row.title ?? row.shareUrl}</a> : '—'}</dd>
+          <dd>{row.shareUrl !== null ? <a href={row.shareUrl} target='_blank' rel='noreferrer noopener' aria-label={t('mat.reason.openVideo')}>{row.title ?? row.shareUrl}</a> : '—'}</dd>
         </div>
       </dl>
       {row.scoreReasonDetails.length > 0 && (

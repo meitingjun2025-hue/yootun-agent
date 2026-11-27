@@ -32,7 +32,7 @@
 - 新建 `yootun/packages/dsh-workbench-host-kit`，含路由、任务登记表、profile 锁、状态文件写入、系统 Chrome 探测与浏览器生命周期五个模块；
 - 三插件改为消费该库，删除本地副本；managed-mcp 的 `agent-status` 路由（P0 新增）与 media-upload 的 `permitted()` 改为消费 kit 的同名函数；无状态的函数（`permitted`、`createTaskRegistry`、`resolveSystemChrome` 等）经 `index.ts` 原名再导出，调用方与测试不改导入路径；锁函数改为实例方法，相关测试随附录 A2 调整；
 - 小红书补齐 `accounts.json` 的按 root 写队列与唯一 tmp 名（修复 0.1 的丢更新）；
-- 账号锁实例由 `create<Name>HostDeps` 创建并放在 `deps.locks`；抖音 `runner.ts` 的批次序号移入批量控制器闭包；激活门禁 `gate.tsx` 的两个模块级变量移入 `mountGate` 闭包与组件 ref；
+- 账号锁实例由 `create<Name>HostDeps` 创建并放在 `deps.locks`；抖音 `runner.ts` 的批次序号移入批量控制器闭包；激活门禁 `gate.tsx` 的两个模块级变量移入 `mountGate` 闭包与 `blocking` 授权派生态（A2，本单随实现修订）；
 - 路由层拒绝原因进入三插件词典（`forbidden` / `unknown_action` / `method_not_allowed`）；
 - `yootun/scripts/verify-plugin-runtime-bundle.mjs` 的包名清单补上抖音工作台与 media-upload（当前清单只有 4 个包，这两个包的 `files` 校验被跳过）。
 

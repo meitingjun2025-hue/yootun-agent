@@ -8,6 +8,7 @@
  * @module
  */
 import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react'
+import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ChartTooltip, type ChartTooltipRow } from '@yootun/dsh-client-ui-kit'
 import { formatCount } from './format.ts'
 import type { DistRow, TrendPoint } from './schema.ts'
@@ -418,7 +419,7 @@ export function DistributionBars(props: {
     <ul className={css.barList}>
       {rows.map(row => (
         <li key={row.key} className={css.barRow}>
-          <span className={css.barLabel} title={props.format(row.key)}>{props.format(row.key)}</span>
+          <Tooltip label={props.format(row.key)} onlyWhenClipped portal><span className={css.barLabel}>{props.format(row.key)}</span></Tooltip>
           <span className={css.barTrack}>
             {row.pct !== null && (
               <span className={css.barFill} style={{ width: `${Math.min(100, (row.pct / max) * 100)}%`, background: 'var(--yt-chart-2)' }} />

@@ -957,7 +957,7 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
     expect(cssText).toMatch(/tr\.scheduleRowError td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-error-primary\) 8%/u)
     expect(cssText).toMatch(/tr\.scheduleRowPublished td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-success-primary\) 12%/u)
     expect(cssText).toMatch(/tr\.scheduleRowStriped td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-label-primary\) 5%/u)
-    expect(cssText).toMatch(/\.scheduleTable th\s*\{[^}]*font-weight: 700/u)
+    expect(cssText).toMatch(/\.scheduleTable th\s*\{[^}]*font-weight: 500/u)
     // 底部账号栏：单行横向滚动（不换行），chip 不压缩。
     expect(cssText).toMatch(/\.scheduleAccountBar\s*\{[^}]*overflow-x: auto/u)
     expect(cssText).toMatch(/\.scheduleAccountChip\s*\{[^}]*flex: none/u)
@@ -1050,7 +1050,10 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       // 批量横幅进入 running（role=status 容器 aria-busy + 进度文案）；按钮运行态禁用。
       expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
       expect(screen.getByText(t('batch.progress.concurrent', { done: 0, total: 1 }))).not.toBeNull()
-      expect(screen.getByRole('button', { name: en['account.collectAllRunning'] }).getAttribute('disabled')).not.toBeNull()
+      // ReasonButton 语义：运行态禁用为 aria-disabled（保持可聚焦，原因可达）。
+      const runningButton = screen.getByRole('button', { name: en['account.collectAllRunning'] })
+      expect(runningButton.getAttribute('aria-disabled')).toBe('true')
+      expect(runningButton.getAttribute('disabled')).toBeNull()
       // 第二次 tick 返回终态 → 汇总横幅、停止轮询。
       act(() => { vi.advanceTimersByTime(1600) })
       await flush()
@@ -1815,7 +1818,9 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const exportButton = await screen.findByRole('button', { name: en['works.exportExcel'] })
-    await waitFor(() => expect(exportButton.getAttribute('disabled')).not.toBeNull())
+    // ReasonButton 语义：保持可聚焦，禁用态用 aria-disabled 表达（阶段 7 ui-accessibility）。
+    await waitFor(() => expect(exportButton.getAttribute('aria-disabled')).toBe('true'))
+    expect(exportButton.getAttribute('disabled')).toBeNull()
     expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
     expect(screen.queryByRole('button', { name: kitEn['pager.prev'] })).toBeNull()
     // 列表区域始终存在；空列表在区域正中显示「暂无数据」（en：No data），不出错、不加载。
@@ -1905,6 +1910,36 @@ describe('词典与源码红线', () => {
   })
 })
 
+
+describe('ui-accessibility 作品表手势（A5 守卫）', () => {
+  it('X4 双击行文字区打开一次；双击行内查看详情按钮不触发行处理', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      if (action === 'works.list') {
+        return { status: 'ready', accountId: args.accountId, works: [{ ...workRow, work_id: 'w-0', title: `作品 ${String(args.offset)}` }], total: 183, limit: 10, offset: typeof args.offset === 'number' ? args.offset : 0, summary: { work_count: 183, play_count: 1250000, fans_gain_count: 4021, completion_rate_pct: 38.27, gap_count: 4 } }
+      }
+      if (action === 'work.get') return { status: 'ready', detail: { work: workRow, promotion: null } }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
+    const workGetCalls = (): number => apiMock.hostAction.mock.calls.filter(([action]) => action === 'work.get').length
+    const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '作品 0' }) })
+    fireEvent.doubleClick(row)
+    await waitFor(() => expect(workGetCalls()).toBe(1))
+    // 真实双击 = 两次 click（按钮动作各触发一次）+ 一次 dblclick（行守卫命中不触发）。
+    const actionButton = within(row).getByRole('button', { name: en['action.viewDetail'] })
+    fireEvent.click(actionButton)
+    await waitFor(() => expect(workGetCalls()).toBe(2))
+    fireEvent.click(actionButton)
+    fireEvent.doubleClick(actionButton)
+    await waitFor(() => expect(workGetCalls()).toBe(3))
+  })
+})
 
 describe('P2/P3：locale 座位判定与 attemptId 归位（client-workbench-hooks 附录 B.2）', () => {
   it('P2 语言切换：locale 快照 zh-CN → en，页面数值格式由中文口径切为英文口径', async () => {

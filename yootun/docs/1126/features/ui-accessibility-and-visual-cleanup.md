@@ -124,7 +124,7 @@ MCP 工具：无。
 | 文档（本文 + UI 规范 + 05 册 §3.3 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/ui-accessibility-cleanup` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/ui-accessibility-cleanup` | 已填（见 5.3 与提交记录） |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -159,7 +159,13 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填；A3、A4 需附截图）。
+自动验收通过（2026-11-27）。静态清零实测：三插件与 kit 的 `*.module.css` 中字重 >500 为 0、字号 <12px 为 0、三插件 workbench.module.css 视口媒体查询为 0；三插件 DOM/Button 的 `title` 属性为 0；verify-empty-catch / verify-no-unknown-casts / verify-export-jsdoc / verify-client-ui-i18n / lint 全过。红绿自证：门禁删 `setAttribute('aria-hidden')` → G1/G2 2 红→恢复绿；ReasonButton 删 aria-disabled/onClick 抑制 → R1 1 红→恢复绿。
+
+与实施单统计表的差异：title 实测 26 处（表载 28）——抖音 −3 系阶段 5/6 重排合并了挂 title 的元素；小红书 +1 为 `publishWindowHint` 状态行（A4 未单列的解释控件类），全部清零。字重 38/字号 44/媒体查询 1 与表一致；字重特殊 9 条中 6 条原已带底色/墨色 token 仅降字重，`.bdRadioName` 补墨色，`.scheduleTable th .headerSub` 语义即次级未加墨。
+
+偏离：`row.openDetailHint` 未单列成键——抖音 `row.detailAria` 值并入完整提示（{title}，双击或按 Enter 查看详情），与视频号既有键同构；`mat.account.resolveFailed` 未新增——复用既有 `mat.seed.resolveFailed`，状态列 Tag 的 Tooltip 缺省回退该键；「采集全部」被锁复用既有 `account.collectAllBlocked` 文案（未造新文案）；ReasonButton 气泡 hover/focus 触发，A7 触屏钉住所需的 Tooltip `openOnClick` 未在 A6 规格内，未启用（见下）。
+
+过程修复：ReasonButton 的 `useId` 曾置于早退分支之后，disabled 翻转改变 hook 数导致 React 卸载子树——抖音批量采集反馈既有用例抓出，已改为无条件前置。A3/A4 截图与明暗主题目检待真机（5.2 A1–A11），其中触屏气泡钉住若需 `openOnClick` 补一行即可。
 
 ## 附录 A：逐文件规格
 

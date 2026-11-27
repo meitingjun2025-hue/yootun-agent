@@ -170,7 +170,14 @@ describe('账号管理页（12 册 §4）', () => {
     publishOpen = true
     fireEvent.click(screen.getByRole('button', { name: en['accounts.collectData'] }))
     await waitFor(() => expect(screen.getByText(en['account.publishWindowOpen'])).not.toBeNull(), { timeout: 4000 })
-    expect(screen.getByTitle(en['account.publishWindowHint'])).not.toBeNull()
+    {
+      // 阶段 7（ui-accessibility）：title 改 Tooltip 承载——悬停气泡显示完整说明。
+      const stateLine = screen.getByText(en['account.publishWindowOpen']).closest('span') as HTMLElement
+      vi.stubGlobal('ResizeObserver', class { observe(): void {} unobserve(): void {} disconnect(): void {} })
+      fireEvent.pointerEnter(stateLine)
+      expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain(en['account.publishWindowHint'])
+      vi.unstubAllGlobals()
+    }
   })
 
   it('移除账号走确认弹层，确认后调 removeLocal', async () => {

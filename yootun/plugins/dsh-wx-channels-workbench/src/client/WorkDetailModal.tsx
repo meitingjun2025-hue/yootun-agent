@@ -9,7 +9,7 @@
  * @module
  */
 import { type ReactNode } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ChartLegend, DataState, KpiCard, ytChartStyle, type YtChartColor } from '@yootun/dsh-client-ui-kit'
 import { formatCount, formatDateTime, formatPct, formatSeconds, type Translate } from './format.ts'
 import css from './workbench.module.css'
@@ -209,7 +209,7 @@ function TrafficBars(props: { t: Translate; rows: TrafficRow[]; localeTag: strin
     <ul className={css.barList}>
       {rows.map(row => (
         <li key={row.name} className={css.barRow}>
-          <span className={css.barLabel} title={row.name}>{row.name}</span>
+          <Tooltip label={row.name} onlyWhenClipped portal><span className={css.barLabel}>{row.name}</span></Tooltip>
           <span className={css.barTrack}>
             {row.value !== null && (
               <span className={css.barFill} style={{ width: `${Math.max((row.value / max) * 100, 2)}%`, background: 'var(--yt-chart-2)' }} />

@@ -909,7 +909,7 @@
 
 .axisText {
   fill: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 

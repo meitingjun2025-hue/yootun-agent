@@ -674,7 +674,7 @@ function ScheduleRowView(props: {
   })
   return (
     <tr className={rowClass} data-row-id={row.rowId}>
-      <td className={css.cellNum} title={t('schedule.indexTitle')}>{row.rowId}</td>
+      <td className={css.cellNum}>{row.rowId}</td>
       <td>
         <Input
           type='date'

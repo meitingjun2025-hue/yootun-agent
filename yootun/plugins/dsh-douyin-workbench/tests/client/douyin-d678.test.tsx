@@ -730,7 +730,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       // 清掉（横幅在主视图，进详情后不显示是旧语义；轮询继续才是断言点）。
       const row = screen.getAllByRole('row').find(tr => tr.textContent?.includes('三分钟看懂增程车'))
       expect(row).toBeDefined()
-      fireEvent.click(row as HTMLElement)
+      fireEvent.doubleClick(row as HTMLElement)
       await act(async () => { await Promise.resolve() })
       expect(screen.getByRole('button', { name: en['bd.backToList'] })).not.toBeNull()
       const before = archiveStatus.mock.calls.length
@@ -1125,5 +1125,26 @@ describe('work.trend 快照投影（D9B 真机第七缺陷回归）', () => {
     assert.deepEqual(points.map(p => p.day), ['2026-11-21', '2026-11-22'])
     assert.deepEqual(points.map(p => p.value), [100, 300], '同日多条取 captured_at 最大')
     // play_count null 的行丢弃（不造 0）。
+  })
+})
+
+describe('ui-accessibility 行级手势统一（A5）', () => {
+  it('X3 拆解历史行：单击不打开；双击文字区与 Enter 各打开一次', async () => {
+    mockAll({ 'breakdown.history': { status: 'ready', history: [historyRow('wf-1', 'succeeded')], total: 1 } })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
+    const row = await screen.findByRole('row', { name: /三分钟看懂增程车/u })
+    // 单击：详情不打开。
+    fireEvent.click(row)
+    expect(screen.queryByRole('button', { name: en['bd.backToList'] })).toBeNull()
+    // 双击文字区域：打开一次。
+    fireEvent.doubleClick(row)
+    await screen.findByRole('button', { name: en['bd.backToList'] })
+    // 返回列表后 Enter 仍打开（键盘路径不变）。
+    fireEvent.click(screen.getByRole('button', { name: en['bd.backToList'] }))
+    const rowAgain = await screen.findByRole('row', { name: /三分钟看懂增程车/u })
+    fireEvent.keyDown(rowAgain, { key: 'Enter' })
+    await screen.findByRole('button', { name: en['bd.backToList'] })
   })
 })

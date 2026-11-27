@@ -11,3 +11,4 @@ export { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives/src/Segment
 export { Menu } from '@deepseek-ai/dsh-client-ui-primitives/src/Menu.tsx'
 export { Modal } from '@deepseek-ai/dsh-client-ui-primitives/src/Modal.tsx'
 export { Toast } from '@deepseek-ai/dsh-client-ui-primitives/src/Toast.tsx'
+export { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives/src/Tooltip.tsx'

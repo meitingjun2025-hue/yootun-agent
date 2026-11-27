@@ -20,6 +20,7 @@ const NO_STYLESHEET_EXPORTS = new Set([
   'createKitTranslate', 'KitLocaleProvider', 'useKitLocale', 'NS', 'en', 'zh',
   'LOCALE_PLACEHOLDERS', 'YtKitLocaleKey', 'YT_CHART_VARS', 'ytChartStyle',
   'YtChartColor', 'YtChartColorExport', 'ChartTooltipRow', 'KpiDeltaDirection',
+  'ReasonButton', 'isOnInteractiveTarget', 'GestureEventLike', 'ReasonButtonProps',
 ])
 
 /** 组件名 → 样式表文件的登记例外（其余按 kit 文件命名 kebab-case 推导）。 */

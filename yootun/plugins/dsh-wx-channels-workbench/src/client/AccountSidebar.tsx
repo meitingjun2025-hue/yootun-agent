@@ -8,7 +8,8 @@
  * @module
  */
 import { useCallback, useState, type ReactNode } from 'react'
-import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { StateDot, Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ReasonButton } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { formatCount, formatDateTime, reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
@@ -160,15 +161,15 @@ export function AccountSidebar(props: AccountSidebarProps): ReactNode {
     <aside className={css.sidebar} aria-label={t('account.title')}>
       <div className={css.sidebarHead}>
         <h2 className={css.sidebarTitle}>{t('account.title')}</h2>
-        <Button
+        <ReasonButton
           variant='primary'
           size='sm'
           disabled={collectLocked || props.browserBlocked || !collectable}
-          title={collectable ? undefined : t('account.collectAllBlocked')}
+          reason={collectLocked || !collectable ? t('account.collectAllBlocked') : undefined}
           onClick={props.onCollectAll}
         >
           {batchRunning ? t('account.collectAllRunning') : t('account.collectAll')}
-        </Button>
+        </ReasonButton>
       </div>
       {batchPanel}
       <div className={css.accountList}>
@@ -265,7 +266,7 @@ function AccountCard(props: {
             : name.slice(0, 2)}
         </span>
         <span className={css.accountCardBody}>
-          <span className={css.accountName} title={name}>{name}</span>
+          <Tooltip label={name} onlyWhenClipped portal><span className={css.accountName}>{name}</span></Tooltip>
           <span className={css.accountMeta}>
             {t('account.followers', { count: formatCount(row.followerTotalCount, props.localeTag) })}
             {' · '}

@@ -10,8 +10,8 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartFrame, DataCard, DataState, FilterBar, FilterMenu, type FilterChip } from '@yootun/dsh-client-ui-kit'
+import { Button, StateDot, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ChartFrame, DataCard, DataState, FilterBar, FilterMenu, isOnInteractiveTarget, type FilterChip } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import {
   basisLines, fanDelta, formatCount, formatDateTime, formatPercent, hotLabelText,
@@ -337,11 +337,11 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                         tabIndex={0}
                         aria-label={`${t('overview.col.account')} ${account.nickname ?? account.accountId}`}
                         onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onOpenAccount(account.accountId) } }}
-                        onDoubleClick={() => { props.onOpenAccount(account.accountId) }}
+                        onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpenAccount(account.accountId) }}
                       >
                         <td>{index + 1}</td>
                         <td className={css.cellMain}>
-                          <span className={css.accountNameCell} title={account.nickname ?? account.accountId}>{account.nickname ?? account.accountId}</span>
+                          <Tooltip label={account.nickname ?? account.accountId} onlyWhenClipped portal><span className={css.accountNameCell}>{account.nickname ?? account.accountId}</span></Tooltip>
                           {account.sessionStatus === 'expired' && <Tag tone='danger'>{t('overview.tag.expired')}</Tag>}
                           {account.suspiciousEmptyCollect && <Tag tone='warning'>{t('overview.tag.suspicious')}</Tag>}
                         </td>
@@ -383,7 +383,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                     {rows.map((row, index) => (
                       <li key={row.accountId} className={`${css.hotDistRow} ${index < 3 ? css[`barTop${index + 1}` as 'barTop1'] : ''}`}>
                         <span className={css.barRank} aria-hidden='true'>{index + 1}</span>
-                        <span className={css.barLabel} title={row.nickname ?? row.accountId}>{row.nickname ?? row.accountId}</span>
+                        <Tooltip label={row.nickname ?? row.accountId} onlyWhenClipped portal><span className={css.barLabel}>{row.nickname ?? row.accountId}</span></Tooltip>
                         <span className={css.barTrack}>
                           <span className={`${css.barFill} ${index < 3 ? css[`barFillTop${index + 1}` as 'barFillTop1'] : ''}`} style={{ width: `${(row.hotWorkCount / max) * 100}%` }} />
                         </span>
@@ -429,12 +429,12 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                           className={work.promoted ? css.rowPromoted : undefined}
                           aria-label={t('row.detailAria', { title: work.title ?? work.workId })}
                           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onOpenWork(work.accountId ?? '', work) } }}
-                          onDoubleClick={() => { props.onOpenWork(work.accountId ?? '', work) }}
+                          onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpenWork(work.accountId ?? '', work) }}
                         >
                           <td className={css.cellMain}>
-                            <button type='button' className={css.workLinkButton} title={work.title ?? work.workId} onClick={() => { props.onOpenWork(work.accountId ?? '', work) }}>
+                            <Tooltip label={work.title ?? work.workId} onlyWhenClipped portal><button type='button' className={css.workLinkButton} aria-label={work.title ?? work.workId} onClick={() => { props.onOpenWork(work.accountId ?? '', work) }}>
                               {work.title ?? work.workId}
-                            </button>
+                            </button></Tooltip>
                             {work.promoted && <Tag tone='danger'>{t('promotion.badge')}</Tag>}
                           </td>
                           <td>{work.accountNickname ?? '—'}</td>

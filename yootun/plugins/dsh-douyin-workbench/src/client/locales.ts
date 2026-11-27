@@ -161,7 +161,9 @@ export const zh = {
   'col.fansGain': '吸粉量',
   'col.duration': '平均播放时长',
   'col.proportion': '平均播放占比',
-  'row.detailAria': '{title}，查看详情',
+  'row.detailAria': '{title}，双击或按 Enter 查看详情',
+  'mat.account.resolveFailed': '解析失败',
+  'schedule.indexHint': '行序号，用于对照导出文件',
   'cover.fallback': '封面',
   'promotion.badge': '已投流',
 
@@ -1403,7 +1405,9 @@ export const en: Record<DouyinLocaleKey, string> = {
   'col.fansGain': 'Fans gained',
   'col.duration': 'Avg play duration',
   'col.proportion': 'Avg play share',
-  'row.detailAria': '{title}; view details',
+  'row.detailAria': '{title}; double-click or press Enter to view details',
+  'mat.account.resolveFailed': 'Resolution failed',
+  'schedule.indexHint': 'Row number, for matching exported files',
   'cover.fallback': 'Cover',
   'promotion.badge': 'Promoted',
 

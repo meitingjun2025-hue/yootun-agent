@@ -445,6 +445,7 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
     'YtChartColor', 'YtChartColorExport', 'ChartTooltipRow', 'KpiDeltaDirection',
     'FilterChip', 'DataStateKind', 'DataStateShape', 'DataStateProps', 'ChartFrameProps',
     'FilterBarProps', 'DataCardProps', 'ChartTooltipProps',
+    'ReasonButton', 'ReasonButtonProps', 'isOnInteractiveTarget', 'GestureEventLike',
   ])
 
   const IRREGULAR_FILES: Readonly<Record<string, string>> = { PluginPageShell: 'page-shell.module.css' }

@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState, FilterMenu, KpiCard, ytChartStyle } from '@yootun/dsh-client-ui-kit'
+import { DataCard, DataState, FilterMenu, KpiCard, ytChartStyle, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
@@ -710,7 +710,7 @@ function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: Rewri
     <tr
       tabIndex={0}
       aria-label={`${props.row.candidateTitle ?? props.row.candidateId}，${props.t('bd.row.openAria')}`}
-      onClick={props.onOpen}
+      onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpen() }}
       onKeyDown={event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()

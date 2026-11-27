@@ -9,7 +9,7 @@
  * @module
  */
 import { useState, type ReactNode } from 'react'
-import { Button, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataState, ytChartStyle } from '@yootun/dsh-client-ui-kit'
 import {
   EMPTY, formatCount, formatDateTime, formatDuration, formatPercent, formatSeconds,
@@ -174,7 +174,7 @@ export function WorkDetailModal(props: WorkDetailModalProps): ReactNode {
                     <ul className={css.barList}>
                       {detail.trafficRows.map(sourceRow => (
                         <li key={sourceRow.sourceKey} className={css.barRow}>
-                          <span className={css.barLabel} title={trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)}>{trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)}</span>
+                          <Tooltip label={trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)} onlyWhenClipped portal><span className={css.barLabel}>{trafficSourceLabel(sourceRow.sourceKey, sourceRow.label, t)}</span></Tooltip>
                           <span className={css.barTrack}>
                             {sourceRow.value !== null && (
                               <span className={css.barFill} style={{ width: `${Math.min(100, (sourceRow.value / Math.max(1, ...detail.trafficRows.map(item => item.value ?? 0))) * 100)}%`, background: 'var(--yt-chart-2)' }} />
