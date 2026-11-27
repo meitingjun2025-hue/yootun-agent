@@ -772,6 +772,155 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
     expect(confirm.className).toMatch(/dangerButton/u)
     expect(confirm.className).toMatch(/primary/u)
   })
+
+  /** schedule.rowUpdate 的服务端行为：camelCase 入参整行映射成 snake_case 行，row_version 加一。 */
+  const rowUpdateServerRow = (args: Record<string, unknown>): Record<string, unknown> => ({
+    id: args.rowId,
+    account_id: args.accountId,
+    shooting_date: args.shootingDate ?? null,
+    video_content: args.videoContent ?? null,
+    shooting_status: args.shootingStatus === true,
+    published: args.published === true,
+    asset_link: args.assetLink ?? null,
+    note: args.note ?? null,
+    publish_date: args.publishDate ?? null,
+    publish_platforms: Array.isArray(args.publishPlatforms) ? args.publishPlatforms : [],
+    shooting_owner: args.shootingOwner ?? null,
+    editing_owner: args.editingOwner ?? null,
+    row_version: Number(args.expectedVersion ?? 1) + 1,
+  })
+
+  /** 排期底盘 mock：browser/accounts/schedule.list + rowUpdate 服务端映射（行集可替换）。 */
+  const mockScheduleBoard = (rows: ReturnType<typeof scheduleRow>[] = [scheduleRow(3, true), scheduleRow(1, false), scheduleRow(2, false)]): void => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'schedule.list') return { status: 'ready', data: { rows } }
+      if (action === 'schedule.rowUpdate') return { status: 'ready', data: { row: rowUpdateServerRow(args) } }
+      throw new Error(`unexpected action ${action}`)
+    })
+  }
+
+  const rowUpdateArgs = (): Record<string, unknown>[] =>
+    apiMock.hostAction.mock.calls.filter(([action]) => action === 'schedule.rowUpdate').map(([, args]) => args as Record<string, unknown>)
+
+  /** 渲染工作台、进入创作组看板并等表格就绪，返回行 1 的查询范围。 */
+  const openScheduleBoard = async (): Promise<ReturnType<typeof within>> => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
+    await screen.findByRole('table', { name: en['tab.schedule'] })
+    return within(document.querySelector('tr[data-row-id="1"]') as HTMLElement)
+  }
+
+  it('A1 勾选「是否发布」改动即保存：恰好一次调用，入参带 published 与行版本幂等键，成功后行进入已发布组', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.col.published']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.published).toBe(true)
+    expect(calls[0]?.expectedVersion).toBe('1')
+    expect(String(calls[0]?.idempotencyKey)).toMatch(/^douyin:publish_schedule_update:1:/u)
+    // 保存成功后行离开未发布组进入已发布折叠组（折叠钮计数 1 → 2）；展开后行带已发布底色类。
+    fireEvent.click(await screen.findByRole('button', { name: t('schedule.fold.expand', { count: 2 }) }))
+    const publishedRow = await waitFor(() => {
+      const el = document.querySelector('tr[data-row-id="1"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    expect(publishedRow.className).toMatch(/scheduleRowPublished/u)
+    expect(rowUpdateArgs()).toHaveLength(1)
+  })
+
+  it('A2 点「拍摄情况」改动即保存：恰好一次调用，入参 shootingStatus 是翻转后的值', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.col.shootingStatus']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.shootingStatus).toBe(false)
+  })
+
+  it('A3 改拍摄日期改动即保存：恰好一次调用，入参 shootingDate 是新日期', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.change(row.getByLabelText(en['schedule.col.shootingDate']), { target: { value: '2026-11-28' } })
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.shootingDate).toBe('2026-11-28')
+  })
+
+  it('A4 改发布日期改动即保存：恰好一次调用，入参 publishDate 是新日期', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.change(row.getByLabelText(en['schedule.col.publishDate']), { target: { value: '2026-11-30' } })
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.publishDate).toBe('2026-11-30')
+  })
+
+  it('A5 勾选未选的发布平台改动即保存：恰好一次调用，入参 publishPlatforms 含该平台且顺序与白名单一致', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.platform.xhs']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.publishPlatforms).toEqual(['xhs', 'douyin'])
+  })
+
+  it('A6 保存在途继续输入：第一次返回后输入保留并自动补提交，第二次带第二次输入与新行版本，共两次调用', async () => {
+    let rowUpdateCount = 0
+    let releaseFirst: (() => void) | null = null
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'schedule.list') return { status: 'ready', data: { rows: [scheduleRow(1, false)] } }
+      if (action === 'schedule.rowUpdate') {
+        rowUpdateCount += 1
+        if (rowUpdateCount === 1) {
+          // 第一次保存挂起，等测试放行（模拟在途窗口）。
+          return new Promise<Record<string, unknown>>(resolve => { releaseFirst = () => resolve({ status: 'ready', data: { row: rowUpdateServerRow(args) } }) })
+        }
+        return { status: 'ready', data: { row: rowUpdateServerRow(args) } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    const row = await openScheduleBoard()
+    const ownerInput = row.getByLabelText(en['schedule.col.editingOwner'])
+    fireEvent.change(ownerInput, { target: { value: '王五' } })
+    fireEvent.blur(ownerInput)
+    await waitFor(() => expect(rowUpdateArgs()).toHaveLength(1))
+    expect(releaseFirst).not.toBeNull()
+    // 第一次保存返回前继续输入。
+    fireEvent.change(ownerInput, { target: { value: '赵六' } })
+    releaseFirst?.()
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(2)
+      return updates
+    })
+    // 第二次保存入参：editingOwner 是第二次输入，expectedVersion 是第一次返回的行版本。
+    expect(calls[1]?.editingOwner).toBe('赵六')
+    expect(calls[1]?.expectedVersion).toBe('2')
+    // 第二次落定后输入框保留第二次输入，未被任何返回覆盖。
+    expect((row.getByLabelText(en['schedule.col.editingOwner']) as HTMLInputElement).value).toBe('赵六')
+    expect(rowUpdateArgs()).toHaveLength(2)
+  })
 })
 
 describe('AI 报表页（parity 矩阵 §5）', () => {
