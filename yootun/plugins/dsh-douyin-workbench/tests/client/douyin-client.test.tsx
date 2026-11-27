@@ -858,7 +858,8 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     expect(await screen.findByRole('button', { name: en['report.back'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['report.regenerate'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['report.exportHtml'] }).className).toMatch(/ghost/u)
-    expect(screen.getByRole('button', { name: en['report.exportPdf'] })).not.toBeNull()
+    // PDF 导出按钮不存在（桌面桥从未实现）。
+    expect(screen.queryByRole('button', { name: 'Export PDF' })).toBeNull()
     expect(screen.getByText(en['report.header.interaction'])).not.toBeNull()
     // KPI 环比：上涨 ▲ / 下跌 ▼ / 无基准 flat。
     expect(screen.getByText(/▲8\.5%/u)).not.toBeNull()
@@ -921,23 +922,6 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     // 气泡不含柱系列说明与日期标题（避免与图下说明重复）。
     expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
     expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
-  })
-
-  it('PDF 桥不可用：稳定报 export_unsupported，不假成功', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string) => {
-      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
-      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'report.list') return { status: 'ready', data: { items: [reportItem('r-1', 'succeeded', 1)], nextCursor: null } }
-      if (action === 'report.get') {
-        return { status: 'ready', data: { report: { reportId: 'r-1', reportType: 'daily', periodStart: '2026-11-20', periodEnd: '2026-11-21', status: 'succeeded', outputSchemaVersion: 'daily-v1', errorCode: null, finishedAt: null, resultJson: null } } }
-      }
-      throw new Error(`unexpected action ${action}`)
-    })
-    render(<WorkbenchPage t={t} locale={locale} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.exportPdf'] }))
-    expect(await screen.findByText(new RegExp(en['reason.export_unsupported'], 'u'))).not.toBeNull()
   })
 })
 

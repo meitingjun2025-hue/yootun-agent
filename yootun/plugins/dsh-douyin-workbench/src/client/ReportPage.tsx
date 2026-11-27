@@ -3,14 +3,13 @@
  * + 刷新 + 7 列表（周期/状态 Tag 五态/版本/覆盖账号/生成时间/说明失败码文案/
  * 查看 ghost）+ 加载更多 + 空态；详情 = 工具栏（返回/版本 Menu/生成中·提交中
  * status/重新生成 RiskConfirmation「将基于当前已回补数据追加新版本 v{n}，旧版本
- * 保留」+ 继续生成 primary 同键重试/导出 HTML/导出 PDF ghost）+ 报表头 meta
+ * 保留」+ 继续生成 primary 同键重试/导出 HTML ghost）+ 报表头 meta
  * （对比基准/KPI 口径/互动口径/作品口径/标注说明 + QualityBar）+ KPI 行（涨红
  * 跌绿 ▲▼ + 上期值 + 无对比基准 flat）+ 趋势图（柱+线，缺采断开不补零，末位
  * 深色）+ 账号表 9 列（「—*」无快照口径）+ 作品卡（5s 完播进度条）+ 异常列表
  * + AI 洞察三列（事实/推断/建议 + 展开完整依据 details）+ 数据不足态（信号
- * 清单 + 重新生成）。详情轮询 5s 离开停；PDF 桥 window.desktopNext.
- * exportReportPdf 不可用时稳定报 export_unsupported；HTML 导出自包含单文件
- * （details 全展开 + token 内联 + 文件名 抖音运营{日报|周报}_{start}）。
+ * 清单 + 重新生成）。详情轮询 5s 离开停；HTML 导出自包含单文件（details
+ * 全展开 + token 内联 + 文件名 抖音运营{日报|周报}_{start}）。
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -21,11 +20,6 @@ import { domainErrorText, formatCount, formatDateTime, formatPercent, reasonText
 import css from './workbench.module.css'
 import { readReportDetail, readReportList, type ReportDetail, type ReportListItem } from './schema.ts'
 import { ReportComboChart } from './charts.tsx'
-
-/** 桌面 PDF 导出桥（Desktop webview 注入；缺失时稳定报 export_unsupported）。 */
-interface DesktopNextBridge {
-  exportReportPdf?: (options: { fileName: string; title: string }) => Promise<unknown> | unknown
-}
 
 type ReportType = 'daily' | 'weekly'
 
@@ -54,7 +48,6 @@ export function ReportPage(props: ReportPageProps): ReactNode {
   const [regenAck, setRegenAck] = useState(false)
   const [regenKey, setRegenKey] = useState<string | null>(null)
   const [exportingHtml, setExportingHtml] = useState(false)
-  const [exportingPdf, setExportingPdf] = useState(false)
   const cursorRef = useRef<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const listSeqRef = useRef(0)
@@ -192,27 +185,6 @@ export function ReportPage(props: ReportPageProps): ReactNode {
     })()
   }, [detail, detailId, openDetail, props, regenKey, t])
 
-  /** PDF 导出：桌面桥不可用 → 稳定 export_unsupported，不假成功。 */
-  const exportPdf = useCallback((): void => {
-    setExportingPdf(true)
-    void (async () => {
-      try {
-        const bridge = (window as { desktopNext?: DesktopNextBridge }).desktopNext
-        if (bridge?.exportReportPdf === undefined || detail === null) {
-          throw new Error('export_unsupported')
-        }
-        await bridge.exportReportPdf({
-          fileName: reportFileStem(detail, t),
-          title: periodTitle(detail, t),
-        })
-      } catch (error) {
-        props.onNotice(reasonText(error instanceof Error ? error.message : 'export_unsupported', t))
-      } finally {
-        setExportingPdf(false)
-      }
-    })()
-  }, [detail, props, t])
-
   /** HTML 导出：自包含单文件（token 解析内联 + details 全展开）。 */
   const exportHtml = useCallback((): void => {
     if (detail === null) return
@@ -257,9 +229,6 @@ export function ReportPage(props: ReportPageProps): ReactNode {
             </Button>
             <Button variant='ghost' size='sm' disabled={exportingHtml || detail === null || detail.status === 'pending' || detail.status === 'running'} aria-busy={exportingHtml || undefined} onClick={exportHtml}>
               {exportingHtml ? t('report.exporting') : t('report.exportHtml')}
-            </Button>
-            <Button variant='ghost' size='sm' disabled={exportingPdf || detail === null || detail.status === 'pending' || detail.status === 'running'} aria-busy={exportingPdf || undefined} onClick={exportPdf}>
-              {exportingPdf ? t('report.exporting') : t('report.exportPdf')}
             </Button>
           </span>
         </div>

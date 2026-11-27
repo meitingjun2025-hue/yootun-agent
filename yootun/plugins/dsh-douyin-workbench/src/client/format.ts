@@ -184,9 +184,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, DouyinLocaleKey>> = {
  * 运行时 reason → 文案键：不在稳定码全集但页面本地路径会产生且已有词典文案的
  * 旧取值（不在路由 reason 白名单内，本表只服务页面展示）。
  */
-const RUNTIME_REASON_KEYS: Readonly<Record<string, DouyinLocaleKey>> = {
-  export_unsupported: 'reason.export_unsupported',
-}
+const RUNTIME_REASON_KEYS: Readonly<Record<string, DouyinLocaleKey>> = {}
 
 /**
  * 路由层拒绝 reason → 文案键（kit 路由字面量，不进稳定码白名单；对

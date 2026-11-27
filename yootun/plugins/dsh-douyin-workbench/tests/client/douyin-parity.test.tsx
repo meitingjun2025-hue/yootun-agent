@@ -19,8 +19,8 @@
  * - §4 发布排期：12 列 + 副标 + 行状态机六态 + no-op/dirty/同键重试/放弃 +
  *   折叠/斑马纹/发布日期升序 rowId 字符串序 + 账号切换互斥 + beforeunload +
  *   18 码全表（「发布排期看板」组与本文件 schedule 组）
- * - §5 AI 报表：列表/详情双态 + 状态五态 + 版本 + 重新生成确认同键 + HTML/
- *   PDF 导出（「AI 报表页」组；PDF 桥真机为遗留）
+ * - §5 AI 报表：列表/详情双态 + 状态五态 + 版本 + 重新生成确认同键 + HTML 导出
+ *   （「AI 报表页」组）
  * - §6 负责人/投流弹层：≤128/trim 空拒绝、六字段校验分键、recordId 重挂载、
  *   PROMOTION_ALREADY_EXISTS 自动转更新（本文件 promotion/owner 组 + client
  *   组 Esc 回归）
