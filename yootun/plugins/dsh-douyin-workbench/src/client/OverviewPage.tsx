@@ -326,6 +326,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                         `${rangeLabel}${t('overview.col.windowNetFans')}`, `${rangeLabel}${t('overview.col.windowPlay')}`,
                         t('overview.col.works'), t('overview.col.medianPlay'), t('overview.col.hotWorks'),
                         t('overview.col.hotRate'), t('overview.col.engagement'),
+                        t('action.viewAnalysis'),
                       ].map(label => <th key={label} scope='col'>{label}</th>)}
                     </tr>
                   </thead>
@@ -353,6 +354,18 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                         <td className={css.cellNum}>{formatCount(account.hotWorkCount, props.localeTag)}</td>
                         <td className={css.cellNum}>{formatPercent(account.hotRatePct)}</td>
                         <td className={css.cellNum}>{formatPercent(account.engagementRatePct)}</td>
+                        <td className={css.colAction}>
+                          <Button
+                            variant='ghost'
+                            size='sm'
+                            onClick={event => {
+                              event.stopPropagation()
+                              props.onOpenAccount(account.accountId)
+                            }}
+                          >
+                            {t('action.viewAnalysis')}
+                          </Button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -405,7 +418,7 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                     <thead>
                       <tr>
                         {[t('overview.col.video'), t('overview.col.hotOwnerAccount'), t('overview.col.publishTime'),
-                          t('col.play'), t('overview.col.engagement'), t('overview.col.hotBasis')].map(label => <th key={label} scope='col'>{label}</th>)}
+                          t('col.play'), t('overview.col.engagement'), t('overview.col.hotBasis'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -430,6 +443,18 @@ export function OverviewPage(props: OverviewPageProps): ReactNode {
                           <td className={css.cellNum}>{formatPercent(work.engagementRatePct)}</td>
                           <td>
                             <BasisCell lines={basisLines(work.basis)} fallback={hotLabelText(work.labels, t)} />
+                          </td>
+                          <td className={css.colAction}>
+                            <Button
+                              variant='ghost'
+                              size='sm'
+                              onClick={event => {
+                                event.stopPropagation()
+                                props.onOpenWork(work.accountId ?? '', work)
+                              }}
+                            >
+                              {t('action.viewDetail')}
+                            </Button>
                           </td>
                         </tr>
                       ))}

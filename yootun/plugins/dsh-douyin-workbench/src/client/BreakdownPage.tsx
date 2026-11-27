@@ -646,7 +646,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
               <table className={css.dataTable} aria-label={t('bd.historyLabel')}>
                 <thead>
                   <tr>
-                    {[t('bd.col.video'), t('bd.col.status'), t('bd.col.rule'), t('bd.col.step'), t('bd.col.time')].map(label => <th key={label} scope='col'>{label}</th>)}
+                    {[t('bd.col.video'), t('bd.col.status'), t('bd.col.rule'), t('bd.col.step'), t('bd.col.time'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -734,6 +734,18 @@ function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: Rewri
           : props.row.currentStepLabel ?? '—'}
       </td>
       <td>{formatDateTime(props.row.updatedAt)}</td>
+      <td className={css.colAction}>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={event => {
+            event.stopPropagation()
+            props.onOpen()
+          }}
+        >
+          {props.t('action.viewDetail')}
+        </Button>
+      </td>
     </tr>
   )
 }

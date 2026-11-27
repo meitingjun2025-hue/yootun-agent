@@ -8,6 +8,19 @@
   padding-top: 12px;
 }
 
+/* 二级分段控件行：随内容宽度，窄容器横向滚动不换行。 */
+.subTabsRow {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  min-width: 0;
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .subTabsRow {
+    overflow-x: auto;
+  }
+}
+
 .headerStatus {
   display: inline-flex;
   align-items: center;
@@ -583,6 +596,15 @@
 .dataTable td,
 .scheduleTable td {
   color: var(--dsw-alias-label-primary);
+}
+
+/* 行末操作列（查看详情/查看分析）：宽度固定，按钮不随列内容挤压。 */
+.workTable .colAction,
+.dataTable .colAction {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  text-align: end;
 }
 
 /* 作品表前两列 sticky（作品名称 / 作品链接） */

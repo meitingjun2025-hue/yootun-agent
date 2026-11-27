@@ -192,6 +192,7 @@ describe('纯函数（breakdown.js 语义迁移）', () => {
 describe('爆款拆解页（parity §1–§3）', () => {
   it('新建区结构：链接输入 + 开始拆解 primary + 下载直链 ghost + 规则单选 + 受理横幅语义', async () => {
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
     const start = screen.getByRole('button', { name: en['bd.startButton'] })
@@ -229,6 +230,7 @@ describe('爆款拆解页（parity §1–§3）', () => {
       },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     await screen.findByRole('table', { name: en['bd.historyLabel'] })
     const statusLabels = [...document.querySelectorAll('[class*="filterGroupLabel"]')]
@@ -247,6 +249,7 @@ describe('爆款拆解页（parity §1–§3）', () => {
 
   it('下载直链空链接：非空提示不发起请求', async () => {
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     await screen.findByRole('button', { name: en['bd.downloadButton'] })
     fireEvent.click(screen.getByRole('button', { name: en['bd.downloadButton'] }))
@@ -258,10 +261,11 @@ describe('爆款拆解页（parity §1–§3）', () => {
   it('历史列表：5 列结构 + 状态 Tag + hasStoryboard 标记 + 状态筛选', async () => {
     mockAll({ 'breakdown.history': { status: 'ready', history: [historyRow('wf-1', 'succeeded'), historyRow('wf-2', 'failed', '失败的拆解记录')], total: 2 } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     const table = await screen.findByRole('table', { name: en['bd.historyLabel'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent)
-    expect(headers).toEqual([en['bd.col.video'], en['bd.col.status'], en['bd.col.rule'], en['bd.col.step'], en['bd.col.time']])
+    expect(headers).toEqual([en['bd.col.video'], en['bd.col.status'], en['bd.col.rule'], en['bd.col.step'], en['bd.col.time'], en['action.viewDetail']])
     expect(screen.getByText(en['bd.status.succeeded'])).not.toBeNull()
     expect(screen.getByText(new RegExp(en['bd.hasStoryboard'], 'u'))).not.toBeNull()
     // 状态筛选菜单切换到「未成功」：成功行隐藏、失败行保留。
@@ -278,6 +282,7 @@ describe('爆款拆解页（parity §1–§3）', () => {
   it('历史行 Enter 进入详情：工具栏三按钮 + 8 步骤 + KPI 6 卡 + 五折叠卡 + 导出错误就近', async () => {
     mockAll({ 'breakdown.history': { status: 'ready', history: [historyRow('wf-1', 'succeeded')], total: 1 } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     const row = await screen.findByRole('row', { name: /三分钟看懂增程车/u })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -320,6 +325,7 @@ describe('爆款拆解页（parity §1–§3）', () => {
       'breakdown.detail': failedDetail,
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     const row = await screen.findByRole('row', { name: /三分钟看懂增程车/u })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -337,6 +343,7 @@ describe('爆款拆解页（parity §1–§3）', () => {
   it('重新改写：弹层规则单选 + 开始改写 primary 确认（不自动发起）', async () => {
     mockAll({ 'breakdown.history': { status: 'ready', history: [historyRow('wf-1', 'succeeded')], total: 1 } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     const row = await screen.findByRole('row', { name: /三分钟看懂增程车/u })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -359,6 +366,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
       'material.videos.list': { status: 'ready', data: { candidates: [materialCandidate], total: 40, offset: 0, limit: 20, hotLevelSummary: { S: 3, A: 7 } } },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     const table = await screen.findByRole('table', { name: en['mat.section.board'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent)
@@ -380,6 +388,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
   it('筛选变化 offset 归零并按最新请求收口；q 走防抖路径不立即发', async () => {
     mockAll({ 'material.videos.list': { status: 'ready', data: { candidates: [], total: 25, offset: 0, limit: 20 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ offset: 0 })))
     fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
@@ -393,6 +402,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
   it('评分理由抽屉：结构化对照四态（命中 +N / 还差 / 未采集 / 互动率注记）', async () => {
     mockAll({ 'material.videos.list': { status: 'ready', data: { candidates: [materialCandidate], total: 1, offset: 0, limit: 20 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['mat.action.reason'] }))
     const drawer = await screen.findByRole('dialog', { name: en['mat.reason.title'] })
@@ -417,6 +427,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
       },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 切关键词子页（页内二级 tablist）。
     fireEvent.click((await screen.findAllByRole('tab', { name: new RegExp(en['mat.section.keywords']) }))[0])
@@ -453,6 +464,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
       },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     fireEvent.click((await screen.findAllByRole('tab', { name: new RegExp(en['mat.section.runs']) }))[0])
     // resume：最新行在途 → activeRun 横幅 + 立即采集禁用（不自动重发）。
@@ -480,6 +492,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
   it('run 历史 9 列 + 失败明细弹层（种子级两行 + 关键词列表）', async () => {
     mockAll({ 'material.runs.list': { status: 'ready', data: { runs: [materialRun('partial_failed')], total: 1 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     fireEvent.click((await screen.findAllByRole('tab', { name: new RegExp(en['mat.section.runs']) }))[0])
     const table = await screen.findByRole('table', { name: en['mat.section.runs'] })
@@ -494,6 +507,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
   it('去拆解：预填链接并切爆款拆解 Tab，不自动开始归档', async () => {
     mockAll({ 'material.videos.list': { status: 'ready', data: { candidates: [materialCandidate], total: 1, offset: 0, limit: 20 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['mat.action.breakdown'] }))
     // 已切到拆解 Tab 且输入预填。
@@ -504,6 +518,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
   it('看板加载失败：KPI 随看板降级为 —，不沿用旧筛选口径', async () => {
     mockAll({ 'material.videos.list': Promise.reject(new Error('PROVIDER_ERROR')) })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     expect(await screen.findByText(en['mat.error.PROVIDER_ERROR'])).not.toBeNull()
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
@@ -522,6 +537,7 @@ describe('爆款素材看板（parity §4–§7）', () => {
       'material.videos.list': boardPayload,
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 第一轮：标签筛选菜单出现服务端标签。
     fireEvent.click(await screen.findByRole('button', { name: en['mat.filter.tag'] }))
@@ -536,7 +552,9 @@ describe('爆款素材看板（parity §4–§7）', () => {
       },
       'material.videos.list': boardPayload,
     })
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 看板主请求独立成功：表格与行仍渲染，无任何数据域错误 alert。
     expect(await screen.findByRole('table', { name: en['mat.section.board'] })).not.toBeNull()
@@ -553,6 +571,7 @@ describe('爆款基因库（parity §8–§10）', () => {
   it('检索工具栏 + KPI 四卡 + facets chips + 已选条件条与清空', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('gene.search', expect.objectContaining({ limit: 20 })))
     // facets chip 可选中（aria-pressed）→ 已选条件条出现。
@@ -568,6 +587,7 @@ describe('爆款基因库（parity §8–§10）', () => {
   it('卡片墙：封面降级占位、缺失 — 不补 0、查看详情按钮', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     expect(await screen.findByRole('button', { name: en['gene.card.detail'] })).not.toBeNull()
     // 缺失指标显示 — （评论 200 有值，分享缺失 → 至少存在 —）。
@@ -577,6 +597,7 @@ describe('爆款基因库（parity §8–§10）', () => {
   it('详情弹层：报告四态字段（legacy_snapshot/not_exposed 文案）+ 编辑保存同键语义', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['gene.card.detail'] }))
     const dialog = await screen.findByRole('dialog', { name: en['gene.detail.title'] })
@@ -596,6 +617,7 @@ describe('爆款基因库（parity §8–§10）', () => {
   it('重建确认：费用与异步警示文案；确认后发起 regenerate（同 recordId 键模板）', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['gene.card.detail'] }))
     await screen.findByRole('dialog', { name: en['gene.detail.title'] })
@@ -622,6 +644,7 @@ describe('爆款基因库（parity §8–§10）', () => {
       'gene.list': { status: 'ready', data: { items: [{ recordId: 'g-1', title: '钩子拆解条目', geneStatus: 'failed', geneErrorCode: 'GENE_EXTRACT_TIMEOUT', geneAttemptCount: 2, adoptionStatus: null, updatedAt: null }], total: 1 } },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['gene.failedEntryAria'] }))
     expect(await screen.findByRole('dialog', { name: en['gene.failed.title'] })).not.toBeNull()
@@ -661,6 +684,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       const archiveStatus = vi.fn(async () => ({ status: 'ready', archive: { runId: 'run-1', runStatus: 'waiting', nextAction: 'poll_status' } }))
       mockAll({ 'breakdown.archiveStatus': archiveStatus })
       render(<WorkbenchPage t={t} locale={locale} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
       await act(async () => { await Promise.resolve() })
       const historyCalls = () => apiMock.hostAction.mock.calls.filter(([action]) => action === 'breakdown.history').length
@@ -672,11 +696,13 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       expect(screen.getByText(en['bd.archivePending'])).not.toBeNull()
       const before = archiveStatus.mock.calls.length
       // 切走（works Tab）：轮询继续（keep-alive）。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       act(() => { vi.advanceTimersByTime(3100) })
       await act(async () => { await Promise.resolve() })
       expect(archiveStatus.mock.calls.length).toBeGreaterThan(before)
       // 重进：rules/history 刷新（history 调用数增加）。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
       await act(async () => { await Promise.resolve() })
       expect(historyCalls()).toBeGreaterThan(initialHistory)
@@ -694,6 +720,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
         'breakdown.history': { status: 'ready', history: [historyRow('wf-1', 'succeeded')], total: 1 },
       })
       render(<WorkbenchPage t={t} locale={locale} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
       await act(async () => { await Promise.resolve() })
       fireEvent.change(screen.getByLabelText(en['bd.shareLabel']), { target: { value: 'https://v.douyin.com/x/' } })
@@ -720,6 +747,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     const shortRows = Array.from({ length: 5 }, (_item, index) => historyRow(`wf-${index}`, 'succeeded'))
     mockAll({ 'breakdown.history': { status: 'ready', history: shortRows, total: 5 } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     await screen.findByRole('table', { name: en['bd.historyLabel'] })
     expect(screen.queryByRole('button', { name: en['bd.loadMore'] })).toBeNull()
@@ -728,6 +756,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     mockAll({ 'breakdown.history': { status: 'ready', history: fullRows, total: 10 } })
     cleanup()
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     await screen.findByRole('table', { name: en['bd.historyLabel'] })
     expect(screen.getByRole('button', { name: en['bd.loadMore'] })).not.toBeNull()
@@ -742,6 +771,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
         'material.collect.status': collectStatus,
       })
       render(<WorkbenchPage t={t} locale={locale} />)
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       // Tab 进入预取显式 limit=50（旧客户端口径）。
@@ -750,11 +780,13 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       await act(async () => { await Promise.resolve() })
       expect(collectStatus.mock.calls.length).toBe(1)
       // 切走：轮询停止。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       act(() => { vi.advanceTimersByTime(9100) })
       await act(async () => { await Promise.resolve() })
       expect(collectStatus.mock.calls.length).toBe(1)
       // 切回：runs 重拉并恢复轮询。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'material.runs.list').length).toBe(2)
@@ -777,6 +809,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       render(<WorkbenchPage t={t} locale={locale} />)
       // 外层 DataState 等 accounts.list 就绪才挂 Tab 内容：先 flush 再切 Tab。
       await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       // fake timers 下 find* 家族（内部 waitFor）会挂起：改用同步 getAllByRole。
@@ -810,6 +843,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 先在 board 子页设置筛选（S 档）→ 后续 board 请求携带 minLevel。
     fireEvent.click(await screen.findByRole('button', { name: en['mat.filter.minLevel'] }))
@@ -820,11 +854,13 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
     // 打开编辑弹窗后切走：无 portal 泄漏。
     fireEvent.click(screen.getByRole('button', { name: en['mat.seed.edit'] }))
     expect(await screen.findByRole('dialog', { name: en['mat.seed.title.keywordEdit'] })).not.toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await act(async () => { await Promise.resolve() })
     expect(screen.queryByRole('dialog', { name: en['mat.seed.title.keywordEdit'] })).toBeNull()
     // 切回：弹窗恢复 + 预取 board 仍携带既有筛选（filters 保留；预取并发不保证
     // board 是最后一个调用，按带筛选的调用计数断言）。
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     await waitFor(() => expect(screen.getByRole('dialog', { name: en['mat.seed.title.keywordEdit'] })).not.toBeNull())
     const filteredBoardCalls = () => apiMock.hostAction.mock.calls
@@ -841,6 +877,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       'material.runs.list': { status: 'ready', data: { runs: [materialRun('running')], total: 1 } },
     })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 有 shareUrl：标题为链接（新窗口 + noreferrer），长文本 aria-label 完整。
     const anchor = await screen.findByRole('link', { name: '超长标题的超长标题的超长标题的超长标题' })
@@ -856,6 +893,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
   it('Material activeRun 横幅：查看看板入口切回 board 子页', async () => {
     mockAll({ 'material.runs.list': { status: 'ready', data: { runs: [materialRun('running')], total: 1 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     // 切到采集记录子页 → 横幅出现（resume 最新 run 在途）。
     fireEvent.click((await screen.findAllByRole('tab', { name: new RegExp(en['mat.section.runs']) }))[0])
@@ -875,6 +913,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
   it('Material 看板请求失败保留已有 rows，仅 total/levelSummary 降级并显示错误', async () => {
     mockAll({ 'material.videos.list': { status: 'ready', data: { candidates: [materialCandidate], total: 40, offset: 0, limit: 20 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     expect(await screen.findByRole('link', { name: '超长标题的超长标题的超长标题的超长标题' })).not.toBeNull()
     // 改变筛选触发新请求 → 失败：行保留 + 错误显示 + total 降级。
@@ -899,6 +938,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
   it('评分理由抽屉：Esc 关闭并回归焦点触发按钮；遮罩点击关闭', async () => {
     mockAll({ 'material.videos.list': { status: 'ready', data: { candidates: [materialCandidate], total: 1, offset: 0, limit: 20 } } })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     const trigger = await screen.findByRole('button', { name: en['mat.action.reason'] })
     trigger.focus()
@@ -939,9 +979,11 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       render(<WorkbenchPage t={t} locale={locale} />)
       // 外层 DataState 等 accounts ready：flush 后进入 Material（runs 挂起未决）。
       await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       // 用户切走：inactive effect 停轮询；此后晚到 runs 才返回 running 行。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await act(async () => { await Promise.resolve() })
       resolveRuns({ status: 'ready', data: { runs: [materialRun('running')], total: 1 } })
@@ -950,6 +992,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       await act(async () => { await Promise.resolve() })
       expect(collectStatus.mock.calls.length).toBe(0, 'hidden Material 不得恢复 run 轮询')
       // 切回：active effect 重新 load/resume，轮询恢复。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       act(() => { vi.advanceTimersByTime(3100) })
@@ -979,6 +1022,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       })
       render(<WorkbenchPage t={t} locale={locale} />)
       await act(async () => { await Promise.resolve() })
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       // 采集记录子页：确认弹层 → 确认采集（collect.start 挂起未决）。
@@ -990,6 +1034,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       fireEvent.click(screen.getByRole('button', { name: en['mat.collect.confirm'] }))
       await act(async () => { await Promise.resolve() })
       // 立即切走，再让受理以冲突拒绝：loadRuns 刷新返回 running 行也不得轮询。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await act(async () => { await Promise.resolve() })
       rejectStart(new Error('VIRAL_VIDEO_ACTIVE_RUN_EXISTS'))
@@ -998,6 +1043,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
       await act(async () => { await Promise.resolve() })
       expect(collectStatus.mock.calls.length).toBe(0, 'hidden Material 不得经冲突刷新恢复轮询')
       // 切回：重新 load/resume，轮询恢复。
+      fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
       fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
       await act(async () => { await Promise.resolve() })
       act(() => { vi.advanceTimersByTime(3100) })
@@ -1011,14 +1057,17 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
   it('Gene 重进 Tab offset 归零重拉 search；弹窗 open 状态与 portal 隔离', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     await waitFor(() => expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').length).toBe(1))
     fireEvent.click(await screen.findByRole('button', { name: en['gene.card.detail'] }))
     expect(await screen.findByRole('dialog', { name: en['gene.detail.title'] })).not.toBeNull()
     // 切走：无 portal 泄漏；切回：弹窗恢复 + search 重拉（offset 归零）。
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await act(async () => { await Promise.resolve() })
     expect(screen.queryByRole('dialog', { name: en['gene.detail.title'] })).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     await waitFor(() => expect(screen.getByRole('dialog', { name: en['gene.detail.title'] })).not.toBeNull())
     await waitFor(() => expect(apiMock.hostAction.mock.calls.filter(([action]) => action === 'gene.search').length).toBe(2))
@@ -1028,6 +1077,7 @@ describe('D6–D8 第一轮验收修复（keep-alive / 轮询 / parity 细节）
   it('基因详情采纳状态：当前状态高亮，切换后新状态高亮（旧选中态反馈）', async () => {
     mockAll({ 'gene.search': geneSearchPayload })
     render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['gene.card.detail'] }))
     await screen.findByRole('dialog', { name: en['gene.detail.title'] })

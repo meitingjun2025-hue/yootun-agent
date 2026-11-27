@@ -368,7 +368,7 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                     <thead>
                       <tr>
                         {[t('overview.col.rank'), t('overview.col.video'), t('overview.col.publishTime'), t('col.play'),
-                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis')].map(label => <th key={label} scope='col'>{label}</th>)}
+                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -397,6 +397,18 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                               {(basisLines(work.basis).length > 0 ? basisLines(work.basis) : [hotLabelText(work.labels, t)])
                                 .map(line => <span key={line} className={css.basisLine}>{line}</span>)}
                             </span>
+                          </td>
+                          <td className={css.colAction}>
+                            <Button
+                              variant='ghost'
+                              size='sm'
+                              onClick={event => {
+                                event.stopPropagation()
+                                props.onOpenWork(props.accountId, work)
+                              }}
+                            >
+                              {t('action.viewDetail')}
+                            </Button>
                           </td>
                         </tr>
                       ))}

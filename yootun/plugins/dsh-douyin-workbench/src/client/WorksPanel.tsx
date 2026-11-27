@@ -241,6 +241,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     </th>
                   )
                 })}
+                <th scope='col' className={css.colAction}>{t('action.viewDetail')}</th>
               </tr>
             </thead>
             <tbody>
@@ -261,6 +262,18 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     }}
                   >
                     {columns.map(column => <td key={column.labelKey}>{column.cell(row, t, props.localeTag)}</td>)}
+                    <td className={css.colAction}>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={event => {
+                          event.stopPropagation()
+                          props.onOpenWork(props.accountId, row)
+                        }}
+                      >
+                        {t('action.viewDetail')}
+                      </Button>
+                    </td>
                   </tr>
                 )
               })}

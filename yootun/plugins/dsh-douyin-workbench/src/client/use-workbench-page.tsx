@@ -12,16 +12,24 @@ import { createKitTranslate } from '@yootun/dsh-client-ui-kit'
 import { en as kitEn, zh as kitZh } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import css from './workbench.module.css'
-import { localeTagOf, reasonText, type WorkSortState } from './format.ts'
+import { localeTagOf, reasonText, type Translate, type WorkSortState } from './format.ts'
 import { readAccounts, readBrowserState } from './schema.ts'
 import { createDouyinFlows, type DouyinFlows } from './flows.ts'
 import type { OverviewFilters } from './OverviewPage.tsx'
 import { useWorkbenchModals } from './use-workbench-modals.ts'
-import { initialWorkbenchUi, workbenchReducer, type TabItem, type TabValue, type ToastState } from './workbench-ui.ts'
+import { groupOf, initialWorkbenchUi, subTabsOf, workbenchReducer, type GroupTabItem, type TabGroup, type TabValue, type ToastState } from './workbench-ui.ts'
 import type { WorkbenchPageProps } from './WorkbenchPage.tsx'
 
 /** 批量采集轮询间隔（与单账号采集一致）。 */
 const COLLECT_POLL_MS = 1500
+
+/** 顶级组的词典键（组标签文案）。 */
+const GROUP_LABEL_KEYS: Record<TabGroup, Parameters<Translate>[0]> = {
+  data: 'nav.group.data',
+  create: 'nav.group.create',
+  material: 'nav.group.material',
+  report: 'nav.group.report',
+}
 
 /**
  * 页面组合 hook：返回 JSX 组合层所需的全部状态与处理器（字段名与页面 JSX
@@ -105,6 +113,13 @@ export function useDouyinWorkbenchPage(props: WorkbenchPageProps) {
   // ---- 数据流入口与作品翻页/排序（machine 已守卫竞态，这里只做转发与 UI 镜像） ----
 
   const selectTab = (value: TabValue): void => { dispatch({ type: 'selectTab', value }) }
+  /** 点顶级组：组内重选回默认页，切回恢复该组上一次页面（T3/N3）。 */
+  const selectGroup = (group: TabGroup): void => { dispatch({ type: 'selectGroup', group }) }
+  /** 总览页进入单账号分析（侧栏账号卡与总览账号表「查看分析」共用）：同步选中。 */
+  const openAccountAnalysis = (accountId: string): void => {
+    dispatch({ type: 'selectAccount', accountId })
+    dispatch({ type: 'analysis', accountId })
+  }
   const beginLogin = (): void => {
     void flows.login.begin().catch((error: unknown) => {
       notify(error instanceof Error ? reasonText(error.message, t) : t('error.default'))
@@ -220,15 +235,19 @@ export function useDouyinWorkbenchPage(props: WorkbenchPageProps) {
   const worksBusy = worksSnap.busy
   const worksSummary = worksSnap.summary
 
-  const tabs: readonly [TabItem, ...TabItem[]] = [
-    { value: 'overview', label: t('tab.overview'), id: 'dy-tab-overview', panelId: 'dy-panel-overview' },
-    { value: 'works', label: t('tab.works'), id: 'dy-tab-works', panelId: 'dy-panel-works' },
-    { value: 'schedule', label: t('tab.schedule'), id: 'dy-tab-schedule', panelId: 'dy-panel-schedule' },
-    { value: 'material', label: t('tab.material'), id: 'dy-tab-material', panelId: 'dy-panel-material' },
-    { value: 'breakdown', label: t('tab.breakdown'), id: 'dy-tab-breakdown', panelId: 'dy-panel-breakdown' },
-    { value: 'gene', label: t('tab.gene'), id: 'dy-tab-gene', panelId: 'dy-panel-gene' },
-    { value: 'report', label: t('tab.report'), id: 'dy-tab-report', panelId: 'dy-panel-report' },
+  // ---- 导航分组派生：顶级 4 组 + 组内二级段；组由 tab 推导，不另存当前组 ----
+
+  const group = groupOf(tab)
+  const groupTabs: readonly [GroupTabItem, ...GroupTabItem[]] = [
+    { value: 'data', label: t('nav.group.data'), id: 'dy-tab-data', panelId: 'dy-panel-body' },
+    { value: 'create', label: t('nav.group.create'), id: 'dy-tab-create', panelId: 'dy-panel-body' },
+    { value: 'material', label: t('nav.group.material'), id: 'dy-tab-material-group', panelId: 'dy-panel-body' },
+    { value: 'report', label: t('nav.group.report'), id: 'dy-tab-report-group', panelId: 'dy-panel-body' },
   ]
+  const subTabs = subTabsOf(group, page => t(`tab.${page}` as 'tab.overview'))
+  const subLabel = t('nav.subLevel', { group: t(GROUP_LABEL_KEYS[group]) })
+  // 页面容器由控制它的 tab 标注：多页组 = 选中的二级段；单页组 = 顶级组 tab。
+  const panelLabelledBy = subTabs !== null ? `dy-tab-sub-${tab}` : groupTabs.find(item => item.value === group)?.id ?? 'dy-tab-data'
   const headerStatus: ReactNode = browser === 'loading'
     ? <span className={css.headerStatus}><StateDot state='ongoing' />{t('header.status.browserChecking')}</span>
     : browserBlocking
@@ -247,8 +266,9 @@ export function useDouyinWorkbenchPage(props: WorkbenchPageProps) {
     interrupted, bannerDismissed, refreshing, refreshFailedParts, toast,
     loginActive, collectRecord, collectBusy, collectStartReason, batch, batchBusy, collectingAccountIds,
     browserBlocking, works, worksState, worksTotal, worksBusy, worksSummary,
-    tabs, headerStatus, rangeLabel,
-    selectTab, beginLogin, startCollect, startBatch, loadWorks, changeWorksSort, changeWorksPage,
+    headerStatus, rangeLabel,
+    group, groupTabs, subTabs, subLabel, panelLabelledBy,
+    selectTab, selectGroup, openAccountAnalysis, beginLogin, startCollect, startBatch, loadWorks, changeWorksSort, changeWorksPage,
     refreshAll, refreshAccounts, notify,
     setToast, setOverviewFilters, setSelectedAccountId, setAnalysisAccountId, setBreakdownPrefill, setBannerDismissed,
     ...modals,

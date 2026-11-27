@@ -11,7 +11,7 @@
  * @module
  */
 import { type ReactNode } from 'react'
-import { SegmentedTabs, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { SegmentedControl, SegmentedTabs, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataState, KitLocaleProvider, PluginHeader, PluginPageShell } from '@yootun/dsh-client-ui-kit'
 import css from './workbench.module.css'
 import { type Translate } from './format.ts'
@@ -31,7 +31,7 @@ import { WorksPanel } from './WorksPanel.tsx'
 
 export type { Translate } from './format.ts'
 export type { AccountRow, CollectView } from './schema.ts'
-export type { TabItem, WorkbenchUiAction, WorkbenchUiState } from './workbench-ui.ts'
+export type { GroupTabItem, SubTabItem, TabGroup, TabItem, TabValue, WorkbenchUiAction, WorkbenchUiState } from './workbench-ui.ts'
 
 /** locale 服务的订阅座位（官方 LocaleFace 的 subscribe/getSnapshot 投影）。 */
 export interface WorkbenchLocale {
@@ -43,23 +43,26 @@ export interface WorkbenchLocale {
 
 export interface WorkbenchPageProps { t: Translate; locale: WorkbenchLocale }
 
-/** 页面组件：7 Tab 布局与数据流 machine 的组合。 */
+/** 页面组件：4 组导航（组内二级段）与数据流 machine 的组合。 */
 export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const {
     t, localeTag, kitTranslate,
-    tab, accounts, accountsState, selectedAccountId, selectedAccount, activeAccountId,
+    tab, group, groupTabs, subTabs, subLabel, panelLabelledBy,
+    accounts, accountsState, selectedAccountId, selectedAccount, activeAccountId,
     worksSort, worksPage, overviewFilters, analysisAccountId, breakdownPrefill, visitedTabs,
     interrupted, bannerDismissed, refreshing, refreshFailedParts, toast,
     collectRecord, collectBusy, collectStartReason, batch, batchBusy, collectingAccountIds, loginActive,
     browserBlocking, works, worksState, worksTotal, worksBusy, worksSummary,
-    tabs, headerStatus, rangeLabel,
-    selectTab, beginLogin, startCollect, startBatch, loadWorks, changeWorksSort, changeWorksPage,
+    headerStatus, rangeLabel,
+    selectTab, selectGroup, openAccountAnalysis, beginLogin, startCollect, startBatch, loadWorks, changeWorksSort, changeWorksPage,
     refreshAll, refreshAccounts, notify,
     setToast, setOverviewFilters, setSelectedAccountId, setAnalysisAccountId, setBreakdownPrefill, setBannerDismissed,
     detailTarget, detail, detailState, trendRows, openDetail, closeDetail, openHotWork,
     ownerModal, setOwnerModal, ownerSaving, saveOwner, openPromotion, promotionModal, setPromotionModal, promotionSaving, savePromotion,
     exporting, exportWorks,
   } = useDouyinWorkbenchPage(props)
+  // 「数据」组两个页面共用账号管理栏；总览页点账号卡 = 选中并进入单账号分析。
+  const dataLayoutVisible = tab === 'works' || (tab === 'overview' && analysisAccountId === null)
 
   return (
     <KitLocaleProvider value={kitTranslate}>
@@ -74,38 +77,21 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
         )}
       >
         <div className={css.tabsRow}>
-          <SegmentedTabs items={tabs} value={tab} onChange={selectTab} label={t('panel')} />
+          <SegmentedTabs items={groupTabs} value={group} onChange={selectGroup} label={t('panel')} />
         </div>
+        {subTabs !== null && (
+          <div className={css.subTabsRow}>
+            <SegmentedControl id='dy-tab-sub' value={tab} options={subTabs} onChange={selectTab} label={subLabel} />
+          </div>
+        )}
 
         <DataState
           state={accountsState === 'ready' || (accountsState === 'error' && accounts.length > 0) ? 'ready' : accountsState}
           shape='rows'
           onRetry={() => { void refreshAccounts() }}
         >
-          <div id='dy-panel-body' role='tabpanel' aria-label={t('panel')} className={css.panelBodyFlex}>
-            {tab === 'overview' && analysisAccountId === null && (
-              <OverviewPage
-                t={t}
-                localeTag={localeTag}
-                filters={overviewFilters}
-                onFiltersChange={setOverviewFilters}
-                onOpenAccount={setAnalysisAccountId}
-                onOpenWork={openHotWork}
-                onNotice={notify}
-              />
-            )}
-            {tab === 'overview' && analysisAccountId !== null && (
-              <AnalysisPage
-                t={t}
-                localeTag={localeTag}
-                accountId={analysisAccountId}
-                rangeLabel={rangeLabel}
-                onBack={() => { setAnalysisAccountId(null) }}
-                onOpenWork={openHotWork}
-                onNotice={notify}
-              />
-            )}
-            {tab === 'works' && (
+          <div id='dy-panel-body' role='tabpanel' aria-labelledby={panelLabelledBy} className={css.panelBodyFlex}>
+            {dataLayoutVisible && (
               <div className={css.worksLayout}>
                 <AccountSidebar
                   t={t}
@@ -117,93 +103,119 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
                   batchBusy={batchBusy}
                   batch={batch}
                   collectingAccountIds={collectingAccountIds}
-                  onSelect={setSelectedAccountId}
+                  onSelect={tab === 'overview' ? openAccountAnalysis : setSelectedAccountId}
                   onCollectAll={startBatch}
                   onRelogin={beginLogin}
                   onAddAccount={beginLogin}
                   onAccountsChanged={refreshAccounts}
                   onNotice={notify}
                 />
-                <section className={css.worksPanel} aria-label={t('tab.works')}>
-                  {bannerDismissed === false && interrupted !== null && batchBusy === false && (
-                    <div className={css.interruptedBanner} role="status">
-                      <span className={css.interruptedText}>
-                        {interrupted.count >= 2 ? t('run.interruptedBanner', { count: interrupted.count }) : t('run.interruptedBannerOne')}
-                      </span>
-                      <span className={css.interruptedActions}>
-                        {selectedAccountId !== null && interrupted.accountIds.includes(selectedAccountId) && (
-                          <button
-                            type="button"
-                            className={css.interruptedButton}
-                            onClick={() => {
-                              setBannerDismissed(true)
-                              startCollect(selectedAccountId)
-                            }}
-                          >
-                            {t('run.recollect')}
-                          </button>
-                        )}
-                        {interrupted.count >= 2 && (
-                          <button
-                            type="button"
-                            className={css.interruptedButton}
-                            onClick={() => {
-                              setBannerDismissed(true)
-                              startBatch()
-                            }}
-                          >
-                            {t('run.recollectAll')}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className={css.interruptedClose}
-                          aria-label={t('run.dismissBanner')}
-                          onClick={() => { setBannerDismissed(true) }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    </div>
+                <section className={css.worksPanel} aria-label={tab === 'works' ? t('tab.works') : t('tab.overview')}>
+                  {tab === 'overview' && analysisAccountId === null && (
+                    <OverviewPage
+                      t={t}
+                      localeTag={localeTag}
+                      filters={overviewFilters}
+                      onFiltersChange={setOverviewFilters}
+                      onOpenAccount={openAccountAnalysis}
+                      onOpenWork={openHotWork}
+                      onNotice={notify}
+                    />
                   )}
-                  <WorksPanel
-                    t={t}
-                    localeTag={localeTag}
-                    accountId={activeAccountId}
-                    account={selectedAccount}
-                    works={works}
-                    worksState={worksState}
-                    worksSort={worksSort}
-                    worksPage={worksPage}
-                    worksTotal={worksTotal}
-                    worksSummary={worksSummary}
-                    worksBusy={worksBusy}
-                    onSortChange={changeWorksSort}
-                    onPageChange={changeWorksPage}
-                    onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId) }}
-                    collectBusy={collectBusy}
-                    collectRecord={collectRecord}
-                    collectStartReason={collectStartReason}
-                    onStartCollect={startCollect}
-                    batchRunning={batchBusy}
-                    browserBlocked={browserBlocking}
-                    refreshing={refreshing}
-                    refreshFailedParts={refreshFailedParts}
-                    onRefresh={() => { refreshAll(activeAccountId) }}
-                    exporting={exporting}
-                    onExport={exportWorks}
-                    onOpenOwner={() => {
-                      if (selectedAccount === null) return
-                      setOwnerModal({
-                        accountId: selectedAccount.accountId,
-                        accountName: selectedAccount.nickname ?? selectedAccount.accountId,
-                        ownerName: selectedAccount.ownerName ?? '',
-                      })
-                    }}
-                    onOpenWork={openDetail}
-                  />
+                  {tab === 'works' && (
+                    <>
+                      {bannerDismissed === false && interrupted !== null && batchBusy === false && (
+                        <div className={css.interruptedBanner} role="status">
+                          <span className={css.interruptedText}>
+                            {interrupted.count >= 2 ? t('run.interruptedBanner', { count: interrupted.count }) : t('run.interruptedBannerOne')}
+                          </span>
+                          <span className={css.interruptedActions}>
+                            {selectedAccountId !== null && interrupted.accountIds.includes(selectedAccountId) && (
+                              <button
+                                type="button"
+                                className={css.interruptedButton}
+                                onClick={() => {
+                                  setBannerDismissed(true)
+                                  startCollect(selectedAccountId)
+                                }}
+                              >
+                                {t('run.recollect')}
+                              </button>
+                            )}
+                            {interrupted.count >= 2 && (
+                              <button
+                                type="button"
+                                className={css.interruptedButton}
+                                onClick={() => {
+                                  setBannerDismissed(true)
+                                  startBatch()
+                                }}
+                              >
+                                {t('run.recollectAll')}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className={css.interruptedClose}
+                              aria-label={t('run.dismissBanner')}
+                              onClick={() => { setBannerDismissed(true) }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        </div>
+                      )}
+                      <WorksPanel
+                        t={t}
+                        localeTag={localeTag}
+                        accountId={activeAccountId}
+                        account={selectedAccount}
+                        works={works}
+                        worksState={worksState}
+                        worksSort={worksSort}
+                        worksPage={worksPage}
+                        worksTotal={worksTotal}
+                        worksSummary={worksSummary}
+                        worksBusy={worksBusy}
+                        onSortChange={changeWorksSort}
+                        onPageChange={changeWorksPage}
+                        onRetryWorks={() => { if (activeAccountId !== '') void loadWorks(activeAccountId) }}
+                        collectBusy={collectBusy}
+                        collectRecord={collectRecord}
+                        collectStartReason={collectStartReason}
+                        onStartCollect={startCollect}
+                        batchRunning={batchBusy}
+                        browserBlocked={browserBlocking}
+                        refreshing={refreshing}
+                        refreshFailedParts={refreshFailedParts}
+                        onRefresh={() => { refreshAll(activeAccountId) }}
+                        exporting={exporting}
+                        onExport={exportWorks}
+                        onOpenOwner={() => {
+                          if (selectedAccount === null) return
+                          setOwnerModal({
+                            accountId: selectedAccount.accountId,
+                            accountName: selectedAccount.nickname ?? selectedAccount.accountId,
+                            ownerName: selectedAccount.ownerName ?? '',
+                          })
+                        }}
+                        onOpenWork={openDetail}
+                      />
+                    </>
+                  )}
                 </section>
               </div>
+            )}
+            {tab === 'overview' && analysisAccountId !== null && (
+              <AnalysisPage
+                t={t}
+                localeTag={localeTag}
+                accountId={analysisAccountId}
+                rangeLabel={rangeLabel}
+                onBack={() => { setAnalysisAccountId(null) }}
+                onOpenWork={openHotWork}
+                onNotice={notify}
+              />
             )}
             {tab === 'schedule' && (
               <SchedulePage t={t} accounts={accounts} accountsState={accountsState} />
