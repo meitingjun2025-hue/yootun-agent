@@ -111,16 +111,40 @@ export function apply(ctx: Context, config: Config): void {
     { warn: (message: string) => { ctx.logger.warn(message) } },
   )
   applyUploaderWiring(ctx, deps, config.toolTimeoutMs)
-  // 启动清理：异常退出遗留的暂存目录（2.3，尽力而为不阻断路由注册）；
-  // 清理 promise 由卸载路径等待结束。
-  const stagingSweep = sweepStaleStagingDirs({ warn: (message: string) => { ctx.logger.warn(message) } })
-  // 卸载：await registry.destroy（abort 全部会话并等在途管线 settle、
-  // 暂存文件落盘删除完成），再 await staging.destroy 删除目录——返回
-  // Promise 让 fiber 卸载 await 它（异步 cleanup 等待语义），rm -rf 不与
-  // 在途 discard 竞态；卸载同时等待启动清理结束。
+  applyStartupStagingCleanup(ctx, { registry, staging }, ctx.logger)
+}
+
+/**
+ * 结构化宿主上下文（本装配实际消费的 Context 子集；真实 Cordis Context 结构
+ * 兼容，测试夹具直接满足本接口）。
+ */
+export interface MediaUploadHostContext {
+  /** Register one effect; returns a disposer consumed on dispose. */
+  effect(fn: () => unknown, name?: string): unknown
+}
+
+/**
+ * 启动清理与卸载收口（apply 与测试共用同一装配）：启动即清扫异常退出遗留的
+ * 暂存目录（2.3，尽力而为不阻断路由注册；缺该登记 = 遗留目录永不清），
+ * 卸载时按序等待 registry.destroy（abort 全部会话并等在途管线 settle、暂存
+ * 文件落盘删除完成）→ staging.destroy 删除目录 → 启动清理结束——返回
+ * Promise 让 fiber 卸载 await 它（异步 cleanup 等待语义），rm -rf 不与
+ * 在途 discard 竞态。
+ * @param ctx - host plugin context（effect 登记随其 fiber）。
+ * @param parts - 活动的 registry 与 staging 实例（createUploaderState 产出；只消费 destroy）。
+ * @param logger - 诊断日志（清扫告警）。
+ * @param sweep - 清扫接缝（缺省 sweepStaleStagingDirs；测试注入受控实现）。
+ */
+export function applyStartupStagingCleanup(
+  ctx: MediaUploadHostContext,
+  parts: { registry: { destroy(): Promise<void> }; staging: { destroy(): Promise<void> } },
+  logger: { warn(message: string): void },
+  sweep: (options: { warn: (message: string) => void }) => Promise<unknown> = sweepStaleStagingDirs,
+): void {
+  const stagingSweep = sweep({ warn: (message: string) => { logger.warn(message) } })
   ctx.effect(() => async () => {
-    await registry.destroy()
-    await staging.destroy()
+    await parts.registry.destroy()
+    await parts.staging.destroy()
     await stagingSweep.catch(() => undefined)
   }, 'yootun-media-upload: disposal')
 }

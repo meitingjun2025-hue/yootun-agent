@@ -287,3 +287,63 @@ test('I2 collect.status / collectAll.status 附带启动中断摘要；单账号
     await cleanup()
   }
 })
+
+// --- 批量前置探测接线守卫（生产装配在 createBatchProbe；缺 probe 字段 = 探测复用静默失效） ---
+
+test('批量前置探测回调携带 probe 暂存投影，上报结果写进 probe.reported', async () => {
+  const { createBatchProbe } = await import('../src/index.ts')
+  const { deps, cleanup } = await testDeps()
+  try {
+    const runnerDeps = {
+      callTool: deps.callTool,
+      root: deps.root,
+      locks: deps.locks,
+      chromeFactory: deps.chromeFactory,
+      maxPages: deps.maxPages,
+      logger: { warn: (message: string) => { deps.logger.warn(message) } },
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      launchTimeoutMs: deps.launchTimeoutMs,
+    }
+    const session = { sessionStatus: 'ok', reason: null, sessionSeq: 3, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'vault-ref', accountId: 'acc-1', profile: null } as const
+    const reported: string[] = []
+    const probe = createBatchProbe(deps, runnerDeps, {
+      refresh: async () => session,
+      report: async (_runnerDeps, accountId) => { reported.push(accountId); return { ok: true, error: null } },
+      now: () => 1_700_000_000_000,
+    })
+    const result = await probe('acc-1')
+    assert.equal(result.sessionStatus, 'ok')
+    assert.deepEqual(result.probe, { state: session, reported: true, probedAt: 1_700_000_000_000 })
+    assert.deepEqual(reported, ['acc-1'], '探测后立即上报')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('createBatchProbe 默认接缝：上报失败写进 probe.reported（复用时不跳过采集内上报）', async () => {
+  const { createBatchProbe } = await import('../src/index.ts')
+  const { deps, cleanup } = await testDeps()
+  try {
+    const runnerDeps = {
+      callTool: deps.callTool,
+      root: deps.root,
+      locks: deps.locks,
+      chromeFactory: deps.chromeFactory,
+      maxPages: deps.maxPages,
+      logger: { warn: (message: string) => { deps.logger.warn(message) } },
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      launchTimeoutMs: deps.launchTimeoutMs,
+    }
+    const probe = createBatchProbe(deps, runnerDeps, {
+      refresh: async () => ({ sessionStatus: 'unknown', reason: 'probe_failed', sessionSeq: 0, checkedAt: '2026-11-27T00:00:00Z', vaultRef: '', accountId: 'acc-9', profile: null }),
+      report: async () => ({ ok: false, error: 'host_unreachable' }),
+      now: () => 1,
+    })
+    const result = await probe('acc-9')
+    assert.equal(result.sessionStatus, 'unknown')
+    assert.equal(result.probe?.reported, false, '上报失败写进 probe.reported')
+    assert.equal(result.reason, 'probe_failed')
+  } finally {
+    await cleanup()
+  }
+})

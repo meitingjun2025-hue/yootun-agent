@@ -133,7 +133,7 @@ interface ProbedSession<S> {
 
 验收轮 1（独立子代理）发现并已修复：
 
-- 视频号「采集全部」生产门面（index.ts）丢 `probed`——批量场景零复用，测试通过系测试基建 wireHost 自补透传行所致；已补透传行，探针转正为「U7b 生产接线」回归用例（门面与生产逐行同构）；
+- 视频号「采集全部」生产门面（index.ts）丢 `probed`——批量场景零复用，测试通过系测试基建 wireHost 自补透传行所致；已补透传行。「U7b 生产接线」用例在测试内照抄门面、未触及 index.ts，抓不住该行丢失；真正的接线回归是后续的工厂守卫（`createWxBatchFacade` 等，apply 与测试共用同一装配，见客户端工作台状态机单 5.3）；
 - 三处悬空类型引用（wx runs.test 的 ProbedSession 导入源与 CollectResult 缺失、douyin batch-concurrency 的 RunnerDeps 导入被删）已修正；
 - 补 U4b（runCollection 层 expired probed 回落重探测，3 次启动）覆盖复用条件要求 ok 的分支；
 - 删除恒真的 U9b；2.4 与附录 B 的上报计数与身份复核措辞按实际行为修订；U8 冗余等待清理。

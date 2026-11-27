@@ -101,6 +101,22 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
     expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
   })
 
+  it('I3(wx) 灵敏度：只有 collect.status 带摘要 → 横幅仍出现（批量恢复路不带摘要）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
+      if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+      // 只有单账号恢复路带摘要：collectAll.status 无摘要（横幅只能来自 collect.status）。
+      if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0 }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(screen.getByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull(), { timeout: 4000 })
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
+  })
+
   it('采集与账号不再是顶级 tab（旧四 tab 契约废除）', () => {
     render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.queryByRole('tab', { name: 'Collect' })).toBeNull()

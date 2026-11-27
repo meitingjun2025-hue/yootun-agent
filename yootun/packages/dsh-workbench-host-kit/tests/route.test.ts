@@ -114,6 +114,20 @@ test('H2 action 不在 allowlist 与 allowlist 内无 handler → 400 unknown_ac
   assert.equal(responded[1]?.payload.status, 'ready')
 })
 
+test('H2 原型链上的键名不命中 allowlist → 400 unknown_action（Object.hasOwn）', async () => {
+  const responded: RecordedResponse[] = []
+  const route = buildRoute()
+  for (const action of ['toString', 'constructor', '__proto__', 'hasOwnProperty', 'valueOf']) {
+    await route(fakeReq({ action }), fakeRes(responded))
+    assert.equal(responded.at(-1)?.status, 400, `${action} 应拒绝`)
+    assert.equal(responded.at(-1)?.payload.reason, 'unknown_action', `${action} 应为 unknown_action`)
+  }
+  // 注册过的 action 不受影响。
+  await route(fakeReq({ action: 'probe.get' }), fakeRes(responded))
+  assert.equal(responded.at(-1)?.status, 200)
+  assert.equal(responded.at(-1)?.payload.status, 'ready')
+})
+
 test('H2 体超限 → 413 payloadTooLarge，且不进入 handler', async () => {
   const responded: RecordedResponse[] = []
   let handlerCalled = false

@@ -51,7 +51,7 @@ MCP 工具：无。均为包内 API 与插件内部结构变化，页面可见�
 
 ### 2.1 包 `@yootun/dsh-workbench-host-kit`
 
-位置 `yootun/packages/dsh-workbench-host-kit`，纯 Node 库：不依赖 cordis、不注册服务、不含 React。ESM，`exports` 为 `.` 与 `./package.json`；`build` 为 `tsc -p tsconfig.json && tsc -p tests/types/tsconfig.json && tsdown`（`platform: 'node'`、`dts: true`；第二段 tsc 执行 H4 的 `@ts-expect-error` 类型用例），`test` 为 `node --test tests/*.test.ts`。三插件以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进各插件的运行时 bundle（与 `@yootun/dsh-client-ui-kit` 被 client 半内联的口径相同），不新增运行时外部依赖。
+位置 `yootun/packages/dsh-workbench-host-kit`，纯 Node 库：不依赖 cordis、不注册服务、不含 React。ESM，`exports` 为 `.` 与 `./package.json`（另多登记一个 `./src/*` 供跨包测试/门禁直引源文件；与单文此处的出入按验收认可记录，实现保持不动）；`build` 为 `tsc -p tsconfig.json && tsc -p tests/types/tsconfig.json && tsdown`（`platform: 'node'`、`dts: true`；第二段 tsc 执行 H4 的 `@ts-expect-error` 类型用例），`test` 为 `node --test tests/*.test.ts`。三插件以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进各插件的运行时 bundle（与 `@yootun/dsh-client-ui-kit` 被 client 半内联的口径相同），不新增运行时外部依赖。
 
 | 模块 | 导出 |
 |---|---|
@@ -138,7 +138,7 @@ type HandlerPayload<S extends string, C extends string> =
 | yootun-agent | 三插件 `src/handlers.ts`（`create<Name>HostDeps`）、`deps` 类型，以及调用锁的 `runner.ts` / `session.ts` / `probe.ts` / `collector.ts` / `publisher.ts` | `deps.locks`；17 处锁调用与小红书 1 处把 `isProfileLocked` 作为回调传入的地方，改为经 deps 或 options 拿到锁实例（抖音 6、视频号 6、小红书 5） | 是 | 模块级状态归位 |
 | yootun-agent | 抖音 `src/runs.ts` / `state.ts`、视频号 `src/runs.ts` / `state.ts`、小红书 `src/state.ts` | 写入改用 `atomicWriteJson` + `runInRootQueue`，删除各自的本地队列副本；小红书 `updateAccount` / `nextSessionSeq` 进入队列 | 是 | 修复小红书丢更新 |
 | yootun-agent | 抖音 `src/runner.ts` `createBatchCollectController` | `batchSeq` 移入闭包 | 是 | 模块级状态归位 |
-| yootun-agent | `yootun/packages/dsh-client-ui-access/src/client/gate.tsx` | `gateRoot` / `releaseApplication` 移入闭包与 ref | 是 | 模块级状态归位 |
+| yootun-agent | `yootun/packages/dsh-client-ui-access/src/client/gate.tsx` | `gateRoot` 移入 `mountGate` 闭包；应用阻断改 `blocking` 派生态（无实例级申请引用） | 是 | 模块级状态归位 |
 | yootun-agent | 三插件 `src/client/{format,locales}.ts` | 路由层拒绝原因的文案分支 | 是 | 可读错误 |
 | yootun-agent | `yootun/plugins/dsh-managed-mcp/src/index.ts`、`yootun/plugins/dsh-media-upload/src/routes.ts` | 本地 `permitted` 改为 kit 再导出（media-upload 的 media 预览路由有自己的 no-cors 规则，不在其内） | 是 | 信任判定单一来源 |
 | yootun-agent | `yootun/scripts/verify-plugin-runtime-bundle.mjs` | 包名清单补两项 | 是 | 构建校验漂移 |
@@ -220,7 +220,7 @@ type HandlerPayload<S extends string, C extends string> =
 - `handlers.ts`：`create<Name>HostDeps` 增加 `locks: createProfileLocks()`；独立函数（`runCollection`、`probeAndReport`、`loginWithQrCode`、`collectNotes`、`publishDraft` 等）的 options 增加 `locks`，与 `taskRegistry` 同一透传方式；`index.ts` 不再导出锁函数；
 - 小红书 `state.ts`：`writeAccounts` 改用 `atomicWriteJson`；`updateAccount`、`nextSessionSeq` 改为 `runInRootQueue(root, async () => { 读、改、写 })`；
 - 抖音 `runner.ts`：`batchSeq` 成为 `createBatchCollectController` 内的局部变量；
-- `gate.tsx`：`releaseApplication` 改为 `AccessGate` 内的 `useRef`，effect 的清理函数负责释放；`gateRoot` 成为 `mountGate` 内的局部变量，由返回的 disposer 捕获。
+- `gate.tsx`：应用阻断改为 `blocking` 派生态（`authorized !== true`）驱动的 effect——阻断置 body overflow hidden，解除分支清 `root.inert` 与 overflow，无实例级申请引用与清理函数；滚动锁与 `root.inert` 的最终复位由 `mountGate` 返回的 disposer 在门禁层全部卸载后统一做；`gateRoot` 成为 `mountGate` 内的局部变量，由返回的 disposer 捕获。
 
 ### A3 `verify-plugin-runtime-bundle.mjs`
 

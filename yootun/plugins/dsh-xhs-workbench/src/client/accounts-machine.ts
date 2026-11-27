@@ -319,7 +319,9 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
     get,
     init() {
       active = true
-      if (snapshot.loaded !== true) void refresh()
+      // 冷启动只发一次 accounts.list：挂载恢复 IIFE 复用同一刷新 promise。
+      const initialRefresh = snapshot.loaded !== true ? refresh() : null
+      if (initialRefresh !== null) void initialRefresh
       // stop 期间迟到的 probeNow 会跳过 finally 清理（active 已翻转），此处兜底重置。
       if (snapshot.probing.size > 0) setState({ probing: new Set() })
       void refreshBrowserStatus()
@@ -330,13 +332,15 @@ export function createAccountsMachine(ports: AccountsMachinePorts): AccountsMach
       // 运行中 → 写入 collect 并启动轮询；用户已点「采集」则丢弃该响应。
       const generationAtRestore = restoreGeneration
       void (async () => {
-        if (snapshot.loaded !== true) await refresh()
+        if (initialRefresh !== null) await initialRefresh
         if (!active) return
         const selectedId = snapshot.selectedId
         if (selectedId === null || restoreGeneration !== generationAtRestore) return
         try {
           const result = await ports.collectStatus({ accountId: selectedId })
           if (!active || restoreGeneration !== generationAtRestore) return
+          // 查询在途时选中账号可能已切换：结果不再指向当前选中即丢弃。
+          if (snapshot.selectedId !== selectedId) return
           const next = result?.collect ?? null
           if (next !== null && next.collectStatus === 'running') {
             setState({ collect: next })

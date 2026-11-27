@@ -74,7 +74,8 @@ describe('createUploadTransport（K1）', () => {
 
   it('K1 pollStatus：受控快照投影；非 2xx 与非 JSON 返回 null', async () => {
     const url = await startServer({
-      '/status-500': { status: 500 },
+      // 500 响应带形态合法的状态体：!ok 判断若被删，此用例必须变红（非 null 快照）。
+      '/status-500': { status: 500, body: JSON.stringify({ status: 'uploading', progress: 10, bytesSent: 1, bytesTotal: 2, attempt: 1 }) },
       '/status-html': { body: '<html>' },
       '/status-ok': { body: JSON.stringify({ status: 'uploading', progress: 40, bytesSent: 10, bytesTotal: 25, attempt: 2 }) },
     })

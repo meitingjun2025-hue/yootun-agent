@@ -55,18 +55,14 @@ export function AccessGate(props: GateProps): ReactNode {
   }, [unknown])
   const phase = gatePhase(authorized, fallbackElapsed)
 
-  // 应用阻断跟随授权状态。门禁层自身覆盖启动期应用内容点击路径，不再申请 root.inert：
-  // 官方 onboarding loading 层会在启动瞬间捕获并恢复该属性，与门禁的
-  // fail-closed 锁并发时会形成“授权解锁后被旧快照恢复为 true”的竞态。
-  // 授权成立仍直接清除 inert，作为升级前版本残留的兜底；阻断期间（未授权或
-  // 未知遮罩）申请滚动锁，重复进入先释放上一次申请。
+  // 应用阻断跟随授权状态（未授权或未知遮罩）。门禁不申请 root.inert：官方
+  // onboarding loading 层会在启动瞬间捕获并恢复该属性，与门禁 fail-closed 锁
+  // 并发时形成「授权解锁后被旧快照恢复为 true」的竞态；授权成立仍直接清除
+  // inert，作为升级前版本残留的兜底。阻断期间置 body overflow hidden；解除
+  // 与最终复位由 mountGate 的 disposer 在门禁层全部卸载后统一处理（不按实例
+  // previous 快照恢复——双门禁叠加时快照互相指向对方设置的值，恢复会把仍在
+  // 阻断的门禁解锁）。
   const blocking = authorized !== true
-  // 应用阻断期间置 body overflow hidden。恢复不走实例的 previous 快照——双门禁
-  // 叠加时快照互相指向对方设置的值，恢复会把仍在阻断的门禁解锁；最终恢复由
-  // mountGate 的 disposer 在门禁层全部卸载后统一复位，授权分支的 overflow = ''
-  // 同口径。门禁滚动锁不申请 root.inert：官方 onboarding loading 层会在启动
-  // 瞬间捕获并恢复该属性，与门禁 fail-closed 锁并发时形成「授权解锁后被旧
-  // 快照恢复为 true」的竞态；授权成立仍直接清除 inert，作为升级前残留的兜底。
   useEffect(() => {
     if (!blocking) {
       const root = document.getElementById('root')
@@ -160,11 +156,9 @@ export function mountGate(props: GateProps): () => void {
   const gateRoot: Root = createRoot(host)
   gateRoot.render(<AccessGate {...props} />)
   return () => {
-    // 滚动锁由组件的 blocking effect 清理在 unmount 时释放（它持有自己的申请
-    // 引用，恢复各自的 previous 快照）；disposer 不无条件清 body overflow——
-    // 双挂载时无条件复位会解除仍在阻断的另一个门禁的滚动锁，仅在门禁层全部
-    // 卸载后复位一次，兜住两把锁的 previous 快照互相指向 hidden 的残留。
-    // root.inert 复位保留为升级前残留的兜底。
+    // 阻断 effect 无清理函数：滚动锁的最终复位由本 disposer 在门禁层全部卸载
+    // 后统一做——不无条件清 body overflow，双挂载时无条件复位会解除仍在阻断
+    // 的另一个门禁的滚动锁。root.inert 复位保留为升级前残留的兜底。
     gateRoot.unmount()
     const root = document.getElementById('root')
     if (root !== null) root.inert = false
