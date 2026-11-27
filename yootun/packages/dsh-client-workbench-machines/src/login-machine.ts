@@ -61,20 +61,23 @@ export function createLoginMachine<LoginView>(ports: LoginMachinePorts<LoginView
   }
 
   const tick = async (key: string, seq: number): Promise<void> => {
+    let view: LoginView
     try {
-      const view = await ports.status(key)
-      if (stopped || !guard.isCurrent(seq)) return
-      const status = ports.statusOf(view)
-      if (ports.activeStatuses.includes(status)) {
-        set({ login: view })
-        return
-      }
-      poller.stop()
-      set({ login: null })
-      ports.onSettled(view)
+      view = await ports.status(key)
     } catch {
-      // 单次轮询失败不打断等待（用户正在扫码）。
+      // 丢弃 ports.status 的单拍失败（hostAction 网络抖动/宿主重启）：用户正在
+      // 扫码，等待中的登录不因一拍失败退出轮询，下一拍再发。
+      return
     }
+    if (stopped || !guard.isCurrent(seq)) return
+    const status = ports.statusOf(view)
+    if (ports.activeStatuses.includes(status)) {
+      set({ login: view })
+      return
+    }
+    poller.stop()
+    set({ login: null })
+    ports.onSettled(view)
   }
 
   return {

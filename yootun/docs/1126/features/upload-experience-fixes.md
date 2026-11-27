@@ -231,3 +231,5 @@ for (const [net, bits] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 
 | 内网过滤实现 | `node:net` `BlockList` | 引入 `ipaddr.js`；或继续手写前缀判断 |
 | mapped 地址 | 整段拒绝 `::ffff:0:0/96` | 换算成 IPv4 后按 IPv4 规则判断 |
 | 上传传输函数的位置 | `@yootun/dsh-client-ui-kit`（P0 已把 `createHostAction` 放在这里） | media-upload 导出 client 子路径供小红书引用（插件互相依赖） |
+
+- 生产接线守卫（2026-11-27，P1 阶段 1–4 验收审查）：media-upload 启动暂存清理登记原先无用例守——接线抽为导出工厂 `applyStartupStagingCleanup`（登记即清扫；卸载按序等待 registry → staging → sweep，含「sweep 未 settle 前 dispose 不返回」断言，去 await→红→恢复→绿）。

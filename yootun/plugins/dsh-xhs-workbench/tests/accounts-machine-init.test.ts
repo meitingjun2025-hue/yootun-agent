@@ -34,11 +34,15 @@ test('冷启动 init 只发一次 accounts.list（挂载恢复复用同一刷新
     },
   }))
   machine.init()
-  await flush()
-  await flush()
-  assert.equal(listCalls, 1, '冷启动恰好一次 accounts.list')
-  assert.equal(machine.get().selectedId, 'a1')
-  machine.stop()
+  try {
+    await flush()
+    await flush()
+    assert.equal(listCalls, 1, '冷启动恰好一次 accounts.list')
+    assert.equal(machine.get().selectedId, 'a1')
+  } finally {
+    // 断言失败也必须停轮询，不留活定时器挂住进程。
+    machine.stop()
+  }
 })
 
 test('恢复查询在途时选中账号切换：迟到的恢复结果丢弃', async () => {
@@ -52,14 +56,18 @@ test('恢复查询在途时选中账号切换：迟到的恢复结果丢弃', as
     },
   }))
   machine.init()
-  await flush()
-  assert.equal(machine.get().selectedId, 'a1')
-  // 查询在途：用户切到 a2。
-  machine.select('a2')
-  releaseCollect?.({ status: 'running', collect: { accountId: 'a1', collectStatus: 'running', progress: {} } })
-  await flush()
-  await flush()
-  assert.equal(machine.get().selectedId, 'a2')
-  assert.equal(machine.get().collect, null, 'a1 的迟到恢复结果不得写进采集态')
-  machine.stop()
+  try {
+    await flush()
+    assert.equal(machine.get().selectedId, 'a1')
+    // 查询在途：用户切到 a2。
+    machine.select('a2')
+    releaseCollect?.({ status: 'running', collect: { accountId: 'a1', collectStatus: 'running', progress: {} } })
+    await flush()
+    await flush()
+    assert.equal(machine.get().selectedId, 'a2')
+    assert.equal(machine.get().collect, null, 'a1 的迟到恢复结果不得写进采集态')
+  } finally {
+    // 断言失败也必须停轮询，不留活定时器挂住进程（563 秒教训）。
+    machine.stop()
+  }
 })

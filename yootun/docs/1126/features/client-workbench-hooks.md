@@ -153,6 +153,7 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 - **测试假座位的 `active` 取 `en`，不是 `zh`**（对裁定「固定返回 zh」的实测修正）：抖音既有用例的 kit 组件文案断言按 en 口径写（douyin-client.test.tsx 的 `pagerInfo` 助手自带注释「kit Pager 信息文案（en 词典直取；页面 kitTranslate 为 en）」——旧 `localeTagOf(t)` 以 en 词典判定为 en），而 `formatCount` 的 zh 口径断言走该函数的缺省参数 `localeTag = 'zh'`，与座位无关。座位给 `zh` 时 9 例失败、给 `en` 时全绿，其余 diff 零改动。视频号、小红书同口径。
 - 既有用例的夹具改动：三插件 client 测试的 `render(<WorkbenchPage t={t} />)` 机械补 `locale={locale}`（抖音 57+37、小红书 8 处，视频号见其提交），加模块级座位假件（快照对象只建一次）；断言行零改动，`git diff` 可证只动 import 行、座位块与渲染行。
 - `attemptId()` 自 AnalysisPage 迁至 format.ts（实现不变），六处引用改走 format.ts；douyin 测试 151 例 + 新增 P2×2、P3×1 = 154 例全过。
+- **生产接线守卫（2026-11-27，P1 阶段 1–4 验收审查）**：审查发现各插件 `apply()` 里的接线无用例守——在源码上删除接线后对应插件完整测试套件仍全绿（抖音与视频号的探测回调 `probe`、视频号批量门面 `probed`、wx 启动中断摘要写入、media-upload 启动暂存清理登记）；U7b 在测试内照抄门面、未触及 index.ts，抓不住。已抽导出工厂与测试共用：`createBatchProbe`（douyin index.ts）、`applyWxStartupRecovery` / `createWxBatchFacade` / `createWxBatchProbe`（wx index.ts）、`applyStartupStagingCleanup`（media-upload index.ts），每处附「删接线→红→恢复→绿」自证；本单 5.3 即 collect-probe-reuse 单所指的记录落点。
 
 ## 附录 A：逐文件规格
 

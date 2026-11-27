@@ -1854,13 +1854,17 @@ test('启动暂存清扫接线：工厂启动即清扫；卸载按序等待 regi
   // 登记即清扫（启动时机，不等卸载）。
   assert.equal(sweepInvoked, 1)
   assert.equal(order.length, 0, '卸载前不 destroy')
-  // 触发卸载：registry → staging 先行，sweep 未 settle 前卸载不返回。
+  // 触发卸载：registry → staging 先行，sweep 未 settle 前卸载（dispose 本身）不返回。
+  let disposeSettled = false
   const disposing = ctx.fiber.dispose()
+  void disposing.then(() => { disposeSettled = true })
   await new Promise(resolve => setTimeout(resolve, 20))
   assert.deepEqual(order, ['registry', 'staging'])
   assert.equal(sweepSettled, false, '清扫未结束，卸载等待中')
+  assert.equal(disposeSettled, false, 'dispose 等待清扫 settle，不先行返回')
   releaseSweep?.()
   await disposing
+  assert.equal(disposeSettled, true)
   assert.equal(sweepSettled, true)
   assert.equal(sweepInvoked, 1, '清扫只发起一次')
 })
