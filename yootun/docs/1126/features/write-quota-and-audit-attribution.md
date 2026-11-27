@@ -95,7 +95,7 @@ MCP 工具：无。工具名、入参、出参与错误码都不变。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填；记录日志采集配置是否按字段白名单提取，若是，新键是否已加入）。
+自动验收通过（2026-11-27）：`tests/mcp/test_mcp_observability.py` 8/8（含 O1–O7）；`tests/mcp` 套件 512 过、38 个 error 为环境依赖的集成/real-SDK 用例（干净树复现一致），另有 2 个失败在改动前基线（`2745ac8`）即存在，与本单无关。O5 修订：用例原在测试线程直调 `with_db`，名不副实——已改经 `starlette.concurrency.run_in_threadpool` 真走线程池后断言身份字段仍在（contextvars 随线程池复制）。变异自证：「去掉身份写入」「身份先于 extra 写入」两个变异均被杀。日志白名单：本仓无部署侧信息——日志采集若按字段白名单提取，需部署时把六个身份键（`api_key_id` / `tenant_id` / `principal_type` / `principal_id` / `key_owner_type` / `delegated`）加入白名单后按 G3 核对。
 
 ## 附录 A：写操作配额（暂缓，网关迁移时的设计输入）
 

@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
+import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
 import { en, zh, type XhsLocaleKey } from '../../src/client/locales.ts'
 
 const apiMock = vi.hoisted(() => ({
@@ -230,5 +231,96 @@ describe('样式红线', () => {
   it('容器查询依赖 PluginPageShell（容器名对齐）', () => {
     const kitDir = join(process.cwd(), '..', '..', 'packages', 'dsh-client-ui-kit', 'src')
     expect(existsSync(join(kitDir, 'page-shell.module.css'))).toBe(true)
+  })
+})
+
+describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
+  it('createWorkbenchLocaleSeat：类实例 face 解构后可用、快照引用稳定；apply 经工厂注入', () => {
+    class FakeLocaleFace {
+      snapshot = { active: 'zh-CN' }
+      readonly listeners = new Set<() => void>()
+      // 读 this 的方法形态（生产 ctx.locale 即类实例）：工厂不保 this 就会在此抛错。
+      getSnapshot(): { active: string } { return this.snapshot }
+      subscribe(fn: () => void): () => void {
+        this.listeners.add(fn)
+        return () => { this.listeners.delete(fn) }
+      }
+      publish(next: { active: string }): void {
+        this.snapshot = next
+        this.listeners.forEach(fn => fn())
+      }
+    }
+    const face = new FakeLocaleFace()
+    // 解构即生产现场（useSyncExternalStore(locale.subscribe, locale.getSnapshot)）。
+    const { subscribe, getSnapshot } = createWorkbenchLocaleSeat(face)
+    let notified = 0
+    const unsubscribe = subscribe(() => { notified += 1 })
+    const first = getSnapshot()
+    expect(first).toBe(face.snapshot)
+    face.publish({ active: 'en' })
+    expect(notified).toBe(1)
+    expect(getSnapshot()).not.toBe(first)
+    expect(getSnapshot().active).toBe('en')
+    unsubscribe()
+    face.publish({ active: 'zh-CN' })
+    expect(notified).toBe(1)
+    // 源码级兜底：apply 的座位必须经工厂（防改回内联对象或 undefined）。
+    const indexSource = readFileSync(join(process.cwd(), 'src', 'client', 'index.ts'), 'utf8')
+    expect(indexSource).toContain('const locale = createWorkbenchLocaleSeat(ctx.locale)')
+    expect(indexSource).toContain('export function createWorkbenchLocaleSeat')
+  })
+  it('apply 经 slot 注入的 locale 是基于 ctx.locale 的座位，t 走 bind（接线守卫）', () => {
+    class FakeLocaleFace {
+      snapshot = { active: 'zh-CN' }
+      readonly listeners = new Set<() => void>()
+      bind(): (key: XhsLocaleKey, values?: Record<string, string | number>) => string {
+        return (key, values) => {
+          const text = en[key] ?? key
+          if (values === undefined) return text
+          return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+        }
+      }
+      register(): () => void { return () => undefined }
+      getSnapshot(): { active: string } { return this.snapshot }
+      subscribe(fn: () => void): () => void {
+        this.listeners.add(fn)
+        return () => { this.listeners.delete(fn) }
+      }
+      publish(next: { active: string }): void {
+        this.snapshot = next
+        this.listeners.forEach(fn => fn())
+      }
+    }
+    const localeFace = new FakeLocaleFace()
+    const registered: Array<{ name: string; spec: Record<string, unknown> }> = []
+    type ApplyCtx = Parameters<typeof apply>[0]
+    const applyUnderTest = apply as (ctx: Partial<Record<keyof ApplyCtx, unknown>>) => void
+    applyUnderTest({
+      locale: localeFace,
+      slots: {
+        inject: (_name, factory) => factory(),
+        register: (spec, _component) => {
+          registered.push({ name: String(spec.name), spec })
+          return () => undefined
+        },
+      },
+      effect: fn => fn(),
+    })
+    const mainSpec = registered.find(entry => entry.name === 'main')
+    expect(mainSpec).toBeDefined()
+    const injected = mainSpec !== undefined ? (mainSpec.spec.inject as () => WorkbenchPageProps)() : undefined
+    expect(injected).toBeDefined()
+    const { t, locale } = injected!
+    // (a) locale 基于 ctx.locale：快照同引用，face 发布即通知座位订阅者。
+    const first = locale.getSnapshot()
+    expect(first).toBe(localeFace.snapshot)
+    let notified = 0
+    const unsubscribe = locale.subscribe(() => { notified += 1 })
+    localeFace.publish({ active: 'en' })
+    expect(notified).toBe(1)
+    expect(locale.getSnapshot().active).toBe('en')
+    unsubscribe()
+    // (b) t 经 bind 读词典。
+    expect(t('panel')).toBe(en['panel'])
   })
 })

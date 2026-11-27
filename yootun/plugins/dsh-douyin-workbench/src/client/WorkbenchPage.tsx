@@ -1,14 +1,16 @@
 /**
- * 抖音工作台中央面板：7 Tab 固定顺序，D6/D7/D8 三 Tab 首次访问后 keep-alive
- * （非当前 Tab 用 hidden 从可访问树移除；Breakdown archive/workflow 轮询跨
- * Tab 继续，Material 离开停/重进恢复，Gene 无轮询、重进重拉；未访问过的
- * Tab 不 eager mount；inactive 期间官方 Modal portal 不泄漏，open 状态保留
- * 待切回恢复）。布局与组合层：五条数据流（登录、单账号采集、批量采集、作
- * 品查询、挂载恢复）在 flows.ts 的四 machine 里，由 use-workbench-page.ts
- * 订阅并接线；弹层与导出在 use-workbench-modals.ts（统一详情、负责人、投
- * 流、Excel）。AI 报表 Tab 由共享包 `@yootun/dsh-client-report` 的 ReportPage
- * 承载（请求与错误文案经本插件注入）。语言标签取 locale 座位的官方快照
- * active id（不再词典比对）；素材看板「去拆解」经 breakdownPrefill 跨 Tab
+ * 抖音工作台中央面板：顶级导航 4 组（数据/创作/素材与知识/报表），数据与
+ * 素材与知识两组带组内二级 SegmentedControl；页面值仍为 7 个，D6/D7/D8 三
+ * 页首次访问后 keep-alive（非当前页用 hidden 从可访问树移除；Breakdown
+ * archive/workflow 轮询跨页继续，Material 离开停/重进恢复，Gene 无轮询、
+ * 重进重拉；未访问过的页不 eager mount；inactive 期间官方 Modal portal
+ * 不泄漏，open 状态保留待切回恢复）。布局与组合层：五条数据流（登录、单
+ * 账号采集、批量采集、作品查询、挂载恢复）在 flows.ts 的四 machine 里，
+ * 由 use-workbench-page.tsx 订阅并接线；弹层与导出在 use-workbench-modals.ts
+ * （统一详情、负责人、投流、Excel）。AI 报表 Tab 由共享包
+ * `@yootun/dsh-client-report` 的 ReportPage 承载（请求与错误文案经本插件
+ * 注入）。语言标签取 locale 座位的官方快照 active id（不再词典比对）；素材
+ * 看板「去拆解」经 breakdownPrefill 跨页
  * 预填链接（不自动开始）。
  * @module
  */

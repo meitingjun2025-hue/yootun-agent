@@ -6,10 +6,13 @@
  */
 // @vitest-environment jsdom
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { en as kitEn, type YtKitLocaleKey } from '@yootun/dsh-client-ui-kit'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
+import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
 import { readAccountsOverview, readOverview } from '../../src/client/schema.ts'
 import { formatCount, formatDelta } from '../../src/client/format.ts'
 import { fansTrendSlots } from '../../src/client/works-format.ts'
@@ -889,6 +892,76 @@ describe('批量运行中的选中驱动轮询（R4：运行中账号的作品�
     // 甲的刷新（works / 摘要）恰好各一次：挂载 1 次 + 终态 1 次，多轮轮询不叠加。
     expect(calls.filter(call => call.action === 'works.list' && call.args.accountId === 'finder-a').length).toBe(2)
     expect(calls.filter(call => call.action === 'account.overview' && call.args.accountId === 'finder-a').length).toBe(2)
+  })
+
+  it('D8c 页面发起的采集终态后，批量再采到同一账号：选中驱动路恢复起表显示进度', async () => {
+    let phase: 'idle' | 'pageRunning' | 'terminal' | 'batchRunning' = 'idle'
+    const runningA = {
+      accountId: 'finder-a', status: 'running', startedAt: '2026-11-18T10:00:00.000Z',
+      finishedAt: null, error: null, progress: { phase: 'details', done: 2, total: 5 }, result: null,
+    }
+    const doneA = {
+      accountId: 'finder-a', status: 'completed', startedAt: '2026-11-18T10:00:00.000Z',
+      finishedAt: '2026-11-18T10:03:00.000Z', error: null, progress: {}, result: null,
+    }
+    const batchCollecting = {
+      ...OK, ready: false, phase: 'collecting', total: 1, currentAccountIndex: 0, currentAccountId: 'finder-a',
+      runningAccountIds: ['finder-a'], concurrency: 3, error: null,
+      completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+      items: [{ accountId: 'finder-a', status: 'running', reason: null }],
+    }
+    const { calls } = await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT], remoteOk: true }),
+      'collect.running': () => ({ ...OK, collect: null, batchRunning: false }),
+      'collect.status': args => {
+        if (String(args.accountId ?? '') !== 'finder-a') {
+          return { ...OK, busy: false, collect: null, runningAccountIds: [], lastRun: null }
+        }
+        if (phase === 'pageRunning' || phase === 'batchRunning') {
+          return { ...OK, busy: true, collect: runningA, runningAccountIds: ['finder-a'], lastRun: null }
+        }
+        if (phase === 'terminal') {
+          return { ...OK, busy: false, collect: doneA, runningAccountIds: [], lastRun: null }
+        }
+        return { ...OK, busy: false, collect: null, runningAccountIds: [], lastRun: null }
+      },
+      'collect.start': () => ({ ...OK, started: true }),
+      'collectAll.start': () => ({ ...OK, started: true, batchId: 'batch-1' }),
+      'collectAll.status': () => phase === 'batchRunning'
+        ? batchCollecting
+        : { ...OK, ready: true, phase: 'finished', total: 0, currentAccountIndex: 0, currentAccountId: null, runningAccountIds: [], concurrency: 3, error: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] },
+    }))
+    void calls
+    // 页面发起甲：发起路轮询，进度上屏（phase 先置，覆盖 start 回执后的首拍）。
+    phase = 'pageRunning'
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    expect(await screen.findByText(t('collect.progress.details', { done: 2, total: 5 }))).not.toBeNull()
+    // 甲落终态：发起路停表（machine pollers 随终态删除，选中让位随之解除）。
+    phase = 'terminal'
+    await waitFor(() => expect(screen.queryByText(t('collect.progress.details', { done: 2, total: 5 }))).toBeNull(), { timeout: 3000 })
+    // 批量再采到甲：甲回到运行集合，选中驱动路另起一路显示进度。
+    phase = 'batchRunning'
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    expect(await screen.findByText(t('batch.currentList', { names: '演示账号' }))).not.toBeNull()
+    expect(await screen.findByText(t('collect.progress.details', { done: 2, total: 5 }))).not.toBeNull()
+  })
+
+  it('X4 作品表行双击打开详情；双击落在交互元素上时行守卫命中不打开', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'work.get': args => workGetPayload(String(args.workId ?? '')),
+    }))
+    const row = (await screen.findByText('第一条作品', undefined, { timeout: 3000 })).closest('tr') as HTMLTableRowElement
+    const workGetCalls = (): number => calls.filter(call => call.action === 'work.get').length
+    // 行文字区双击：行处理打开详情（work.get 恰一次）。
+    fireEvent.doubleClick(row)
+    await waitFor(() => expect(workGetCalls()).toBe(1))
+    // 双击落在交互元素上：向行内单元格注入一个真实按钮后双击它（事件沿行冒泡，
+    // target 为 button）——isOnInteractiveTarget 命中，行处理不触发。
+    const injectedButton = document.createElement('button')
+    injectedButton.type = 'button'
+    row.querySelector('td')?.appendChild(injectedButton)
+    fireEvent.doubleClick(injectedButton)
+    expect(workGetCalls()).toBe(1)
   })
 
   it('D8b 切换选中后到达的过期响应被丢弃：不停止新选中账号的轮询、不清它的进度', async () => {
@@ -2237,5 +2310,96 @@ describe('P2：locale 座位判定（client-workbench-hooks 附录 B.2）', () =
     act(() => { listeners.forEach(fn => fn()) })
     await waitFor(() => expect(screen.getByText(formatCount(1250000, 'en'))).not.toBeNull())
     expect(screen.queryByText(formatCount(1250000, 'zh'))).toBeNull()
+  })
+})
+
+describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
+  it('createWorkbenchLocaleSeat：类实例 face 解构后可用、快照引用稳定；apply 经工厂注入', () => {
+    class FakeLocaleFace {
+      snapshot = { active: 'zh-CN' }
+      readonly listeners = new Set<() => void>()
+      // 读 this 的方法形态（生产 ctx.locale 即类实例）：工厂不保 this 就会在此抛错。
+      getSnapshot(): { active: string } { return this.snapshot }
+      subscribe(fn: () => void): () => void {
+        this.listeners.add(fn)
+        return () => { this.listeners.delete(fn) }
+      }
+      publish(next: { active: string }): void {
+        this.snapshot = next
+        this.listeners.forEach(fn => fn())
+      }
+    }
+    const face = new FakeLocaleFace()
+    // 解构即生产现场（useSyncExternalStore(locale.subscribe, locale.getSnapshot)）。
+    const { subscribe, getSnapshot } = createWorkbenchLocaleSeat(face)
+    let notified = 0
+    const unsubscribe = subscribe(() => { notified += 1 })
+    const first = getSnapshot()
+    expect(first).toBe(face.snapshot)
+    face.publish({ active: 'en' })
+    expect(notified).toBe(1)
+    expect(getSnapshot()).not.toBe(first)
+    expect(getSnapshot().active).toBe('en')
+    unsubscribe()
+    face.publish({ active: 'zh-CN' })
+    expect(notified).toBe(1)
+    // 源码级兜底：apply 的座位必须经工厂（防改回内联对象或 undefined）。
+    const indexSource = readFileSync(join(process.cwd(), 'src', 'client', 'index.ts'), 'utf8')
+    expect(indexSource).toContain('const locale = createWorkbenchLocaleSeat(ctx.locale)')
+    expect(indexSource).toContain('export function createWorkbenchLocaleSeat')
+  })
+  it('apply 经 slot 注入的 locale 是基于 ctx.locale 的座位，t 走 bind（接线守卫）', () => {
+    class FakeLocaleFace {
+      snapshot = { active: 'zh-CN' }
+      readonly listeners = new Set<() => void>()
+      bind(): (key: WxLocaleKey, values?: Record<string, string | number>) => string {
+        return (key, values) => {
+          const text = en[key] ?? key
+          if (values === undefined) return text
+          return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+        }
+      }
+      register(): () => void { return () => undefined }
+      getSnapshot(): { active: string } { return this.snapshot }
+      subscribe(fn: () => void): () => void {
+        this.listeners.add(fn)
+        return () => { this.listeners.delete(fn) }
+      }
+      publish(next: { active: string }): void {
+        this.snapshot = next
+        this.listeners.forEach(fn => fn())
+      }
+    }
+    const localeFace = new FakeLocaleFace()
+    const registered: Array<{ name: string; spec: Record<string, unknown> }> = []
+    type ApplyCtx = Parameters<typeof apply>[0]
+    const applyUnderTest = apply as (ctx: Partial<Record<keyof ApplyCtx, unknown>>) => void
+    applyUnderTest({
+      locale: localeFace,
+      slots: {
+        inject: (_name, factory) => factory(),
+        register: (spec, _component) => {
+          registered.push({ name: String(spec.name), spec })
+          return () => undefined
+        },
+      },
+      effect: fn => fn(),
+    })
+    const mainSpec = registered.find(entry => entry.name === 'main')
+    expect(mainSpec).toBeDefined()
+    const injected = mainSpec !== undefined ? (mainSpec.spec.inject as () => WorkbenchPageProps)() : undefined
+    expect(injected).toBeDefined()
+    const { t, locale } = injected!
+    // (a) locale 基于 ctx.locale：快照同引用，face 发布即通知座位订阅者。
+    const first = locale.getSnapshot()
+    expect(first).toBe(localeFace.snapshot)
+    let notified = 0
+    const unsubscribe = locale.subscribe(() => { notified += 1 })
+    localeFace.publish({ active: 'en' })
+    expect(notified).toBe(1)
+    expect(locale.getSnapshot().active).toBe('en')
+    unsubscribe()
+    // (b) t 经 bind 读词典。
+    expect(t('panel')).toBe(en['panel'])
   })
 })

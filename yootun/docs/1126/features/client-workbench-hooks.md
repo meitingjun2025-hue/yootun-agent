@@ -50,7 +50,7 @@ MCP 工具：无。
 
 ### 2.1 包 `@yootun/dsh-client-workbench-machines`
 
-位置 `yootun/packages/dsh-client-workbench-machines`，ESM，`exports` 为 `.` 与 `./package.json`；`build` 为 `tsc -p tsconfig.json && tsdown`；`test` 为 `node --test tests/*.test.ts`。抖音、视频号以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进 client bundle，不新增运行时外部依赖。
+位置 `yootun/packages/dsh-client-workbench-machines`，ESM，`exports` 为 `.` 与 `./package.json`（登记出入：实际另有 `./src/*`，供测试与静态门禁直读源码，实现保留）；`build` 为 `tsc -p tsconfig.json && tsdown`；`test` 为 `node --test tests/*.test.ts`。抖音、视频号以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进 client bundle，不新增运行时外部依赖。
 
 | 模块 | 导出 |
 |---|---|
@@ -154,6 +154,7 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 - 既有用例的夹具改动：三插件 client 测试的 `render(<WorkbenchPage t={t} />)` 机械补 `locale={locale}`（抖音 57+37、小红书 8 处，视频号见其提交），加模块级座位假件（快照对象只建一次）；断言行零改动，`git diff` 可证只动 import 行、座位块与渲染行。
 - `attemptId()` 自 AnalysisPage 迁至 format.ts（实现不变），六处引用改走 format.ts；douyin 测试 151 例 + 新增 P2×2、P3×1 = 154 例全过。
 - **生产接线守卫（2026-11-27，P1 阶段 1–4 验收审查）**：审查发现各插件 `apply()` 里的接线无用例守——在源码上删除接线后对应插件完整测试套件仍全绿（抖音与视频号的探测回调 `probe`、视频号批量门面 `probed`、wx 启动中断摘要写入、media-upload 启动暂存清理登记）；U7b 在测试内照抄门面、未触及 index.ts，抓不住。已抽导出工厂与测试共用：`createBatchProbe`（douyin index.ts）、`applyWxStartupRecovery` / `createWxBatchFacade` / `createWxBatchProbe`（wx index.ts）、`applyStartupStagingCleanup`（media-upload index.ts），每处附「删接线→红→恢复→绿」自证；本单 5.3 即 collect-probe-reuse 单所指的记录落点。
+- **附录 A1/A2 的两处偏离（2026-11-27 全量审查补记）**：①「轮询一律经 createPoller」仅约束登录与单账号采集——批量 machine 不持表，批量轮询由页面 setInterval 驱动（非单飞），每拍经 flows.pollBatch 单拍读取并经 machine.beginPolling 幂等喂回状态；②「ref 守卫迁入 machine、页面不再持有」以页面组件为口径——wx 的页面逻辑整体移入 use-workbench-page.tsx 组合 hook（451 行，仍持 12 个 ref），页面组件达标而逻辑层保留 ref 形态。规模指标实测：抖音 WorkbenchPage 279 行 / hook 1（阶段 6 后 291 / 1），视频号 189 / 3。
 
 ## 附录 A：逐文件规格
 
@@ -221,3 +222,5 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 | 共享核心的位置 | 新包 `@yootun/dsh-client-workbench-machines` | 放进 `@yootun/dsh-client-ui-kit`（UI 库混入数据流） |
 | 落地方式 | 先各插件内落 machine，再上移共享核心 | 一步到位建包 |
 | 小红书 | 不动 | 同步迁到共享 machine |
+
+**补测两条（2026-11-27，全量审查复验后的变异存活项，纯测试）**：① 三插件 `apply()` 把座位经 slot `inject` 交给页面这一跳补接线用例——假 ctx 真调 `apply()`，断言 `main` 槽注入物的 `locale.getSnapshot()` 与 `ctx.locale` 快照同引用、face 发布即通知、`t` 经 bind 读词典；红绿自证：删 `injected()` 的 `locale,` → 红，工厂改喂假 face → 红，恢复绿（douyin/wx/xhs 各两条变异）。② collect-machine 新增 C6：恢复双路与 `start` 指向同账号只起一张表（FakeClock 计数）、不同账号各持表、`stopPolling()` / `stop()` 全清；红绿自证：删 `beginPolling` 的 `pollers.has` 幂等守卫 → C6 红，恢复绿。类型处理：douyin 包级锁禁 `as never`，三插件统一用 `apply as (ctx: Partial<Record<keyof Parameters<typeof apply>[0], unknown>>) => void` 重映射入参，不触红线。

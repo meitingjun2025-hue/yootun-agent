@@ -96,6 +96,10 @@ export function createLoginMachine<LoginView>(ports: LoginMachinePorts<LoginView
       const status = ports.statusOf(view)
       if (ports.activeStatuses.includes(status)) {
         set({ login: view })
+        // 二次 begin（上一张登录卡仍在轮询时再点添加账号）：先停旧轮询再以新
+        // key 与新序号重启；否则 poller.start 幂等返回，旧 tick 持过期序号，
+        // 之后所有响应被守卫丢弃，卡片永不收敛。
+        poller.stop()
         const seq = guard.take()
         poller.start(() => tick(key, seq))
       }

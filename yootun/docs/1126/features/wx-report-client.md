@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表工作台与智能体工具 实施单
 
-状态：实施中（第 1 步纯上移已验收并本地提交，2026-11-27） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：实施中（第 1、2 步已验收并本地提交，2026-11-27） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -284,7 +284,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | tools 合入 `dev` | 2026-11-26 | — | 不涉及，契约已在 [wx-report-server.md](wx-report-server.md) 落地 |
 | docker-helm 部署测试环境 | — | — | 部署仓已合入 `master`，测试环境待部署；客户端先发只是报表 Tab 显示暂不可用，旧功能不受影响 |
 | 第 1 步：纯上移，抖音改为消费 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；分支从 `main` 切出并并入 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 与 [douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md) 两条分支作为基线；核对记录见 5.3 |
-| 第 2 步：界面整改 | | `feat/wx-report-client` | 前置：第 1 步的阶段验收通过；验收通过后本地提交 |
+| 第 2 步：界面整改 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；主控验收修正四处后提交，核对记录见 5.3 |
 | 第 3 步：视频号接入 | | `feat/wx-report-client` | 前置：第 2 步的阶段验收通过；验收通过后本地提交 |
 | yootun-agent 合入 `main` | | | 三步都通过后一次合入；待填 |
 | 发版 | | | 待填 |
@@ -357,7 +357,23 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 
 第 1 步的已知遗留，不在本步处理：`report.exporting` 词条抖音与共享包各一份且文案相同，抖音的总览与分析页、共享包的报表页都在用；共享包样式表里随并写规则带入的 4 个类（`workTable`、`scheduleTable`、`colAction`、`axisSvg`）在共享包内没有对应元素，第 2 步重做表格样式时删除；日报与周报切换控件的元素 id 仍是 `douyin-report-type`，第 3 步视频号接入时改成不带平台名的 id。
 
-其余联调记录待填：第 2 步、第 3 步的目检结果，视频号错误码穷尽检查的验证记录，视频号插件的样式安装元数据核对结果。
+2026-11-27 第 2 步「界面整改」提交前核对：
+
+| 核对项 | 方法 | 结果 |
+|---|---|---|
+| 2.8 表逐行 | 读共享包 `report-detail.tsx`、`report-chart.tsx`、`report-page.tsx`、`report.module.css` 的 diff，对照 2.8 表「整改」列 | 16 行全部落实。KPI 行是 6 张 `KpiCard`，列数由 `.kpiRow` 的三档容器查询决定；趋势图装在 `ChartFrame`（默认高度 240）内，图例与浮层用 kit 的 `ChartLegend`、`ChartTooltip`；`report-export.ts` 未改 |
+| 词条 | 第 1 步定稿的共享包词典对工作区逐条比较键与值 | 改写 2 条趋势标题（2.8 表指定）、新增 `report.retry`、删除不再引用的 `report.trend.lineTip`；其余逐字不变，`REPORT_REASONS_*` 零变化 |
+| 抖音用例 | 读 `douyin-client.test.tsx`、`douyin-parity.test.tsx` 的 diff | `douyin-client.test.tsx` 只改「日报区段」一条用例：用例名、区段容器断言、KPI 变化行断言、浮层断言，各有一行原因注释；数据、文案、幂等、轮询、导出的断言未动。`douyin-parity.test.tsx` 的样式守护推导扩展为同时扫描共享包源的 kit 导入 |
+| 范围外改动 | 读 `git status` | 抖音 `kit-styles.ts` 加 `chart-legend.module.css` 一行：共享包引入 `ChartLegend` 后按 2.4 必须由消费插件声明，否则图例无样式。产物的样式安装元数据里共享包样式表与图例、KPI 卡、图表框、浮层 4 张 kit 样式表都在 |
+| 自动验收 | 共享包与抖音的 `test`、`build`；仓库级 `lint`、`verify-client-ui-i18n`、`verify-export-jsdoc`；`git diff --check` | 全部通过：共享包 41 条用例（开发交付 38 条，主控补 3 条）；抖音 Host 侧 227 条、vitest 172 条 |
+
+主控验收发现并直接修正的四处，开发的自检均未拦住。其一，样式表里多出一行未闭合的 `.reportBody {`，把它后面的 `.reportBody { gap: 20px }` 与之后所有规则嵌成了后代选择器，分区间距 20px 这条整改实际没有生效，窄屏下列表工具栏的折行规则也一并失效；以文本正则写成的样式用例恰好匹配到被嵌套的那个块，所以通过。已删掉多余的一行，并给样式守护加一条花括号配平与禁嵌套规则的用例，把坏块放回去时该用例失败。其二，详情骨架的标题在周报加载中显示成日报标题，改为按正在打开的报表类型取词条。其三，整改后不再引用的 `report.trend.lineTip` 留在词典里，已删除，抖音用例里引用它的那条「旧气泡不存在」断言一并删除。其四，2.8 表「详情加载态」一行没有用例，补了两条：骨架形状与加载完成后换成正文、周报骨架标题。
+
+未做浏览器目检：明暗主题、两档容器宽度、键盘路径、`prefers-reduced-motion` 的开发侧证据是样式规则对照与 P14 的可执行断言，待真机验收（5.2 的 C1、C8）。
+
+第 2 步的已知遗留：日报与周报切换控件的元素 id 仍是 `douyin-report-type`，第 3 步处理；浮层靠边翻转的真实落位由 kit 的 `placeTooltip` 决定，共享包用例只锁定翻转标记的存在。
+
+其余联调记录待填：第 3 步的联调与目检结果，视频号错误码穷尽检查的验证记录，视频号插件的样式安装元数据核对结果，合入前的仓库级 `typecheck`。
 
 ## 附录 A：逐文件要点
 

@@ -57,15 +57,17 @@ describe('mountGate 双挂载下的滚动锁归属（F2 回归）', () => {
       await act(async () => {
         dispose1?.()
       })
-      // 第二次门禁仍挂载且仍阻断：滚动必须仍被锁住。
+      // 第二次门禁仍挂载且仍阻断：滚动必须仍被锁住，aria-hidden 也不得被解除。
       expect(document.getElementById('yu-access-gate')).not.toBeNull()
       expect(document.body.style.overflow).toBe('hidden', '第一次 disposer 不应解除第二次门禁的滚动锁')
+      expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBe('true', '第一次 disposer 不应解除第二次门禁的背景隐藏')
       await act(async () => {
         dispose2?.()
       })
-      // 两把锁都释放后（previous 快照互相指向 hidden）：overflow 必须复位。
+      // 两把锁都释放后（previous 快照互相指向 hidden）：overflow 与 aria-hidden 必须复位。
       expect(document.getElementById('yu-access-gate')).toBeNull()
       expect(document.body.style.overflow).toBe('', '门禁层全部卸载后滚动锁应复位')
+      expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBeNull('门禁层全部卸载后背景隐藏应复位')
       expect(document.getElementById('root')?.inert).not.toBe(true, '卸载兜底复位后 root.inert 不得为 true')
     } finally {
       document.body.innerHTML = ''
