@@ -7,16 +7,20 @@
  * 不泄漏，open 状态保留待切回恢复）。布局与组合层：五条数据流（登录、单
  * 账号采集、批量采集、作品查询、挂载恢复）在 flows.ts 的四 machine 里，
  * 由 use-workbench-page.tsx 订阅并接线；弹层与导出在 use-workbench-modals.ts
- * （统一详情、负责人、投流、Excel）。语言标签取 locale 座位的官方快照
- * active id（不再词典比对）；素材看板「去拆解」经 breakdownPrefill 跨页
+ * （统一详情、负责人、投流、Excel）。AI 报表 Tab 由共享包
+ * `@yootun/dsh-client-report` 的 ReportPage 承载（请求与错误文案经本插件
+ * 注入）。语言标签取 locale 座位的官方快照 active id（不再词典比对）；素材
+ * 看板「去拆解」经 breakdownPrefill 跨页
  * 预填链接（不自动开始）。
  * @module
  */
 import { type ReactNode } from 'react'
 import { SegmentedControl, SegmentedTabs, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ReportPage, en as reportEn, zh as reportZh, type ReportLocaleKey, type ReportWorkLayout } from '@yootun/dsh-client-report'
 import { DataState, KitLocaleProvider, PluginHeader, PluginPageShell } from '@yootun/dsh-client-ui-kit'
 import css from './workbench.module.css'
-import { type Translate } from './format.ts'
+import { domainErrorText, type Translate } from './format.ts'
+import { hostAction } from './api.ts'
 import { AccountSidebar } from './AccountSidebar.tsx'
 import { AnalysisPage } from './AnalysisPage.tsx'
 import { BreakdownPage } from './BreakdownPage.tsx'
@@ -25,7 +29,6 @@ import { MaterialPage } from './MaterialPage.tsx'
 import { OwnerModal } from './OwnerModal.tsx'
 import { OverviewPage } from './OverviewPage.tsx'
 import { PromotionModal } from './PromotionModal.tsx'
-import { ReportPage } from './ReportPage.tsx'
 import { SchedulePage } from './SchedulePage.tsx'
 import { useDouyinWorkbenchPage } from './use-workbench-page.tsx'
 import { WorkDetailModal } from './WorkDetailModal.tsx'
@@ -34,6 +37,32 @@ import { WorksPanel } from './WorksPanel.tsx'
 export type { Translate } from './format.ts'
 export type { AccountRow, CollectView } from './schema.ts'
 export type { GroupTabItem, SubTabItem, TabGroup, TabItem, TabValue, WorkbenchUiAction, WorkbenchUiState } from './workbench-ui.ts'
+
+/**
+ * 报表作品卡的指标布局（与既有作品卡一一对应）：主行播放/点赞/评论/净涨粉，
+ * 次要行收藏/分享/5s 完播/2s 跳出/平均观看时长，进度条 5s 完播率。共用词条
+ * （播放/点赞/评论）经插件词典解析；报表词条（净增粉丝与次要行 label）经
+ * 共享包词典按语言取值，次要行渲染文本与迁移前的词典模板替换逐字一致。
+ */
+function reportWorkLayout(t: Translate, localeTag: 'zh' | 'en'): ReportWorkLayout {
+  const r: Record<ReportLocaleKey, string> = localeTag === 'zh' ? reportZh : reportEn
+  return {
+    primary: [
+      { key: 'plays', label: t('col.play') },
+      { key: 'likes', label: t('col.like') },
+      { key: 'comments', label: t('col.comment') },
+      { key: 'fansGain', label: r['report.col.netFans'] },
+    ],
+    secondary: [
+      { key: 'collects', label: r['report.work.collect'], kind: 'count' },
+      { key: 'shares', label: r['report.work.share'], kind: 'count' },
+      { key: 'completion5s', label: r['report.work.completion5s'], kind: 'percent' },
+      { key: 'bounce2s', label: r['report.work.bounce2s'], kind: 'percent' },
+      { key: 'avgWatchSeconds', label: r['report.work.avgWatch'], kind: 'seconds' },
+    ],
+    progress: { key: 'completion5s', kind: 'percent', label: r['report.work.completion5s'] },
+  }
+}
 
 /** locale 服务的订阅座位（官方 LocaleFace 的 subscribe/getSnapshot 投影）。 */
 export interface WorkbenchLocale {
@@ -250,7 +279,16 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
               </div>
             )}
             {tab === 'report' && (
-              <ReportPage t={t} localeTag={localeTag} onNotice={notify} />
+              <ReportPage
+                request={hostAction}
+                locale={localeTag}
+                errorText={code => domainErrorText('report', code, t)}
+                onNotice={notify}
+                filePrefix={t('report.filePrefix')}
+                regenerateKeyPrefix='douyin:report_regenerate'
+                requestFailedCode='douyin_operation_request_failed'
+                work={reportWorkLayout(t, localeTag)}
+              />
             )}
           </div>
         </DataState>

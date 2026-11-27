@@ -32,7 +32,7 @@ export {
 export {
   comparePublishDate, compareRowId, buildServerSnapshot, readAccounts, readBatchStatus,
   readBrowserState, readCollectStatus, readLogin, readOverview, readAnalysis, readAccountTrend,
-  readAiAnalysis, readReportDetail, readReportList, readScheduleRow, readScheduleRows,
+  readAiAnalysis, readScheduleRow, readScheduleRows,
   readWorkDetail, readWorkRows, readWorksPage, readWorkTrend, toScheduleUiRow, SCHEDULE_PLATFORMS,
   type AccountRow, type BatchView, type CollectView, type ScheduleUiRow, type WorkRow,
   type WorksPage, type WorksSummary,

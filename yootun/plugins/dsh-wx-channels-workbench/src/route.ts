@@ -23,13 +23,17 @@ export { permitted, sendJson, readJsonBody, ROUTE_REFUSAL_REASONS, type RouteReq
 /** One whitelisted action's input contract. */
 export interface ActionSchema {
   /** Allowed fields; anything else is rejected. */
-  fields: Readonly<Record<string, 'string' | 'boolean' | 'integer'>>
+  fields: Readonly<Record<string, 'string' | 'boolean' | 'integer' | 'date'>>
+  /** Required fields（缺失/null 拒绝；string 类型 trim 后空串同样按缺失拒绝）. */
+  required?: readonly string[]
   /** Max length for each string field. */
   limits?: Readonly<Record<string, number>>
   /** integer 字段的闭区间范围（min / max 含端点）；越界拒绝。 */
   ranges?: Readonly<Record<string, { min?: number; max?: number }>>
   /** string 字段的封闭取值集合；截断后不在集合内的值拒绝。 */
   enums?: Readonly<Record<string, readonly string[]>>
+  /** 幂等键模板（字段 → 段前缀；绑定字段时键内段必须与请求归一值一致）。 */
+  idempotency?: Readonly<Record<string, { segment: string; boundField?: string }>>
 }
 
 /** Per-action input contracts (explicit allowlist; unknown fields rejected). */
@@ -64,6 +68,16 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.overview': { fields: { accountId: 'string', window: 'string' }, limits: { accountId: 128, window: 16 } },
   'fans.profile.get': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'overview.accounts': { fields: { accountId: 'string', window: 'string', fromDay: 'string', toDay: 'string', sort: 'string', sessionStatus: 'string' }, limits: { accountId: 128, window: 16, fromDay: 10, toDay: 10, sort: 16, sessionStatus: 16 } },
+  // AI 报表（wx-report-client 第 3 步；入参约束与抖音同名 action 逐字段一致，
+  // 字符串超限仍是截断而非拒绝——与既有 action 的差异保留）。
+  'report.list': {
+    fields: { reportType: 'string', periodStart: 'date', status: 'string', limit: 'integer', cursor: 'string', allVersions: 'boolean' },
+    limits: { status: 16, cursor: 512 },
+    ranges: { limit: { min: 1, max: 100 } },
+    enums: { reportType: ['daily', 'weekly'], status: ['pending', 'running', 'succeeded', 'failed', 'insufficient'] },
+  },
+  'report.get': { required: ['reportId'], fields: { reportId: 'string' } },
+  'report.regenerate': { required: ['reportId', 'idempotencyKey'], idempotency: { idempotencyKey: { segment: 'wx:report_regenerate', boundField: 'reportId' } }, fields: { reportId: 'string', idempotencyKey: 'string' } },
 })
 
 /** Whitelisted stable reason codes a handler may return (route-level superset). */
@@ -75,15 +89,17 @@ export function isStableCode(value: string): value is StableErrorCode {
 export type ActionArgs = Record<string, string | boolean | number | undefined>
 
 /**
- * Validate one request body against the action's schema: unknown fields and
- * wrong types are rejected (`WX_ROUTE_INVALID_REQUEST`); strings are trimmed
- * and length-capped, integer fields must be whole numbers inside their
- * `ranges` entry, and string fields with an `enums` entry only accept listed
- * values.
+ * Validate one request body against the action's schema: unknown fields,
+ * missing required fields, wrong types and non-calendar `date` values are
+ * rejected (`WX_ROUTE_INVALID_REQUEST`); strings are trimmed and
+ * length-capped, integer fields must be whole numbers inside their `ranges`
+ * entry, string fields with an `enums` entry only accept listed values, and
+ * idempotency-key fields must match their `idempotency` template
+ * (`INVALID_IDEMPOTENCY_KEY`).
  * @param action - the whitelisted action name.
  * @param body - the parsed request body.
  * @returns the validated arguments.
- * @throws {WxError} `WX_ROUTE_INVALID_REQUEST`.
+ * @throws {WxError} `WX_ROUTE_INVALID_REQUEST` / `INVALID_IDEMPOTENCY_KEY`.
  */
 export function validateActionArgs(action: string, body: Record<string, unknown>): ActionArgs {
   const schema = ACTION_SCHEMAS[action]
@@ -92,6 +108,15 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
     // `action` 是分发键本身，不属于各 action 的参数 schema。
     if (key === 'action') continue
     if (!(key in schema.fields)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `unknown field "${key}" for ${action}`)
+  }
+  for (const key of schema.required ?? []) {
+    // 必填字段缺失/null 拒绝；string 类型 trim 后空串同样按缺失拒绝。
+    const value = body[key]
+    const isStringField = schema.fields[key] === 'string' || schema.fields[key] === 'date'
+    if (value === undefined || value === null
+      || (isStringField && (typeof value !== 'string' || value.trim() === ''))) {
+      throw new WxError('WX_ROUTE_INVALID_REQUEST', `missing required field "${key}" for ${action}`)
+    }
   }
   const args: ActionArgs = {}
   for (const [key, kind] of Object.entries(schema.fields)) {
@@ -112,14 +137,53 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
       continue
     }
     if (typeof value !== 'string') throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" must be a string`)
-    const limit = schema.limits?.[key] ?? 128
-    const text = value.trim().slice(0, limit)
+    const text = value.trim()
     if (text === '') continue
+    if (kind === 'date') {
+      if (!isCalendarDate(text)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" must be a real calendar date (YYYY-MM-DD)`)
+      args[key] = text
+      continue
+    }
+    const limit = schema.limits?.[key] ?? 128
+    const capped = text.slice(0, limit)
+    if (capped === '') continue
     const allowed = schema.enums?.[key]
-    if (allowed !== undefined && !allowed.includes(text)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" has an invalid value`)
-    args[key] = text
+    if (allowed !== undefined && !allowed.includes(capped)) throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${key}" has an invalid value`)
+    args[key] = capped
+  }
+  // 幂等键模板：段前缀 + （绑定字段归一值 +）UUID（32 位小写 hex 或
+  // 8-4-4-4-12 小写 UUID）；键内绑定段与请求字段不一致 = 跨记录重放，一律
+  // 拒绝。绑定值做结构性前缀精确比较（startsWith），不拼动态 RegExp。
+  for (const [field, contract] of Object.entries(schema.idempotency ?? {})) {
+    const keyText = args[field]
+    if (typeof keyText !== 'string' || keyText === '') continue
+    const bound = contract.boundField === undefined ? undefined : args[contract.boundField]
+    if (contract.boundField !== undefined && (bound === undefined || bound === null)) {
+      throw new WxError('WX_ROUTE_INVALID_REQUEST', `field "${contract.boundField}" is required for the idempotency key`)
+    }
+    const expectedPrefix = contract.boundField === undefined
+      ? `${contract.segment}:`
+      : `${contract.segment}:${String(bound)}:`
+    if (!keyText.startsWith(expectedPrefix)) {
+      throw new WxError('INVALID_IDEMPOTENCY_KEY', `field "${field}" does not match the required idempotency key template`)
+    }
+    const suffix = keyText.slice(expectedPrefix.length)
+    if (!/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(suffix)) {
+      throw new WxError('INVALID_IDEMPOTENCY_KEY', `field "${field}" does not match the required idempotency key template`)
+    }
   }
   return args
+}
+
+/** 按月天数（含闰年）校验 YYYY-MM-DD 真实日历日期。 */
+function isCalendarDate(text: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (match === null) return false
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  if (month < 1 || month > 12 || day < 1) return false
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate()
 }
 
 /**

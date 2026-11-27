@@ -19,8 +19,8 @@
  * - §4 发布排期：12 列 + 副标 + 行状态机六态 + no-op/dirty/同键重试/放弃 +
  *   折叠/斑马纹/发布日期升序 rowId 字符串序 + 账号切换互斥 + beforeunload +
  *   18 码全表（「发布排期看板」组与本文件 schedule 组）
- * - §5 AI 报表：列表/详情双态 + 状态五态 + 版本 + 重新生成确认同键 + HTML/
- *   PDF 导出（「AI 报表页」组；PDF 桥真机为遗留）
+ * - §5 AI 报表：列表/详情双态 + 状态五态 + 版本 + 重新生成确认同键 + HTML 导出
+ *   （「AI 报表页」组）
  * - §6 负责人/投流弹层：≤128/trim 空拒绝、六字段校验分键、recordId 重挂载、
  *   PROMOTION_ALREADY_EXISTS 自动转更新（本文件 promotion/owner 组 + client
  *   组 Esc 回归）
@@ -45,9 +45,10 @@ import { validatePromotionForm } from '../../src/client/PromotionModal.tsx'
 import { progressTextOf } from '../../src/client/WorksPanel.tsx'
 import {
   SCHEDULE_PLATFORMS, buildServerSnapshot, comparePublishDate, compareRowId, readAccounts,
-  readBatchStatus, readOverview, readReportDetail, readReportList, readScheduleRows,
+  readBatchStatus, readOverview, readScheduleRows,
   toScheduleUiRow, type ScheduleUiRow,
 } from '../../src/client/schema.ts'
+import { readReportDetail, readReportList, zh as reportZh } from '@yootun/dsh-client-report'
 import { accountTrendRows, workTrendRows } from '../../src/client/charts.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 
@@ -323,7 +324,7 @@ describe('错误码词典全表（schedule 18 码 / report 17 码 / AI 9 码）'
 
   it('报表状态五态词典键齐全', () => {
     for (const key of ['report.status.succeeded', 'report.status.incomplete', 'report.status.failed', 'report.status.insufficient', 'report.status.running'] as const) {
-      expect(zh[key]).toBeDefined()
+      expect(reportZh[key]).toBeDefined()
     }
   })
 })
@@ -437,6 +438,8 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
   const packageDir = process.cwd()
   const clientDir = join(packageDir, 'src', 'client')
   const kitSrc = join(packageDir, '..', '..', 'packages', 'dsh-client-ui-kit', 'src')
+  // 报表共享包源（本插件经共享包转消费 kit 组件；共享包自身样式表另有专条守护）。
+  const reportSrcDir = join(packageDir, 'node_modules', '@yootun', 'dsh-client-report', 'src')
 
   /** 无样式表的 kit 导出名。 */
   const NO_STYLESHEET_EXPORTS = new Set([
@@ -450,18 +453,28 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
 
   const IRREGULAR_FILES: Readonly<Record<string, string>> = { PluginPageShell: 'page-shell.module.css' }
 
-  /** client 源码里从 kit 桶导入的组件名集合。 */
+  /** 一份源码里从 kit 桶导入的组件名集合。 */
+  function consumedKitComponentsIn(source: string, names: Set<string>): void {
+    for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
+      for (const raw of match[1].split(',')) {
+        const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
+        if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
+      }
+    }
+  }
+
+  /** client 源码与报表共享包源里从 kit 桶导入的组件名集合（共享包整改引入的 kit 组件由本插件声明安装）。 */
   function consumedKitComponents(): Set<string> {
     const names = new Set<string>()
     for (const file of readdirSync(clientDir).sort()) {
       if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue
       if (file === 'kit-styles.ts') continue
-      const source = readFileSync(join(clientDir, file), 'utf8')
-      for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
-        for (const raw of match[1].split(',')) {
-          const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
-          if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
-        }
+      consumedKitComponentsIn(readFileSync(join(clientDir, file), 'utf8'), names)
+    }
+    if (existsSync(reportSrcDir)) {
+      for (const file of readdirSync(reportSrcDir).sort()) {
+        if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue
+        consumedKitComponentsIn(readFileSync(join(reportSrcDir, file), 'utf8'), names)
       }
     }
     return names
@@ -478,6 +491,19 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
     for (const file of declared) {
       expect(existsSync(join(kitSrc, file)), `${file} exists`).toBe(true)
     }
+  })
+
+  it('client 源 import 报表共享包时，kit-styles 必须声明共享包样式表（样式随消费插件安装）', () => {
+    const importsReport = readdirSync(clientDir).some(name => {
+      if (!name.endsWith('.ts') && !name.endsWith('.tsx')) return false
+      if (name === 'kit-styles.ts') return false
+      return readFileSync(join(clientDir, name), 'utf8').includes('@yootun/dsh-client-report')
+    })
+    const declared = readFileSync(join(clientDir, 'kit-styles.ts'), 'utf8')
+      .match(/'@yootun\/dsh-client-report\/src\/report\.module\.css'/gu) ?? []
+    expect(importsReport, 'client 源应消费报表共享包').toBe(true)
+    expect(declared, '共享包样式表应恰好声明一次').toHaveLength(1)
+    expect(existsSync(join(packageDir, 'node_modules', '@yootun', 'dsh-client-report', 'src', 'report.module.css')), '共享包样式表存在').toBe(true)
   })
 
   it('构建脚本容器名配置未被哈希化（tsdown.client.ts container: false）', () => {
@@ -524,7 +550,7 @@ describe('词典完整性', () => {
     expect(zh.panel).toBe('抖音工作台')
     expect(zh['panel.subtitle']).toBe('扫码登录抖音创作者账号，采集并查看作品经营数据')
     expect(zh['tab.notReady']).toBe('本开发阶段未接入')
-    expect(zh['report.empty']).toContain('日报每天 11:00 / 周报周一 12:00')
+    expect(reportZh['report.empty']).toContain('日报每天 11:00 / 周报周一 12:00')
     expect(zh['ai.rerunBody']).toContain('可能产生模型调用费用')
     expect(zh['schedule.col.shootingStatusSub']).toBe('（需要补拍或配音在下方补充）')
     expect(zh['schedule.col.assetLinkSub']).toBe('（编导和账号主理人确认）')

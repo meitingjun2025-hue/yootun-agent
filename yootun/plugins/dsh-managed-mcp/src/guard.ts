@@ -58,6 +58,8 @@ const READ_TOOLS: ReadonlySet<string> = new Set([
   'yootun_wx_work_trend_get',
   'yootun_wx_account_overview_get',
   'yootun_wx_fans_profile_get',
+  'yootun_wx_reports_list',
+  'yootun_wx_report_get',
   // 爆款与知识
   'yootun_viral_rewrite_rules_list',
   'yootun_viral_knowledge_search',

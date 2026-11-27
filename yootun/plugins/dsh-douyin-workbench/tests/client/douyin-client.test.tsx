@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
+import { en as reportEn, zh as reportZh, type ReportLocaleKey } from '@yootun/dsh-client-report'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
@@ -35,6 +36,13 @@ afterEach(cleanup)
 
 const t = (key: DouyinLocaleKey, values?: Record<string, string | number>): string => {
   const text = en[key] ?? key
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+}
+
+/** 报表词典直取的翻译函数（报表词条上移共享包后的测试底盘，与 t 同构）。 */
+const reportT = (key: ReportLocaleKey, values?: Record<string, string | number>): string => {
+  const text = reportEn[key]
   if (values === undefined) return text
   return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
 }
@@ -781,6 +789,155 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
     expect(confirm.className).toMatch(/dangerButton/u)
     expect(confirm.className).toMatch(/primary/u)
   })
+
+  /** schedule.rowUpdate 的服务端行为：camelCase 入参整行映射成 snake_case 行，row_version 加一。 */
+  const rowUpdateServerRow = (args: Record<string, unknown>): Record<string, unknown> => ({
+    id: args.rowId,
+    account_id: args.accountId,
+    shooting_date: args.shootingDate ?? null,
+    video_content: args.videoContent ?? null,
+    shooting_status: args.shootingStatus === true,
+    published: args.published === true,
+    asset_link: args.assetLink ?? null,
+    note: args.note ?? null,
+    publish_date: args.publishDate ?? null,
+    publish_platforms: Array.isArray(args.publishPlatforms) ? args.publishPlatforms : [],
+    shooting_owner: args.shootingOwner ?? null,
+    editing_owner: args.editingOwner ?? null,
+    row_version: Number(args.expectedVersion ?? 1) + 1,
+  })
+
+  /** 排期底盘 mock：browser/accounts/schedule.list + rowUpdate 服务端映射（行集可替换）。 */
+  const mockScheduleBoard = (rows: ReturnType<typeof scheduleRow>[] = [scheduleRow(3, true), scheduleRow(1, false), scheduleRow(2, false)]): void => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'schedule.list') return { status: 'ready', data: { rows } }
+      if (action === 'schedule.rowUpdate') return { status: 'ready', data: { row: rowUpdateServerRow(args) } }
+      throw new Error(`unexpected action ${action}`)
+    })
+  }
+
+  const rowUpdateArgs = (): Record<string, unknown>[] =>
+    apiMock.hostAction.mock.calls.filter(([action]) => action === 'schedule.rowUpdate').map(([, args]) => args as Record<string, unknown>)
+
+  /** 渲染工作台、进入创作组看板并等表格就绪，返回行 1 的查询范围。 */
+  const openScheduleBoard = async (): Promise<ReturnType<typeof within>> => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
+    await screen.findByRole('table', { name: en['tab.schedule'] })
+    return within(document.querySelector('tr[data-row-id="1"]') as HTMLElement)
+  }
+
+  it('A1 勾选「是否发布」改动即保存：恰好一次调用，入参带 published 与行版本幂等键，成功后行进入已发布组', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.col.published']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.published).toBe(true)
+    expect(calls[0]?.expectedVersion).toBe('1')
+    expect(String(calls[0]?.idempotencyKey)).toMatch(/^douyin:publish_schedule_update:1:/u)
+    // 保存成功后行离开未发布组进入已发布折叠组（折叠钮计数 1 → 2）；展开后行带已发布底色类。
+    fireEvent.click(await screen.findByRole('button', { name: t('schedule.fold.expand', { count: 2 }) }))
+    const publishedRow = await waitFor(() => {
+      const el = document.querySelector('tr[data-row-id="1"]')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    expect(publishedRow.className).toMatch(/scheduleRowPublished/u)
+    expect(rowUpdateArgs()).toHaveLength(1)
+  })
+
+  it('A2 点「拍摄情况」改动即保存：恰好一次调用，入参 shootingStatus 是翻转后的值', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.col.shootingStatus']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.shootingStatus).toBe(false)
+  })
+
+  it('A3 改拍摄日期改动即保存：恰好一次调用，入参 shootingDate 是新日期', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.change(row.getByLabelText(en['schedule.col.shootingDate']), { target: { value: '2026-11-28' } })
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.shootingDate).toBe('2026-11-28')
+  })
+
+  it('A4 改发布日期改动即保存：恰好一次调用，入参 publishDate 是新日期', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.change(row.getByLabelText(en['schedule.col.publishDate']), { target: { value: '2026-11-30' } })
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.publishDate).toBe('2026-11-30')
+  })
+
+  it('A5 勾选未选的发布平台改动即保存：恰好一次调用，入参 publishPlatforms 含该平台且顺序与白名单一致', async () => {
+    mockScheduleBoard()
+    const row = await openScheduleBoard()
+    fireEvent.click(row.getByLabelText(en['schedule.platform.xhs']))
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(1)
+      return updates
+    })
+    expect(calls[0]?.publishPlatforms).toEqual(['xhs', 'douyin'])
+  })
+
+  it('A6 保存在途继续输入：第一次返回后输入保留并自动补提交，第二次带第二次输入与新行版本，共两次调用', async () => {
+    let rowUpdateCount = 0
+    let releaseFirst: (() => void) | null = null
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'schedule.list') return { status: 'ready', data: { rows: [scheduleRow(1, false)] } }
+      if (action === 'schedule.rowUpdate') {
+        rowUpdateCount += 1
+        if (rowUpdateCount === 1) {
+          // 第一次保存挂起，等测试放行（模拟在途窗口）。
+          return new Promise<Record<string, unknown>>(resolve => { releaseFirst = () => resolve({ status: 'ready', data: { row: rowUpdateServerRow(args) } }) })
+        }
+        return { status: 'ready', data: { row: rowUpdateServerRow(args) } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    const row = await openScheduleBoard()
+    const ownerInput = row.getByLabelText(en['schedule.col.editingOwner'])
+    fireEvent.change(ownerInput, { target: { value: '王五' } })
+    fireEvent.blur(ownerInput)
+    await waitFor(() => expect(rowUpdateArgs()).toHaveLength(1))
+    expect(releaseFirst).not.toBeNull()
+    // 第一次保存返回前继续输入。
+    fireEvent.change(ownerInput, { target: { value: '赵六' } })
+    releaseFirst?.()
+    const calls = await waitFor(() => {
+      const updates = rowUpdateArgs()
+      expect(updates).toHaveLength(2)
+      return updates
+    })
+    // 第二次保存入参：editingOwner 是第二次输入，expectedVersion 是第一次返回的行版本。
+    expect(calls[1]?.editingOwner).toBe('赵六')
+    expect(calls[1]?.expectedVersion).toBe('2')
+    // 第二次落定后输入框保留第二次输入，未被任何返回覆盖。
+    expect((row.getByLabelText(en['schedule.col.editingOwner']) as HTMLInputElement).value).toBe('赵六')
+    expect(rowUpdateArgs()).toHaveLength(2)
+  })
 })
 
 describe('AI 报表页（parity 矩阵 §5）', () => {
@@ -813,17 +970,17 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     const table = await screen.findByRole('table', { name: en['tab.report'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent).filter(text => text !== '')
     expect(headers).toEqual([
-      en['report.col.period'], en['report.col.status'], en['report.col.version'],
-      en['report.col.coverage'], en['report.col.generatedAt'], en['report.col.note'],
+      reportEn['report.col.period'], reportEn['report.col.status'], reportEn['report.col.version'],
+      reportEn['report.col.coverage'], reportEn['report.col.generatedAt'], reportEn['report.col.note'],
     ])
     // 状态五态（已生成 / 数据不全 / 生成失败 / 数据不足 / 生成中）。
     for (const key of ['report.status.succeeded', 'report.status.incomplete', 'report.status.failed', 'report.status.insufficient', 'report.status.running'] as const) {
-      expect(screen.getAllByText(en[key]).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(reportEn[key]).length).toBeGreaterThan(0)
     }
     // 无 nextCursor 时不渲染加载更多。
-    expect(screen.queryByRole('button', { name: en['report.loadMore'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: reportEn['report.loadMore'] })).toBeNull()
     // 每行查看按钮为次操作。
-    expect(screen.getAllByRole('button', { name: en['report.view'] })[0]?.className).toMatch(/ghost/u)
+    expect(screen.getAllByRole('button', { name: reportEn['report.view'] })[0]?.className).toMatch(/ghost/u)
   })
 
   it('详情：工具栏 + 报表头口径 + KPI 涨红跌绿 + 账号表 —* + 重新生成确认文案', async () => {
@@ -863,26 +1020,27 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     })
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    expect(await screen.findByRole('button', { name: en['report.back'] })).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['report.regenerate'] })).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['report.exportHtml'] }).className).toMatch(/ghost/u)
-    expect(screen.getByRole('button', { name: en['report.exportPdf'] })).not.toBeNull()
-    expect(screen.getByText(en['report.header.interaction'])).not.toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: reportEn['report.view'] }))
+    expect(await screen.findByRole('button', { name: reportEn['report.back'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: reportEn['report.regenerate'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: reportEn['report.exportHtml'] }).className).toMatch(/ghost/u)
+    // PDF 导出按钮不存在（桌面桥从未实现）。
+    expect(screen.queryByRole('button', { name: 'Export PDF' })).toBeNull()
+    expect(screen.getByText(reportEn['report.header.interaction'])).not.toBeNull()
     // KPI 环比：上涨 ▲ / 下跌 ▼ / 无基准 flat。
     expect(screen.getByText(/▲8\.5%/u)).not.toBeNull()
     expect(screen.getByText(/▼2\.5%/u)).not.toBeNull()
-    expect(screen.getByText(new RegExp(`${en['report.change.daily']} ${en['report.change.noBase']}`, 'u'))).not.toBeNull()
+    expect(screen.getByText(new RegExp(`${reportEn['report.change.daily']} ${reportEn['report.change.noBase']}`, 'u'))).not.toBeNull()
     // 缺采账号 —* 口径 + QualityBar 缺采清单。
     expect(screen.getByText(/—\*/u)).not.toBeNull()
-    expect(screen.getByText(new RegExp(en['report.quality.missing'].replace('{list}', '.*'), 'u'))).not.toBeNull()
+    expect(screen.getByText(new RegExp(reportEn['report.quality.missing'].replace('{list}', '.*'), 'u'))).not.toBeNull()
     // 重新生成二次确认文案（v{next}）。
-    fireEvent.click(screen.getByRole('button', { name: en['report.regenerate'] }))
-    expect((await screen.findAllByText(t('report.regenerateBody', { version: 3 }))).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: en['report.regenerateConfirm'] }).className).toMatch(/primary/u)
+    fireEvent.click(screen.getByRole('button', { name: reportEn['report.regenerate'] }))
+    expect((await screen.findAllByText(reportT('report.regenerateBody', { version: 3 }))).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: reportEn['report.regenerateConfirm'] }).className).toMatch(/primary/u)
   })
 
-  it('日报区段：口径标签/小标题区段/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
+  it('日报区段：口径标签/趋势卡标题/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
@@ -913,40 +1071,35 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     })
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    await screen.findByRole('button', { name: en['report.back'] })
-    // 口径标签为 dl 的 dt（高亮标签）；三张区段卡（趋势/账号/作品）包区段容器（小标题竖杠加粗）。
-    expect(screen.getByText(en['report.header.base']).tagName).toBe('DT')
-    expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(3)
+    fireEvent.click(await screen.findByRole('button', { name: reportEn['report.view'] }))
+    await screen.findByRole('button', { name: reportEn['report.back'] })
+    // 口径标签为 dl 的 dt（高亮标签）。
+    expect(screen.getByText(reportEn['report.header.base']).tagName).toBe('DT')
+    // 2.8「趋势图容器」：趋势改用 kit ChartFrame（业务问题标题的 h2）；随
+    // `.reportSection h2` 结构选择器覆盖删除，区段容器类不再出现。
+    expect(screen.getByText(reportT('report.trend.daily')).tagName).toBe('H2')
+    expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(0)
     // 账号名加粗类 + 「N 天未发布」提示胶囊。
     expect(screen.getByText('账号一').className).toMatch(/reportAccountName/u)
     expect(screen.getByText('3 天未发布').className).toMatch(/reportMark/u)
-    // 较昨日对比行挂 kpiChange（12px 加粗）。
-    expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
-    // 趋势图：悬浮列 → 深色单行气泡只显示「净粉丝: 值」（旧 chart-tip 同构）。
-    expect(screen.queryByText(`${en['report.trend.lineTip']}: +5`)).toBeNull()
+    // 2.8「KPI 行/变化量」：KPI 改用 kit KpiCard，变化说明经 footnote 传入
+    // （涨红跌绿 token 不变），旧 kpiTile/kpiChange 瓦片类不再绑定。
+    const changeNode = screen.getByText(/▲8\.5%/u)
+    const kpiCard = changeNode.closest('section')
+    expect(kpiCard).not.toBeNull()
+    expect(kpiCard?.querySelector('h2')).toBeNull()
+    // 2.8「趋势图浮层」：旧深色单行气泡换成 kit ChartTooltip——标题是日期，
+    // 两行是柱、线两个系列的值。
     fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
-    expect(await screen.findByText(`${en['report.trend.lineTip']}: +5`)).not.toBeNull()
-    // 气泡不含柱系列说明与日期标题（避免与图下说明重复）。
-    expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
-    expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
-  })
-
-  it('PDF 桥不可用：稳定报 export_unsupported，不假成功', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string) => {
-      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
-      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
-      if (action === 'report.list') return { status: 'ready', data: { items: [reportItem('r-1', 'succeeded', 1)], nextCursor: null } }
-      if (action === 'report.get') {
-        return { status: 'ready', data: { report: { reportId: 'r-1', reportType: 'daily', periodStart: '2026-11-20', periodEnd: '2026-11-21', status: 'succeeded', outputSchemaVersion: 'daily-v1', errorCode: null, finishedAt: null, resultJson: null } } }
-      }
-      throw new Error(`unexpected action ${action}`)
-    })
-    render(<WorkbenchPage t={t} locale={locale} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.exportPdf'] }))
-    expect(await screen.findByText(new RegExp(en['reason.export_unsupported'], 'u'))).not.toBeNull()
+    const tooltip = await screen.findByRole('status')
+    expect(within(tooltip).getByText('11-19')).not.toBeNull()
+    expect(within(tooltip).getByText(reportT('report.col.plays'))).not.toBeNull()
+    expect(within(tooltip).getByText('100')).not.toBeNull()
+    expect(within(tooltip).getByText(reportT('report.col.netFans'))).not.toBeNull()
+    expect(within(tooltip).getByText('+5')).not.toBeNull()
+    // 浮层不含柱系列口径说明（口径说明在图例与脚注）。
+    expect(screen.queryByText(reportEn['report.trend.barDaily'])).toBeNull()
+    expect(screen.queryByText(reportEn['report.trend.lineNote'])).toBeNull()
   })
 })
 
@@ -1841,6 +1994,8 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
 describe('词典与源码红线', () => {
   const clientDir = join(process.cwd(), 'src', 'client')
+  // 报表页源文件已上移共享包 @yootun/dsh-client-report（src/ 平面直读）。
+  const reportSrcDir = join(process.cwd(), '..', '..', 'packages', 'dsh-client-report', 'src')
 
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
@@ -1900,9 +2055,17 @@ describe('词典与源码红线', () => {
   })
 
   it('关键页面逐文件通过红线扫描（OverviewPage / WorkDetailModal / charts / ReportPage）', () => {
-    for (const name of ['OverviewPage.tsx', 'WorkDetailModal.tsx', 'charts.tsx', 'ReportPage.tsx']) {
+    for (const name of ['OverviewPage.tsx', 'WorkDetailModal.tsx', 'charts.tsx']) {
       expect(existsSync(join(clientDir, name)), `${name} 应存在`).toBe(true)
       const source = stripSourceComments(readFileSync(join(clientDir, name), 'utf8'))
+      expect(source, `${name} inline style`).not.toContain('style="')
+      expect(source, `${name} 字面色值`).not.toMatch(COLOR_LITERAL_RE)
+      expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
+    }
+    // 报表页上移共享包后，红线扫描目标路径随迁移指向共享包报表源文件。
+    for (const name of ['report-page.tsx', 'report-detail.tsx', 'report-chart.tsx', 'report-export.ts']) {
+      expect(existsSync(join(reportSrcDir, name)), `${name} 应存在`).toBe(true)
+      const source = stripSourceComments(readFileSync(join(reportSrcDir, name), 'utf8'))
       expect(source, `${name} inline style`).not.toContain('style="')
       expect(source, `${name} 字面色值`).not.toMatch(COLOR_LITERAL_RE)
       expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
@@ -1910,7 +2073,8 @@ describe('词典与源码红线', () => {
   })
 
   it('ReportPage 导出 HTML 的自包含 token 内联（专门例外）：运行时经 resolveToken/getComputedStyle 解析，源码零字面色值', () => {
-    const source = readFileSync(join(clientDir, 'ReportPage.tsx'), 'utf8')
+    // 导出序列化随页面上移共享包（report-export.ts），目标路径随迁移。
+    const source = readFileSync(join(reportSrcDir, 'report-export.ts'), 'utf8')
     // 导出的自包含 HTML 颜色在运行时由 token 解析内联（getComputedStyle），
     // 源码层不出现任何字面色值——这是与全局红线并存的受控例外，由本测试锁定。
     expect(source).toMatch(/resolveToken/u)

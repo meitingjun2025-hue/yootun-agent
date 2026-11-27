@@ -414,6 +414,7 @@ export function useWxWorkbenchPage(props: WorkbenchPageProps) {
   const tabs: readonly [TabItem, ...TabItem[]] = [
     { value: 'works', label: t('tab.works'), id: 'wx-tab-works', panelId: 'wx-panel-works' },
     { value: 'overview', label: t('tab.overview'), id: 'wx-tab-overview', panelId: 'wx-panel-overview' },
+    { value: 'report', label: t('tab.report'), id: 'wx-tab-report', panelId: 'wx-panel-report' },
   ]
   const headerStatus: ReactNode = browser === 'loading'
     ? <span className={css.headerStatus}><StateDot state='ongoing' />{t('header.status.browserChecking')}</span>

@@ -616,7 +616,6 @@
   background: var(--dsw-alias-bg-layer-1);
 }
 
-
 .workTable tbody tr {
   cursor: pointer;
 }
@@ -906,13 +905,6 @@
 .cellNum {
   text-align: end;
   font-variant-numeric: tabular-nums;
-}
-
-.cellNote {
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--dsw-alias-label-secondary);
 }
 
 .accountNameCell {
@@ -1445,7 +1437,6 @@
   border: 1px solid color-mix(in srgb, var(--dsw-alias-state-error-primary) 35%, transparent);
 }
 
-
 .barRank {
   min-width: 12px;
   font-size: 12px;
@@ -1548,8 +1539,7 @@
   min-width: 0;
 }
 
-.axisSvg,
-.comboSvg {
+.axisSvg {
   display: block;
   width: 100%;
   height: auto;
@@ -1612,59 +1602,6 @@
   border-left: 1px dashed var(--dsw-alias-label-tertiary);
   transform: translateX(-50%);
   pointer-events: none;
-}
-
-.comboBar {
-  fill: var(--yt-chart-2);
-  opacity: 0.45;
-}
-
-.comboBarLast {
-  fill: var(--yt-chart-1);
-  opacity: 1;
-}
-
-.comboLine {
-  stroke: var(--yt-chart-4);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  fill: none;
-}
-
-.comboDot {
-  fill: var(--yt-chart-4);
-}
-
-/* 组合图悬浮气泡（旧插件 chart-tip 同构）：深色单行，跟随悬停列，不遮挡指针。 */
-.comboTip {
-  position: absolute;
-  transform: translate(-50%, calc(-100% - 8px));
-  padding: 6px 10px;
-  border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 组合图每期命中列：整期列宽可悬浮/聚焦（弹数值浮层），透明无焦点框。 */
-.comboColumn {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: default;
-}
-
-.comboColumn:focus,
-.comboColumn:focus-visible {
-  outline: none;
 }
 
 /* 表单弹层（负责人 / 投流） */
@@ -2188,19 +2125,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.loadMore {
-  align-self: center;
-}
-
-/* AI 报表 */
-
-.reportBody {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
 /* 基因详情采纳状态 chip（选中态高亮，浅深主题自适应）。 */
 .adoptionChip {
   border: 1px solid var(--dsw-alias-border-l1);
@@ -2214,41 +2138,6 @@
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1));
   color: var(--dsw-alias-label-primary);
   font-weight: 500;
-}
-
-/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠承载强调。
-   DataCard 标题为 kit 模块类，按结构选择器在报表区段内覆盖。 */
-.reportSection h2 {
-  padding-left: 10px;
-  border-left: 3px solid var(--dsw-static-blue-500);
-  font-size: 15px;
-  font-weight: 500;
-  white-space: normal;
-}
-
-/* KPI 卡「较昨日/较上周」对比行：12px（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
-.kpiTile .kpiChange {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-}
-
-/* 账号明细：账号名加粗（旧 ydo-report-cell-main 同构）。 */
-.reportAccountName {
-  font-weight: 500;
-}
-
-/* 「N 天未发布」等提示胶囊（旧 ydo-report-mark 同构）：橙色实底白字，浅深主题一致。 */
-.reportMark {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--dsw-static-amber-600);
-  color: var(--dsw-static-neutral-00);
-  font-size: 12px;
-  font-weight: 400;
-  white-space: nowrap;
 }
 
 .metaList {
@@ -2285,211 +2174,6 @@
   overflow-wrap: anywhere;
 }
 
-.qualityBar {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.qualityMissing {
-  color: var(--dsw-alias-state-warn-primary);
-}
-
-.reportInsufficient {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 32px 16px;
-  border: 1px dashed var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-xl);
-  text-align: center;
-}
-
-.reportInsufficient p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.signalList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.reportWaiting {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: center;
-}
-
-.workCards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
-  min-width: 0;
-}
-
-.workCard {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: var(--dsw-radius-xl);
-  background: var(--dsw-alias-bg-layer-1);
-  min-width: 0;
-}
-
-.workCardHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.workCardTitle {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.workCardAccount {
-  flex: none;
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.workCardMetrics {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
-}
-
-.workCardMetrics dt {
-  font-size: 12px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.workCardMetrics dd {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  color: var(--dsw-alias-label-primary);
-}
-
-.workCardSecondary {
-  margin: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--dsw-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.progressTrack {
-  display: block;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-layer-2);
-  overflow: hidden;
-}
-
-.progressFill {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--dsw-alias-border-selected);
-}
-
-.insightGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  min-width: 0;
-}
-
-.insightCol {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-  padding: 12px;
-  border-radius: var(--dsw-radius-xl);
-}
-
-.insightCol[data-tone='fact'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-}
-
-.insightCol[data-tone='infer'] {
-  background: color-mix(in srgb, var(--dsw-alias-border-selected) 10%, transparent);
-}
-
-.insightCol[data-tone='advice'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
-}
-
-.insightCol h4 {
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.insightList {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.insightList li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-}
-
-.insightMoreItem {
-  padding: 8px 10px;
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-2);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.insightMoreItem p {
-  margin: 2px 0 0;
-  color: var(--dsw-alias-label-primary);
-  overflow-wrap: anywhere;
-}
-
 /* 容器断点：1120 完整还原 / 880 上下结构 / 640 单列 */
 
 @container yootun-kit-page (min-width: 880px) {
@@ -2508,10 +2192,6 @@
 
   .metricGrid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .insightGrid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .audienceGrid {

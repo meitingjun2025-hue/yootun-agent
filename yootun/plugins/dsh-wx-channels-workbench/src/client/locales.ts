@@ -1,13 +1,18 @@
 /**
  * 视频号工作台 locale 词典：zh 为键集事实源，en 全量同步（plugin-ui-ux §七）。
+ * 报表错误码 18 条文案（展开自共享包 `@yootun/dsh-client-report` 的
+ * REPORT_REASONS_ZH/EN，键集单一事实源在共享包；`report.filePrefix` 属平台，
+ * 词条留在本词典）。
  * @module
  */
+import { REPORT_REASONS_EN, REPORT_REASONS_ZH } from '@yootun/dsh-client-report'
 
 export const zh = {
   'panel': '视频号工作台',
   'panel.subtitle': '扫码登录视频号助手，采集账号全部作品、账号数据与关注者数据',
   'tab.works': '作品数据',
   'tab.overview': '账号总览',
+  'tab.report': 'AI 报表',
   'header.status.browserChecking': '正在检查浏览器…',
   'header.status.browserReady': '浏览器就绪',
   'header.status.browserBlocked': '浏览器不可用',
@@ -148,6 +153,7 @@ export const zh = {
   'col.publishTime': '发布时间',
   'col.completion': '完播率',
   'col.avgDuration': '平均播放时长',
+  'col.fastFlip': '快速划过率',
   'col.play': '播放',
   'col.like': '喜欢',
   'col.favorite': '收藏',
@@ -340,6 +346,14 @@ export const zh = {
   'portrait.barAria': '{name}：{count} 人，占比 {share}%',
   'portrait.columnAria': '{name}：{count} 人，占比 {share}%',
   'portrait.topNote': '前 {top} / 共 {total} 项',
+  // AI 报表页（wx-report-client 第 3 步）：文件名前缀与作品卡扩展区（流量来源
+  // 与最大流失点，结构见 wx-report-server.md 2.4；数据经 renderWorkExtra 注入）。
+  'report.filePrefix': '视频号运营',
+  'report.extra.trafficSource': '流量来源',
+  'report.extra.maxLost': '最大流失点 {seconds}s · 该秒留存 {percent}',
+  'report.extra.duration': '视频时长 {seconds}s',
+  // 报表 17 码 + default：展开共享包 REPORT_REASONS_ZH（键集单一事实源，键名沿用既有键）。
+  ...REPORT_REASONS_ZH,
   'unit.seconds': '秒',
 } as const
 
@@ -350,6 +364,7 @@ export const en: Record<WxLocaleKey, string> = {
   'panel.subtitle': 'Scan to sign in to the Channels assistant and collect all works, account metrics, and follower data',
   'tab.works': 'Works',
   'tab.overview': 'Account overview',
+  'tab.report': 'AI reports',
   'header.status.browserChecking': 'Checking the browser…',
   'header.status.browserReady': 'Browser ready',
   'header.status.browserBlocked': 'Browser unavailable',
@@ -484,6 +499,7 @@ export const en: Record<WxLocaleKey, string> = {
   'col.publishTime': 'Published',
   'col.completion': 'Completion',
   'col.avgDuration': 'Avg play duration',
+  'col.fastFlip': 'Fast flip rate',
   'col.play': 'Plays',
   'col.like': 'Likes',
   'col.favorite': 'Favorites',
@@ -672,6 +688,11 @@ export const en: Record<WxLocaleKey, string> = {
   'portrait.barAria': '{name}: {count} people, {share}%',
   'portrait.columnAria': '{name}: {count} people, {share}%',
   'portrait.topNote': 'Top {top} of {total}',
+  'report.filePrefix': 'Channels operations',
+  'report.extra.trafficSource': 'Traffic sources',
+  'report.extra.maxLost': 'Max drop-off at {seconds}s · {percent} still watching',
+  'report.extra.duration': 'Video length {seconds}s',
+  ...REPORT_REASONS_EN,
   'unit.seconds': 's',
 }
 

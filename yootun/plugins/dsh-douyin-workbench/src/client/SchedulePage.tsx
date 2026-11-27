@@ -202,7 +202,12 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
   }, [scheduleAccountId, loadRows])
 
   const editCell = useCallback((rowId: string, field: keyof ScheduleUiRow, value: unknown): void => {
-    setRows(previous => previous.map(row => (row.rowId === rowId ? { ...row, [field]: value } as ScheduleUiRow : row)))
+    // 行数据同步写入 rowsRef 与 state：handleImmediate/handleBlur 在本函数返回后
+    // 立即调用的 performSave 从 rowsRef 读行，而 ref 要等渲染后的 effect 才更新。
+    const applyField = (rows: ScheduleUiRow[]): ScheduleUiRow[] =>
+      rows.map(row => (row.rowId === rowId ? { ...row, [field]: value } as ScheduleUiRow : row))
+    rowsRef.current = applyField(rowsRef.current)
+    setRows(applyField)
     // saving/queued 中继续输入：合并进 dirty 快照（成功后按差异补提交）。
     setRowStates(previous => {
       const state = previous[rowId]
@@ -219,7 +224,6 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
     if (!reuseKey && state.status === 'idle' && !savedSnapshotChanged(row, state)) return
     const seq = seqRef.current
     const key = reuseKey && state.idempotencyKey !== null ? state.idempotencyKey : `douyin:publish_schedule_update:${rowId}:${attemptId()}`
-    const dirty = state.dirtySnapshot
     setRowStates(previous => ({
       ...previous,
       [rowId]: {
@@ -272,10 +276,18 @@ export function SchedulePage(props: SchedulePageProps): ReactNode {
       flashHint(domainErrorText('schedule', 'douyin_operation_request_failed', t), 'error')
       return
     }
-    if (dirty !== null && dirty !== undefined) {
-      const merged = { ...serverRow, ...dirty } as ScheduleUiRow
+    // 保存成功时重读该行当前的 dirty 快照：发起保存后在途输入由 editCell 累计，
+    // 闭包捕获的调用时快照不含这些输入。
+    const pendingDirty = statesRef.current[rowId]?.dirtySnapshot ?? null
+    if (pendingDirty !== null) {
+      const merged = { ...serverRow, ...pendingDirty } as ScheduleUiRow
+      const mergedState = createRowState(serverRow.rowVersion, buildServerSnapshot(serverRow))
+      // 补提交从两个 ref 读行与行状态，先把合并结果同步写入（与下方 setState 的
+      // 值一致），否则补提交读到保存中的旧行状态、携带旧的行版本。
+      rowsRef.current = rowsRef.current.map(item => (item.rowId === rowId ? merged : item))
+      statesRef.current = { ...statesRef.current, [rowId]: mergedState }
       setRows(previous => previous.map(item => (item.rowId === rowId ? merged : item)))
-      setRowStates(previous => ({ ...previous, [rowId]: createRowState(serverRow.rowVersion, buildServerSnapshot(serverRow)) }))
+      setRowStates(previous => ({ ...previous, [rowId]: mergedState }))
       if (dirtyResubmitNeeded(serverRow, merged)) {
         await performSaveRef.current(rowId)
       } else {

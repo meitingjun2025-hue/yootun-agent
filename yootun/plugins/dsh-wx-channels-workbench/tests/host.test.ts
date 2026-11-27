@@ -32,8 +32,9 @@ test('action allowlist：全部 action 有 schema', () => {
     'collect.status', 'collect.running', 'collect.cancel', 'collectAll.start', 'collectAll.status',
     'collectAll.cancel', 'run.get', 'works.list', 'work.get', 'work.trend', 'account.overview',
     'fans.profile.get', 'overview.accounts',
+    'report.list', 'report.get', 'report.regenerate',
   ]
-  assert.equal(expected.length, 22, 'mount-restore 单删除 account.refreshLoginQr：22 项')
+  assert.equal(expected.length, 25, 'mount-restore 单删除 account.refreshLoginQr 后 22 项 + AI 报表 3 项（wx-report-client 第 3 步）：25 项')
   assert.deepEqual(Object.keys(ACTION_SCHEMAS).sort(), expected.sort())
 })
 
@@ -97,6 +98,92 @@ test('schema：integer 字段只接受整数并按范围校验，string 枚举�
     error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
   const flag = validateActionArgs('collect.start', { accountId: 'a', newAttempt: true })
   assert.equal(flag.newAttempt, true)
+})
+
+// --- AI 报表 action（wx-report-client 第 3 步，附录 B H1–H4）---
+
+test('H1 报表 action 入 allowlist 且未知字段拒绝', () => {
+  for (const action of ['report.list', 'report.get', 'report.regenerate']) {
+    assert.ok(action in ACTION_SCHEMAS, `${action} has schema`)
+    assert.throws(() => validateActionArgs(action, { bogus: 'x' }), (error: unknown) =>
+      error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST', `${action} unknown field`)
+  }
+})
+
+test('H2 报表 action 三项新校验能力：必填 / 日期 / 幂等键模板', () => {
+  const invalid = (action: string, body: Record<string, unknown>, code: string): void => {
+    assert.throws(() => validateActionArgs(action, body), (error: unknown) =>
+      error instanceof WxError && error.code === code)
+  }
+  // 必填：report.get 缺 reportId 拒绝（缺失、null、空白串三种形态）。
+  invalid('report.get', {}, 'WX_ROUTE_INVALID_REQUEST')
+  invalid('report.get', { reportId: null }, 'WX_ROUTE_INVALID_REQUEST')
+  invalid('report.get', { reportId: '   ' }, 'WX_ROUTE_INVALID_REQUEST')
+  assert.equal(validateActionArgs('report.get', { reportId: 'r-1' }).reportId, 'r-1')
+  // 日期：report.list 的 periodStart 必须是真实日历日期（YYYY-MM-DD）。
+  invalid('report.list', { periodStart: '20261120' }, 'WX_ROUTE_INVALID_REQUEST')
+  invalid('report.list', { periodStart: '2026-02-30' }, 'WX_ROUTE_INVALID_REQUEST')
+  invalid('report.list', { periodStart: 'not-a-date' }, 'WX_ROUTE_INVALID_REQUEST')
+  assert.equal(validateActionArgs('report.list', { periodStart: ' 2026-11-20 ' }).periodStart, '2026-11-20')
+  assert.equal(validateActionArgs('report.list', { periodStart: '2028-02-29' }).periodStart, '2028-02-29')
+  invalid('report.list', { periodStart: '2026-02-29' }, 'WX_ROUTE_INVALID_REQUEST')
+  // 枚举与范围（与抖音同名 action 一致）。
+  invalid('report.list', { reportType: 'monthly' }, 'WX_ROUTE_INVALID_REQUEST')
+  invalid('report.list', { limit: 101 }, 'WX_ROUTE_INVALID_REQUEST')
+  const listed = validateActionArgs('report.list', { reportType: 'daily', status: 'succeeded', limit: 20, allVersions: true })
+  assert.deepEqual(listed, { reportType: 'daily', status: 'succeeded', limit: 20, allVersions: true })
+  // 幂等键模板：前缀错误 / 键内 reportId 与请求不一致 / 后缀非 UUID 拒绝。
+  const keyPrefix = 'wx:report_regenerate:r-1'
+  invalid('report.regenerate', { reportId: 'r-1', idempotencyKey: 'douyin:report_regenerate:r-1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, 'INVALID_IDEMPOTENCY_KEY')
+  invalid('report.regenerate', { reportId: 'r-1', idempotencyKey: `${keyPrefix}:gggggggggggggggggggggggggggggggg` }, 'INVALID_IDEMPOTENCY_KEY')
+  invalid('report.regenerate', { reportId: 'r-2', idempotencyKey: `${keyPrefix}:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` }, 'INVALID_IDEMPOTENCY_KEY')
+  invalid('report.regenerate', { reportId: 'r-1', idempotencyKey: `${keyPrefix}:not-a-uuid` }, 'INVALID_IDEMPOTENCY_KEY')
+  invalid('report.regenerate', { idempotencyKey: `${keyPrefix}:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` }, 'WX_ROUTE_INVALID_REQUEST')
+  // 32 位小写 hex 与 UUID 两种后缀都放行。
+  assert.equal(
+    validateActionArgs('report.regenerate', { reportId: 'r-1', idempotencyKey: `${keyPrefix}:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` }).idempotencyKey,
+    `${keyPrefix}:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`,
+  )
+  assert.equal(
+    validateActionArgs('report.regenerate', { reportId: 'r-1', idempotencyKey: `${keyPrefix}:1d2c3b4a-5e6f-4a7b-8c9d-0e1f2a3b4c5d` }).idempotencyKey,
+    `${keyPrefix}:1d2c3b4a-5e6f-4a7b-8c9d-0e1f2a3b4c5d`,
+  )
+})
+
+test('H3 加入三项能力后既有 action 校验结果逐项不变', () => {
+  // string 截断、integer 区间、boolean 类型、枚举封闭、未知字段、未知 action
+  // 全部沿用加入前的结果（与上方既有 schema 用例互为冗余的显式回归锚点）。
+  assert.equal((validateActionArgs('works.list', { accountId: ` ${'x'.repeat(200)} ` }).accountId as string).length, 128)
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', limit: 0 }), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+  assert.throws(() => validateActionArgs('works.list', { accountId: 'a', sort: 'bogus' }), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+  assert.throws(() => validateActionArgs('collect.start', { accountId: 'a', newAttempt: 1 }), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_INVALID_REQUEST')
+  assert.throws(() => validateActionArgs('overview.accounts', { bogus: 'x' }), /unknown field/)
+  assert.throws(() => validateActionArgs('nonexistent', {}), (error: unknown) =>
+    error instanceof WxError && error.code === 'WX_ROUTE_UNKNOWN_ACTION')
+  // 可选字段缺省时 args 不携带该键（透传链路 filterUndefined 的输入形态不变）。
+  assert.deepEqual(validateActionArgs('report.list', {}), {})
+  assert.deepEqual(Object.keys(validateActionArgs('account.overview', { accountId: 'a', window: 'last_7d' })).sort(), ['accountId', 'window'])
+})
+
+test('H4 新增 14 个稳定码经 safeCode 原样投影，不收敛为 WX_TOOL_UNAVAILABLE', () => {
+  const codes = [
+    'REPORT_NOT_FOUND', 'REPORT_DISABLED', 'REPORT_INSUFFICIENT_DATA', 'REPORT_MODEL_FAILED',
+    'REPORT_SCHEMA_INVALID', 'REPORT_TIMEOUT', 'REPORT_TRUNCATED', 'REPORT_INPUT_TOO_LARGE',
+    'REPORT_PAYLOAD_TOO_LARGE', 'REPORT_ENQUEUE_FAILED', 'REPORT_MODEL_CONFIG_MISSING',
+    'REPORT_LEASE_EXPIRED', 'REPORT_PROMPT_INVALID', 'INVALID_CURSOR',
+  ]
+  assert.equal(codes.length, 14)
+  for (const code of codes) {
+    // Workbench envelope 嵌套码（透传链路的真实错误形态）原样投影。
+    const error = { payload: { error: { code } } }
+    assert.equal(safeCode(error), code, `safeCode ${code}`)
+    assert.ok((STABLE_ERROR_CODES as readonly string[]).includes(code), `${code} in whitelist`)
+  }
+  // 非白名单的报表形态码仍收敛（白名单口径未放宽）。
+  assert.equal(safeCode({ payload: { error: { code: 'REPORT_BOGUS' } } }), 'WX_TOOL_UNAVAILABLE')
 })
 
 test('体上限：超过 64KB 投影 WX_ROUTE_PAYLOAD_TOO_LARGE（413）', async () => {

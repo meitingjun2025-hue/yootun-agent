@@ -12,7 +12,7 @@
 |---|---|
 | 页面骨架 | 对齐旧插件 |
 | 区域关系 | 对齐旧插件 |
-| 顶级导航 | 对齐旧插件：作品数据 / 账号总览 |
+| 顶级导航 | 对齐旧插件：作品数据 / 账号总览；2026-11-27 起新增第三项「AI 报表」（旧插件无此页，基准见 §11 与 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)） |
 | 交互方式 | 对齐旧插件，包括作品行双击打开详情、Enter 等价路径、工具栏就地进度 |
 | 信息密度 | 对齐旧插件，包括 4 张作品摘要卡、10 项账号指标、4 项关注者指标、画像五维同屏 |
 | 视觉样式 | 按 yootun 新规范重做 |
@@ -43,16 +43,18 @@ PluginPageShell
 │  └─ 浏览器状态 / 刷新等全局辅助操作
 ├─ SegmentedTabs
 │  ├─ 作品数据
-│  └─ 账号总览
+│  ├─ 账号总览
+│  └─ AI 报表（2026-11-27 起，§11）
 └─ Body
    ├─ 作品数据：左侧账号管理 + 右侧作品面板
-   └─ 账号总览：全宽三段数据区
+   ├─ 账号总览：全宽三段数据区
+   └─ AI 报表：全宽报表页（共享包 ReportPage）
 ```
 
-顶级导航只能是两个页面：
+顶级导航只能是三个页面：
 
 ```text
-作品数据 / 账号总览
+作品数据 / 账号总览 / AI 报表
 ```
 
 不得再把“采集”和“账号”做成顶级 tab：
@@ -60,7 +62,8 @@ PluginPageShell
 - 账号管理属于作品数据页左侧栏；
 - 单账号采集属于作品工具栏；
 - 全账号采集属于账号管理栏；
-- 账号总览是独立的全宽数据页。
+- 账号总览是独立的全宽数据页；
+- AI 报表是独立的全宽数据页（2026-11-27 起随 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md) 加入，默认不选中）。
 
 ## 3. 作品数据页
 
@@ -479,3 +482,32 @@ work.trend → { account_id, work_id, snapshots }
 9. 单账号、全账号入口不破坏旧布局；
 10. 视觉、token、i18n、键盘、响应式和 reduced-motion 全部符合新规范；
 11. 本地真实 Tools、真实扫码和采集 E2E 不回归。
+
+## 11. AI 报表页（2026-11-27 新增）
+
+本节是视频号工作台第三个 Tab「AI 报表」的布局契约。旧插件没有这一页，基准不是旧仓库而是抖音工作台的 AI 报表页：页面组件、读取器、趋势图、词典与样式都由共享包 `@yootun/dsh-client-report` 承载（实施与验收条款见 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)，界面依据 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md)），本插件只做注入与组合。
+
+Tab 结构：
+
+- 顶级导航第三项，排在「作品数据」「账号总览」之后，值 `report`，元素 id `wx-tab-report` 与 `wx-panel-report`；
+- 默认选中不变，仍为「作品数据」；
+- 报表 Tab 不 keep-alive，切走即卸载，详情轮询随之停止；
+- 报表分支与抖音一致放在账号列表的加载门（DataState）之内，占满内容区，不渲染账号管理栏。
+
+页面内容由共享包 `ReportPage` 渲染：列表为日报 / 周报切换 + 七列表格（周期、状态、版本、覆盖账号、生成时间、说明、查看）+ 加载更多 + 空态；详情为工具栏（返回、版本切换、生成中状态、重新生成、导出 HTML）+ 报表头 + KPI 行 + 趋势卡 + 账号表 + 作品卡 + 异常 + AI 洞察三列；详情对 pending / running 每 5 秒轮询、连续 5 次失败停止。界面结构与交互口径不在本册重复，以共享包实施单 2.8 的整改表为准。
+
+视频号与抖音的差异（其余全部同构）：
+
+- 账号数据没有负责人字段：账号表不渲染「账号负责人」列（8 列，抖音 9 列）；
+- 作品卡扩展区：流量来源（`trafficSource`，`{name, plays}` 数组）与最大流失点（`retention`，`{durationSeconds, maxLostSecond, retentionAtMaxLostPct}`，留存率为到该秒仍在观看的比例）渲染在作品卡内部，行构图与作品卡次要行同款，样式类 `reportExtra` 在本插件 `workbench.module.css`；数据形状由本插件自行校验，形状不符的条目整条丢弃，两项都不可渲染时不留空位；
+- 作品卡指标声明：主行播放 / 点赞 / 评论 / 净涨粉，次要行收藏 / 分享 / 完播率 / 平均播放时长 / 快速划过率，进度条为完播率（抖音次要行是收藏 / 分享 / 5s 完播 / 2s 跳出 / 平均观看时长，进度条 5s 完播率）。
+
+注入面（组合层完成，本插件不持有报表业务逻辑）：
+
+- 请求函数为本插件 `hostAction`（同源路由 `/api/desktop/yootun/wx-workbench` 的 `report.list` / `report.get` / `report.regenerate`）；
+- 错误文案经本插件 `reportErrorText`：词典已有 `report.error.<码>` 专属文案的码（展开自共享包常量）不带码后缀，其余码沿用 `reasonText` 形态，空码回退报表域默认文案；
+- 导出文件名前缀词条 `report.filePrefix`（「视频号运营」/「Channels operations」）；
+- 幂等键前缀 `wx:report_regenerate`，键模板 `{前缀}:{reportId}:{32 位小写十六进制}`；
+- 作品卡布局与扩展区按上表声明（`work` 与 `renderWorkExtra`）。
+
+样式装载：共享包样式表 `report.module.css` 经本插件 `src/client/kit-styles.ts` 声明安装（与 kit 样式表同一机制），容器名沿用 `yootun-kit-page`；装载守护在 `tests/client/wx-bundle.test.ts` 与 `tests/client/verify-bundle-stylesheets.mjs`。
