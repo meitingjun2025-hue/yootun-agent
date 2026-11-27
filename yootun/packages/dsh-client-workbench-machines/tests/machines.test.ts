@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createBatchMachine, createCollectMachine, createLatest, createLoginMachine, createPoller, createWorksQuery, type WorksPageLike } from '../src/index.ts'
+import { createBatchMachine, createCollectMachine, createLatest, createLoginMachine, createPoller, createWorksQuery, pollBatchOnce, type WorksPageLike } from '../src/index.ts'
 
 /** 手动时钟 + 可驱动的定时器表：tick() 推进到下一个到期回调。 */
 class FakeClock {
@@ -46,7 +46,7 @@ class FakeClock {
 
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
 
-// --- 登录 L1–L4 ---
+// --- 登录 L1–L5 ---
 
 interface TestLoginView { key: string; status: string }
 
@@ -173,7 +173,39 @@ test('L4 stop 之后迟到的响应不改变状态', async () => {
   assert.equal(machine.get().login?.status, 'waiting', '迟到响应不改状态')
 })
 
+test('L5 二次 begin 跟随新 key：旧序号的响应被丢弃，新 key 终态收敛', async () => {
+  const settled: TestLoginView[] = []
+  let beginCalls = 0
+  const machine = createLoginMachine({
+    begin: async (): Promise<TestLoginView> => {
+      beginCalls += 1
+      return beginCalls === 1 ? { key: 'k1', status: 'waiting' } : { key: 'k2', status: 'waiting' }
+    },
+    status: async (key: string): Promise<TestLoginView> => key === 'k1' ? { key: 'k1', status: 'waiting' } : { key: 'k2', status: 'ok' },
+    keyOf: (view: TestLoginView) => view.key,
+    statusOf: (view: TestLoginView) => view.status,
+    activeStatuses: ['waiting'] as const,
+    terminalStatuses: ['ok', 'timeout', 'failed', 'idle'] as const,
+    pollIntervalMs: 2000,
+    poller: new FakeClock(),
+    onSettled: (view: TestLoginView) => { settled.push(view) },
+  })
+  try {
+    await machine.begin()
+    await flush()
+    assert.equal(machine.get().login?.key, 'k1', '首次 begin 进入 k1 等待态')
+    // 首张登录卡仍在轮询时再次发起（宿主每次新建 pending key）。
+    await machine.begin()
+    await flush()
+    assert.equal(machine.get().login, null, '新 key 的终态（ok）收起卡片')
+    assert.deepEqual(settled, [{ key: 'k2', status: 'ok' }], 'onSettled 恰一次且归属新 key')
+  } finally {
+    machine.stop()
+  }
+})
+
 // --- 单账号采集 C1–C5 ---
+
 
 interface TestCollectView { accountId: string; status: string; error?: string }
 
@@ -218,7 +250,8 @@ test('C1 start 成功进入运行态；collect_busy 不进入运行态', async (
 test('C2 两个账号并发运行 runningAccountIds 为两个；一个结束后剩一个', async () => {
   const clock = new FakeClock()
   const { ports } = collectPorts(clock, {
-    status: async (): Promise<{ collect: TestCollectView | null }> => ({ collect: null }),
+    status: async (accountId: string): Promise<{ collect: TestCollectView | null }> =>
+      accountId === 'a2' ? { collect: { accountId: 'a2', status: 'completed' } } : { collect: { accountId: 'a1', status: 'running' } },
     optimisticRunning: (accountId: string) => ({ accountId, status: 'running' }),
   })
   const machine = createCollectMachine(ports)
@@ -231,8 +264,14 @@ test('C2 两个账号并发运行 runningAccountIds 为两个；一个结束后�
     accountId: 'a2',
   })
   assert.deepEqual(machine.get().runningAccountIds.sort(), ['a1', 'a2'])
-  // a2 终态：从集合移除。
+  assert.equal(machine.isPolling('a1'), true, 'restore 起表：a1 轮询在途')
+  assert.equal(machine.isPolling('a2'), true, 'restore 起表：a2 轮询在途')
+  // a2 终态：从集合移除，isPolling 翻转；a1 不受影响。
   await machine.start('a2')
+  await flush()
+  assert.deepEqual(machine.get().runningAccountIds, ['a1'], 'a2 终态移出运行集合')
+  assert.equal(machine.isPolling('a2'), false, 'a2 终态后轮询不在途')
+  assert.equal(machine.isPolling('a1'), true, 'a1 轮询不受影响')
   machine.stop()
 })
 
@@ -259,14 +298,15 @@ test('C4 restore 结果到达前用户已 start → 恢复结果被丢弃', asyn
     accountId: 'a1',
   })
   assert.equal(machine.get().record?.accountId, 'a1')
-  // 用户已发起：代次失效。
-  machine.invalidateRestore()
+  // 用户已发起：走 start（使恢复代次失效），不是显式 invalidateRestore。
+  await machine.start('a1')
   machine.restore({
     running: { collect: { accountId: 'a9', status: 'running' }, runningAccountIds: ['a9'] },
     selected: { collect: { accountId: 'a9', status: 'running' } },
     accountId: 'a1',
   })
-  assert.notEqual(machine.get().record?.accountId, 'a9', '失效后的恢复结果被丢弃')
+  assert.equal(machine.get().record?.accountId, 'a1', '用户已发起：迟到的恢复结果被丢弃')
+  assert.equal(machine.get().runningAccountIds.includes('a9'), false, 'a9 不进运行集合')
   machine.stop()
 })
 
@@ -301,54 +341,80 @@ test('C3b onLost 收到适配层 recovery 投影（G-2 分流依据）', async (
   machine.stop()
 })
 
+test('C6 beginPolling 同账号幂等：恢复双路与页面发起不起双表；stopPolling 全清', async () => {
+  const clock = new FakeClock()
+  let a1StatusCalls = 0
+  const { ports } = collectPorts(clock, {
+    status: async (accountId: string): Promise<{ collect: TestCollectView | null }> => {
+      if (accountId === 'a1') {
+        a1StatusCalls += 1
+        return { collect: { accountId: 'a1', status: 'running' } }
+      }
+      return { collect: null }
+    },
+  })
+  const machine = createCollectMachine(ports)
+  // (a) 挂载恢复双路指向同一条运行中记录：restore 内两路各调一次 beginPolling('a1')。
+  machine.restore({
+    running: { collect: { accountId: 'a1', status: 'running' }, runningAccountIds: ['a1'] },
+    selected: { collect: { accountId: 'a1', status: 'running' } },
+    accountId: 'a1',
+  })
+  assert.equal(clock.timers.size, 1, '同账号双路恢复只起一张表')
+  await flush()
+  const before = a1StatusCalls
+  clock.tick()
+  await flush()
+  assert.equal(a1StatusCalls, before + 1, '推进一拍只发一次 collect.status')
+  // (b) 页面发起同账号：成功后的 beginPolling('a1') 幂等。
+  await machine.start('a1')
+  assert.equal(clock.timers.size, 1, 'start 复用既有轮询，不重复起表')
+  assert.equal(machine.isPolling('a1'), true)
+  // (c) 第二账号另起一张表；stopPolling 全清。
+  machine.beginPolling('a2')
+  assert.equal(clock.timers.size, 2, '不同账号各持一张表')
+  machine.stopPolling()
+  assert.equal(clock.timers.size, 0, 'stopPolling 清全部表')
+  assert.equal(machine.isPolling('a1'), false)
+  assert.equal(machine.isPolling('a2'), false)
+  // (d) 另起一台 machine：stop() 后 timers 全清。
+  const clock2 = new FakeClock()
+  const machine2 = createCollectMachine(collectPorts(clock2, {}).ports)
+  machine2.beginPolling('a1')
+  machine2.beginPolling('a2')
+  assert.equal(clock2.timers.size, 2)
+  machine2.stop()
+  assert.equal(clock2.timers.size, 0, 'machine.stop() 清全部表')
+})
+
 // --- 批量 B1/B2 ---
 
 interface TestBatchView { status: string | null }
 
-test('B1 批量运行中每拍更新；finished 后停轮询并触发一次 onFinished', async () => {
-  const clock = new FakeClock()
+test('B1 批量单拍：running 拍进 onTick；终态拍 onFinished 恰一次并 onStopped', async () => {
   let state: string = 'running'
   const finished: TestBatchView[] = []
   const ticks: TestBatchView[] = []
-  const machine = createBatchMachine<TestBatchView>({
-    start: async () => ({ batch: { status: 'running' } }),
-    status: async () => {
-      const view: TestBatchView = { status: state }
-      return { batch: view }
-    },
-    cancel: async () => undefined,
-    runningOf: view => view.status === 'running',
-    optimisticRunning: () => ({ status: 'running' }),
-    onFinished: view => { finished.push(view) },
-    onRunningChanged: () => undefined,
-  })
-  const baseSnapshot = machine.status?.bind(machine)
-  void baseSnapshot
-  // 注入 tick 观察面：status 每次调用记录视图。
+  let stopped = 0
+  // 页面批量轮询的单拍驱动面（pollBatchOnce）：running → onTick 继续；终态 →
+  // onFinished 一次 + onStopped。
   const deps = {
-    ports: {
-      status: async () => {
-        const view: TestBatchView = { status: state }
-        ticks.push(view)
-        return { batch: view }
-      },
-      runningOf: (view: TestBatchView) => view.status === 'running',
-      onFinished: (view: TestBatchView) => { finished.push(view) },
-    },
+    status: async (): Promise<{ batch: TestBatchView | null }> => ({ batch: { status: state } }),
+    runningOf: (view: TestBatchView) => view.status === 'running',
+    onFinished: (view: TestBatchView) => { finished.push(view) },
     onTick: (view: TestBatchView) => { ticks.push(view) },
-    onStopped: () => undefined,
+    onStopped: () => { stopped += 1 },
   }
-  void deps
-  await machine.start()
-  expect_running(machine.get())
-  machine.stop()
+  await pollBatchOnce(deps)
+  assert.equal(ticks.length, 1, 'running 拍进 onTick')
   assert.equal(finished.length, 0, '未结束不触发 onFinished')
+  assert.equal(stopped, 0)
   state = 'finished'
+  const finalView = await pollBatchOnce(deps)
+  assert.deepEqual(finalView, { status: 'finished' })
+  assert.deepEqual(finished, [{ status: 'finished' }], 'onFinished 恰一次')
+  assert.equal(stopped, 1, 'onStopped 恰一次')
 })
-
-function expect_running(state: { batch: { status: string | null } | null }): void {
-  assert.equal(state.batch?.status, 'running')
-}
 
 test('B2 start 在途时的第二次 start 不发请求', async () => {
   let started = 0
@@ -394,22 +460,34 @@ test('B2b markRecoveryPending：恢复窗口锁入口；用户已发起后不再
 
 // --- 作品查询 W1–W3 ---
 
-test('W1 同一查询键第二次请求先同步返回缓存再后台刷新', async () => {
+test('W1 缓存写入与命中：同键后台刷新；跨切号回返同步呈现缓存行', async () => {
   let lists = 0
-  const page: WorksPageLike<{ workId: string }> = { rows: [{ workId: 'w1' }], total: 1 }
+  const pages: Record<string, WorksPageLike<{ workId: string }>> = {
+    'acc-1': { rows: [{ workId: 'a1' }], total: 1 },
+    'acc-2': { rows: [{ workId: 'a2' }], total: 2 },
+  }
   const machine = createWorksQuery<{ workId: string }>({
-    list: async () => {
+    list: async (query) => {
       lists += 1
-      return page
+      return pages[query.accountId] as WorksPageLike<{ workId: string }>
     },
     pageSize: 10,
   })
   await machine.load('acc-1')
   assert.equal(machine.get().loadState, 'ready')
-  const rowsBefore = machine.get().rows
   await machine.load('acc-1')
-  assert.equal(lists, 2, '后台刷新发出第二次请求')
-  assert.equal(machine.get().rows, rowsBefore ?? rowsBefore, '缓存或刷新行一致（W1）')
+  assert.equal(lists, 2, '同键重复 load 仍发后台刷新')
+  assert.equal(machine.get().loadState, 'ready')
+  // 切号再回返：第三拍发出后台刷新，返回前同步呈现 acc-1 的缓存行
+  // （ready + busy，不落 loading；无缓存写入或永不命中时此断言红）。
+  await machine.load('acc-2')
+  assert.equal(machine.get().rows[0]?.workId, 'a2')
+  const back = machine.load('acc-1')
+  assert.equal(lists, 4, '缓存命中仍发后台刷新（acc-1×2 + acc-2 + 回返）')
+  assert.equal(machine.get().rows, pages['acc-1']?.rows, '回返同步呈现缓存行（引用一致）')
+  assert.equal(machine.get().loadState, 'ready')
+  assert.equal(machine.get().busy, true, '缓存呈现后后台刷新在途')
+  await back
   assert.equal(machine.get().loadState, 'ready')
 })
 
@@ -450,6 +528,24 @@ test('W3 请求失败且该账号已有行 → partial；无行 → error', asyn
   })
   await machine.load('acc-fresh')
   assert.equal(machine.get().loadState, 'error', '无行 → error')
+})
+
+test('W3b 同账号已有行时请求失败 → partial 并保留已渲染行', async () => {
+  let failing = false
+  const page: WorksPageLike<{ workId: string }> = { rows: [{ workId: 'w1' }], total: 1 }
+  const machine = createWorksQuery<{ workId: string }>({
+    list: async () => {
+      if (failing) throw new Error('boom')
+      return page
+    },
+    pageSize: 10,
+  })
+  await machine.load('acc-1')
+  assert.equal(machine.get().loadState, 'ready')
+  failing = true
+  await machine.load('acc-1')
+  assert.equal(machine.get().loadState, 'partial', '同账号已有行 → partial')
+  assert.equal(machine.get().rows.length, 1, 'partial 保留已渲染行')
 })
 
 test('W1b 摘要随页透传：落屏与缓存命中一并还原；切号清空', async () => {

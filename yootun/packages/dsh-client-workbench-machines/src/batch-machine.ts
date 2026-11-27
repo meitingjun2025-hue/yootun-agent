@@ -1,8 +1,8 @@
 /**
- * 批量采集 machine：start 乐观运行态、单飞（在途重复 start 不发请求）、每拍
- * status 更新面板、终态停轮询并触发一次 `onFinished`。挂载恢复经 `restore`
- * 注入状态（finished 汇总也恢复，但不轮询）；用户已发起则丢弃恢复结果（B2
- * 的入口单飞 + 恢复代次守卫）。
+ * 批量采集 machine：start 乐观运行态、单飞（在途重复 start 不发请求）。状态
+ * 注入经 `restore` / `beginPolling`（挂载恢复与消费方轮询喂数；本 machine
+ * 不持定时器，终态判定与 `onFinished` 收敛由消费方的轮询回调承担）。用户已
+ * 发起则丢弃恢复结果（入口单飞 + 恢复代次守卫）。
  * @module
  */
 import type { MachineStore } from './types.ts'

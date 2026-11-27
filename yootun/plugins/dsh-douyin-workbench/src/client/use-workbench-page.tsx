@@ -81,7 +81,7 @@ export function useDouyinWorkbenchPage(props: WorkbenchPageProps) {
     applyOverviewFilters: update => { dispatch({ type: 'filtersCalibrate', update }) },
   })
 
-  // ---- 批量采集轮询（machine 无内置定时器，页面持表；单飞由 flows.pollBatch 单拍承担） ----
+  // ---- 批量采集轮询（machine 无内置定时器，页面持 setInterval 表；每拍经 flows.pollBatch 读取一次并喂回 batch machine，终态由 tick 收敛停表；非单飞） ----
 
   const batchPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stopBatchPolling = (): void => {

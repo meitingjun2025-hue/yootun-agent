@@ -54,7 +54,7 @@ MCP 工具：无。
 
 - 状态只有一个 `tab`（7 个页面值不变），所属组由 `tab` 推导，不另存「当前组」；
 - 点顶级项：该组有二级 → 选中该组默认页；无二级 → 直接选中该页；
-- 已在组内时再点该组：回到该组默认页；
+- 已在组内时再点该组：回到该组默认页；从别的组切回：恢复该组上一次页面（`lastPageByGroup`，N3/T3 口径）；
 - 二级控件只在当前组有多于一个页面时渲染，位于顶级导航下方左对齐，宽度随内容；
 - 跨页跳转（总览账号行进入单账号分析、素材看板「去拆解」带链接跳转）继续直接设置 `tab`，不受分组影响；
 - 应用启动默认落在「账号作品」（账号管理栏与所选账号的作品列表是日常最常用的一屏）。
@@ -136,7 +136,11 @@ MCP 工具：无。
 
 ### 5.3 本地联调记录
 
-待填（合入前回填）。
+自动验收通过（2026-11-27）。改动构成：新增 N1–N6、D1–D4 用例；既有用例按 D4 只加导航前置点击（跨组页面点击前插组点击 53 处、单页组改名点击 9 处、总览前置 6 处）；断言改动逐条为——顶级导航用例重写为 N1+N2、下钻用例 navTabs 7→4、四张表列头断言追加 `action.viewDetail` / `action.viewAnalysis`、`row.detailAria` 词典值改「{title}，查看详情」（既有断言经同一词典函数自动跟随）。
+
+与附录 A1 的裁决：A1 原文 `selectGroup` 恒回默认页，与 N3/T3「跨组切回恢复上页」矛盾——按测试矩阵实现 `lastPageByGroup`（组内重选回默认页、跨组切回恢复上页），2.1 与 A1 文字已同步。官方 `SegmentedControl` 的 `aria-controls` 为组件固定模式（指向未渲染元素 id），N6 按容器 `aria-labelledby` → 选中段方向断言并在用例注释说明。
+
+真机移交：T7（焦点顺序与方向键漫游）、T8（640/880/1120 三档宽度与明暗主题）、T6 的 Esc 焦点回归走查、T1/T2/T3 布局观感、T9 英文界面宽度。
 
 ## 附录 A：逐文件规格
 
@@ -153,7 +157,7 @@ const GROUP_TABS: Readonly<Record<TabGroup, readonly [TabValue, ...TabValue[]]>>
 ```
 
 - `groupOf(tab)`：由 `GROUP_TABS` 反查；
-- `selectGroup(group)`：`setTab(GROUP_TABS[group][0])` 并记入 `visitedTabs`；
+- `selectGroup(group)`：组内重选 → `setTab(GROUP_TABS[group][0])`；跨组切回 → `setTab(lastPageByGroup[group])`；均记入 `visitedTabs`（与 2.1 规则一致，N3/T3）；
 - 顶级 `SegmentedTabs` 的 `items` 为 4 个组，`value={groupOf(tab)}`；
 - `GROUP_TABS[group].length > 1` 时渲染官方 `SegmentedControl`（`id='dy-tab-sub'`，`label={t('nav.subLevel', { group })}`），选项为该组的页面；
 - `PanelId` 关系：页面容器的 `role='tabpanel'` 仍由页面值决定；顶级 Tab 控制「组容器」，二级 segment 控制「页面容器」；

@@ -53,6 +53,8 @@ export interface CollectMachine<CollectView> extends MachineStore<CollectState<C
   beginPolling(accountId: string): void
   /** 停止单账号轮询。 */
   stopPolling(): void
+  /** 该账号的轮询是否在途（终态与丢记录自动翻转；发起/恢复路与页面让位判定用）。 */
+  isPolling(accountId: string): boolean
   /** 取消该账号运行中的采集（无取消路由的插件由适配层决定是否注入）。 */
   cancel(accountId: string): Promise<void>
   /** 挂载恢复：注入 collect.running 与 collect.status 两路查询结果（C4：用户已发起则丢弃）。 */
@@ -79,7 +81,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
   let state: CollectState<CollectView> = { record: null, runningAccountIds: [], startReason: null }
   const listeners = new Set<() => void>()
   const pollers = new Map<string, AccountPoller>()
-  let restoreGeneration = 0
   let restoreInitiated = false
 
   const set = (next: CollectState<CollectView>): void => {
@@ -125,7 +126,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
     async start(accountId, options) {
       if (accountId === '') return
       restoreInitiated = true
-      restoreGeneration += 1
       // 乐观运行态：点击瞬间进入 running 投影（端口 start 回执到达前）。
       const optimisticSame = state.record !== null && ports.accountIdOf(state.record, accountId) === accountId
       set({ ...state, startReason: null, runningAccountIds: state.runningAccountIds.includes(accountId) ? state.runningAccountIds : [...state.runningAccountIds, accountId], record: optimisticSame ? state.record : ports.optimisticRunning(accountId) })
@@ -156,6 +156,10 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
     stopPolling() {
       for (const poller of pollers.values()) poller.poller.stop()
       pollers.clear()
+    },
+
+    isPolling(accountId) {
+      return pollers.has(accountId)
     },
 
     async cancel(accountId) {
@@ -194,7 +198,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
 
     invalidateRestore() {
       restoreInitiated = true
-      restoreGeneration += 1
     },
 
     stop() {

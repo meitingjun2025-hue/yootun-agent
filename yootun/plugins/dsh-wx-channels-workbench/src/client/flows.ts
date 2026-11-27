@@ -142,8 +142,6 @@ export function createWxFlows(deps: WxFlowDeps): WxFlows {
       // idle：页面收起卡片即可，不弹提示。
     },
   })
-  /** 发起/恢复路的轮询目标（选中驱动路让位判定；machine 内幂等不复起）。 */
-  let mainPolledAccount = ''
   /** 用户已发起单账号采集（恢复丢弃判定的 flows 侧镜像，与 machine 代次一致）。 */
   let userStartedCollect = false
   /** 最近一次主路 status 查询的账号（丢记录收尾按它刷新页面数据）。 */
@@ -179,13 +177,11 @@ export function createWxFlows(deps: WxFlowDeps): WxFlows {
         const res = await hostAction('collect.start', { accountId, newAttempt: true })
         if (res.started !== true) {
           // started:false 不进入轮询、不置 running：就地呈现稳定 reason。
-          mainPolledAccount = ''
           return { collect: null, reason: typeof res.reason === 'string' ? res.reason : 'unknown' }
         }
         deps.onStarted()
         return { collect: { accountId, status: 'running', progress: null, error: null } }
       } catch (error) {
-        mainPolledAccount = ''
         throw error
       }
     },
@@ -243,7 +239,6 @@ export function createWxFlows(deps: WxFlowDeps): WxFlows {
     works,
     async startCollect(accountId) {
       userStartedCollect = true
-      mainPolledAccount = accountId
       await collect.start(accountId)
     },
     async pollBatch() {
@@ -269,9 +264,6 @@ export function createWxFlows(deps: WxFlowDeps): WxFlows {
       const polledAccount = polled !== null && polled.accountId !== null && polled.accountId !== '' ? polled.accountId : ''
       if (userStartedCollect || polled === null || polledAccount === '')
         return
-      mainPolledAccount = polledAccount
-      if (polled === null || polledAccount === '')
-        return
       if (selectedRunning !== null) {
         // 选中账号在采：恢复其面板进度并轮询（原页 polled = selectedRunning 口径）。
         collect.restore({ running: null, selected: { collect: selectedRunning }, accountId })
@@ -292,6 +284,6 @@ export function createWxFlows(deps: WxFlowDeps): WxFlows {
       const interrupted = readInterrupted(res)
       return { view, interrupted }
     },
-    isMainPolling: (accountId) => mainPolledAccount === accountId,
+    isMainPolling: (accountId) => collect.isPolling(accountId),
   }
 }

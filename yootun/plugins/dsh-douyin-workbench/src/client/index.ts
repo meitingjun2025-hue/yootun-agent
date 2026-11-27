@@ -15,7 +15,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { zh, en, NS, type DouyinLocaleKey } from './locales.ts'
 import './kit-styles.ts'
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
-import { WorkbenchPage, type WorkbenchPageProps } from './WorkbenchPage.tsx'
+import { WorkbenchPage, type WorkbenchLocale, type WorkbenchPageProps } from './WorkbenchPage.tsx'
 
 export { HOST_PATH, hostAction, type HostResponse } from './api.ts'
 export { NS, zh, en, type DouyinLocaleKey } from './locales.ts'
@@ -55,6 +55,21 @@ export const PANEL_ORDER = 52
 export const inject = ['slots', 'locale']
 
 /**
+ * WorkbenchPage 的 locale 座位工厂：箭头包装 face 的 subscribe/getSnapshot
+ * （ctx.locale 是类实例，解构后 this 丢失，箭头闭包保住接收者），getSnapshot
+ * 返回官方冻结快照对象本身（两次变化之间引用稳定，uSES 要求）。`apply` 与
+ * 测试共用本工厂；不要在 apply 内内联座位对象。
+ * @param face - 官方 LocaleFace（ctx.locale）。
+ * @returns the page locale seat.
+ */
+export function createWorkbenchLocaleSeat(face: { subscribe(fn: () => void): () => void; getSnapshot(): { active: string } }): WorkbenchLocale {
+  return {
+    subscribe: (fn) => face.subscribe(fn),
+    getSnapshot: () => face.getSnapshot(),
+  }
+}
+
+/**
  * Mount the central panel and the sidebar entry.
  * @param ctx - the browser plugin context.
  */
@@ -62,12 +77,7 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'yootun-douyin-workbench: dictionaries')
 
-  // WorkbenchPage 的 locale 座位：箭头包装 ctx.locale 的同名方法（类实例解构
-  // 后 this 丢失），getSnapshot 返回官方冻结快照对象本身（引用稳定，uSES 要求）。
-  const locale: WorkbenchPageProps['locale'] = {
-    subscribe: (fn) => ctx.locale.subscribe(fn),
-    getSnapshot: () => ctx.locale.getSnapshot(),
-  }
+  const locale = createWorkbenchLocaleSeat(ctx.locale)
 
   const injected = (): WorkbenchPageProps => ({
     locale,
