@@ -258,6 +258,8 @@ ChartCard
 
 ## 六、插件助手 Dock
 
+> 2026-11-26 起助手 Dock、操作回执与撤销暂缓：本节保留为目标设计，落排期前不作为评审项（1126 ui-accessibility 单 §A8）。
+
 助手 Dock 是插件页面的任务级 AI 入口，目标是“在当前对象上问一句、改一步、看回执、可撤销”，不是复制主会话。
 
 ### 6.1 布局与解剖
@@ -334,6 +336,7 @@ AssistantDock
 | 挂载、布局、设置分区、窗口安全距离 | 官方 slot / layout / settings 体系 | 插件不新建全局布局机制 |
 | 品牌位、门禁、激活设置 | yootun 已有 brand/access 包 | 已有实现优先复用 |
 | 工作台壳、助手 Dock、洞察卡、图表族、筛选条、状态族、回执 | `@yootun/dsh-client-ui-kit` | 官方没有的跨插件复合能力，首个插件批次建立 |
+| 登录/采集/批量/作品查询等数据流 machine | `@yootun/dsh-client-workbench-machines`（共享核心）+ 插件 `flows.ts` 适配层 | 无 React/DOM 依赖的纯状态基座；竞态守卫随流进 machine，页面经 `useSyncExternalStore` 订阅；同构流第二个消费者出现时核心上移共享包，插件只留 Host action 与 schema 投影适配 |
 | 领域画布、看板、日历、媒体墙、拓扑、专属空态 | 插件局部 CSS Modules / 组件 | 只服务单一业务域且不重做通用原子件 |
 
 `@yootun/dsh-client-ui-kit` 不 speculative 预先创建；第一批插件落地时随真实消费者建立。首批预期组件：`PluginPageShell`、`PluginHeader`、`FilterBar`、`DataCard`、`KpiCard`、`ChartFrame`、`ChartLegend`、`ChartTooltip`、`DataState`、`AssistantDock`、`OperationReceipts`。同一形态第二个消费者出现时必须上移，不允许第三个插件复制。
@@ -374,8 +377,8 @@ AssistantDock
 - 640px / 880px / 1120px 三档容器目检；
 - 键盘路径：tab、菜单、图表 mark、对话框、助手 composer；
 - `prefers-reduced-motion` 目检；
-- 助手三态：默认模型可用、模型失败降级、请求中停止；
-- 写操作回执与撤销后数据一致性验证。
+- 助手三态：默认模型可用、模型失败降级、请求中停止（Dock 落地前不适用）；
+- 写操作回执与撤销后数据一致性验证（Dock 落地前不适用）。
 
 设计验收不通过时，功能验收不得标记通过。
 
@@ -387,7 +390,7 @@ AssistantDock
 - [ ] 输入、按钮、tab、菜单、卡片、列表、表格、浮层、状态提示符合第四节；
 - [ ] 每个图表回答一个业务问题，支持 hover/focus、键盘或等价明细，并与筛选联动；
 - [ ] KPI、图表、列表的加载/空/错误态形状匹配；
-- [ ] 助手 Dock 的模型状态、上下文、回执、错误、撤销、停止和草稿行为完整；
+- [ ] 助手 Dock 的模型状态、上下文、回执、错误、撤销、停止和草稿行为完整（Dock 落地前不适用）；
 - [ ] 模型调用全程在 Host，凭证不进入 client，写操作经过 schema 与权限校验；
 - [ ] 明暗主题、窄容器、键盘、reduced-motion 实测通过；
 - [ ] 文案全部 locale-owned，中文短提示句式合规；

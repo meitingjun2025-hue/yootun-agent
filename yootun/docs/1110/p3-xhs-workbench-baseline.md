@@ -123,6 +123,6 @@ X1 Host 骨架消费 §2/§5；X2 登录采集消费 §4；X3 上传消费 §2 �
 | D-5 | 设备端审计：旧插件 `ctx.yootunAudit`（create/cancel/终态/collect/publish/hotboard 写审计）不迁移——新客户端不做 yootunAudit 服务 / outbox / 补传 / 审计 UI；现阶段只依赖 ixicai 网关调用面（激活、Models、Workbench MCP），现状为服务端 MCP 审计（domain `yootun-workbench`，tools 侧对每次工具调用落审计）+ Host 结构化日志；操作审计留待后期 Yootun 独立建设时统一规划 | 已定案（2026-11-20 用户拍板） |
 | R-A | 旧「无头采集后可能触发会话吊销」行为（collector.js 注）：probe/发布报 SESSION_EXPIRED 时引导重新扫码，不做自动重连 | 迁移口径不变 |
 | D-6 | 工作台助手：P3 不做（2026-11-20 用户拍板，助手为用户后期独立优化项，现阶段聚焦旧客户端功能完整迁移）；09 册 P3 交付目标 / action 面 / 验收与风险表已同步去除，kit 通用 AssistantDock 组件保持未消费 |
-| R-B | 登录终态 run 读一次即清理等旧实现细节按新 TaskRegistry/lifecycle 模式重写，行为等价在 X2/X4 测试锁定 | 记录在案 |
+| R-B | 登录终态 run 读一次即清理等旧实现细节按新 TaskRegistry/lifecycle 模式重写。**2026-11-27 偏离**（[1126/features/mount-restore-and-login-alignment.md](../1126/features/mount-restore-and-login-alignment.md) 2.3）：终态改为保留 30 分钟、读取时顺带清理（三工作台统一），`disposeHostTasks` 清空登录与采集记录表；`collect.status` 增按账号查询与终态保留（2.1/2.2） | 有意偏离（有意偏离登记） |
 | D-7 | repo 级 hygiene 纳入 X7 检查面：xhs 生产代码 12 处空 catch 当批修复（命名 error + 单语句 try）；仓库 `no-unknown-casts` baseline 登记测试假对象定型断言 17 处（dsh-xhs tests 6 / dsh-wx tests 5 + src 1 / dsh-media-upload tests 4，P1/P2 交付时未登记的既有形态），后续批次只减不增；`rescope-vendor` 失败 4 文件均为上游 master 既有残留（apps/docs/packages/experimental，分支区间零改动），不在 P3 修复范围 | 已执行（2026-11-20 X7） |
 | R-C | 生产 Workbench endpoint 冒烟：无 key 探测已证 endpoint 可达、MCP 协议响应、服务端要求 Models API key（-32001）；完整冒烟（serverName + 2026-11-21 后 94 项契约 + 19 项 xhs 子集 + settings 读通）待操作者提供 key 后按 13 册 §3 执行；真实扫码 / 发布 / 上传公网 URL / 未激活零远端请求等真机项同步留待 13 册阶段 C–F | 待 key 与操作者在场扫码 |

@@ -9,6 +9,7 @@
  * @module
  */
 import type { IncomingHttpHeaders } from 'node:http'
+import { permitted } from '@yootun/dsh-workbench-host-kit'
 import type { AgentFaceSnapshot } from './supervisor.ts'
 
 /** 请求体上限（bytes；与视频号路由同口径）。 */
@@ -42,27 +43,10 @@ export interface AgentStatusSnapshotSource {
   snapshot(): AgentFaceSnapshot
 }
 
-/**
- * Same-origin trust decision shared by the yootun host routes: the loopback
- * peer binds the request to this machine; an explicit `sec-fetch-site:
- * cross-site` is always refused; an explicit Origin must equal the expected
- * origin exactly (literal `null` and foreign origins included). Missing
- * headers are not an attack by themselves — the desktop Electron main process
- * `forwardWebRequest` strips Origin and Sec-Fetch-Site, so both missing is a
- * legitimate desktop-forwarded form; the peer check carries the source
- * guarantee.
- * @param req - incoming request.
- * @param expectedOrigin - the exact origin this webServer binds.
- * @returns whether the exchange may proceed.
- */
-export function permitted(req: StatusRouteRequest, expectedOrigin: string): boolean {
-  const address = req.socket.remoteAddress ?? ''
-  const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
-  if (!loopback) return false
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false
-  const origin = req.headers.origin
-  return origin === undefined || origin === expectedOrigin
-}
+// 同源信任判定与 yootun 其余 Host 路由同口径（kit 单一实现：loopback 基线、
+// 显式 cross-site 拒绝、显式 Origin 精确匹配、Desktop forwardWebRequest 剥掉
+// 两枚标记的形态放行）。
+export { permitted } from '@yootun/dsh-workbench-host-kit'
 
 /**
  * Read the request body under the size cap and require the empty-body

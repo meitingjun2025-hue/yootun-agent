@@ -12,8 +12,8 @@ import { normalizeAvatarUrl } from './avatar.ts'
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS } from './chrome.ts'
 import { isStableCode, safeCode, DouyinError, type StableErrorCode } from './errors.ts'
 import { accountRemoveIdempotencyKey, accountSaveIdempotencyKey } from './idempotency.ts'
+import { createProfileLocks, type ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { DEFAULT_DISPOSE_BUDGET_MS, createTaskRegistry, type TaskRegistry } from './lifecycle.ts'
-import { tryWithProfileLock, withProfileLock } from './locks.ts'
 import { readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun, type RunRecord } from './runs.ts'
 import {
   isPendingAccountId, launchChromeSession, loginWithQrCode, promotePendingAccount,
@@ -27,7 +27,22 @@ import {
 import type { ActionArgs, ActionHandler, HandlerPayload } from './route.ts'
 import type { WorkbenchFace } from './workbench.ts'
 
-/** 登录 run（进程内；页面轮询 loginStatus；终态读取一次即清理）。 */
+/** 登录终态记录保留时长（2.3；三工作台统一口径，视频号同名常量）。 */
+const LOGIN_RECORD_TTL_MS = 30 * 60 * 1000
+
+/**
+ * 清理已过期的登录终态记录（2.3 读取时顺带清理，不依赖定时器；loginStatus 与
+ * beginLogin 入口共用）。
+ */
+function sweepLoginRuns(deps: DouyinHandlerDeps, nowMs: number): void {
+  for (const [key, run] of deps.loginRuns) {
+    if (run.status !== 'waiting' && run.settledAt !== undefined && nowMs - run.settledAt > LOGIN_RECORD_TTL_MS) {
+      deps.loginRuns.delete(key)
+    }
+  }
+}
+
+/** 登录 run（进程内；页面轮询 loginStatus；终态保留 30 分钟供重复读取，2.3）。 */
 export interface LoginRun {
   key: string
   status: 'waiting' | 'ok' | 'timeout' | 'failed'
@@ -35,6 +50,8 @@ export interface LoginRun {
   error: string | null
   saveError: string | null
   startedAt: string
+  /** 进入终态的时刻（Date.now()；终态保留 30 分钟的计龄起点）。 */
+  settledAt?: number
 }
 
 /** 登录 run 的白名单投影（旧 projectLogin：五字段，无 phase/qrNeeded）。 */
@@ -51,6 +68,8 @@ export interface DouyinHandlerDeps {
   disposing: boolean
   signals: Map<string, AbortController>
   taskRegistry: TaskRegistry
+  /** 账号 profile 锁实例（随 deps 创建；经 runnerDeps / options 透传给独立函数）。 */
+  locks: ProfileLocks
   chromeFactory: ChromeFactory | undefined
   loginRuns: Map<string, LoginRun>
   maxPages: number
@@ -66,10 +85,13 @@ export interface DouyinHandlerDeps {
   startupReady: Promise<void>
   /** 启动恢复失败（runs.json 语义损坏）的稳定码；非 null 时业务 action 拒绝。 */
   startupError: StableErrorCode | null
+  /** 启动时的中断摘要（2.5 横幅数据源；下一次采集成功启动后置空）。 */
+  startupInterruption: { count: number; accountIds: string[] } | null
   /** pending 提升接缝（缺省 promotePendingAccount；测试注入受控实现）。 */
   promote: (input: {
     accountId: string
     root: string
+    locks: ProfileLocks
     chromeFactory?: ChromeFactory | undefined
     launchTimeoutMs?: number | undefined
     browserCloseTimeoutMs?: number | undefined
@@ -87,7 +109,7 @@ function callerOf(face: { callTool(caller: 'douyin-workbench', domain: 'douyin' 
 }
 
 /** 启动恢复接缝（G-2）：缺省 recoverInterruptedRuns；测试可注入受控实现。 */
-export type StartupRecovery = (root: string) => Promise<number>
+export type StartupRecovery = (root: string) => Promise<{ count: number; accountIds: string[] }>
 
 /**
  * Assemble handler deps（controllers 之外的部分）。构造即启动 G-2 恢复
@@ -134,6 +156,7 @@ export function createHandlerDeps(options: {
     disposing: false,
     signals: new Map(),
     taskRegistry,
+    locks: createProfileLocks(),
     chromeFactory: options.chromeFactory ?? launchChromeSession,
     loginRuns: new Map(),
     maxPages: options.maxPages ?? 1000,
@@ -142,11 +165,13 @@ export function createHandlerDeps(options: {
     browserCloseTimeoutMs,
     launchTimeoutMs,
     startupError: null,
+    startupInterruption: null,
     startupReady: Promise.resolve(),
-    promote: options.promote ?? ((input: { accountId: string; root: string; chromeFactory?: ChromeFactory | undefined; launchTimeoutMs?: number | undefined; browserCloseTimeoutMs?: number | undefined; trackCleanup?: ((promise: Promise<void>) => void) | undefined }) =>
+    promote: options.promote ?? ((input: { accountId: string; root: string; locks: ProfileLocks; chromeFactory?: ChromeFactory | undefined; launchTimeoutMs?: number | undefined; browserCloseTimeoutMs?: number | undefined; trackCleanup?: ((promise: Promise<void>) => void) | undefined }) =>
       promotePendingAccount({
         accountId: input.accountId,
         root: input.root,
+        locks: input.locks,
         chromeFactory: input.chromeFactory,
         ...(input.launchTimeoutMs !== undefined ? { launchTimeoutMs: input.launchTimeoutMs } : {}),
         ...(input.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: input.browserCloseTimeoutMs } : {}),
@@ -158,7 +183,9 @@ export function createHandlerDeps(options: {
   // activeCount ≥ 1，release 前 dispose 不返回，返回后不再有 runs.json 写入。
   // 错误在链内吞掉并记 startupError（不产生 unhandled rejection）。
   const run = (options.recovery ?? recoverInterruptedRuns)(options.root)
-  deps.startupReady = run.then(() => undefined, (error: unknown) => {
+  deps.startupReady = run.then((summary: { count: number; accountIds: string[] }) => {
+    deps.startupInterruption = summary.count > 0 ? { count: summary.count, accountIds: summary.accountIds } : null
+  }, (error: unknown) => {
     deps.startupError = safeCode(error)
     deps.logger.warn('douyin startup run recovery failed', error)
   })
@@ -246,6 +273,7 @@ export async function resolveAccountId(deps: DouyinHandlerDeps, collectHasRunnin
   const promoted = await deps.promote({
     accountId,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     launchTimeoutMs: deps.launchTimeoutMs,
     browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
@@ -385,9 +413,11 @@ export async function completeLoginAfterSuccess(
   if (result.status !== 'ok') {
     if (result.status === 'timeout') {
       run.status = 'timeout'
+      run.settledAt = Date.now()
       run.error = 'login_timeout'
     } else {
       run.status = 'failed'
+      run.settledAt = Date.now()
       run.error = result.reason
     }
     return
@@ -397,6 +427,7 @@ export async function completeLoginAfterSuccess(
   const aborted = (): boolean => signal.aborted
   if (aborted()) {
     run.status = 'failed'
+    run.settledAt = Date.now()
     run.error = 'login_aborted'
     return
   }
@@ -419,10 +450,12 @@ export async function completeLoginAfterSuccess(
   }
   if (aborted()) {
     run.status = 'failed'
+    run.settledAt = Date.now()
     run.error = 'login_aborted'
     return
   }
   run.status = 'ok'
+  run.settledAt = Date.now()
   // ② 会话上报（新 seq；携带 login signal；失败不影响 run 终态）。
   try {
     const state = await refreshSessionState({
@@ -436,7 +469,7 @@ export async function completeLoginAfterSuccess(
     })
     if (aborted()) return
     const report = await reportSessionStatus(
-      { callTool: deps.callTool, root: deps.root, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
+      { callTool: deps.callTool, root: deps.root, locks: deps.locks, chromeFactory: deps.chromeFactory, maxPages: deps.maxPages, logger: { warn: (message: string) => { deps.logger.warn(message) } } },
       result.accountId,
       state,
       signal,
@@ -482,6 +515,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
   const runnerDeps: RunnerDeps = {
     callTool: deps.callTool,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     maxPages: deps.maxPages,
     logger: { warn: message => { deps.logger.warn(message) } },
@@ -491,6 +525,18 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     const outcome = await deps.callTool(tool, args, signal)
     const payload = outcome.structuredContent
     return { status: 'ready', data: payload && typeof payload === 'object' ? payload : {} }
+  }
+
+  /** 2.5 中断摘要：ready 载荷附带启动中断摘要（空摘要时原样返回）。 */
+  const withInterrupted = (handler: ActionHandler): ActionHandler => async (args, signal) => {
+    const payload = await handler(args, signal)
+    if (payload.status !== 'ready' || deps.startupInterruption === null) return payload
+    return { ...payload, interrupted: deps.startupInterruption }
+  }
+
+  /** 采集成功启动后清空启动中断摘要（2.5：下一次启动前不再返回）。 */
+  const clearStartupInterruption = (): void => {
+    if (deps.startupInterruption !== null) deps.startupInterruption = null
   }
 
   const handlers: Record<string, ActionHandler> = {
@@ -519,6 +565,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     'account.beginLogin': async args => {
       const requested = asString(args, 'accountId')
       const key = requested !== '' ? requested : `pending-${String(Date.now())}`
+      sweepLoginRuns(deps, Date.now())
       const existing = deps.loginRuns.get(key)
       if (existing !== undefined && existing.status === 'waiting') {
         return { status: 'ready', login: projectLogin(existing) }
@@ -531,6 +578,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       deps.taskRegistry.track(loginWithQrCode({
         accountId: requested,
         root: deps.root,
+        locks: deps.locks,
         signal: controller.signal,
         chromeFactory: deps.chromeFactory,
         launchTimeoutMs: deps.launchTimeoutMs,
@@ -540,6 +588,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }).then(result => completeLoginAfterSuccess(deps, controller.signal, run, result))
         .catch((error: unknown) => {
           run.status = 'failed'
+          run.settledAt = Date.now()
           run.error = safeCode(error)
         })
         .finally(() => {
@@ -549,20 +598,20 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     },
 
     'account.loginStatus': async args => {
+      // 2.3 读取时顺带清理过期终态记录（幂等：保留期内重复读取结果一致）。
+      sweepLoginRuns(deps, Date.now())
       const key = asString(args, 'accountId') || asString(args, 'loginKey')
       const run = deps.loginRuns.get(key)
       if (run === undefined) {
         return { status: 'ready', login: { loginKey: key, status: 'idle', accountId: key !== '' ? key : null, error: null, saveError: null } }
       }
-      // 终态读取一次即清理（页面在首个非 waiting 轮询停止）。
-      if (run.status !== 'waiting') deps.loginRuns.delete(run.key)
       return { status: 'ready', login: projectLogin(run) }
     },
 
     'account.probe': async (args, signal) => {
       const requested = asString(args, 'accountId')
       const resolved = await resolveAccountId(deps, id => controllers.collect.status(id) !== null && (controllers.collect.status(id)?.status === 'running'), requested, signal)
-      const session = await withProfileLock(resolved.accountId, () =>
+      const session = await deps.locks.withProfileLock(resolved.accountId, () =>
         refreshSessionState({
           accountId: resolved.accountId,
           root: deps.root,
@@ -591,7 +640,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
     'account.removeLocal': async args => {
       const accountId = asString(args, 'accountId')
       // try 锁：collect/登录迁移持锁时立即 collect_busy，不排队等长采集。
-      const attempt = await tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
+      const attempt = await deps.locks.tryWithProfileLock(accountId, () => removeLocalAccount({ accountId, root: deps.root }))
       if (!attempt.acquired) return { status: 'error', reason: 'collect_busy' }
       const removed = attempt.result.removed
       // 清理 runs.json 中该账号全部 run 记录（排期数据不级联，runs 属设备端）。
@@ -647,6 +696,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         const reason = started.reason !== undefined && isStableCode(started.reason) ? started.reason : 'collect_busy'
         return { status: 'error', reason }
       }
+      clearStartupInterruption()
       deps.taskRegistry.track(controllers.collect.wait(resolved.accountId).then(() => undefined, () => undefined).then(() => {
         if (deps.signals.get(signalKey) === controller) deps.signals.delete(signalKey)
       }))
@@ -658,7 +708,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       }
     },
 
-    'collect.status': async (args, signal) => {
+    'collect.status': withInterrupted(async (args, signal) => {
       const alias = await resolveAccountAlias(asString(args, 'accountId'), deps.root)
       const record = controllers.collect.status(alias)
       // G-2：内存态丢失（重启）时给 runs.json 最近一条记录 + 恢复判定。
@@ -708,7 +758,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         }
       }
       return { status: 'ready', collect: record }
-    },
+    }),
 
     // 挂载恢复（只读）：当前运行中的单账号采集（任意账号）+ 批量运行标记。
     'collect.running': async () => ({ status: 'ready', collect: controllers.collect.running(), batchRunning: controllers.batch.running }),
@@ -726,6 +776,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
         if (started.skipped !== undefined) return { ...payload, skipped: started.skipped }
         return payload
       }
+      clearStartupInterruption()
       const batchStatus = controllers.batch.status
       const batchKey = `collect:batch:${batchStatus.batchId ?? 'unknown'}`
       deps.signals.set(batchKey, controller)
@@ -736,7 +787,7 @@ export function buildDouyinHandlers(deps: DouyinHandlerDeps, controllers: {
       return { status: 'ready', batch: controllers.batch.status }
     },
 
-    'collectAll.status': async () => ({ status: 'ready', batch: controllers.batch.status }),
+    'collectAll.status': withInterrupted(async () => ({ status: 'ready', batch: controllers.batch.status })),
 
     // ---- D3：作品 / 总览 / 导出 / 排期 ----
 

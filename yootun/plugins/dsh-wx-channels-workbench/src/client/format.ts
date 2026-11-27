@@ -5,6 +5,7 @@
  * @module
  */
 import type { StableErrorCode } from '../errors.ts'
+import type { RouteRefusalReason } from '@yootun/dsh-workbench-host-kit'
 import type { WxLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
@@ -87,6 +88,17 @@ const RUNTIME_REASON_KEYS: Readonly<Record<string, WxLocaleKey>> = {
 const IDENTITY_PREFIX = 'identity_check_failed'
 
 /**
+ * 路由层拒绝 reason → 文案键（kit 路由字面量，不进稳定码白名单；对
+ * `ROUTE_REFUSAL_REASONS` 类型穷尽的显式分支，运行时防御口径同
+ * connector-status-and-error-copy §2.7）。
+ */
+const ROUTE_REASON_KEYS: Readonly<Record<RouteRefusalReason, WxLocaleKey>> = {
+  forbidden: 'reason.forbidden',
+  unknown_action: 'reason.unknown_action',
+  method_not_allowed: 'reason.method_not_allowed',
+}
+
+/**
  * 稳定 reason → 单行文案；已知码给可行动文案并保留原码，`identity_check_failed:*`
  * 前缀码归并到同一文案，未知码给通用文案并保留原码。
  * @param reason - Host 响应中的稳定 reason。
@@ -98,6 +110,7 @@ export function reasonText(reason: string, t: Translate): string {
     ? IDENTITY_PREFIX
     : reason
   const key = (Object.hasOwn(REASON_KEYS, normalized) ? REASON_KEYS[normalized as StableErrorCode] : undefined)
+    ?? (Object.hasOwn(ROUTE_REASON_KEYS, normalized) ? ROUTE_REASON_KEYS[normalized as RouteRefusalReason] : undefined)
     ?? RUNTIME_REASON_KEYS[normalized]
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
@@ -212,4 +225,9 @@ export function shiftDay(dayText: string, deltaDays: number): string {
   if (Number.isNaN(date.getTime())) return dayText
   date.setUTCDate(date.getUTCDate() + deltaDays)
   return date.toISOString().slice(0, 10)
+}
+
+/** locale 服务的语言 id → 工作台标签（zh 开头归中文，其余归英文）。 */
+export function localeTagOf(activeLocaleId: string): 'zh' | 'en' {
+  return activeLocaleId.startsWith('zh') ? 'zh' : 'en'
 }

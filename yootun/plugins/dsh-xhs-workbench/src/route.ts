@@ -4,14 +4,16 @@
  * （显式 Origin 精确匹配、显式跨站拒绝；Desktop `forwardWebRequest` 转发剥离
  * 两枚标记时放行，语义对齐官方 connection fence）、请求体上限、显式 action
  * allowlist、每 action 输入 schema 并拒绝未知字段、稳定错误码（不透传内部
- * 异常）。handler 经 deps 注入，本模块不持有业务状态。
+ * 异常）。handler 经 deps 注入，本模块不持有业务状态。信任判定、体读取与分发
+ * 由 [kit](../../../packages/dsh-workbench-host-kit/src/route.ts) 承担，本模块
+ * 只保留小红书的 action 契约、校验器与稳定码实例化。
  *
  * action 集合按批次扩充：已实现 30 项（X1+X2 骨架 8 + 采集 1 + X4 任务 4 + X5 看板 15 + X6 发布
  * 2）；hotboard 其余、upload 各 action 随对应批次加入（assistant 已定案不做，D-6），未实现项按
  * unknown_action 拒绝（fail loud，不做静默半实现）。
  * @module
  */
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createActionRoute, type ActionHandler as KitActionHandler, type HandlerPayload as KitHandlerPayload, type RouteRequest, type RouteResponse } from '@yootun/dsh-workbench-host-kit'
 import { safeCode, STABLE_ERROR_CODES, XhsError, type StableErrorCode } from './errors.ts'
 
 /** 路由固定路径。 */
@@ -19,6 +21,8 @@ export const ROUTE_PATH = '/api/desktop/yootun/xhs-workbench'
 
 /** JSON 元数据体上限（bytes；迁移旧 32KB→wx 64KB 统一口径）。 */
 export const MAX_BODY_BYTES = 64 * 1024
+
+export { permitted, sendJson, readJsonBody, ROUTE_REFUSAL_REASONS, type RouteRequest, type RouteResponse } from '@yootun/dsh-workbench-host-kit'
 
 /** One whitelisted action's input contract. */
 export interface ActionSchema {
@@ -39,7 +43,7 @@ export const ACTION_SCHEMAS: Readonly<Record<string, ActionSchema>> = Object.fre
   'account.probe': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'account.removeLocal': { fields: { accountId: 'string' }, limits: { accountId: 128 } },
   'collect.start': { fields: { accountId: 'string', idempotencyKey: 'string' }, limits: { accountId: 128, idempotencyKey: 128 } },
-  'collect.status': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
+  'collect.status': { fields: { collectId: 'string', accountId: 'string' }, limits: { collectId: 128, accountId: 128 } },
   'collect.cancel': { fields: { collectId: 'string' }, limits: { collectId: 128 } },
   'task.create': {
     fields: {
@@ -187,66 +191,19 @@ export function validateActionArgs(action: string, body: Record<string, unknown>
   return args
 }
 
-/** 路由信任判定（对齐官方浏览器信任边界 api-request-trust，wx 模板同款）：
- * loopback 远端是基础防线，负责把请求绑定到本机；显式 `sec-fetch-site:
- * cross-site` 一律拒绝；显式 Origin 必须精确等于 expectedOrigin（字面 `null`、
- * 异源都拒绝），Origin 缺失不单独视为攻击——Windows Desktop 的 Electron main
- * 进程 `forwardWebRequest` 转发请求时会剥掉 Origin 与 Sec-Fetch-Site 两枚头，
- * 双头缺失是 Desktop 转发的合法形态，来源边界由 loopback 承担。
- * @param req - Node HTTP 请求。
- * @param expectedOrigin - 本 webServer 绑定的精确 origin。
- * @returns 是否放行。 */
-export function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
-  const address = req.socket.remoteAddress ?? ''
-  const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
-  if (!loopback) return false
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false
-  const origin = req.headers.origin
-  return origin === undefined || origin === expectedOrigin
-}
-
-/** Read and parse the JSON body with the size cap; malformed bodies become `{}` (schema layer rejects them). */
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
-    size += buffer.byteLength
-    if (size > MAX_BODY_BYTES) throw new XhsError('XHS_ROUTE_PAYLOAD_TOO_LARGE', 'request body too large')
-    chunks.push(buffer)
-  }
-  try {
-    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
-    return parsed as Record<string, unknown>
-  } catch (error: unknown) {
-    // JSON 解析失败按空体处理，schema 层会给出确定性拒绝。
-    void error
-    return {}
-  }
-}
-
-function send(res: ServerResponse, code: number, payload: object): void {
-  res.statusCode = code
-  res.setHeader('cache-control', 'no-store')
-  res.setHeader('content-type', 'application/json; charset=utf-8')
-  res.setHeader('x-content-type-options', 'nosniff')
-  res.end(JSON.stringify(payload))
-}
-
 /**
  * Handler 响应的判别联合：error 分支的 reason 必须是稳定码白名单成员——
  * 未收录 reason 码编译期报错（新增 reason 码必须先进 STABLE_ERROR_CODES）。
  */
-export type HandlerPayload =
-  | ({ status: 'ready' | 'started' | 'created' } & Record<string, unknown>)
-  | ({ status: 'error'; reason: StableErrorCode } & Record<string, unknown>)
+export type HandlerPayload = KitHandlerPayload<'ready' | 'started' | 'created', StableErrorCode>
 
 /** One action's business handler: receives validated args, returns the JSON payload. */
-export type ActionHandler = (args: ActionArgs) => Promise<HandlerPayload>
+export type ActionHandler = KitActionHandler<'ready' | 'started' | 'created', StableErrorCode, ActionArgs>
 
 /**
- * Build the POST handler for the route.
+ * Build the POST handler for the route（分发矩阵由 kit {@linkcode createActionRoute}
+ * 承担：405 `method_not_allowed`、403 `forbidden`、400 `unknown_action`、413
+ * 体超限、稳定码白名单收敛）。本函数只绑定小红书的 schema、校验器与稳定码前缀。
  * @param expectedOrigin - origin provider (the local webServer binds during init).
  * @param handlers - per-action business handlers (must cover the allowlist).
  * @returns the webServer route handler.
@@ -254,32 +211,19 @@ export type ActionHandler = (args: ActionArgs) => Promise<HandlerPayload>
 export function createRouteHandler(
   expectedOrigin: () => string,
   handlers: Readonly<Record<string, ActionHandler>>,
-): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-  return async (req, res) => {
-    if (req.method !== 'POST') {
-      send(res, 405, { status: 'error', reason: 'method_not_allowed' })
-      return
-    }
-    if (!permitted(req, expectedOrigin())) {
-      send(res, 403, { status: 'error', reason: 'forbidden' })
-      return
-    }
-    try {
-      const body = await readBody(req)
-      const action = typeof body.action === 'string' ? body.action.trim().slice(0, 64) : ''
-      if (!(action in ACTION_SCHEMAS) || handlers[action] === undefined) {
-        send(res, 400, { status: 'error', reason: 'unknown_action' })
-        return
-      }
-      const args = validateActionArgs(action, body)
-      const payload = await handlers[action](args)
-      send(res, 200, payload)
-    } catch (error) {
-      // 统一收敛：稳定码白名单外的原始错误不透传（基线清单 §5）。
-      const code = safeCode(error)
-      const reason = isStableCode(code) ? code : 'XHS_ROUTE_INVALID_REQUEST'
-      const status = code === 'XHS_ROUTE_PAYLOAD_TOO_LARGE' ? 413 : reason.startsWith('XHS_ROUTE') ? 400 : 200
-      send(res, status, { status: 'error', reason })
-    }
-  }
+): (req: RouteRequest, res: RouteResponse) => Promise<void> {
+  return createActionRoute<'ready' | 'started' | 'created', StableErrorCode, ActionArgs>({
+    expectedOrigin,
+    actionSchemas: ACTION_SCHEMAS,
+    validate: validateActionArgs,
+    handlers,
+    codes: {
+      invalidRequest: 'XHS_ROUTE_INVALID_REQUEST',
+      payloadTooLarge: 'XHS_ROUTE_PAYLOAD_TOO_LARGE',
+      routeCodePrefix: 'XHS_ROUTE',
+    },
+    safeCode,
+    isStableCode,
+    maxBodyBytes: MAX_BODY_BYTES,
+  })
 }

@@ -13,7 +13,8 @@
  * @module
  */
 import { type ReactNode } from 'react'
-import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ReasonButton, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { DataState, KpiCard, Pager } from '@yootun/dsh-client-ui-kit'
 import {
   EMPTY, formatCount, formatDateTime, formatDuration, formatPercent, formatSeconds,
@@ -156,17 +157,17 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
           >
             {props.refreshing ? t('works.refreshing') : t('works.refresh')}
           </Button>
-          <Button
+          <ReasonButton
             variant='ghost'
             size='sm'
             icon={<DownloadIcon />}
             disabled={props.accountId === '' || props.exporting || props.worksTotal === 0}
             aria-busy={props.exporting || undefined}
-            title={props.worksTotal === 0 ? t('works.exportNoData') : undefined}
+            reason={props.worksTotal === 0 ? t('works.exportNoData') : undefined}
             onClick={props.onExport}
           >
             {props.exporting ? t('works.exporting') : t('works.exportExcel')}
-          </Button>
+          </ReasonButton>
           {props.account?.lastCollectedAt != null && (
             <span className={css.toolbarNote}>{t('works.lastCollected', { time: formatDateTime(props.account.lastCollectedAt) })}</span>
           )}
@@ -241,6 +242,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     </th>
                   )
                 })}
+                <th scope='col' className={css.colAction}>{t('action.viewDetail')}</th>
               </tr>
             </thead>
             <tbody>
@@ -252,7 +254,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     tabIndex={0}
                     className={row.promoted ? css.rowPromoted : undefined}
                     aria-label={t('row.detailAria', { title })}
-                    onDoubleClick={() => { props.onOpenWork(props.accountId, row) }}
+                    onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpenWork(props.accountId, row) }}
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
                         event.preventDefault()
@@ -261,6 +263,18 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     }}
                   >
                     {columns.map(column => <td key={column.labelKey}>{column.cell(row, t, props.localeTag)}</td>)}
+                    <td className={css.colAction}>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={event => {
+                          event.stopPropagation()
+                          props.onOpenWork(props.accountId, row)
+                        }}
+                      >
+                        {t('action.viewDetail')}
+                      </Button>
+                    </td>
                   </tr>
                 )
               })}
@@ -332,7 +346,7 @@ function buildColumns(): WorkColumn[] {
       cell: (row, t) => (
         <span className={css.workCell}>
           <CoverCell row={row} />
-          <span className={css.workTitleCell} title={row.title ?? row.work_id}>{row.title ?? row.work_id}</span>
+          <Tooltip label={row.title ?? row.work_id} onlyWhenClipped portal><span className={css.workTitleCell}>{row.title ?? row.work_id}</span></Tooltip>
           {row.promoted && <Tag tone='danger' className={css.workTag}>{t('promotion.badge')}</Tag>}
         </span>
       ),

@@ -39,10 +39,9 @@ test('dispose：登录等待中 abort → run 落 login_aborted，新 action 稳
   assert.equal(rejected.status, 'error')
   assert.equal(rejected.reason, 'plugin_disposing')
   assert.equal(deps.taskRegistry.activeCount, 0)
-  // 登录 run 以 aborted 终态收敛（dispose 后 handler 被 guard 拦截，直接读 run 表）。
-  const run = deps.loginRuns.get('acc-1')
-  assert.equal(run?.status, 'failed')
-  assert.equal(run?.error, 'login_aborted')
+  // 登录记录表随卸载清空（mount-restore 2.3 卸载行；abort 终态语义由
+  // login settle / collect.cancel 路径的既有用例覆盖）。
+  assert.equal(deps.loginRuns.size, 0)
   // 信号表清空。
   assert.equal(deps.loginSignals.size, 0)
   await rm(root, { recursive: true, force: true })
@@ -66,11 +65,11 @@ test('dispose：采集运行中 abort → run 落 cancelled(collect_cancelled)�
   // dispose 后 handler 拒绝：collect.status 也被 guard 拦截（plugin_disposing）。
   assert.equal(status.status, 'error')
   assert.equal(status.reason, 'plugin_disposing')
-  // 采集 run 落取消终态（abort 与 collect.cancel 同一判定口径，1126 实施单 A1），
-  // 信号表清空。
-  const run = deps.collectRuns.get(String(payload.collectId))
-  assert.equal(run?.status, 'cancelled')
-  assert.equal(run?.error, 'collect_cancelled')
+  // 采集记录表随卸载清空（mount-restore 2.2 卸载行；取消终态语义由
+  // collect.cancel 路径的既有用例覆盖），信号表清空。
+  assert.equal(deps.collectRuns.size, 0)
+  assert.equal(deps.collectIdempotency.size, 0)
+  assert.equal(deps.collectLatestByAccount.size, 0)
   assert.equal(deps.collectSignals.size, 0)
   await rm(root, { recursive: true, force: true })
 })
@@ -91,6 +90,7 @@ test('dispose：扫描码成功与 abort 竞态——清理不误删正式账号
   await handlers['account.beginLogin']!({ accountId: 'acc-keep' })
   // 扫码 cookie 即刻命中：登录与 abort 竞速。无论成败，dispose 等待后无 pending
   // 残留；显式重登的正式账号记录绝不被清理路径抹掉（写入成功则保留）。
+  const runRef = deps.loginRuns.get('acc-keep')
   await disposeHostTasks({ deps })
   const { readdir } = await import('node:fs/promises')
   let profiles: string[] = []
@@ -100,12 +100,12 @@ test('dispose：扫描码成功与 abort 竞态——清理不误删正式账号
     profiles = []
   }
   assert.deepEqual(profiles.filter(name => name.startsWith('pending-')), [])
-  const run = deps.loginRuns.get('acc-keep')
-  assert.ok(run?.status === 'ok' || run?.status === 'failed')
-  if (run?.status === 'failed') {
-    // abort 收敛：账号目录不被清理（显式重登清理只碰 pending 目录）。
-    assert.equal(run.error, 'login_aborted')
-  } else {
+  // 登录记录表随卸载清空（mount-restore 2.3 卸载行）；abort 收敛语义（账号
+  // 目录不被清理，显式重登清理只碰 pending 目录）由上方 profiles 断言承担，
+  // 账号记录断言保留。
+  assert.equal(deps.loginRuns.size, 0)
+  // run 对象仍存活（表已清，引用保留终态）：ok 分支的账号记录必须保留。
+  if (runRef?.status === 'ok') {
     const accounts = await import('../src/state.ts').then(state => state.readAccounts(root))
     assert.equal(accounts.accounts['acc-keep']?.sessionStatus, 'ok')
   }

@@ -11,6 +11,8 @@
 | `brand/` | 品牌输入单一来源：`brand.json`（名称/appId/feed/标题/租户常量/VALIDATION_VERSION 元数据）、`assets/`（app-icon 源图、sidebar-mark、hero-mark、wordmark）、`scripts/`（素材生成脚本） | 批次 3 |
 | `packages/dsh-client-ui-brand/` | 品牌前端包 `@yootun/dsh-client-ui-brand`：占官方品牌 slot（sidebar.brand、conversation.hero.frame） | 批次 3 |
 | `packages/dsh-client-ui-access/` | 激活前端包 `@yootun/dsh-client-ui-access`：key 激活页 + 门禁 | 批次 4 |
+| `packages/dsh-workbench-host-kit/` | Host 侧共享库 `@yootun/dsh-workbench-host-kit`：同源路由信任判定与 action 分发、任务登记表、profile 锁、状态文件原子写与按 root 写队列、系统 Chrome 探测与浏览器生命周期；三工作台与 managed-mcp / media-upload 消费 | 2026-11-27（workbench-host-kit 单） |
+| `packages/dsh-client-workbench-machines/` | 纯 client 数据流包 `@yootun/dsh-client-workbench-machines`：登录、单账号采集、批量采集、作品查询四个 machine 的状态与竞态守卫（无 React/DOM）；插件以 `flows.ts` 适配层接入各自 Host action 投影，页面经 `useSyncExternalStore` 订阅 | 2026-11-27（client-workbench-hooks 单） |
 | `packages/dsh-bundle-yootun/` | yootun 产品 bundle：自有插件 + 默认配置组层，插进 desktop profile | 批次 3 起逐批充实 |
 | `plugins/` | `@yootun/dsh-*` 插件：managed MCP、Workbench 私有连接器、媒体上传、视频号 / 小红书 / 抖音三个工作台（Host 半 + client 半） | 第三步 P1–P4 |
 | `scripts/` | 自有工具脚本（品牌环境生成、desktop-compat 契约测试、插件 runtime bundle 校验等） | 批次 3 起 |

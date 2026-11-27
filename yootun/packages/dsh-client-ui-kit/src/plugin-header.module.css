@@ -30,7 +30,7 @@
 .title {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 24px;
   color: var(--dsw-alias-label-primary);
   white-space: nowrap;

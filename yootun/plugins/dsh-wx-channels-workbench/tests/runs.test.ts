@@ -18,11 +18,13 @@ import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createAttemptId, readRuns, recoverInterruptedRuns, removeAccountRuns, updateRun } from '../src/runs.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
-import { createCollectController } from '../src/runner.ts'
+import { createCollectController, runCollection, type CollectResult } from '../src/runner.ts'
 import { progressFromEvent } from '../src/runner.ts'
 import { createIngestClient, ingestCollectedData, type WxWorkbenchFace } from '../src/ingest.ts'
 import { safeCode } from '../src/errors.ts'
+import { probeAndReport, PROBE_REUSE_TTL_MS, type ProbedSession, type RefreshedSession } from '../src/probe.ts'
 import type { ChromeFactory } from '../src/session.ts'
+import { createProfileLocks, type ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -87,7 +89,8 @@ function makeFactory(scripts: Record<string, AccountScript>): ChromeFactory {
     if (script.failFromCall !== undefined && callNo >= script.failFromCall) {
       throw Object.assign(new Error('chrome missing'), { code: 'GOOGLE_CHROME_MISSING' })
     }
-    const isCollectBody = callNo === 3
+    // 采集本体 = 第 2 次启动（前置探测结果复用，collect-probe-reuse）。
+    const isCollectBody = callNo === 2
     const page = {
       goto: async () => {
         if (isCollectBody && script.collectGoto !== undefined) {
@@ -126,11 +129,232 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
 }
+
+// --- U1–U6 探测复用（collect-probe-reuse；单账号 runCollection 级） ---
+
+/** 计数接缝：统计上报与每账号启动序号（含每次启动时刻的上报数）。 */
+function makeReuseInfra(): { workbench: WxWorkbenchFace; factory: ChromeFactory; launches: Map<string, number>; reports: string[]; launchLog: Array<{ accountId: string; launchNo: number; reports: number }> } {
+  const launches = new Map<string, number>()
+  const reports: string[] = []
+  const launchLog: Array<{ accountId: string; launchNo: number; reports: number }> = []
+  const workbench: WxWorkbenchFace = {
+    callTool: async (_caller: string, _domain: string, name: string) => {
+      if (name === 'workbench_wx_session_status_report') reports.push(name)
+      return { structuredContent: {}, content: [] }
+    },
+  } as never
+  const factory: ChromeFactory = async options => {
+    const accountId = basename(options.profileDir)
+    const launchNo = (launches.get(accountId) ?? 0) + 1
+    launches.set(accountId, launchNo)
+    launchLog.push({ accountId, launchNo, reports: reports.length })
+    const page = {
+      goto: async () => undefined,
+      evaluate: async (_fn: unknown, arg: { url: string }) => {
+        if (typeof arg?.url === 'string' && arg.url.includes('auth_data')) return { status: 200, text: authDataBody(accountId) }
+        return { status: 500, text: '' }
+      },
+    }
+    const context = {
+      pages: () => [page],
+      newPage: async () => page,
+      cookies: async () => [{ name: 'sessionid', value: 'v' }],
+      storageState: async () => ({ cookies: [], origins: [] }),
+      close: async () => undefined,
+    }
+    return { context } as never
+  }
+  return { workbench, factory, launches, reports, launchLog }
+}
+
+/** 前置探测（真实 probeAndReport，发 1 次 Chrome + 1 次上报）并返回可复用的 probe。 */
+async function frontProbe(infra: ReturnType<typeof makeReuseInfra>, root: string, accountId: string): Promise<{ probe: ProbedSession<RefreshedSession>; reported: boolean }> {
+  const locks = createProfileLocks()
+  const result = await probeAndReport(infra.workbench, accountId, root, locks, infra.factory)
+  return { probe: result.probe, reported: result.reported }
+}
+
+/** 直跑 runCollection（U2–U6；绕过 handlers 页面路径）。 */
+function runDirect(infra: ReturnType<typeof makeReuseInfra>, root: string, accountId: string, options: { probed?: ProbedSession<RefreshedSession>; now?: () => number } = {}): Promise<CollectResult> {
+  const locks: ProfileLocks = createProfileLocks()
+  return runCollection({
+    workbench: infra.workbench,
+    accountId,
+    root,
+    locks,
+    chromeFactory: infra.factory,
+    ...(options.probed !== undefined ? { probed: options.probed } : {}),
+    ...(options.now !== undefined ? { now: options.now } : {}),
+  })
+}
+
+test('U1 页面路径复用：前置探测后进入本体（2 次启动），流程内上报跳过', async () => {
+  const root = makeEnv('wx-u1', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const deps = createWxHostDeps({
+      root,
+      workbench: infra.workbench,
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+      chromeFactory: infra.factory,
+    })
+    const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }), stop: () => undefined }
+    const collect = createCollectController(
+      { workbench: deps.workbench, root, chromeFactory: infra.factory, logger: deps.logger, locks: deps.locks },
+      { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+    )
+    const handlers = buildRouteHandlers(deps, batch as never, collect)
+    const started = await (handlers['collect.start'] as (args: Record<string, string>) => Promise<Record<string, unknown>>)({ accountId: 'acc1' })
+    assert.equal(started.started, true)
+    await deps.taskRegistry.awaitSettled()
+    assert.deepEqual([...infra.launches.entries()].sort(), [['acc1', 2]], '前置探测 1 次 + 采集本体 1 次')
+    const bodyLog = infra.launchLog.filter(item => item.launchNo === 2)
+    assert.deepEqual(bodyLog.map(item => item.reports), [1], '本体启动前只有前置探测的 1 次上报（流程内上报已跳过）')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U2 不传 probed：外部前置探测 + 流程内重探测 + 本体（3 次启动、2 次上报，现状回归）', async () => {
+  const root = makeEnv('wx-u2', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const { reported } = await frontProbe(infra, root, 'acc1')
+    assert.equal(reported, true)
+    const result = await runDirect(infra, root, 'acc1')
+    void result
+    assert.deepEqual([...infra.launches.entries()].sort(), [['acc1', 3]], '外部探测 1 + 流程内重探测 1 + 本体 1')
+    assert.equal(infra.reports.length, 3, '前置探测 1 + 流程内重探测 1 + 采集终态 ok 上报 1')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U3 注入时钟使探测超 TTL：重新探测（3 次启动），其余照旧', async () => {
+  const root = makeEnv('wx-u3', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const { probe } = await frontProbe(infra, root, 'acc1')
+    // now 注入：探测刚完成但时钟已推进 6 分钟（> TTL）→ 照旧重新探测。
+    const result = await runDirect(infra, root, 'acc1', { probed: probe, now: () => Date.now() + PROBE_REUSE_TTL_MS + 60_000 })
+    assert.equal(result.status, 'partial', '假 body 无列表数据 → 空列表 incomplete partial（失败形态不在本断言范围）')
+    assert.deepEqual([...infra.launches.entries()].sort(), [['acc1', 3]], '超 TTL 回落：外部探测 1 + 重新探测 1 + 本体 1')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U4 前置就绪检查失败（storage_state 缺失 → expired 类）：页面路径拒绝启动采集（现状回归）', async () => {
+  const root = makeEnv('wx-u4', 'acc1')
+  try {
+    // storage_state 缺失 → 前置探测 expired → collect.start 拒绝（不建 run、不启动采集）。
+    rmSync(join(root, 'storage-state', 'acc1.json'), { force: true })
+    const infra = makeReuseInfra()
+    const deps = createWxHostDeps({
+      root,
+      workbench: infra.workbench,
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+      chromeFactory: infra.factory,
+    })
+    const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }), stop: () => undefined }
+    const collect = createCollectController(
+      { workbench: deps.workbench, root, chromeFactory: infra.factory, logger: deps.logger, locks: deps.locks },
+      { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+    )
+    const handlers = buildRouteHandlers(deps, batch as never, collect)
+    const started = await (handlers['collect.start'] as (args: Record<string, string>) => Promise<Record<string, unknown>>)({ accountId: 'acc1' })
+    assert.equal(started.started, false)
+    assert.equal(started.reason, 'storage_state_missing', '就绪检查先行拒绝（expired 场景的细分原因）')
+    assert.deepEqual([...infra.launches.entries()], [], '无任何 Chrome 启动（不进入采集）')
+    const runs = await readRuns(root)
+    assert.deepEqual(Object.keys(runs), [], '不产生 runs 记录')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U4b runCollection 层收到 expired 的 probed：回落重新探测（复用条件要求 ok）', async () => {
+  const root = makeEnv('wx-u4b', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const { probe } = await frontProbe(infra, root, 'acc1')
+    // 合成 expired：fresh 探测可恢复（假 factory 的 auth_data 命中）→ 回落后
+    // 流程内重探测 1 次 + 本体 1 次，共 3 次启动。
+    const expiredProbed: ProbedSession<RefreshedSession> = { ...probe, state: { ...probe.state, sessionStatus: 'expired' } }
+    await runDirect(infra, root, 'acc1', { probed: expiredProbed })
+    assert.deepEqual([...infra.launches.entries()].sort(), [['acc1', 3]], 'expired probed 不复用：外部探测 1 + 流程内重探测 1 + 本体 1')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U5 复用且 reported=false：采集流程内补一次上报', async () => {
+  const root = makeEnv('wx-u5', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const { probe } = await frontProbe(infra, root, 'acc1')
+    const notReported: ProbedSession<RefreshedSession> = { ...probe, reported: false }
+    await runDirect(infra, root, 'acc1', { probed: notReported })
+    assert.deepEqual([...infra.launches.entries()].sort(), [['acc1', 2]], '复用生效（无流程内重探测）')
+    assert.deepEqual(infra.launchLog.filter(item => item.launchNo === 2).map(item => item.reports), [2], '本体启动前 = 前置探测 1 次 + 流程内补报 1 次')
+  } finally {
+    cleanup(root)
+  }
+})
+
+test('U6 复用后身份复核失败：account_mismatch 收尾，runs.json 保留终态记录', async () => {
+  const root = makeEnv('wx-u6', 'acc1')
+  try {
+    const infra = makeReuseInfra()
+    const { probe } = await frontProbe(infra, root, 'acc1')
+    // 本体 evaluate 身份不一致（collect body 的 auth_data 由 makeReuseInfra 按
+    // 目录名返回；这里以 authAs 漂移的 factory 覆盖）。
+    const mismatchFactory: ChromeFactory = async options => {
+      const accountId = basename(options.profileDir)
+      const launchNo = (infra.launches.get(accountId) ?? 0) + 1
+      infra.launches.set(accountId, launchNo)
+      infra.launchLog.push({ accountId, launchNo, reports: infra.reports.length })
+      const page = {
+        goto: async () => undefined,
+        evaluate: async (_fn: unknown, arg: { url: string }) => {
+          if (typeof arg?.url === 'string' && arg.url.includes('auth_data')) {
+            const body = JSON.parse(authDataBody(launchNo === 1 ? accountId : 'someone-else'))
+            return { status: 200, text: JSON.stringify(body) }
+          }
+          return { status: 500, text: '' }
+        },
+      }
+      const context = { pages: () => [page], newPage: async () => page, cookies: async () => [{ name: 'sessionid', value: 'v' }], storageState: async () => ({ cookies: [], origins: [] }), close: async () => undefined }
+      return { context } as never
+    }
+    const locks = createProfileLocks()
+    const result = await runCollection({
+      workbench: infra.workbench,
+      accountId: 'acc1',
+      root,
+      locks,
+      chromeFactory: mismatchFactory,
+      probed: probe,
+    })
+    assert.equal(result.status, 'failed')
+    // 身份复核失败的细分原因是 account_mismatch（串号防线的可行动文案），不是
+    // session_expired（实施单附录 B U6 的「session_expired 收尾」按实际行为修订）。
+    assert.equal(result.reason, 'account_mismatch', '身份复核失败以 account_mismatch 收尾（部分成果保留语义由入库路径承担）')
+    const runs = await readRuns(root)
+    const record = Object.values(runs)[0]
+    assert.notEqual(record, undefined, '终态记录已落盘')
+    assert.equal(record?.status, 'failed')
+  } finally {
+    cleanup(root)
+  }
+})
 
 /** 按工具名分发的 fake workbench：run_start 返回固定远端 runId。 */
 function makeIngestWorkbench(options: { runId: string; onFinish?: () => void; finishGate?: Promise<void>; onListMeta?: () => Promise<void> }): WxWorkbenchFace {
@@ -273,8 +497,8 @@ test('runs.json：recoverInterruptedRuns 只把 running 标 interrupted，终态
   await updateRun(root, 'acc1', running, { progress: { phase: 'details', done: 4 } })
   await updateRun(root, 'acc1', done, { status: 'completed', finishedAt: new Date().toISOString(), error: null })
   await updateRun(root, 'acc2', cancelled, { status: 'cancelled', finishedAt: new Date().toISOString(), error: 'collect_cancelled' })
-  const count = await recoverInterruptedRuns(root)
-  assert.equal(count, 1)
+  const summary = await recoverInterruptedRuns(root)
+  assert.deepEqual(summary, { count: 1, accountIds: ['acc1'] }, 'I1：返回 count 与去重 accountIds')
   const runs = await readRuns(root)
   assert.equal(runs[running]?.status, 'interrupted')
   assert.equal(runs[running]?.progress.phase, 'details', 'interrupted 保留最后进度')
@@ -326,7 +550,13 @@ test('collect.status 合并内存与持久化：取消后 lastRun 与内存 reco
   const collect = await callHandler(handlers, 'collect.start', { accountId: 'acc1' })
   assert.equal(collect.started, true)
   await gotoEntered.promise
-  // 运行中：内存 running + 持久化 running，同一条 attemptId。
+  // 运行中：内存 running + 持久化 running，同一条 attemptId。探测复用后采集
+  // 本体启动更快，probing 进度的 runs.json 落盘（fire-and-forget 写）改为
+  // 显式等待后再断言持久化投影。
+  await waitForCondition(async () => {
+    const st = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
+    return (st.lastRun as { status?: string } | null)?.status === 'running'
+  }, 5000)
   const status1 = await callHandler(handlers, 'collect.status', { accountId: 'acc1' })
   assert.equal(status1.busy, true)
   const memory = status1.collect as { attemptId: string | null; status: string }

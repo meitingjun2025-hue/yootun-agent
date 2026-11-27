@@ -60,6 +60,7 @@ test('G2 dispose 预算耗尽：告警且 signals 已清空；挂起任务随后
     disposing: false,
     loginSignals: new Map([['l1', new AbortController()]]),
     collectSignals: new Map([['c1', new AbortController()]]),
+    loginRuns: new Map<string, unknown>(),
     taskRegistry: registry,
   }
   const gate = Promise.withResolvers<void>()

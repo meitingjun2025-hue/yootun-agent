@@ -13,7 +13,7 @@
  * @module
  */
 import { DEFAULT_BROWSER_CLOSE_TIMEOUT_MS, DEFAULT_LAUNCH_TIMEOUT_MS, browserCloseTimeoutMessage, closeContext, launchChrome, launchWithTimeout, type ChromeFactory } from './chrome.ts'
-import { ChromeMissingError } from './chrome-probe.ts'
+import { ChromeMissingError } from '@yootun/dsh-workbench-host-kit'
 import { safeCode } from './errors.ts'
 import {
   clearLocalCredentials, ensureProfileDir, getAccount, hasStorageState, moveProfile,

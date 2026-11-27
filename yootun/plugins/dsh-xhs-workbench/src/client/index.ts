@@ -14,11 +14,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { zh, en, NS, type XhsLocaleKey } from './locales.ts'
 import './kit-styles.ts'
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
-import { WorkbenchPage } from './WorkbenchPage.tsx'
+import { WorkbenchPage, type WorkbenchPageProps } from './WorkbenchPage.tsx'
 
 export { HOST_PATH, UPLOAD_PICK_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, hostAction, startUploadSession, sendUploadBytes, pollUploadStatus, type HostResponse } from './api.ts'
 export { NS, zh, en, type XhsLocaleKey } from './locales.ts'
-export { WorkbenchPage, localeTagOf, type WorkbenchPageProps, type Translate } from './WorkbenchPage.tsx'
+export { WorkbenchPage, type WorkbenchLocale, type WorkbenchPageProps, type Translate } from './WorkbenchPage.tsx'
+export { localeTagOf } from './format.ts'
 export { RewritePage } from './RewritePage.tsx'
 export { HotboardPage } from './HotboardPage.tsx'
 export { createHotboardHub, type HotboardMachine, type HotboardSnapshot, type HotboardSub, type HotboardFilters, type HotboardOverview, type HotboardRun, type HotboardSettings, type HotboardNoteDetail, type HotboardWriteResult } from './hotboard-machine.ts'
@@ -48,7 +49,15 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'yootun-xhs-workbench: dictionaries')
 
-  const injected = (): { t: (key: XhsLocaleKey, values?: Record<string, string | number>) => string } => ({
+  // WorkbenchPage 的 locale 座位：箭头包装 ctx.locale 的同名方法（类实例解构
+  // 后 this 丢失），getSnapshot 返回官方冻结快照对象本身（引用稳定，uSES 要求）。
+  const locale: WorkbenchPageProps['locale'] = {
+    subscribe: (fn) => ctx.locale.subscribe(fn),
+    getSnapshot: () => ctx.locale.getSnapshot(),
+  }
+
+  const injected = (): WorkbenchPageProps => ({
+    locale,
     t: (key, values) => {
       const text = t(key)
       if (values === undefined) return text

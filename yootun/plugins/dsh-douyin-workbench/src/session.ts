@@ -22,7 +22,7 @@ import {
   bumpSessionSeqWith, clearLocalCredentials, ensureProfileDir, getAccount, hasStorageState,
   moveProfile, moveStorageState, paths, saveStorageState, stateRoot, type AccountRecord,
 } from './state.ts'
-import { tryWithProfileLocks, withProfileLock, withProfileLocks } from './locks.ts'
+import type { ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 
 /** 浏览器关闭预算在调用链上的透传字段（Config.browserCloseTimeoutMs + 告警接缝）。 */
 export interface BrowserCloseBudget {
@@ -349,6 +349,8 @@ export async function loginWithQrCode(options: {
   accountId?: string
   root?: string
   timeoutMs?: number
+  /** 账号 profile 锁实例（提交临界区 withProfileLocks 用）。 */
+  locks: ProfileLocks
   chromeFactory?: ChromeFactory | undefined
   onPage?: ((page: Page) => Promise<void> | void) | undefined
   signal?: AbortSignal | undefined
@@ -437,6 +439,7 @@ export async function loginWithQrCode(options: {
       profile,
       context: session.context,
       root,
+      locks: options.locks,
       ...(options.browserCloseTimeoutMs !== undefined ? { browserCloseTimeoutMs: options.browserCloseTimeoutMs } : {}),
       ...(options.onBrowserCloseTimeout !== undefined ? { onBrowserCloseTimeout: options.onBrowserCloseTimeout } : {}),
     })
@@ -465,10 +468,12 @@ export async function commitLoginIdentity(options: {
   profile: DouyinProfile | null
   context: BrowserContext
   root: string
+  /** 账号 profile 锁实例（排序双锁临界区）。 */
+  locks: ProfileLocks
 } & BrowserCloseBudget): Promise<void> {
   const closeTimeout = (target: { close(): Promise<void> }): Promise<void> =>
     closeBudgeted(target, options.tempId, options)
-  await withProfileLocks([options.tempId, options.resolvedId], async () => {
+  await options.locks.withProfileLocks([options.tempId, options.resolvedId], async () => {
     if (options.profile === null) {
       // 探活未读出资料（罕见：verify 成功后重读也失败）：仍按 Cookie 命中提交，
       // 但不写 profile 字段，账号保持 pending- 语义由后续 probe 提升。
@@ -663,6 +668,8 @@ export type PromoteResult = {
 export async function promotePendingAccount(options: {
   accountId: string
   root?: string
+  /** 账号 profile 锁实例（两阶段锁）。 */
+  locks: ProfileLocks
   chromeFactory?: ChromeFactory | undefined
   /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
   launchTimeoutMs?: number | undefined
@@ -672,7 +679,7 @@ export async function promotePendingAccount(options: {
   const { accountId } = options
   const root = options.root ?? stateRoot()
   if (!isPendingAccountId(accountId)) return { promoted: false, accountId, reason: 'not_pending' }
-  const probe = await withProfileLock(accountId, () =>
+  const probe = await options.locks.withProfileLock(accountId, () =>
     probeSession({
       accountId,
       root,
@@ -694,7 +701,7 @@ export async function promotePendingAccount(options: {
   if (realId === accountId) {
     return { promoted: false, accountId, reason: probe.status === 'ok' ? 'already_resolved' : probe.reason ?? 'profile_unavailable' }
   }
-  const attempt = await tryWithProfileLocks([accountId, realId], async (): Promise<PromoteResult> => {
+  const attempt = await options.locks.tryWithProfileLocks([accountId, realId], async (): Promise<PromoteResult> => {
     if (!(await hasStorageState(accountId, root))) {
       return { promoted: false, accountId, reason: 'storage_state_missing' }
     }

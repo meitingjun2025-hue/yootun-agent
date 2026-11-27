@@ -7,11 +7,13 @@
  * 运行：`node --test tests/p0-fixes.test.ts`
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { withProfileLock } from '../src/locks.ts'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
+
+const { withProfileLock } = createProfileLocks()
 
 // --- 1. profile lock 死锁 ---
 
@@ -186,7 +188,7 @@ test('account.probe 真实 handler 在限定时间内完成（无嵌套锁死锁
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   const handlers = buildRouteHandlers(deps, batch as never, collect)
@@ -226,7 +228,7 @@ test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async
     stop: () => undefined,
   }
   const collect = createCollectController(
-    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger },
+    { workbench: deps.workbench, root, chromeFactory: chromeMissingFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
   const handlers = buildRouteHandlers(deps, batch as never, collect)
@@ -243,4 +245,119 @@ test('collect.start 进入 probe 阶段不挂起且失败后互斥复位', async
   const second = await handlers['collect.start']?.({ accountId: 'acc1' }) as Record<string, unknown>
   assert.notEqual(second.reason, 'collect_busy')
   rmSync(root, { recursive: true, force: true })
+})
+
+// --- 生产接线守卫（apply 的三处接线抽为导出工厂，apply 与测试共用同一装配） ---
+
+test('启动恢复接线：interrupted 摘要写进 deps.startupInterruption（2.5 横幅数据源）', async () => {
+  const { applyWxStartupRecovery } = await import('../src/index.ts')
+  const { createWxHostDeps } = await import('../src/handlers.ts')
+  const root = mkdtempSync(join(tmpdir(), 'wx-recover-'))
+  try {
+    const deps = createWxHostDeps({
+      root,
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+    })
+    const recoverCalls: string[] = []
+    applyWxStartupRecovery({
+      root,
+      deps,
+      registry: deps.taskRegistry,
+      logger: { warn: () => undefined },
+      recover: async rootDir => { recoverCalls.push(rootDir); return { count: 2, accountIds: ['a1', 'a2'] } },
+    })
+    await deps.taskRegistry.awaitSettled()
+    assert.deepEqual(recoverCalls, [root])
+    assert.deepEqual(deps.startupInterruption, { count: 2, accountIds: ['a1', 'a2'] })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('启动恢复接线：恢复失败只告警不阻断启动，startupInterruption 保持 null', async () => {
+  const { applyWxStartupRecovery } = await import('../src/index.ts')
+  const { createWxHostDeps } = await import('../src/handlers.ts')
+  const root = mkdtempSync(join(tmpdir(), 'wx-recover-fail-'))
+  try {
+    const warnings: string[] = []
+    const deps = createWxHostDeps({
+      root,
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+    })
+    applyWxStartupRecovery({
+      root,
+      deps,
+      registry: deps.taskRegistry,
+      logger: { warn: message => { warnings.push(message) } },
+      recover: async () => { throw new Error('runs corrupted') },
+    })
+    await deps.taskRegistry.awaitSettled()
+    assert.equal(deps.startupInterruption, null)
+    assert.equal(warnings.length, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('批量门面：probed 前置探测投影原样透传给单账号控制器（缺透传 = 复用失效）', async () => {
+  const { createWxBatchFacade } = await import('../src/index.ts')
+  const startedInputs: Array<Record<string, unknown>> = []
+  const facade = createWxBatchFacade({
+    start: async input => { startedInputs.push(input); return { started: true, record: null } },
+    status: () => null,
+    running: () => null,
+    runningAccountIds: () => [],
+    hasRunning: () => false,
+    wait: async () => null,
+    cancel: () => false,
+  })
+  const probed = { state: { sessionStatus: 'ok', reason: null, sessionSeq: 1, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-1', profile: null }, reported: true, probedAt: 42 }
+  await facade.start({ accountId: 'acc-1', probed })
+  assert.equal(startedInputs[0]?.fromBatch, true)
+  assert.deepEqual(startedInputs[0]?.probed, probed)
+  assert.equal(facade.hasRunning(), false)
+  assert.equal(await facade.wait('acc-1'), null)
+})
+
+test('批量前置探测回调：probe 暂存投影原样交给批量控制器（缺字段 = 复用失效）', async () => {
+  const { createWxBatchProbe } = await import('../src/index.ts')
+  const { createWxHostDeps } = await import('../src/handlers.ts')
+  const root = mkdtempSync(join(tmpdir(), 'wx-probe-'))
+  try {
+    const deps = createWxHostDeps({
+      root,
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
+      logger: { warn: () => undefined },
+    })
+    const probed = { state: { sessionStatus: 'ok', reason: null, sessionSeq: 2, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-7', profile: null }, reported: true, probedAt: 7 }
+    const probe = createWxBatchProbe({
+      workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
+      root,
+      locks: deps.locks,
+      chromeFactory: undefined,
+      logger: { warn: () => undefined },
+      registry: deps.taskRegistry,
+      launchTimeoutMs: 60_000,
+      browserCloseTimeoutMs: 8_000,
+      loadProbe: async () => ({
+        probeAndReport: async (_workbench, accountId, _root, _locks, _chromeFactory, budgets) => {
+          assert.equal(accountId, 'acc-7')
+          assert.equal(budgets?.launchTimeoutMs, 60_000)
+          assert.equal(typeof budgets?.trackCleanup, 'function')
+          return { sessionStatus: 'ok', reason: null, reported: true, probe: probed }
+        },
+      }),
+    })
+    const result = await probe('acc-7')
+    assert.equal(result.sessionStatus, 'ok')
+    assert.deepEqual(result.probe, probed)
+    await deps.taskRegistry.awaitSettled()
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })

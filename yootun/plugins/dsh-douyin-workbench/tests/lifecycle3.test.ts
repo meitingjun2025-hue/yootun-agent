@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { buildRouteHandlers, createDouyinHostDeps } from '../src/index.ts'
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { batchCandidates, createBatchCollectController } from '../src/runner.ts'
@@ -53,7 +54,7 @@ test('§1 startup 等待期 dispose 竞态：等待中的请求被 abort，不�
       root,
       workbenchFace: hanging.face,
       chromeFactory: fastFailChrome,
-      recovery: async () => { await gate; return 0 },
+      recovery: async () => { await gate; return { count: 0, accountIds: [] } },
     })
     const handlers = buildRouteHandlers(deps)
     // recovery gate pending 时发起 works.list。
@@ -89,6 +90,7 @@ test('§2 batchCandidates：abort 后立刻抛 collect_cancelled，不再继续�
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: fastFailChrome })
     const runnerDeps = {
       callTool: deps.callTool,
+      locks: createProfileLocks(),
       root: deps.root,
       chromeFactory: deps.chromeFactory,
       maxPages: deps.maxPages,

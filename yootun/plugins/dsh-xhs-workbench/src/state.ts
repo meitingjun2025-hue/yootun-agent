@@ -7,6 +7,7 @@
  * @module
  */
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { atomicWriteJson, runInRootQueue } from '@yootun/dsh-workbench-host-kit'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -125,21 +126,15 @@ export async function readAccounts(root: string): Promise<AccountsState> {
 }
 
 /**
- * Write accounts.json atomically (tmp + rename), 0600.
+ * Write accounts.json atomically (kit 原子写：tmp(pid+随机段) + rename), 0600.
+ * 固定 tmp 名会在并发写回时互相覆盖并报 ENOENT（kit 统一 pid+随机段隔离）。
  * @param state - the state to persist.
  * @param root - the state root directory.
  */
 export async function writeAccounts(state: AccountsState, root: string): Promise<void> {
   await ensureDir(root)
   const file = paths(root).accountsFile
-  const tmp = `${file}.tmp`
-  await writeFile(tmp, `${JSON.stringify({ version: STATE_VERSION, accounts: state.accounts }, null, 2)}\n`, { mode: 0o600 })
-  await rename(tmp, file)
-  try {
-    await chmod(file, 0o600)
-  } catch (error) {
-    void error // 同上：Windows 忽略。
-  }
+  await atomicWriteJson(file, { version: STATE_VERSION, accounts: state.accounts })
 }
 
 /**
@@ -161,12 +156,16 @@ export async function getAccount(accountId: string, root: string): Promise<Accou
  * @returns the merged record.
  */
 export async function updateAccount(accountId: string, patch: Partial<AccountRecord>, root: string): Promise<AccountRecord> {
-  const state = await readAccounts(root)
-  const current = state.accounts[accountId] ?? { accountId, sessionSeq: 0, sessionStatus: 'unknown' as const }
-  const next: AccountRecord = { ...current, ...patch, accountId }
-  state.accounts[accountId] = next
-  await writeAccounts(state, root)
-  return next
+  // 读-改-写整体进入按 root 串行队列：两个账号的并发更新不再互相覆盖字段
+  // （此前无队列，后写方会把先写方的字段回写为旧值——0.1 记录的丢更新缺陷）。
+  return runInRootQueue(root, async () => {
+    const state = await readAccounts(root)
+    const current = state.accounts[accountId] ?? { accountId, sessionSeq: 0, sessionStatus: 'unknown' as const }
+    const next: AccountRecord = { ...current, ...patch, accountId }
+    state.accounts[accountId] = next
+    await writeAccounts(state, root)
+    return next
+  })
 }
 
 /**
@@ -176,12 +175,16 @@ export async function updateAccount(accountId: string, patch: Partial<AccountRec
  * @returns the new seq.
  */
 export async function nextSessionSeq(accountId: string, root: string): Promise<number> {
-  const state = await readAccounts(root)
-  const current = state.accounts[accountId] ?? { accountId, sessionSeq: 0 }
-  const seq = Number(current.sessionSeq ?? 0) + 1
-  state.accounts[accountId] = { ...current, accountId, sessionSeq: seq }
-  await writeAccounts(state, root)
-  return seq
+  // 同一账号的并发取号在 root 队列内串行，得到两个不同的连续序号（不串行时
+  // 两次读同一 seq 会发出重号）。
+  return runInRootQueue(root, async () => {
+    const state = await readAccounts(root)
+    const current = state.accounts[accountId] ?? { accountId, sessionSeq: 0 }
+    const seq = Number(current.sessionSeq ?? 0) + 1
+    state.accounts[accountId] = { ...current, accountId, sessionSeq: seq }
+    await writeAccounts(state, root)
+    return seq
+  })
 }
 
 /**
@@ -316,11 +319,15 @@ export async function clearLocalCredentials(accountId: string, root: string): Pr
   } catch {
     removed.data = false
   }
-  const state = await readAccounts(root)
-  if (state.accounts[accountId] !== undefined) {
-    delete state.accounts[accountId]
-    await writeAccounts(state, root)
-  }
+  // 读取、删除账号记录与写回进入按 root 串行队列：与其他账号的并发
+  // updateAccount/nextSessionSeq 互不覆盖（同 accounts.json 的丢更新缺陷类）。
+  await runInRootQueue(root, async () => {
+    const state = await readAccounts(root)
+    if (state.accounts[accountId] !== undefined) {
+      delete state.accounts[accountId]
+      await writeAccounts(state, root)
+    }
+  })
   return removed
 }
 

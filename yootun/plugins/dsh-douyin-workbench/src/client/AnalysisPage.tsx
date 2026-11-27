@@ -10,14 +10,13 @@
  * @module
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Button, Modal, RiskConfirmation, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { ChartFrame, DataCard, DataState, FilterMenu } from '@yootun/dsh-client-ui-kit'
+import { Button, Modal, RiskConfirmation, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ChartFrame, DataCard, DataState, FilterMenu, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import {
   basisLines, domainErrorText, fanDelta, formatAgeBucket, formatCount, formatDateTime,
   formatPercent, formatSeconds, genderLabel, hotLabelText, reasonText, shanghaiToday, shiftDay,
-  trafficSourceLabel, type Translate,
-} from './format.ts'
+  trafficSourceLabel, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import { readAccountTrend, readAiAnalysis, readAnalysis, type AiAnalysisView, type AnalysisData, type HotWorkRow } from './schema.ts'
 import { DistributionBars, LineTrendChart, accountTrendRows } from './charts.tsx'
@@ -369,7 +368,7 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                     <thead>
                       <tr>
                         {[t('overview.col.rank'), t('overview.col.video'), t('overview.col.publishTime'), t('col.play'),
-                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis')].map(label => <th key={label} scope='col'>{label}</th>)}
+                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
                       </tr>
                     </thead>
                     <tbody>
@@ -380,13 +379,13 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                           className={work.promoted ? css.rowPromoted : undefined}
                           aria-label={t('row.detailAria', { title: work.title ?? work.workId })}
                           onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); props.onOpenWork(props.accountId, work) } }}
-                          onDoubleClick={() => { props.onOpenWork(props.accountId, work) }}
+                          onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpenWork(props.accountId, work) }}
                         >
                           <td>{work.rank ?? index + 1}</td>
                           <td className={css.cellMain}>
-                            <button type='button' className={css.workLinkButton} title={work.title ?? work.workId} onClick={() => { props.onOpenWork(props.accountId, work) }}>
+                            <Tooltip label={work.title ?? work.workId} onlyWhenClipped portal><button type='button' className={css.workLinkButton} aria-label={work.title ?? work.workId} onClick={() => { props.onOpenWork(props.accountId, work) }}>
                               {work.title ?? work.workId}
-                            </button>
+                            </button></Tooltip>
                             {work.promoted && <Tag tone='danger'>{t('promotion.badge')}</Tag>}
                           </td>
                           <td>{formatDateTime(work.publishTime)}</td>
@@ -398,6 +397,18 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                               {(basisLines(work.basis).length > 0 ? basisLines(work.basis) : [hotLabelText(work.labels, t)])
                                 .map(line => <span key={line} className={css.basisLine}>{line}</span>)}
                             </span>
+                          </td>
+                          <td className={css.colAction}>
+                            <Button
+                              variant='ghost'
+                              size='sm'
+                              onClick={event => {
+                                event.stopPropagation()
+                                props.onOpenWork(props.accountId, work)
+                              }}
+                            >
+                              {t('action.viewDetail')}
+                            </Button>
                           </td>
                         </tr>
                       ))}
@@ -643,7 +654,7 @@ function EvidenceChips(props: {
               key={workId}
               type='button'
               className={css.aiChip}
-              title={title ?? workId}
+              aria-label={title ?? workId}
               onClick={() => {
                 props.onOpenWork('', { workId, accountId: null, accountNickname: null, title, publishTime: null, playCount: null, engagementRatePct: null, fansGainCount: null, basis: null, labels: null, promoted: false, rank: null })
               }}
@@ -783,9 +794,4 @@ function ExportIcon(): ReactNode {
       <path d='M8 2.5v7m0 0L5.2 6.7M8 9.5l2.8-2.8M3 12.5h10' stroke='currentColor' strokeWidth='1.4' strokeLinecap='round' strokeLinejoin='round' />
     </svg>
   )
-}
-
-/** 客户端幂等键后缀（32 位小写 hex）。 */
-export function attemptId(): string {
-  return crypto.randomUUID().replaceAll('-', '')
 }

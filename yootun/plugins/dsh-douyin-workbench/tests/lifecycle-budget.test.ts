@@ -56,7 +56,7 @@ test('G1 awaitSettled 正常收敛时计时器被清除（任务 settle 后迅�
 
 test('G2 dispose 预算耗尽：告警且 signals 已清空；挂起任务随后 settle 时 finally 执行', async () => {
   const registry = createTaskRegistry()
-  const deps = { disposing: false, signals: new Map([['t1', new AbortController()]]), taskRegistry: registry }
+  const deps = { disposing: false, signals: new Map([['t1', new AbortController()]]), loginRuns: new Map<string, unknown>(), taskRegistry: registry }
   const gate = Promise.withResolvers<void>()
   let finallyRan = false
   const task = gate.promise.finally(() => { finallyRan = true })

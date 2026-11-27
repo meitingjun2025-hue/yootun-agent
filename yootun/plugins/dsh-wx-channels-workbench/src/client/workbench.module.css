@@ -25,6 +25,52 @@
   min-width: 0;
 }
 
+/* 2.5 中断横幅：作品面板顶部，token 化配色（无字面色值）。 */
+.interruptedBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-md, 8px);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.interruptedText {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.interruptedActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.interruptedButton {
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-sm, 6px);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.interruptedClose {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+}
+
 .worksPanel {
   min-width: 0;
 }
@@ -863,7 +909,7 @@
 
 .axisText {
   fill: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 

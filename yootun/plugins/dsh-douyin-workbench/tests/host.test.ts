@@ -13,6 +13,7 @@ import { DOUYIN_CALLER, createWorkbenchCaller } from '../src/workbench.ts'
 import { LOCAL_ERROR_CODES, STABLE_ERROR_CODES, safeCode } from '../src/errors.ts'
 import { buildRouteHandlers } from '../src/index.ts'
 import { runsFilePath } from '../src/runs.ts'
+import { join } from 'node:path'
 import { createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
 
 test('连接器新码原样投影与 host_unreachable 登记（2026-11-26，分册 08 §5.2）', () => {
@@ -247,5 +248,102 @@ test('稳定错误码集合：白名单无重复且含路由/浏览器/兜底码
   assert.equal(new Set(STABLE_ERROR_CODES).size, STABLE_ERROR_CODES.length)
   for (const code of ['DOUYIN_ROUTE_UNKNOWN_ACTION', 'DOUYIN_ROUTE_INVALID_REQUEST', 'DOUYIN_ROUTE_PAYLOAD_TOO_LARGE', 'GOOGLE_CHROME_MISSING', 'PLAYWRIGHT_DRIVER_MISSING', 'douyin_operation_request_failed', 'SCHEDULE_ROW_CONFLICT', 'IDEMPOTENCY_OUTCOME_UNKNOWN']) {
     assert.ok(STABLE_ERROR_CODES.includes(code as (typeof STABLE_ERROR_CODES)[number]), `${code} 应在稳定码集合`)
+  }
+})
+
+test('I2 collect.status / collectAll.status 附带启动中断摘要；单账号采集成功启动后清空', async () => {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { paths, writeAccounts } = await import('../src/state.ts')
+  const { root, cleanup } = await tempRoot()
+  try {
+    // 就绪条件：本地账号记录 + storage_state 文件（采集探测无 Chrome 快速失败，
+    // 不影响「成功启动」判定——handler 返回 started 即清空摘要）。
+    await writeAccounts({ version: 1, accounts: { 'acc-i2': { accountId: 'acc-i2', sessionStatus: 'ok' } } }, root)
+    await mkdir(join(root, 'storage-state'), { recursive: true })
+    await writeFile(paths(root).storageStatePath('acc-i2'), '{"cookies":[]}')
+    const { createDouyinHostDeps } = await import('../src/index.ts')
+    const deps = createDouyinHostDeps({
+      root,
+      workbenchFace: (await import('./fakes.ts')).createFakeWorkbench().face,
+      browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }),
+      logger: { warn: () => undefined },
+      recovery: async () => ({ count: 2, accountIds: ['a1', 'a2'] }),
+    })
+    await deps.startupReady
+    assert.notEqual(deps.startupInterruption, null, '注入恢复：摘要进 deps')
+    const handlers = buildRouteHandlers(deps)
+    const status = await handlers['collect.status']({ accountId: 'acc-i2' })
+    assert.deepEqual((status as Record<string, unknown>).interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collect.status 附带摘要')
+    const batchStatus = await handlers['collectAll.status']({})
+    assert.deepEqual((batchStatus as Record<string, unknown>).interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collectAll.status 附带摘要')
+    // 单账号采集成功启动 → 摘要清空，两个 status 不再附带。
+    const started = await handlers['collect.start']({ accountId: 'acc-i2' })
+    assert.equal((started as Record<string, unknown>).status, 'ready')
+    assert.equal(deps.startupInterruption, null, '成功启动后摘要清空')
+    const statusAfter = await handlers['collect.status']({ accountId: 'acc-i2' })
+    assert.equal((statusAfter as Record<string, unknown>).interrupted, undefined)
+    await deps.taskRegistry.awaitSettled()
+  } finally {
+    await cleanup()
+  }
+})
+
+// --- 批量前置探测接线守卫（生产装配在 createBatchProbe；缺 probe 字段 = 探测复用静默失效） ---
+
+test('批量前置探测回调携带 probe 暂存投影，上报结果写进 probe.reported', async () => {
+  const { createBatchProbe } = await import('../src/index.ts')
+  const { deps, cleanup } = await testDeps()
+  try {
+    const runnerDeps = {
+      callTool: deps.callTool,
+      root: deps.root,
+      locks: deps.locks,
+      chromeFactory: deps.chromeFactory,
+      maxPages: deps.maxPages,
+      logger: { warn: (message: string) => { deps.logger.warn(message) } },
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      launchTimeoutMs: deps.launchTimeoutMs,
+    }
+    const session = { sessionStatus: 'ok', reason: null, sessionSeq: 3, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'vault-ref', accountId: 'acc-1', profile: null } as const
+    const reported: string[] = []
+    const probe = createBatchProbe(deps, runnerDeps, {
+      refresh: async () => session,
+      report: async (_runnerDeps, accountId) => { reported.push(accountId); return { ok: true, error: null } },
+      now: () => 1_700_000_000_000,
+    })
+    const result = await probe('acc-1')
+    assert.equal(result.sessionStatus, 'ok')
+    assert.deepEqual(result.probe, { state: session, reported: true, probedAt: 1_700_000_000_000 })
+    assert.deepEqual(reported, ['acc-1'], '探测后立即上报')
+  } finally {
+    await cleanup()
+  }
+})
+
+test('createBatchProbe 默认接缝：上报失败写进 probe.reported（复用时不跳过采集内上报）', async () => {
+  const { createBatchProbe } = await import('../src/index.ts')
+  const { deps, cleanup } = await testDeps()
+  try {
+    const runnerDeps = {
+      callTool: deps.callTool,
+      root: deps.root,
+      locks: deps.locks,
+      chromeFactory: deps.chromeFactory,
+      maxPages: deps.maxPages,
+      logger: { warn: (message: string) => { deps.logger.warn(message) } },
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      launchTimeoutMs: deps.launchTimeoutMs,
+    }
+    const probe = createBatchProbe(deps, runnerDeps, {
+      refresh: async () => ({ sessionStatus: 'unknown', reason: 'probe_failed', sessionSeq: 0, checkedAt: '2026-11-27T00:00:00Z', vaultRef: '', accountId: 'acc-9', profile: null }),
+      report: async () => ({ ok: false, error: 'host_unreachable' }),
+      now: () => 1,
+    })
+    const result = await probe('acc-9')
+    assert.equal(result.sessionStatus, 'unknown')
+    assert.equal(result.probe?.reported, false, '上报失败写进 probe.reported')
+    assert.equal(result.reason, 'probe_failed')
+  } finally {
+    await cleanup()
   }
 })

@@ -5,31 +5,33 @@
  * 浏览器状态在页头辅助信息位呈现（阻断文案，无设备路径细节）。
  * @module
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { SegmentedTabs, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { createKitTranslate, DataState, KitLocaleProvider, PluginHeader, PluginPageShell } from '@yootun/dsh-client-ui-kit'
 import { en as kitEn, zh as kitZh } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
 import css from './workbench.module.css'
-import { zh as xhsZh } from './locales.ts'
 import { AccountsPage } from './AccountsPage.tsx'
 import { HotboardPage } from './HotboardPage.tsx'
+import { localeTagOf, type Translate } from './format.ts'
 import { RewritePage } from './RewritePage.tsx'
-import type { Translate } from './format.ts'
 
 export type { Translate } from './format.ts'
 
-export interface WorkbenchPageProps { t: Translate }
+/** locale 服务的订阅座位（官方 LocaleFace 的 subscribe/getSnapshot 投影）。 */
+export interface WorkbenchLocale {
+  /** 快照变化通知；返回退订函数。 */
+  subscribe(fn: () => void): () => void
+  /** 当前快照（两次变化之间引用稳定）。 */
+  getSnapshot(): { active: string }
+}
+
+export interface WorkbenchPageProps { t: Translate; locale: WorkbenchLocale }
 
 type TabValue = 'rewrite' | 'accounts' | 'hotboard'
 type BrowserState = 'loading' | 'ready' | 'chrome_missing' | 'driver_missing' | 'api_error'
 
 interface TabItem { value: TabValue; label: string; id: string; panelId: string }
-
-/** locale 标签（数值/日期格式化用）：词典逐键不同，逐键等价判定可靠。 */
-export function localeTagOf(t: Translate): string {
-  return t('panel') === xhsZh.panel ? 'zh' : 'en'
-}
 
 /**
  * 把元素最近的可滚动祖先滚回顶部：面板切换 = 新视图起点，避免上一面板
@@ -51,6 +53,9 @@ function scrollAncestorToTop(el: HTMLElement | null): void {
 /** 页面组件：三 tab 导航与爆款仿写页接线。 */
 export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
   const t = props.t
+  const locale = props.locale
+  const active = useSyncExternalStore(locale.subscribe, locale.getSnapshot, locale.getSnapshot).active
+  const localeTag = localeTagOf(active)
   const [tab, setTab] = useState<TabValue>('rewrite')
   const [browser, setBrowser] = useState<BrowserState>('loading')
   const tabsRef = useRef<HTMLDivElement | null>(null)
@@ -71,7 +76,7 @@ export function WorkbenchPage(props: WorkbenchPageProps): ReactNode {
 
   useEffect(() => { checkBrowser() }, [checkBrowser])
 
-  const kitTranslate = localeTagOf(t) === 'zh' ? createKitTranslate(kitZh) : createKitTranslate(kitEn)
+  const kitTranslate = localeTag === 'zh' ? createKitTranslate(kitZh) : createKitTranslate(kitEn)
 
   const tabs: readonly [TabItem, ...TabItem[]] = [
     { value: 'rewrite', label: t('tab.rewrite'), id: 'xhs-tab-rewrite', panelId: 'xhs-panel-rewrite' },

@@ -1,6 +1,6 @@
 # infra-workbench-Host 共享库 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 全部合入。本单迁移 [host-lifecycle-budget.md](host-lifecycle-budget.md) 在三插件内落地的 `closeContext` / `launchWithTimeout` 与 `createTaskRegistry`，并承接 [connector-status-and-error-copy.md](connector-status-and-error-copy.md) 明确留给本单的 `permitted()` / 路由合并。
 
@@ -32,7 +32,7 @@
 - 新建 `yootun/packages/dsh-workbench-host-kit`，含路由、任务登记表、profile 锁、状态文件写入、系统 Chrome 探测与浏览器生命周期五个模块；
 - 三插件改为消费该库，删除本地副本；managed-mcp 的 `agent-status` 路由（P0 新增）与 media-upload 的 `permitted()` 改为消费 kit 的同名函数；无状态的函数（`permitted`、`createTaskRegistry`、`resolveSystemChrome` 等）经 `index.ts` 原名再导出，调用方与测试不改导入路径；锁函数改为实例方法，相关测试随附录 A2 调整；
 - 小红书补齐 `accounts.json` 的按 root 写队列与唯一 tmp 名（修复 0.1 的丢更新）；
-- 账号锁实例由 `create<Name>HostDeps` 创建并放在 `deps.locks`；抖音 `runner.ts` 的批次序号移入批量控制器闭包；激活门禁 `gate.tsx` 的两个模块级变量移入 `mountGate` 闭包与组件 ref；
+- 账号锁实例由 `create<Name>HostDeps` 创建并放在 `deps.locks`；抖音 `runner.ts` 的批次序号移入批量控制器闭包；激活门禁 `gate.tsx` 的两个模块级变量移入 `mountGate` 闭包与 `blocking` 授权派生态（A2，本单随实现修订）；
 - 路由层拒绝原因进入三插件词典（`forbidden` / `unknown_action` / `method_not_allowed`）；
 - `yootun/scripts/verify-plugin-runtime-bundle.mjs` 的包名清单补上抖音工作台与 media-upload（当前清单只有 4 个包，这两个包的 `files` 校验被跳过）。
 
@@ -51,7 +51,7 @@ MCP 工具：无。均为包内 API 与插件内部结构变化，页面可见�
 
 ### 2.1 包 `@yootun/dsh-workbench-host-kit`
 
-位置 `yootun/packages/dsh-workbench-host-kit`，纯 Node 库：不依赖 cordis、不注册服务、不含 React。ESM，`exports` 为 `.` 与 `./package.json`；`build` 为 `tsc -p tsconfig.json && tsdown`（`platform: 'node'`、`dts: true`），`test` 为 `node --test tests/*.test.ts`。三插件以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进各插件的运行时 bundle（与 `@yootun/dsh-client-ui-kit` 被 client 半内联的口径相同），不新增运行时外部依赖。
+位置 `yootun/packages/dsh-workbench-host-kit`，纯 Node 库：不依赖 cordis、不注册服务、不含 React。ESM，`exports` 为 `.` 与 `./package.json`（另多登记一个 `./src/*` 供跨包测试/门禁直引源文件；与单文此处的出入按验收认可记录，实现保持不动）；`build` 为 `tsc -p tsconfig.json && tsc -p tests/types/tsconfig.json && tsdown`（`platform: 'node'`、`dts: true`；第二段 tsc 执行 H4 的 `@ts-expect-error` 类型用例），`test` 为 `node --test tests/*.test.ts`。三插件以 `devDependencies`（`workspace:*`）引用，由官方 `clientBundle` 内联进各插件的运行时 bundle（与 `@yootun/dsh-client-ui-kit` 被 client 半内联的口径相同），不新增运行时外部依赖。
 
 | 模块 | 导出 |
 |---|---|
@@ -64,14 +64,23 @@ MCP 工具：无。均为包内 API 与插件内部结构变化，页面可见�
 ### 2.2 `createActionRoute`
 
 ```ts
-createActionRoute<S extends string, C extends string>(options: {
+createActionRoute<S extends string, C extends string, A extends ActionArgs = ActionArgs>(options: {
   expectedOrigin: () => string
   actionSchemas: Readonly<Record<string, unknown>>
-  validate: (action: string, body: Record<string, unknown>) => ActionArgs
-  handlers: Readonly<Record<string, ActionHandler<S, C>>>
+  validate: (action: string, body: Record<string, unknown>) => A
+  handlers: Readonly<Record<string, ActionHandler<S, C, A>>>
   codes: { invalidRequest: C; payloadTooLarge: C; routeCodePrefix: string }
+  safeCode: (error: unknown) => string
+  isStableCode: (code: string) => boolean
   maxBodyBytes: number
-}): (req: IncomingMessage, res: ServerResponse) => Promise<void>
+}): (req: RouteRequest, res: RouteResponse) => Promise<void>
+
+`safeCode` 与 `isStableCode` 由调用方注入：「白名单外的原始错误收敛为
+codes.invalidRequest（规则同现状）」要求 kit 知道各插件的稳定码投影与白名单，
+实现以注入面承载（抖音 fallback `DOUYIN_ROUTE_INVALID_REQUEST`、视频号
+`WX_TOOL_UNAVAILABLE`、小红书 `xhs_operation_request_failed`，行为逐字节不变）。
+`ActionArgs` 为 kit 层的 `Record<string, unknown>`，各插件以自己的 ActionArgs
+实例化 `A`。
 ```
 
 | 场景 | HTTP | 响应体 |
@@ -124,12 +133,12 @@ type HandlerPayload<S extends string, C extends string> =
 | yootun-agent | `yootun/packages/dsh-workbench-host-kit/`（新） | 包、五个模块与 `index.ts`、测试 | 是 | 本单主体 |
 | yootun-agent | `pnpm-lock.yaml` | 新 workspace 包的锁记录 | 是 | workspace glob 已登记（[inline-changes.md](../../inline-changes.md) #1），无需新登记 |
 | yootun-agent | 三插件 `src/route.ts` | 只保留 `ACTION_SCHEMAS`、`validateActionArgs`、`HandlerPayload` 实例化与 kit 再导出 | 是 | 删除三份路由实现 |
-| yootun-agent | 三插件 `src/locks.ts`、`src/lifecycle.ts` | `locks.ts` 删除；`lifecycle.ts` 只保留各自的 `disposeHostTasks` | 是 | 删除三份副本 |
+| yootun-agent | 三插件 `src/locks.ts`、`src/lifecycle.ts`、小红书 `src/chrome-probe.ts` | `locks.ts` 与 `chrome-probe.ts` 删除；`lifecycle.ts` 只保留各自的 `disposeHostTasks` | 是 | 删除三份副本 |
 | yootun-agent | 三插件 `src/chrome.ts` | 只保留 `browserStatus` 投影与各自的启动函数 | 是 | 探测与生命周期上移 |
 | yootun-agent | 三插件 `src/handlers.ts`（`create<Name>HostDeps`）、`deps` 类型，以及调用锁的 `runner.ts` / `session.ts` / `probe.ts` / `collector.ts` / `publisher.ts` | `deps.locks`；17 处锁调用与小红书 1 处把 `isProfileLocked` 作为回调传入的地方，改为经 deps 或 options 拿到锁实例（抖音 6、视频号 6、小红书 5） | 是 | 模块级状态归位 |
-| yootun-agent | 抖音 `src/runner.ts`、视频号 `src/runs.ts` / `state.ts`、小红书 `src/state.ts` | 写入改用 `atomicWriteJson` + `runInRootQueue`；小红书 `updateAccount` / `nextSessionSeq` 进入队列 | 是 | 修复小红书丢更新 |
+| yootun-agent | 抖音 `src/runs.ts` / `state.ts`、视频号 `src/runs.ts` / `state.ts`、小红书 `src/state.ts` | 写入改用 `atomicWriteJson` + `runInRootQueue`，删除各自的本地队列副本；小红书 `updateAccount` / `nextSessionSeq` 进入队列 | 是 | 修复小红书丢更新 |
 | yootun-agent | 抖音 `src/runner.ts` `createBatchCollectController` | `batchSeq` 移入闭包 | 是 | 模块级状态归位 |
-| yootun-agent | `yootun/packages/dsh-client-ui-access/src/client/gate.tsx` | `gateRoot` / `releaseApplication` 移入闭包与 ref | 是 | 模块级状态归位 |
+| yootun-agent | `yootun/packages/dsh-client-ui-access/src/client/gate.tsx` | `gateRoot` 移入 `mountGate` 闭包；应用阻断改 `blocking` 派生态（无实例级申请引用） | 是 | 模块级状态归位 |
 | yootun-agent | 三插件 `src/client/{format,locales}.ts` | 路由层拒绝原因的文案分支 | 是 | 可读错误 |
 | yootun-agent | `yootun/plugins/dsh-managed-mcp/src/index.ts`、`yootun/plugins/dsh-media-upload/src/routes.ts` | 本地 `permitted` 改为 kit 再导出（media-upload 的 media 预览路由有自己的 no-cors 规则，不在其内） | 是 | 信任判定单一来源 |
 | yootun-agent | `yootun/scripts/verify-plugin-runtime-bundle.mjs` | 包名清单补两项 | 是 | 构建校验漂移 |
@@ -144,7 +153,7 @@ type HandlerPayload<S extends string, C extends string> =
 | 文档（本文 + OVERVIEW + 08 册 §10.3 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/workbench-host-kit` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/workbench-host-kit`（基于 P0 合入后的 `main`） | 两轮独立验收通过：kit 包 test 25 用例与 build（含类型段）、三工作台 / managed-mcp / media-upload / client-ui-access 各包 test 与 build、`lint`、`typecheck`、四个 verify 脚本、`test:docs`、5.1 两条 grep 全过；附录 B 全部 ID 存在且经变异检查证实有效 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -169,7 +178,31 @@ type HandlerPayload<S extends string, C extends string> =
 
 ### 5.3 本地联调记录
 
-待填（合入前回填）。
+验收轮 1（独立子代理，结论通过、无必须修）发现并已修复：
+
+- 小红书 `clearLocalCredentials` 的 accounts.json 读-删-写仍在按 root 队列外（探针 40/40 复现丢更新），已包进 `runInRootQueue`（对照抖音同段），探针转正为回归用例 `tests/clear-local-credentials-race.test.ts`（X4）；
+- `gate.tsx` 双挂载时实例 previous 快照互相指向对方设置的值：实例清理按快照恢复会把仍在阻断的门禁解锁（探针复现），改为实例不按快照恢复、`mountGate` disposer 在门禁层全部卸载后统一复位；失去唯一生产消费者的 `blockApplicationScroll` 快照恢复 helper 随之删除，其行为锁定由 `gate.test.tsx` 与 `gate-double-mount.test.tsx` 的真实 overflow 断言接管（原 helper 单元用例删除，原因如上）；
+- 小红书 client `format.ts` 的 `reasonText` JSDoc 被新常量隔开，已归位；抖音、视频号 `format.ts` 的 `ROUTE_REFUSAL_REASONS` 值导入仅被注释引用，改为类型导入；
+- X2 用例改写为绕过队列直写 `writeAccounts`（原经 `updateAccount` 已被队列串行化，测不到 tmp 交错面；tmp 唯一性的第一道防线由 kit H7 承担）。
+
+与实施单的出入及处理（单上文字已随实现修订）：
+
+- 2.2 签名增加 `safeCode` / `isStableCode` 注入项：单上「白名单外原始错误收敛为 invalidRequest（规则同现状）」依赖各插件 safeCode 的 fallback（视频号未知错误收敛为 `WX_TOOL_UNAVAILABLE` → HTTP 200），kit 裸读 `.code` 会把该形态变为 400；注入后与三插件原 catch 分支逐字对照等价（单上原文 → 增加注入项 → 验收认可）；
+- 3 影响面「抖音 `src/runner.ts`」的写入行：抖音的状态写入实际在 `src/runs.ts` / `src/state.ts`，runner.ts 无写盘点（单上原文 → 实际 → 影响面行已改为 runs.ts / state.ts，runner.ts 保留在批次序号行）；
+- 抖音批次序号 `batchSeq` 移入控制器闭包后改名 `batchOrdinal`：5.1 的 `let batchSeq` grep 门禁不分作用域，闭包内声明仍命中（单上原文 → 实际 → 零行为变化的改名使门禁可判）；
+- 视频号新增本地稳定码 `refresh_not_allowed`：`account.refreshLoginQr` 既有守卫拒绝在 HandlerPayload 收紧（2.3）后须进 `STABLE_ERROR_CODES` 才能编译；无页面消费者，词典 zh/en 与 `REASON_KEYS` 已补；该 action 由 mount-restore 单（P1 第 3 阶段）删除；
+- 视频号 handlers `runPassthrough` 的 `build === undefined` 死分支原返回 `unknown_action`（不在稳定码白名单），改为抛 `WX_ROUTE_UNKNOWN_ACTION` 保持 fail loud；分支不可达（调用点核对 7 处均为映射表既有键），无测试与页面覆盖差异；
+- kit chrome.ts 不含 `loadPlaywrightDriver` / playwright-core import：驱动加载留在抖音插件（只有插件声明该依赖），`DriverMissingError` 类在 kit；
+- 单上 2.1 的 kit chrome.ts 导出表未列 `browserCloseTimeoutMessage` 与两个缺省预算常量：三插件 index 再导出面保持与迁移前一致，随 chrome.ts 一并迁入（单上原文 → 实际 → 验收认可）。
+
+改动过的既有用例（均为附录 A2 点名的锁实例化适配或 R1 点名的 405 reason 断言，无断言语义改写）：
+
+- 夹具补 `locks`：抖音 batch-concurrency / lifecycle3，视频号 host / dispose / p0-fixes / runs / batch-concurrency / lifecycle-budget / profile-lock（模块级锁函数改实例调用），小红书 host / session / lifecycle-budget；
+- 405 reason 断言：抖音 route.test（原只断 status，补 reason 行）、视频号 host.test（新增 R1 用例）、小红书 host.test（补 reason 行）；
+- 小红书 host.test「publish.start 锁占用即拒绝」账号名 acc-1 → acc-exp：原断言依赖模块级锁的跨用例残留（本用例发布的账号是 acc-exp），实例化后旧断言恒假，改后断言意图不变且更真实；
+- 访问包新增 vitest / jsdom / react-dom devDeps 与 `tests/client/gate.test.tsx`（R3 需要真实 DOM）、`tests/client/primitives-shim.ts`（受控桶）；验收轮 1 后新增 `gate-double-mount.test.tsx`（F2 回归）。
+
+未核对项：真机验收清单 5.2 K1–K4；kit `resolveSystemChrome` 的真实 PATH 命中路径（测试用注入接缝）。
 
 ## 附录 A：逐文件规格
 
@@ -187,7 +220,7 @@ type HandlerPayload<S extends string, C extends string> =
 - `handlers.ts`：`create<Name>HostDeps` 增加 `locks: createProfileLocks()`；独立函数（`runCollection`、`probeAndReport`、`loginWithQrCode`、`collectNotes`、`publishDraft` 等）的 options 增加 `locks`，与 `taskRegistry` 同一透传方式；`index.ts` 不再导出锁函数；
 - 小红书 `state.ts`：`writeAccounts` 改用 `atomicWriteJson`；`updateAccount`、`nextSessionSeq` 改为 `runInRootQueue(root, async () => { 读、改、写 })`；
 - 抖音 `runner.ts`：`batchSeq` 成为 `createBatchCollectController` 内的局部变量；
-- `gate.tsx`：`releaseApplication` 改为 `AccessGate` 内的 `useRef`，effect 的清理函数负责释放；`gateRoot` 成为 `mountGate` 内的局部变量，由返回的 disposer 捕获。
+- `gate.tsx`：应用阻断改为 `blocking` 派生态（`authorized !== true`）驱动的 effect——阻断置 body overflow hidden，解除分支清 `root.inert` 与 overflow，无实例级申请引用与清理函数；滚动锁与 `root.inert` 的最终复位由 `mountGate` 返回的 disposer 在门禁层全部卸载后统一做；`gateRoot` 成为 `mountGate` 内的局部变量，由返回的 disposer 捕获。
 
 ### A3 `verify-plugin-runtime-bundle.mjs`
 

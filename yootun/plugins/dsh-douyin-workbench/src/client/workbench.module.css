@@ -8,6 +8,19 @@
   padding-top: 12px;
 }
 
+/* 二级分段控件行：随内容宽度，窄容器横向滚动不换行。 */
+.subTabsRow {
+  margin-top: 8px;
+  margin-bottom: 4px;
+  min-width: 0;
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .subTabsRow {
+    overflow-x: auto;
+  }
+}
+
 .headerStatus {
   display: inline-flex;
   align-items: center;
@@ -70,6 +83,56 @@
      固定，不再随行数增长留出下方空白。 */
   flex: 1 1 0;
   min-height: 0;
+}
+
+/* 2.5 中断横幅：作品面板顶部，token 化配色（无字面色值）。 */
+.interruptedBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--dsw-alias-border-strong);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.interruptedText {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.interruptedActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.interruptedButton {
+  padding: 4px 12px;
+  border: 1px solid var(--dsw-alias-border-strong);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.interruptedButton:hover {
+  background: var(--dsw-alias-bg-inset);
+}
+
+.interruptedClose {
+  border: none;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
 }
 
 .worksPanel {
@@ -526,13 +589,22 @@
   z-index: 1;
   background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-secondary);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .workTable td,
 .dataTable td,
 .scheduleTable td {
   color: var(--dsw-alias-label-primary);
+}
+
+/* 行末操作列（查看详情/查看分析）：宽度固定，按钮不随列内容挤压。 */
+.workTable .colAction,
+.dataTable .colAction {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  text-align: end;
 }
 
 /* 作品表前两列 sticky（作品名称 / 作品链接） */
@@ -735,7 +807,7 @@
 .kpiValue {
   font-size: 20px;
   line-height: 26px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -775,7 +847,7 @@
 .metricValue {
   font-size: 15px;
   line-height: 22px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
@@ -783,13 +855,13 @@
 
 .metricNote {
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
 
 .metricFootnote {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
 }
@@ -942,7 +1014,7 @@
   margin: 0;
   font-size: 15px;
   line-height: 22px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
 }
 
@@ -982,7 +1054,7 @@
   margin: 0;
   font-size: 14px;
   line-height: 21px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
   overflow-wrap: anywhere;
 }
@@ -1162,11 +1234,11 @@
 }
 
 /* 爆款分布前三名固定语义色（旧插件同口径 1 橙 / 2 蓝 / 3 紫，取值映射官方
-   static 色板；名次数字同色加粗，色彩不承载唯一信息——数字与数量并列表达）。 */
+   static 色板；名次数字同色，色彩不承载唯一信息——数字与数量并列表达）。 */
 .barFillTop1 { background: var(--yt-dist-1); }
 .barFillTop2 { background: var(--yt-dist-2); }
 .barFillTop3 { background: var(--yt-dist-3); }
-.barTop1 .barRank, .barTop2 .barRank, .barTop3 .barRank { font-weight: 650; }
+.barTop1 .barRank, .barTop2 .barRank, .barTop3 .barRank { font-weight: 500; }
 .barTop1 .barRank { color: var(--yt-dist-1); }
 .barTop2 .barRank { color: var(--yt-dist-2); }
 .barTop3 .barRank { color: var(--yt-dist-3); }
@@ -1189,7 +1261,7 @@
 .sectionTitle {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 20px;
   color: var(--dsw-alias-label-primary);
 }
@@ -1239,7 +1311,7 @@
 .rtTabActive {
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rtSvg {
@@ -1275,7 +1347,7 @@
 
 .rtAxisText {
   fill: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* 低谷区间：淡红带（12%，比旧绘图带 20% 更浅）+ 轴下方红底白字徽标。红底白字
@@ -1290,8 +1362,8 @@
 
 .rtValleyBadgeText {
   fill: var(--dsw-static-neutral-00);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .rtHoverLine {
@@ -1320,18 +1392,18 @@
 .rtTooltipTime {
   fill: var(--dsw-alias-label-primary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .rtTooltipLabel {
   fill: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .rtTooltipValue {
   fill: var(--dsw-alias-label-primary);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1485,7 +1557,7 @@
 
 .axisText {
   fill: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1739,7 +1811,7 @@
 
 .aiArrow {
   flex: none;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
   transition: transform var(--ds-transition-duration, 160ms) ease;
 }
@@ -1886,7 +1958,7 @@
 
 .headerSub {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 15px;
   font-weight: 400;
   color: var(--dsw-alias-label-tertiary);
@@ -1923,7 +1995,7 @@
 
 .rowError {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 15px;
   color: var(--dsw-alias-state-error-primary);
   white-space: normal;
@@ -1952,11 +2024,11 @@
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-base));
 }
 
-/* 表头：加粗 + 次级说明小字（旧插件同构）。 */
+/* 表头：墨色主标签 + 次级说明小字（旧插件同构）。 */
 .scheduleTable th {
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-primary);
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.3;
 }
 
@@ -1964,7 +2036,7 @@
   margin-top: 3px;
   font-size: 12px;
   line-height: 1.3;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-secondary);
 }
 
@@ -1972,7 +2044,7 @@
 .scheduleToggleRow {
   cursor: pointer;
   color: var(--dsw-alias-label-secondary);
-  font-weight: 600;
+  font-weight: 500;
   user-select: none;
 }
 
@@ -2064,7 +2136,7 @@
   border-color: var(--dsw-alias-border-selected);
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
   color: var(--dsw-alias-label-primary);
-  font-weight: 650;
+  font-weight: 500;
 }
 
 @media (hover: hover) {
@@ -2090,7 +2162,7 @@
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
 }
 
@@ -2111,7 +2183,7 @@
 }
 
 .accountChipMeta {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -2141,29 +2213,29 @@
   border-color: var(--dsw-alias-brand-primary);
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, var(--dsw-alias-bg-layer-1));
   color: var(--dsw-alias-label-primary);
-  font-weight: 650;
+  font-weight: 500;
 }
 
-/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠 + 加粗。
+/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠承载强调。
    DataCard 标题为 kit 模块类，按结构选择器在报表区段内覆盖。 */
 .reportSection h2 {
   padding-left: 10px;
   border-left: 3px solid var(--dsw-static-blue-500);
   font-size: 15px;
-  font-weight: 650;
+  font-weight: 500;
   white-space: normal;
 }
 
-/* KPI 卡「较昨日/较上周」对比行：12px 加粗（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
+/* KPI 卡「较昨日/较上周」对比行：12px（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
 .kpiTile .kpiChange {
   font-size: 12px;
   line-height: 18px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 /* 账号明细：账号名加粗（旧 ydo-report-cell-main 同构）。 */
 .reportAccountName {
-  font-weight: 650;
+  font-weight: 500;
 }
 
 /* 「N 天未发布」等提示胶囊（旧 ydo-report-mark 同构）：橙色实底白字，浅深主题一致。 */
@@ -2174,7 +2246,7 @@
   border-radius: 999px;
   background: var(--dsw-static-amber-600);
   color: var(--dsw-static-neutral-00);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   white-space: nowrap;
 }
@@ -2202,8 +2274,8 @@
   /* 口径标签高亮（旧 ydo-report-meta-k 同构）：品牌蓝淡底 + 蓝字加粗。 */
   background: color-mix(in srgb, var(--dsw-static-blue-500) 14%, transparent);
   color: var(--dsw-static-blue-500);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .metaRow dd {
@@ -2301,7 +2373,7 @@
 
 .workCardAccount {
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -2313,14 +2385,14 @@
 }
 
 .workCardMetrics dt {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-secondary);
 }
 
 .workCardMetrics dd {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-primary);
 }
@@ -2330,7 +2402,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
   font-variant-numeric: tabular-nums;
 }
@@ -2562,7 +2634,8 @@
 }
 
 .bdRadio[aria-checked='true'] .bdRadioName {
-  font-weight: 650;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
 }
 
 .bdRadio:focus-visible {
@@ -2584,7 +2657,7 @@
   display: inline-block;
   padding: 1px 8px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 16px;
   white-space: nowrap;
@@ -2714,7 +2787,7 @@
 }
 
 .bdStepName {
-  font-size: 11px;
+  font-size: 12px;
   line-height: 15px;
   color: var(--dsw-alias-label-secondary);
   overflow: hidden;
@@ -2722,14 +2795,14 @@
   white-space: nowrap;
 }
 
-/* 步骤文字随状态着色（旧插件同构）：已完成 = 成功绿；进行中 = 品牌色加粗。 */
+/* 步骤文字随状态着色（旧插件同构）：已完成 = 成功绿；进行中 = 品牌色墨色。 */
 .bdStep[data-state='done'] .bdStepName {
   color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 80%, var(--dsw-alias-label-primary));
 }
 
 .bdStep[data-state='active'] .bdStepName {
   color: var(--dsw-alias-brand-primary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .bdCards {
@@ -2799,7 +2872,7 @@
 .bdShotPrefix {
   margin-right: 6px;
   flex: none;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -2830,7 +2903,7 @@
   overflow-wrap: anywhere;
 }
 
-@media (max-width: 880px) {
+@container yootun-kit-page (max-width: 879px) {
   .bdSteps {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     row-gap: 8px;
@@ -2892,7 +2965,7 @@
 .matFilters .matFilterTrigger::after {
   content: '▾';
   margin-left: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -2926,14 +2999,14 @@
 .matKpiValue {
   margin: 0;
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 500;
   line-height: 1.2;
   color: var(--dsw-alias-label-primary);
 }
 
 .matKpiFoot {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   color: var(--dsw-alias-label-secondary);
 }
@@ -3030,7 +3103,7 @@ a.matVideoTitle:hover {
 
 .matScore {
   margin-right: 6px;
-  font-weight: 700;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3047,7 +3120,7 @@ a.matVideoTitle:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .matActionsCell {
@@ -3106,7 +3179,7 @@ a.matVideoTitle:hover {
 .matDrawer h4 {
   margin: 0;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .matReasonList {
@@ -3183,7 +3256,7 @@ a.matVideoTitle:hover {
 .geneToolbar .matFilterTrigger::after {
   content: '▾';
   margin-left: 8px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dsw-alias-label-tertiary);
 }
 
@@ -3234,7 +3307,7 @@ a.matVideoTitle:hover {
 .geneFacetLabel {
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .geneFacetChips {
@@ -3258,8 +3331,8 @@ a.matVideoTitle:hover {
   background: var(--dsw-alias-bg-inset);
   color: var(--dsw-alias-label-secondary);
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -3311,8 +3384,8 @@ a.matVideoTitle:hover {
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font: inherit;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
 }
 
@@ -3367,7 +3440,7 @@ a.matVideoTitle:hover {
 .geneCardTitle {
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3387,7 +3460,7 @@ a.matVideoTitle:hover {
   gap: 8px;
   flex-wrap: wrap;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3405,8 +3478,8 @@ a.matVideoTitle:hover {
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-bg-multi-select);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3422,13 +3495,13 @@ a.matVideoTitle:hover {
 
 .geneMetrics dt {
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .geneMetrics dd {
   margin: 0;
   font-size: 14px;
-  font-weight: 650;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3463,7 +3536,7 @@ a.matVideoTitle:hover {
   display: grid;
   place-items: center;
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .geneCoverDuration {
@@ -3474,7 +3547,7 @@ a.matVideoTitle:hover {
   border-radius: var(--dsw-radius-xs);
   background: var(--dsw-alias-shadow-ambient, var(--dsw-alias-label-primary));
   color: var(--dsw-alias-label-primary-foreground, var(--dsw-alias-bg-base));
-  font-size: 10px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -3517,7 +3590,7 @@ a.matVideoTitle:hover {
 
 .geneDimName {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .geneTextarea {

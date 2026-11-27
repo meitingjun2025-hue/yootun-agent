@@ -63,9 +63,16 @@ beforeEach(() => {
 const t = (key: XhsLocaleKey): string => en[key] ?? key
 
 async function renderHotboard(): Promise<void> {
-  render(<WorkbenchPage t={t} />)
+  render(<WorkbenchPage t={t} locale={locale} />)
   fireEvent.click(screen.getByRole('tab', { name: en['tab.hotboard'] }))
   await waitFor(() => expect(screen.getByRole('tablist', { name: en['hb.title'] })).not.toBeNull())
+}
+
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例 kit 文案口径一致（en）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
 }
 
 describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
@@ -213,5 +220,40 @@ describe('写操作路由契约（真实 e2e 回归：action→op 映射）', ()
       expect(args.confirm).toBe(true)
       expect(typeof args.idempotencyKey).toBe('string')
     }, { timeout: 5000 })
+  })
+})
+
+describe('ui-accessibility 看板行手势（A5：单击改双击 + 守卫）', () => {
+  it('X2 单击不打开；双击文字区打开一次；双击排除按钮只走确认不打开详情', async () => {
+    const note = { noteId: 'n-1', title: '案例甲', score: 9.9, collectCount: 10, likeCount: 20, commentCount: 3, shareCount: 1, interactionTotal: 24 }
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'hotboard.overview') {
+        return { status: 'ready', data: { kpis: { totalCases: 1 }, filterOptions: { keywords: [], styles: [], colors: [], noteWords: [], commentWords: [] }, runStatus: null, notes: [note], pagination: { page: 1, pageSize: 20, total: 1 } }, meta: { total: 1, pageSize: 20 } }
+      }
+      if (action === 'hotboard.noteDetail') return { status: 'ready', data: {}, meta: null }
+      return await defaultHostAction(action)
+    })
+    await renderHotboard()
+    // hub 是模块级单例：显式落回案例看板子页，保证本用例的 mock 数据在屏。
+    await gotoSub('board')
+    const detailDialog = (): HTMLElement | null => screen.queryByRole('dialog', { name: en['hb.noteDetail'] })
+    const row = await screen.findByText('案例甲', {}, { timeout: 3000 }).then(title => title.closest('tr') as HTMLElement)
+    // 单击：详情抽屉不开。
+    fireEvent.click(row)
+    expect(detailDialog()).toBeNull()
+    // 双击文字区：打开一次。
+    fireEvent.doubleClick(row)
+    await waitFor(() => expect(detailDialog()).not.toBeNull())
+    // 关闭抽屉后，双击排除按钮：守卫命中，详情不开，出现的是确认对话。
+    fireEvent.click(within(detailDialog()!).getByRole('button', { name: en['hb.closeDrawer'] }))
+    await waitFor(() => expect(detailDialog()).toBeNull())
+    const rowAgain = (await screen.findByText('案例甲', {}, { timeout: 3000 }).then(title => title.closest('tr') as HTMLElement))
+    const excludeButton = within(rowAgain).getByRole('button', { name: en['hb.exclude'] })
+    // 真实双击 = 两次 click（按钮自身动作）+ 一次 dblclick（行守卫应命中）。
+    fireEvent.click(excludeButton)
+    fireEvent.click(excludeButton)
+    fireEvent.doubleClick(excludeButton)
+    await waitFor(() => { expect(screen.getAllByRole('dialog').length).toBeGreaterThan(0); expect(detailDialog()).toBeNull() })
+    expect(detailDialog()).toBeNull()
   })
 })

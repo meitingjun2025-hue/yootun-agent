@@ -7,6 +7,7 @@
  * @module
  */
 import { AUTHORIZE_TOOL_NAME } from './constants.ts'
+import { BlockList } from 'node:net'
 import { MediaUploadError, mapServerErrorCode } from './errors.ts'
 import { normalizeMime } from './mime.ts'
 import type { ToolCallOutcome } from '@yootun/dsh-workbench-mcp'
@@ -42,31 +43,52 @@ export interface AuthorizeValidationOverrides {
   transport?: 'strict' | 'loopback-test'
 }
 
+// 2.4 内网地址块表（node:net BlockList；构造不抛，模块加载时执行一次）。
+// IPv4 与 IPv6 分表：混入同一 BlockList 时 node 会把 IPv4 查询归一进
+// `::ffff:0:0/96`（该段覆盖全部映射 IPv4），公网 IPv4 会被误判。
+const BLOCKED_V4 = (() => {
+  const list = new BlockList()
+  for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16], ['224.0.0.0', 4], ['240.0.0.0', 4]]) {
+    list.addSubnet(net as string, bits as number, 'ipv4')
+  }
+  return list
+})()
+
+const BLOCKED_V6 = (() => {
+  const list = new BlockList()
+  for (const [net, bits] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['::ffff:0:0', 96], ['64:ff9b::', 96], ['64:ff9b:1::', 48], ['2002::', 16]]) {
+    list.addSubnet(net as string, bits as number, 'ipv6')
+  }
+  return list
+})()
+
 /**
- * Whether a hostname points at loopback / private / link-local / CGNAT space;
- * such hosts must never appear in an authorization URL.
+ * Whether a hostname points at loopback / private / link-local / CGNAT / ULA /
+ * multicast / mapped / NAT64 / 6to4 space; such hosts must never appear in an
+ * authorization URL. 判定输入是 `URL.hostname`：去方括号、转小写、去掉结尾的
+ * 点之后按 2.4 表判断（主机名规则；含 `:` 按 IPv6、四个数字段按 IPv4 走
+ * BlockList；其余名称不命中）。
  * @param hostname - URL hostname.
  * @returns whether the host is forbidden.
  */
 export function isForbiddenPublicHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/gu, '').trim()
+  const host = hostname.toLowerCase().replace(/^\[/u, '').replace(/\]$/u, '').replace(/\.$/u, '').trim()
   if (host === '') return true
-  if (host === 'localhost' || host === '::1' || host === '::ffff:127.0.0.1') return true
-  if (/^127\./u.test(host) || /^0\./u.test(host)) return true
+  if (host === 'localhost' || host.endsWith('.localhost')) return true
+  if (host.includes(':')) {
+    try {
+      return BLOCKED_V6.check(host, 'ipv6')
+    } catch {
+      return false
+    }
+  }
   const v4 = host.split('.')
   if (v4.length === 4 && v4.every(part => /^\d{1,3}$/u.test(part))) {
-    const [a, b] = v4.map(Number) as [number, number]
-    if (a === 10) return true
-    if (a === 192 && b === 168) return true
-    if (a === 172 && b >= 16 && b <= 31) return true
-    if (a === 169 && b === 254) return true
-    if (a === 100 && b >= 64 && b <= 127) return true
-    return false
-  }
-  if (host.includes(':')) {
-    if (host === '::' || host === '::1') return true
-    if (host.startsWith('fe80:')) return true
-    if (host.startsWith('fc') || host.startsWith('fd')) return true
+    try {
+      return BLOCKED_V4.check(host, 'ipv4')
+    } catch {
+      return false
+    }
   }
   return false
 }

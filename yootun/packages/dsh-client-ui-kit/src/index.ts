@@ -22,6 +22,8 @@ export { ChartFrame, type ChartFrameProps } from './chart-frame.tsx'
 export { ChartLegend, type ChartLegendItem, type ChartLegendProps } from './chart-legend.tsx'
 export { ChartTooltip, type ChartTooltipProps, type ChartTooltipRow } from './chart-tooltip.tsx'
 export { DataState, type DataStateKind, type DataStateProps, type DataStateShape } from './data-state.tsx'
+export { ReasonButton, type ReasonButtonProps } from './reason-button.tsx'
+export { isOnInteractiveTarget, type GestureEventLike } from './row-gesture.ts'
 export { AssistantDock, type AssistantContextChip, type AssistantDockProps, type AssistantMessage, type AssistantStatus } from './assistant-dock.tsx'
 export { OperationReceipts, type OperationReceipt, type OperationReceiptsProps, type ReceiptKind } from './operation-receipts.tsx'
 export { KitLocaleProvider, createKitTranslate, useKitLocale, type YtTranslate } from './kit-locale.ts'
@@ -36,3 +38,4 @@ export {
   type ComposerKeyAction,
 } from './composer-logic.ts'
 export { HostActionError, createHostAction, type HostActionOptions, type HostResponse } from './host-action.ts'
+export { createUploadTransport, type UploadTransportPaths, type UploadSessionInfo, type UploadStatusSnapshot } from './upload-transport.ts'

@@ -15,3 +15,4 @@ export { SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives/src/Segment
 export { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
 export { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
 export { Toast } from '@deepseek-ai/dsh-client-ui-primitives/src/Toast.tsx'
+export { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives/src/Tooltip.tsx'

@@ -11,8 +11,8 @@
  * @module
  */
 import { useCallback, useRef, useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataState, KpiCard, Pager } from '@yootun/dsh-client-ui-kit'
+import { Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DataState, KpiCard, Pager, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { formatCount, formatDateTime, formatPair, formatPct, formatSeconds, reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { nextSortState, type SortKey, type SortState } from './works-format.ts'
@@ -291,7 +291,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     key={row.workId}
                     tabIndex={0}
                     aria-label={t('row.detailAria', { title })}
-                    onDoubleClick={() => { openDetail(row) }}
+                    onDoubleClick={event => { if (!isOnInteractiveTarget(event)) openDetail(row) }}
                     onKeyDown={event => {
                       if (event.key === 'Enter') {
                         event.preventDefault()
@@ -348,7 +348,7 @@ function buildColumns(t: Translate, localeTag: string): WorkColumn[] {
       cell: row => (
         <div className={css.workCell}>
           <WorkCover key={`cover:${row.workId}:${row.coverUrl ?? ''}`} t={t} coverUrl={row.coverUrl} durationS={row.durationS} />
-          <span className={css.workTitleCell} title={row.title ?? row.workId}>{row.title ?? row.workId}</span>
+          <Tooltip label={row.title ?? row.workId} onlyWhenClipped portal><span className={css.workTitleCell}>{row.title ?? row.workId}</span></Tooltip>
         </div>
       ),
     },

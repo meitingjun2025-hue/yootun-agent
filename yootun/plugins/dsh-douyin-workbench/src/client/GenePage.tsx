@@ -11,16 +11,15 @@
  * @module
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Button, Input, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Input, Modal, Tag, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, FilterMenu, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, type Translate } from './format.ts'
+import { domainErrorText, formatCount, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   readGeneEvidence, readGeneList, readGeneRecord, readGeneSearch,
   type GeneDimension, type GeneFacetEntry, type GeneRecord, type GeneSearch,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 
 const SEARCH_DEBOUNCE_MS = 400
 const GENE_PAGE_LIMIT = 20
@@ -325,7 +324,7 @@ export function GenePage(props: GenePageProps): ReactNode {
                 type='button'
                 className={css.geneChip}
                 data-selected
-                title={t('gene.selectedRemove')}
+                aria-label={t('gene.selectedRemove')}
                 onClick={() => { removeTag(dim, label) }}
               >
                 {`${dimName[dim] ?? dim}·${label}`} ✕
@@ -458,7 +457,7 @@ function GeneCard(props: { record: GeneRecord; t: Translate; onOpenDetail: () =>
         <div className={css.geneCardMain}>
           <h3 className={css.geneCardTitle}>
             {videoUrl !== null
-              ? <a href={videoUrl} target='_blank' rel='noreferrer noopener' title={record.title ?? undefined}>{record.title ?? '—'}</a>
+              ? <Tooltip label={record.title ?? '—'} onlyWhenClipped portal><a href={videoUrl} target='_blank' rel='noreferrer noopener'>{record.title ?? '—'}</a></Tooltip>
               : record.title ?? '—'}
           </h3>
           <p className={css.geneCardMeta}>

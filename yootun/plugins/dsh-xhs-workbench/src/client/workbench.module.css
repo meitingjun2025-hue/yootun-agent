@@ -92,7 +92,7 @@
   border-radius: var(--dsw-radius-r4, 4px);
   background: var(--dsw-alias-bg-mask-1);
   color: var(--dsw-alias-label-primary-foreground);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .thumbRemove {
@@ -130,7 +130,7 @@
   gap: 4px;
   /* 遮罩覆盖层上的文字恒用前景色（浅色主题下白色可读）。 */
   color: var(--dsw-alias-label-primary-foreground);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.2;
 }
 
@@ -155,7 +155,7 @@
   text-align: center;
   background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 16%, transparent);
   color: var(--dsw-alias-state-error-primary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .addField {
@@ -513,7 +513,7 @@
   /* 黑底白字（对齐旧版徽标；label-primary 双主题反色，浅色近黑/深色近白）。 */
   background: var(--dsw-alias-label-primary);
   color: var(--dsw-alias-label-primary-foreground);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 18px;
   display: inline-block;
@@ -779,7 +779,7 @@ button.hbSoftAction {
 
 .hbCaseTitle {
   /* 作品标题加粗（2026-11-21 真机反馈对齐旧版）。 */
-  font-weight: 600;
+  font-weight: 500;
   color: var(--dsw-alias-label-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -820,7 +820,7 @@ button.hbSoftAction {
 
 .hbThumbFallback {
   color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .hbThumbBadge {
@@ -831,7 +831,7 @@ button.hbSoftAction {
   border-radius: var(--dsw-radius-r4, 4px);
   background: var(--dsw-alias-bg-mask-1);
   color: var(--dsw-alias-label-primary-foreground);
-  font-size: 10px;
+  font-size: 12px;
   line-height: 16px;
 }
 
@@ -853,7 +853,7 @@ button.hbSoftAction {
 
 .hbScoreLabel {
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .hbScoreBar {
@@ -909,7 +909,7 @@ button.hbSoftAction {
      浅色=8% 墨色、深色=8% 白色，双主题自适应）。 */
   background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -981,7 +981,7 @@ button.hbSoftAction {
 .hbPanelTitle {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .hbEditor {
@@ -1020,7 +1020,7 @@ button.hbSoftAction {
   gap: 4px;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   background: var(--dsw-alias-bg-layer-2);
   color: var(--dsw-alias-label-secondary);
 }
@@ -1198,7 +1198,7 @@ button.hbSoftAction {
 
 .hbMetricLabel {
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .hbMetricValue {
@@ -1244,7 +1244,7 @@ button.hbSoftAction {
   padding: 6px;
   text-align: center;
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
   cursor: default;
 }
 
@@ -1656,7 +1656,7 @@ button.hbSoftAction {
 
 .accountsStatGap {
   color: var(--dsw-alias-label-secondary);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* ---- 发布面板（12 册 §3.3：结果区下方）---- */

@@ -1,6 +1,6 @@
 /** 组件行为测试（jsdom）：状态、交互、键盘路径与窄容器结构。 */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createKitTranslate } from '../src/kit-locale.ts'
 import { KitLocaleProvider } from '../src/kit-locale.ts'
 import { createHostAction, HostActionError } from '../src/host-action.ts'
@@ -15,6 +15,8 @@ import { FilterBar } from '../src/filter-bar.tsx'
 import { FilterMenu } from '../src/filter-menu.tsx'
 import { KpiCard } from '../src/kpi-card.tsx'
 import { OperationReceipts } from '../src/operation-receipts.tsx'
+import { ReasonButton } from '../src/reason-button.tsx'
+import { isOnInteractiveTarget } from '../src/row-gesture.ts'
 import { Pager } from '../src/pager.tsx'
 import { PluginHeader } from '../src/plugin-header.tsx'
 import { PluginPageShell } from '../src/page-shell.tsx'
@@ -614,5 +616,64 @@ describe('createHostAction', () => {
     const otherPending = await Promise.race([other.then(() => 'settled'), new Promise(resolve => setTimeout(() => resolve('pending'), 60))])
     expect(otherPending).toBe('pending')
     await expect(Promise.race([other, new Promise(resolve => setTimeout(() => resolve('race-timeout'), 120))])).resolves.toBe('race-timeout')
+  })
+})
+
+describe('ReasonButton（ui-accessibility A6）', () => {
+  beforeEach(() => {
+    // jsdom 无 ResizeObserver：官方 Tooltip 用它做气泡量测拟合；no-op 桩让
+    // 气泡元素挂载（pos 由 focus 设定）但保持未定位隐藏，断言只看元素与文案。
+    vi.stubGlobal('ResizeObserver', class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    })
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('R1 disabled 且有 reason：aria-disabled、aria-describedby 指向隐藏原因文本、点击不触发', () => {
+    const onClick = vi.fn()
+    const { container } = render(
+      <ReasonButton variant="ghost" size="sm" disabled onClick={onClick} reason="暂无数据">导出</ReasonButton>,
+    )
+    const button = screen.getByRole('button', { name: '导出' })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    expect(button.getAttribute('disabled')).toBeNull()
+    const describedBy = button.getAttribute('aria-describedby') ?? ''
+    expect(container.querySelector(`[id="${describedBy}"]`)?.textContent).toBe('暂无数据')
+    fireEvent.click(button)
+    expect(onClick).not.toHaveBeenCalled()
+  })
+
+  it('R1 无 reason：与官方 Button 一致（原生 disabled）', () => {
+    render(<ReasonButton variant="ghost" size="sm" disabled>导出</ReasonButton>)
+    expect(screen.getByRole('button', { name: '导出' }).getAttribute('disabled')).not.toBeNull()
+  })
+
+  it('R2 聚焦后原因气泡出现，失焦消失（官方 Tooltip 键盘聚焦行为）', () => {
+    render(<ReasonButton disabled reason="采集全部已锁定">采集全部</ReasonButton>)
+    const button = screen.getByRole('button', { name: '采集全部' })
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+    fireEvent.focus(button)
+    expect(document.body.querySelector('[role="tooltip"]')?.textContent).toContain('采集全部已锁定')
+    fireEvent.blur(button)
+    expect(document.body.querySelector('[role="tooltip"]')).toBeNull()
+  })
+})
+
+describe('isOnInteractiveTarget（ui-accessibility A5 行级双击守卫）', () => {
+  it('X1 目标在 button / a / input 内为 true', () => {
+    const { container } = render(
+      <div><button type="button">x</button><a href="#">y</a><input defaultValue="z" /></div>,
+    )
+    for (const el of container.querySelectorAll('button, a, input')) {
+      expect(isOnInteractiveTarget({ target: el })).toBe(true)
+    }
+  })
+
+  it('X1 目标在普通文本上为 false', () => {
+    const { container } = render(<div><span>plain</span></div>)
+    expect(isOnInteractiveTarget({ target: container.querySelector('span') })).toBe(false)
+    expect(isOnInteractiveTarget({ target: null })).toBe(false)
   })
 })

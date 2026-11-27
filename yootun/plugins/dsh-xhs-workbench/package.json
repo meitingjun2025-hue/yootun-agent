@@ -26,7 +26,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsdown && node tests/client/verify-bundle-stylesheets.mjs && node ../../scripts/verify-plugin-runtime-bundle.mjs",
-    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts && node --test tests/lifecycle-budget.test.ts && node --test tests/upload-machine.test.ts && node --test tests/task-machine.test.ts && vitest run"
+    "test": "node --test tests/host.test.ts && node --test tests/state.test.ts && node --test tests/clear-local-credentials-race.test.ts && node --test tests/session.test.ts && node --test tests/dispose.test.ts && node --test tests/lifecycle-budget.test.ts && node --test tests/upload-machine.test.ts && node --test tests/task-machine.test.ts && node --test tests/accounts-machine-init.test.ts && vitest run"
   },
   "license": "MIT",
   "peerDependencies": {
@@ -48,6 +48,7 @@
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
     "@testing-library/react": "^16.3.3",
     "@yootun/dsh-client-ui-kit": "workspace:*",
+    "@yootun/dsh-workbench-host-kit": "workspace:*",
     "@yootun/dsh-workbench-mcp": "workspace:*",
     "jsdom": "29.1.1",
     "react": "^18.2.0",

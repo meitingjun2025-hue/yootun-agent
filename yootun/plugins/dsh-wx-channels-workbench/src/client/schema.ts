@@ -181,6 +181,23 @@ export type BrowserState =
   | 'driver_missing'
   | 'api_error'
 
+/** 启动中断摘要（2.5 横幅数据源；collect.status / collectAll.status 出参）。 */
+export interface InterruptedView {
+  count: number
+  accountIds: string[]
+}
+
+/** payload.interrupted → 白名单视图（缺省 / 形态不符 → null）。 */
+export function readInterrupted(payload: Record<string, unknown>): InterruptedView | null {
+  const record = recordOf(payload.interrupted)
+  if (record === undefined) return null
+  const count = numberOf(record.count)
+  const rawIds = record.accountIds
+  if (count === null || !Array.isArray(rawIds)) return null
+  const accountIds = rawIds.filter((item): item is string => typeof item === 'string')
+  return { count, accountIds }
+}
+
 /** record 字段读取：对象返回原值，否则 undefined。 */
 function recordOf(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

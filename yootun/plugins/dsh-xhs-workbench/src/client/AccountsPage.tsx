@@ -10,7 +10,8 @@
  * @module
  */
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Button, Modal, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, StateDot, Button, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { ReasonButton } from '@yootun/dsh-client-ui-kit'
 import { reasonText, type Translate } from './format.ts'
 import css from './workbench.module.css'
 import { createAccountsMachineWithHost, type AccountRow, type AccountsMachine, type AccountsNotice } from './accounts-machine.ts'
@@ -72,9 +73,9 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
         <div className={css.sidebarHead}>
           <h2 className={css.sidebarTitle}>{t('accounts.title')}</h2>
           {/* 采集全部：占位按钮，功能后续接入（置灰防误触）。 */}
-          <Button variant='primary' size='sm' disabled title={t('accounts.collectAllSoon')}>
+          <ReasonButton variant='primary' size='sm' disabled reason={t('accounts.collectAllSoon')}>
             {t('accounts.collectAll')}
-          </Button>
+          </ReasonButton>
         </div>
         <div className={css.accountList}>
           {state.listError !== null && <p className={css.sidebarHint} role='alert'>{t(state.listError as Parameters<Translate>[0])}</p>}
@@ -92,7 +93,7 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                         : name.slice(0, 2)}
                     </span>
                     <span className={css.accountCardBody}>
-                      <span className={css.accountName} title={name}>{name}</span>
+                      <Tooltip label={name} onlyWhenClipped portal><span className={css.accountName}>{name}</span></Tooltip>
                       <span className={css.accountMeta}>
                         {account.lastCollectedAt !== null
                           ? t('accounts.syncLabel', { time: formatDateTime(account.lastCollectedAt) })
@@ -104,10 +105,10 @@ export function AccountsPage(props: AccountsPageProps): ReactNode {
                       </span>
                       {/* 发布窗口打开中（存在 running 发布 run）：警示状态点 + 说明。 */}
                       {account.publishWindowOpen === true && (
-                        <span className={css.accountStateLine} title={t('account.publishWindowHint')}>
+                        <Tooltip label={t('account.publishWindowHint')} portal><span className={css.accountStateLine}>
                           <StateDot state='warning' />
                           <span>{t('account.publishWindowOpen')}</span>
-                        </span>
+                        </span></Tooltip>
                       )}
                     </span>
                   </button>

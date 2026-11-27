@@ -15,7 +15,7 @@ import { createIngestClient, ingestCollectedWorks } from './ingest.ts'
 import { SessionInvalidError, type PartialCollected } from './parse.ts'
 import { collectAccountWorksOn, collectSurfaceOf, WORK_PUBLISH_SINCE_REPORT } from './collector.ts'
 import { getAccount, hasStorageState, paths, readAccounts, stateRoot, updateAccount, type AccountRecord } from './state.ts'
-import { withProfileLock } from './locks.ts'
+import type { ProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { isPendingAccountId } from './session.ts'
 import { createAttemptId, updateRun, type RunRecord } from './runs.ts'
 import type { TaskRegistry } from './lifecycle.ts'
@@ -35,6 +35,8 @@ const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(r
 export interface RunnerDeps {
   callTool: (tool: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<{ structuredContent: unknown; content: unknown }>
   root: string
+  /** 账号 profile 锁实例（采集全程持锁；随 deps 创建）。 */
+  locks: ProfileLocks
   chromeFactory?: ChromeFactory | undefined
   maxPages?: number
   logger?: { warn(message: string): void } | undefined
@@ -270,6 +272,19 @@ export function collectOutcomeStatus(result: Pick<CollectResult, 'status' | 'run
   return result.runStatus === 'partial' || result.listComplete !== true ? 'partial' : 'completed'
 }
 
+/** 探测结果有效期（一次采集内部的新鲜度窗口，不随部署环境变化；实施单 2.2）。 */
+export const PROBE_REUSE_TTL_MS = 5 * 60 * 1000
+
+/** 前置探测的带时间戳结果（采集流程在有效期内复用；视频号同形，实施单 2.1）。 */
+export interface ProbedSession<S> {
+  /** 探测得到的会话状态（RefreshedSession）。 */
+  state: S
+  /** 前置探测的上报是否成功。 */
+  reported: boolean
+  /** 探测完成时刻（Date.now()）。 */
+  probedAt: number
+}
+
 /** runCollection 的注入（在 RunnerDeps 之上扩展）。 */
 export interface RunOptions {
   accountId: string
@@ -282,6 +297,10 @@ export interface RunOptions {
   signal?: AbortSignal | undefined
   taskRegistry?: TaskRegistry | undefined
   chromeFactory?: ChromeFactory | undefined
+  /** 前置探测结果（批量阶段 1 传入；有效期内复用，过期或非 ok 照旧重新探测）。 */
+  probed?: ProbedSession<RefreshedSession> | undefined
+  /** 时钟接缝（测试注入；缺省 Date.now）。 */
+  now?: (() => number) | undefined
   /** context.close 的等待预算毫秒（Config.browserCloseTimeoutMs 透传）。 */
   browserCloseTimeoutMs?: number | undefined
   /** Chrome 启动预算毫秒（Config.launchTimeoutMs 透传）。 */
@@ -296,7 +315,7 @@ export async function runCollection(deps: RunnerDeps, options: RunOptions): Prom
   const root = options.root ?? stateRoot()
   const accountId = options.accountId
   const attemptId = options.attemptId ?? createAttemptId()
-  return withProfileLock(accountId, () => runCollectionWithinProfileLock(deps, { ...options, root, attemptId }))
+  return deps.locks.withProfileLock(accountId, () => runCollectionWithinProfileLock(deps, { ...options, root, attemptId }))
 }
 
 /** runCollection 的锁内实现（调用方必须已持有账号锁）。 */
@@ -351,16 +370,28 @@ async function runCollectionWithinProfileLock(deps: RunnerDeps, options: RunOpti
       await persistFinalRun({ status: 'failed', error: readiness.reason ?? 'session_required' })
       return { status: 'collect_failed', reason: readiness.reason ?? 'session_required' }
     }
-    // 1) 会话探测（本地实测优先；远端 floor 由 ok 恢复上报阶段自读）。
-    const session = await refreshSessionState({
-      accountId,
-      root,
-      chromeFactory: options.chromeFactory,
-      launchTimeoutMs,
-      browserCloseTimeoutMs: closeTimeoutMs,
-      onBrowserCloseTimeout: warnCloseTimeout,
-    })
-    const report = await reportSessionStatus(deps, accountId, session, signal)
+    // 1) 会话探测（本地实测优先；远端 floor 由 ok 恢复上报阶段自读）。批量
+    //    阶段 1 的探测结果在有效期内复用（实施单 2.2：ok + TTL 内），少一次
+    //    Chrome 冷启动、一次上报与一次 seq 递增；复用且上报已成功时跳过流程
+    //    内上报，reported 为 false 时补一次。过期或非 ok 照旧重新探测。
+    const now = options.now ?? Date.now
+    // 进入即快照到 const：属性访问的 undefined 收窄不跨 await。
+    const probed = options.probed
+    const reusable = probed !== undefined
+      && probed.state.sessionStatus === 'ok'
+      && now() - probed.probedAt <= PROBE_REUSE_TTL_MS
+    const session = reusable
+      ? probed.state
+      : await refreshSessionState({
+        accountId,
+        root,
+        chromeFactory: options.chromeFactory,
+        launchTimeoutMs,
+        browserCloseTimeoutMs: closeTimeoutMs,
+        onBrowserCloseTimeout: warnCloseTimeout,
+      })
+    const skipReport = reusable && probed.reported === true
+    const report = skipReport ? { ok: true, error: null as string | null } : await reportSessionStatus(deps, accountId, session, signal)
     if (!report.ok) emit({ phase: 'session_report_failed', error: report.error })
     if (session.sessionStatus !== 'ok') {
       const reason = session.sessionStatus === 'expired' ? 'session_expired' : 'probe_failed'
@@ -696,6 +727,7 @@ export function createCollectController(deps: RunnerDeps, hooks: {
         ...(input.options?.attemptId !== undefined ? { attemptId: input.options.attemptId } : {}),
         ...(input.options?.signal !== undefined ? { signal: input.options.signal } : {}),
         ...(input.options?.chromeFactory !== undefined ? { chromeFactory: input.options.chromeFactory } : {}),
+        ...(input.options?.probed !== undefined ? { probed: input.options.probed } : {}),
         onProgress,
         taskRegistry: hooks.taskRegistry,
       })
@@ -841,8 +873,6 @@ interface BatchState {
   signal: AbortSignal | undefined
 }
 
-let batchSeq = 0
-
 /**
  * 批量采集控制器：全局单飞幂等、与单账号互斥、稳定排序、no_eligible_account、
  * 串行 probing → 受控并发 collecting（worker 队列 + 启动错峰 + 批内熔断）、
@@ -854,7 +884,7 @@ export function createBatchCollectController(options: {
     wait(accountId: string): Promise<CollectResult | null>
     hasRunning(): boolean
   }
-  probe: (accountId: string, signal?: AbortSignal) => Promise<{ sessionStatus: string; reason: string | null }>
+  probe: (accountId: string, signal?: AbortSignal) => Promise<{ sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> }>
   logger?: { warn(message: string): void } | undefined
   /** 整次 batch run promise 交给调用方任务登记；dispose 等待它。 */
   trackRun?: ((promise: Promise<void>) => void) | undefined
@@ -866,6 +896,8 @@ export function createBatchCollectController(options: {
   sleep?: ((ms: number, signal?: AbortSignal) => Promise<void>) | undefined
 }) {
   let state: BatchState | null = null
+  // 批次序号随控制器实例创建（模块级可变状态归位；序号只在 batchId 里出现）。
+  let batchOrdinal = 0
   const projectItems = (items: BatchItem[]): Record<string, unknown>[] => items.map(item => ({
     accountId: item.accountId,
     status: item.status,
@@ -925,9 +957,9 @@ export function createBatchCollectController(options: {
       if (runnable.length === 0) {
         return { started: false, reason: 'no_eligible_account', skipped: projectItems(items) }
       }
-      batchSeq += 1
+      batchOrdinal += 1
       state = {
-        batchId: `batch-${Date.now().toString(36)}-${String(batchSeq)}`,
+        batchId: `batch-${Date.now().toString(36)}-${String(batchOrdinal)}`,
         status: 'running',
         phase: 'probing',
         startedAt: new Date().toISOString(),
@@ -982,6 +1014,8 @@ export function createBatchCollectController(options: {
       try {
         // 阶段 1：串行 probing（缓存口径的 ok 只是上次探测结果，实测才诚实）。
         current.phase = 'probing'
+        // 阶段 1 探测结果按账号暂存（批次级：run 结束随闭包回收，即「批次结束清空」）。
+        const probedByAccount = new Map<string, ProbedSession<RefreshedSession>>()
         for (const item of current.items) {
           if (item.status !== 'queued') continue
           if (cancelled()) {
@@ -990,11 +1024,11 @@ export function createBatchCollectController(options: {
             continue
           }
           item.status = 'probing'
-          let probeResult: { sessionStatus: string; reason: string | null }
+          let probeResult: { sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> | undefined }
           try {
             probeResult = await options.probe(item.accountId, current.signal)
           } catch (error) {
-            probeResult = { sessionStatus: 'unknown', reason: safeCode(error) }
+            probeResult = { sessionStatus: 'unknown', reason: safeCode(error), probe: undefined }
           }
           if (cancelled()) {
             item.status = 'failed'
@@ -1004,6 +1038,8 @@ export function createBatchCollectController(options: {
           if (probeResult.sessionStatus === 'ok') {
             item.status = 'ready'
             item.reason = null
+            // 阶段 1 的探测结果交给阶段 2 复用（probe 缺席时该账号回落重新探测）。
+            if (probeResult.probe !== undefined) probedByAccount.set(item.accountId, probeResult.probe)
           } else {
             item.status = 'skipped'
             item.reason = probeResult.sessionStatus === 'expired' ? 'session_required' : 'probe_failed'
@@ -1074,7 +1110,8 @@ export function createBatchCollectController(options: {
             item.status = 'running'
             current.runningAccountIds.push(item.accountId)
             updateCurrentAccount()
-            const started = options.collect.start({ accountId: item.accountId, options: { signal: current.signal }, fromBatch: true })
+            const probed = probedByAccount.get(item.accountId)
+            const started = options.collect.start({ accountId: item.accountId, options: { signal: current.signal, ...(probed !== undefined ? { probed } : {}) }, fromBatch: true })
             if (!started.started || started.record === null) {
               item.status = 'failed'
               item.reason = started.reason ?? 'collect_failed'

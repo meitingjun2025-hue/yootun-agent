@@ -14,8 +14,8 @@ import { browserStatus } from './chrome.ts'
 import { buildDouyinHandlers, createHandlerDeps, type DouyinHandlerDeps } from './handlers.ts'
 import { disposeHostTasks } from './lifecycle.ts'
 import { ROUTE_PATH, createRouteHandler, type RouteRequest, type RouteResponse } from './route.ts'
-import { createBatchCollectController, createCollectController, reportSessionStatus } from './runner.ts'
-import { refreshSessionState, type ChromeFactory } from './session.ts'
+import { createBatchCollectController, createCollectController, reportSessionStatus, type ProbedSession, type RunnerDeps } from './runner.ts'
+import { refreshSessionState, type ChromeFactory, type RefreshedSession } from './session.ts'
 import { stateRoot } from './state.ts'
 import { type WorkbenchFace } from './workbench.ts'
 
@@ -73,14 +73,50 @@ export function registerSignal(deps: DouyinHandlerDeps, key: string): AbortContr
 }
 
 /**
+ * 批量前置探测回调（buildRouteHandlers 与测试共用同一装配）：本地实测 +
+ * 尽力上报，返回值必须带 `probe` 暂存投影（ProbedSession），批量阶段 1 的
+ * 探测结果据此在有效期内复用（缺该字段 = 复用静默失效，每账号回到冷启动）。
+ * 上报结果写进 probe.reported（实施单 A4）：阶段 2 复用且 reported 为真时
+ * 跳过采集流程内的重复上报。
+ * @param deps - handler deps（refreshSessionState 的宿主接缝）。
+ * @param runnerDeps - 上报通道（reportSessionStatus 消费）。
+ * @param seams - 测试注入（缺省走真实 refreshSessionState / reportSessionStatus / Date.now）。
+ * @returns the probe callback consumed by createBatchCollectController.
+ */
+export function createBatchProbe(deps: DouyinHandlerDeps, runnerDeps: RunnerDeps, seams?: {
+  refresh?: typeof refreshSessionState
+  report?: typeof reportSessionStatus
+  now?: () => number
+}): (accountId: string, signal?: AbortSignal) => Promise<{ sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> }> {
+  const refresh = seams?.refresh ?? refreshSessionState
+  const report = seams?.report ?? reportSessionStatus
+  const now = seams?.now ?? Date.now
+  return async (accountId, signal) => {
+    const session = await refresh({
+      accountId,
+      root: deps.root,
+      chromeFactory: deps.chromeFactory,
+      signal,
+      launchTimeoutMs: deps.launchTimeoutMs,
+      browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
+      onBrowserCloseTimeout: message => { deps.logger.warn(message) },
+      trackCleanup: promise => { deps.taskRegistry.track(promise) },
+    })
+    const reportResult = await report(runnerDeps, accountId, session, signal)
+    return { sessionStatus: session.sessionStatus, reason: session.reason, probe: { state: session, reported: reportResult.ok, probedAt: now() } }
+  }
+}
+
+/**
  * Build the route handlers (57 项全量；browser.status、登录/采集链与各数据域链)。
  * @param deps - handler deps.
  * @returns the action handler table consumed by the route.
  */
 export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, import('./route.ts').ActionHandler> {
-  const runnerDeps = {
+  const runnerDeps: RunnerDeps = {
     callTool: deps.callTool,
     root: deps.root,
+    locks: deps.locks,
     chromeFactory: deps.chromeFactory,
     maxPages: deps.maxPages,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
@@ -96,21 +132,7 @@ export function buildRouteHandlers(deps: DouyinHandlerDeps): Record<string, impo
     collect,
     // probe 回调 = 本地实测 + 尽力上报（旧 deps.batchController 口径；batch
     // signal 贯穿探测与上报，dispose 可取消）。
-    probe: async (accountId, signal) => {
-      const session = await refreshSessionState({
-        accountId,
-        root: deps.root,
-        chromeFactory: deps.chromeFactory,
-        signal,
-        launchTimeoutMs: deps.launchTimeoutMs,
-        browserCloseTimeoutMs: deps.browserCloseTimeoutMs,
-        onBrowserCloseTimeout: message => { deps.logger.warn(message) },
-        trackCleanup: promise => { deps.taskRegistry.track(promise) },
-      })
-      const report = await reportSessionStatus(runnerDeps, accountId, session, signal)
-      void report
-      return { sessionStatus: session.sessionStatus, reason: session.reason }
-    },
+    probe: createBatchProbe(deps, runnerDeps),
     concurrency: deps.batchConcurrency,
     logger: { warn: (message: string) => { deps.logger.warn(message) } },
     trackRun: promise => { deps.taskRegistry.track(promise) },
@@ -232,9 +254,8 @@ export { createTaskRegistry, disposeHostTasks, DEFAULT_DISPOSE_BUDGET_MS, type T
 export { normalizeAvatarUrl, MAX_AVATAR_URL_LENGTH } from './avatar.ts'
 export { attemptUuid, sessionIdempotencyKey, accountSaveIdempotencyKey, accountRemoveIdempotencyKey, runStartIdempotencyKey, listMetaIdempotencyKey, heartbeatIdempotencyKey, ingestBatchIdempotencyKey, ingestDailyIdempotencyKey, runFinishIdempotencyKey } from './idempotency.ts'
 export { CREATOR_ORIGIN, USER_INFO_PATH, SESSION_COOKIE_NAMES, PENDING_ACCOUNT_PREFIX, isPendingAccountId, launchChromeSession, loginWithQrCode, probeSession, promotePendingAccount, refreshSessionState, removeLocalAccount, commitLoginIdentity, waitForSessionCookie, readAccountProfile, type ChromeFactory, type DouyinProfile, type LoginResult, type ProbeResult, type PromoteResult, type RefreshedSession, type BrowserCloseBudget } from './session.ts'
-export { withProfileLock, tryWithProfileLock, withProfileLocks, tryWithProfileLocks, isProfileLocked } from './locks.ts'
 export { runsFilePath, createAttemptId, readRuns, updateRun, recoverInterruptedRuns, removeAccountRuns, runInRootQueue, type RunRecord } from './runs.ts'
-export { createCollectController, createBatchCollectController, batchCandidates, checkCollectionReadiness, ensureRemoteAccount, reportSessionStatus, markSessionOk, markSessionExpired, reportSessionOkAfterCollect, saveDiscoveredAvatar, runCollection, finishExpiredSession, progressFromEvent, lastProgress, type CollectResult, type BatchStatus, type BatchItem, type RunnerDeps } from './runner.ts'
+export { createCollectController, createBatchCollectController, batchCandidates, checkCollectionReadiness, ensureRemoteAccount, reportSessionStatus, markSessionOk, markSessionExpired, reportSessionOkAfterCollect, saveDiscoveredAvatar, runCollection, finishExpiredSession, progressFromEvent, lastProgress, PROBE_REUSE_TTL_MS, type CollectResult, type BatchStatus, type BatchItem, type RunnerDeps, type ProbedSession } from './runner.ts'
 export { createIngestClient, ingestCollectedWorks, BATCH_SIZE, DETERMINISTIC_ERRORS, RECOVERABLE_ERRORS, type IngestClient, type IngestOutcome } from './ingest.ts'
 export * as collector from './collector.ts'
 export * as parse from './parse.ts'

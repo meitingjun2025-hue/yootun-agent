@@ -92,7 +92,7 @@ export interface UploadSession {
 /** Registry options; timings are deployment-varying and injected. */
 export interface SessionRegistryOptions {
   staging: StagingArea
-  /** done/failed retention in ms (default 60s). */
+  /** done/failed retention in ms (default 10 minutes, same as awaiting; upload-experience-fixes 2.1). */
   doneTtlMs?: number
   /** orphan uploading budget in ms (default 30min). */
   orphanMs?: number
@@ -106,7 +106,7 @@ export interface SessionRegistryOptions {
   now?: () => number
 }
 
-export const DEFAULT_DONE_TTL_MS = 60_000
+export const DEFAULT_DONE_TTL_MS = 10 * 60_000
 export const DEFAULT_ORPHAN_MS = 30 * 60_000
 export const DEFAULT_AWAITING_MS = 10 * 60_000
 export const DEFAULT_SWEEP_MS = 30_000

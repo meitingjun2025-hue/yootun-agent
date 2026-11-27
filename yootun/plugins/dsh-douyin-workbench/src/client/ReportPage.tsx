@@ -17,11 +17,10 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Menu, RiskConfirmation, SegmentedControl, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, formatDateTime, formatPercent, reasonText, shiftDay, type Translate } from './format.ts'
+import { domainErrorText, formatCount, formatDateTime, formatPercent, reasonText, shiftDay, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import { readReportDetail, readReportList, type ReportDetail, type ReportListItem } from './schema.ts'
 import { ReportComboChart } from './charts.tsx'
-import { attemptId } from './AnalysisPage.tsx'
 
 /** 桌面 PDF 导出桥（Desktop webview 注入；缺失时稳定报 export_unsupported）。 */
 interface DesktopNextBridge {

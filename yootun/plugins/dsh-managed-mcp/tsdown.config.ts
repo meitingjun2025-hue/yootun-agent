@@ -7,7 +7,7 @@ export default {
   platform: 'node',
   target: 'es2024',
   deps: {
-    alwaysBundle: [/^@yootun\/dsh-client-ui-access(?:\/.*)?$/u],
+    alwaysBundle: [/^@yootun\/dsh-client-ui-access(?:\/.*)?$/u, /^@yootun\/dsh-workbench-host-kit$/u],
   },
   clean: false,
   fixedExtension: false,

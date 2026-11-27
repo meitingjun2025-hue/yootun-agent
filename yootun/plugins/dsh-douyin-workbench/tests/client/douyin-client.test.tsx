@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
-import { formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
+import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -142,20 +142,87 @@ beforeEach(() => {
   })
 })
 
-describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
-  it('tablist 顺序与文案恰好 7 项，默认账号总览', () => {
-    render(<WorkbenchPage t={t} />)
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例词典口径一致（zh 格式）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
+}
+
+describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () => {
+  it('N1 顶级 tablist 恰有 4 项，顺序为 数据/创作/素材与知识/报表，默认选中「数据」', () => {
+    render(<WorkbenchPage t={t} locale={locale} />)
     const navTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en.panel)
-    expect(navTabs.length).toBe(7)
+    expect(navTabs.length).toBe(4)
     expect(navTabs.map(tab => tab.textContent)).toEqual([
-      en['tab.overview'], en['tab.works'], en['tab.schedule'], en['tab.material'],
-      en['tab.breakdown'], en['tab.gene'], en['tab.report'],
+      en['nav.group.data'], en['nav.group.create'], en['nav.group.material'], en['nav.group.report'],
     ])
     expect(navTabs[0]?.getAttribute('aria-selected')).toBe('true')
+    // N2 默认渲染二级控件，顺序 账号作品/账号总览，选中「账号作品」。
+    const subTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === t('nav.subLevel', { group: en['nav.group.data'] }))
+    expect(subTabs.map(tab => tab.textContent)).toEqual([en['tab.works'], en['tab.overview']])
+    expect(subTabs[0]?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('N2 选中创作/报表时不渲染二级控件（单页组直选）', () => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
+    expect(screen.queryByRole('tab', { name: en['tab.schedule'] })).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
+    expect(screen.queryByRole('tab', { name: en['tab.report'] })).toBeNull()
+  })
+
+  it('N3 在账号总览切到别的组再切回数据 → 仍是账号总览（组不重置页内状态）', () => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
+    expect(screen.getByRole('tab', { name: en['tab.overview'] }).getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('N5 账号总览页渲染账号管理栏；点账号卡进入单账号分析；分析内不渲染', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      if (action === 'account.analysis') return { status: 'ready', analysis: { account: { accountId: 'acc-1', nickname: '账号一', ownerName: null, fanCount: 12000, lastCollectedAt: null, sessionStatus: 'ok', suspiciousEmptyCollect: false }, hotWorks: overviewPayload.overview.hotWorks } }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    // 数据组两个页面共用账号管理栏。
+    const sidebar = await screen.findByRole('complementary', { name: en['account.title'] })
+    expect(sidebar).not.toBeNull()
+    // 点账号卡 = 选中并进入该账号的单账号分析。
+    fireEvent.click(within(sidebar).getByText('账号一'))
+    expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
+    // 分析页不渲染账号管理栏。
+    expect(screen.queryByRole('complementary', { name: en['account.title'] })).toBeNull()
+  })
+
+  it('N6 二级控件 tab 与页面容器 aria-labelledby 互相指向', async () => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const sub = screen.getByRole('tab', { name: en['tab.overview'] })
+    expect(sub.id).toBe('dy-tab-sub-overview')
+    // 容器在 DataState 内：等账号目录就绪后断言标注互指。
+    const panel = await waitFor(() => {
+      const el = document.getElementById('dy-panel-body')
+      expect(el).not.toBeNull()
+      return el as HTMLElement
+    })
+    expect(panel.getAttribute('aria-labelledby')).toBe('dy-tab-sub-overview')
+    // 单页组：容器由顶级组 tab 标注。
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
+    await waitFor(() => expect(document.getElementById('dy-panel-body')?.getAttribute('aria-labelledby')).toBe('dy-tab-report-group'))
   })
 
   it('单账号分析不是顶级 Tab（总览账号行 Enter 下钻进入，返回保留筛选）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
@@ -164,9 +231,9 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('account.trend', expect.objectContaining({
       accountId: 'acc-1', metric: 'play', fromDay: shiftDay(shanghaiToday(), -29), toDay: shanghaiToday(),
     })))
-    // 下钻不新增顶级 tab。
+    // 下钻不新增顶级组。
     const navTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en.panel)
-    expect(navTabs.length).toBe(7)
+    expect(navTabs.length).toBe(4)
     // 返回总览：筛选区仍可达（筛选保留由页面级 filters 状态承担）。
     fireEvent.click(screen.getByRole('button', { name: en['analysis.back'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['overview.filter.account'] })).not.toBeNull())
@@ -197,7 +264,8 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
@@ -214,7 +282,8 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 
   it('切任意 Tab 收起 AI 弹层（AnalysisPage 随总览面板卸载）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     fireEvent.click(screen.getByRole('button', { name: en['analysis.aiEntry'] }))
@@ -226,14 +295,16 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
 
 describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   it('tab.notReady 文案不再出现于任何 Tab；爆款拆解面板加载 breakdown action', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
     expect(screen.queryByText(en['tab.notReady'])).toBeNull()
   })
 
   it('爆款拆解面板结构（新建区 + 历史列表）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['bd.downloadButton'] })).not.toBeNull()
@@ -242,7 +313,8 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   })
 
   it('爆款素材看板为真实实现（四子页 + KPI + 看板表加载 material action）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ scope: 'material' })))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.facets', expect.anything()))
@@ -256,7 +328,8 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   })
 
   it('爆款基因库为真实实现（检索工具栏 + KPI + facets + 卡片墙加载 gene.search）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('gene.search', expect.objectContaining({ limit: 20 })))
     expect(screen.getByRole('button', { name: en['gene.reset'] })).not.toBeNull()
@@ -270,7 +343,8 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
 
 describe('账号总览页结构（parity 矩阵 §1）', () => {
   it('4 筛选 + KPI 6 卡 + 排行 11 列 + 爆款 6 列 + 分布 + 提醒 + 导出总览', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['overview.filter.account'] })).not.toBeNull())
     expect(screen.getByRole('button', { name: en['overview.filter.window'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['overview.filter.sort'] })).not.toBeNull()
@@ -281,12 +355,17 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
     }
     const rankTable = screen.getByRole('table', { name: en['overview.rank.title'] })
     const rankHeaders = [...rankTable.querySelectorAll('thead th')].map(th => th.textContent)
-    expect(rankHeaders).toHaveLength(11)
+    expect(rankHeaders).toEqual([
+      en['overview.col.rank'], en['overview.col.account'], en['overview.col.owner'], en['overview.col.fans'],
+      `${en['overview.window.30d']}${en['overview.col.windowNetFans']}`, `${en['overview.window.30d']}${en['overview.col.windowPlay']}`,
+      en['overview.col.works'], en['overview.col.medianPlay'], en['overview.col.hotWorks'],
+      en['overview.col.hotRate'], en['overview.col.engagement'], en['action.viewAnalysis'],
+    ])
     const hotTable = screen.getByRole('table', { name: en['overview.hot.title'] })
     const hotHeaders = [...hotTable.querySelectorAll('thead th')].map(th => th.textContent)
     expect(hotHeaders).toEqual([
       en['overview.col.video'], en['overview.col.hotOwnerAccount'], en['overview.col.publishTime'],
-      en['col.play'], en['overview.col.engagement'], en['overview.col.hotBasis'],
+      en['col.play'], en['overview.col.engagement'], en['overview.col.hotBasis'], en['action.viewDetail'],
     ])
     expect(document.querySelector(`[aria-label="${en['overview.dist.title']}"]`)).not.toBeNull()
     expect(screen.getByText(en['overview.alerts.title'])).not.toBeNull()
@@ -310,7 +389,8 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     await waitFor(() => expect(screen.getByText(en['overview.kpi.accounts'])).not.toBeNull())
     expect(screen.queryByText(en['overview.kpi.totalPlay'])).toBeNull()
     expect(screen.queryByText(en['overview.kpi.netFans'])).toBeNull()
@@ -324,7 +404,7 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
       if (action === 'overview.get') throw new Error('ACCOUNT_NOT_ACCESSIBLE')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(await screen.findByRole('alert')).not.toBeNull()
     expect(screen.getByText(en['state.retry'])).not.toBeNull()
     expect(screen.queryByRole('table', { name: en['overview.rank.title'] })).toBeNull()
@@ -333,7 +413,7 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
 
 describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表格）', () => {
   it('左账号栏 + 右作品面板；12 列列序冻结', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByRole('complementary', { name: en['account.title'] })).not.toBeNull()
     const table = await screen.findByRole('table', { name: en['works.table.label'] })
@@ -345,13 +425,14 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       en['col.title'], en['col.url'], en['col.play'], en['col.collect'], en['col.like'],
       en['col.comment'], en['col.bounce2s'], en['col.completion5s'], en['col.completion'],
       en['col.fansGain'], en['col.duration'], en['col.proportion'],
+      en['action.viewDetail'],
     ])
     // 缺失值显示 —：未提供的 5s 完播率列行为 —（workRow 提供了全部值，改为断言排序 aria 存在）。
     expect(table.querySelector('th[aria-sort]')).not.toBeNull()
   })
 
   it('表头排序三态循环（default → desc → asc → default）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await screen.findByRole('table', { name: en['works.table.label'] })
     const playHeader = screen.getByRole('button', {
@@ -385,7 +466,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     row.focus()
@@ -426,7 +507,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -478,7 +559,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       throw new Error(`unexpected action ${action}`)
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -527,7 +608,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       if (action === 'work.promotion.save') throw new Error('PROMOTION_ALREADY_EXISTS')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -559,7 +640,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
   })
 
   it('导出 Excel 按钮存在且为次操作（ghost）；采集按钮为主操作（primary）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const collect = await screen.findByRole('button', { name: en['works.collect'] })
     const refresh = screen.getByRole('button', { name: en['works.refresh'] })
@@ -572,7 +653,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
   })
 
   it('删除账号入口为 danger 语义（error token 类）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const remove = await screen.findByRole('button', { name: en['account.remove'] })
     expect(remove.className).toMatch(/dangerButton/u)
@@ -595,8 +676,8 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('12 列表头 + 两处副标 + 底部账号栏 chip', async () => {
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
     const table = await screen.findByRole('table', { name: en['tab.schedule'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.querySelector('span')?.textContent)
     expect(headers).toEqual([
@@ -614,8 +695,8 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('已发布折叠（默认收起；展开后已发布行带 published 类；未发布斑马纹）', async () => {
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
     const toggle = await screen.findByRole('button', { name: t('schedule.fold.expand', { count: 1 }) })
     expect(toggle.getAttribute('aria-expanded')).toBeNull()
     fireEvent.click(toggle)
@@ -635,8 +716,8 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('底部账号条：chip 按钮选中态 aria-pressed（单行横向滚动容器）', async () => {
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
     const chip = await screen.findByRole('button', { name: /账号一/u })
     expect(chip.getAttribute('aria-pressed')).toBe('true')
     expect(chip.className).toMatch(/scheduleAccountChip/u)
@@ -651,8 +732,8 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
       if (action === 'schedule.rowUpdate') throw new Error('SCHEDULE_VALIDATION_ERROR')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
     const ownerInput = await screen.findByLabelText(en['schedule.col.editingOwner'])
     // no-op：值不变时失焦不调用 rowUpdate。
     fireEvent.blur(ownerInput)
@@ -681,8 +762,8 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
       if (action === 'schedule.rowDelete') return { status: 'ready', data: {} }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.create'] }))
     const deleteButton = await screen.findByRole('button', { name: t('schedule.deleteAria', { id: '1' }) })
     fireEvent.click(deleteButton)
     const dialog = await screen.findByRole('dialog')
@@ -718,8 +799,8 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
   })
 
   it('列表：日报/周报切换 + 7 列 + 状态五态 + 加载更多缺省 + 空态文案', async () => {
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     const table = await screen.findByRole('table', { name: en['tab.report'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent).filter(text => text !== '')
     expect(headers).toEqual([
@@ -771,8 +852,8 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     expect(await screen.findByRole('button', { name: en['report.back'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['report.regenerate'] })).not.toBeNull()
@@ -821,8 +902,8 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     await screen.findByRole('button', { name: en['report.back'] })
     // 口径标签为 dl 的 dt（高亮标签）；三张区段卡（趋势/账号/作品）包区段容器（小标题竖杠加粗）。
@@ -852,8 +933,8 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
-    fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.exportPdf'] }))
     expect(await screen.findByText(new RegExp(en['reason.export_unsupported'], 'u'))).not.toBeNull()
@@ -876,7 +957,7 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
     expect(cssText).toMatch(/tr\.scheduleRowError td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-error-primary\) 8%/u)
     expect(cssText).toMatch(/tr\.scheduleRowPublished td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-state-success-primary\) 12%/u)
     expect(cssText).toMatch(/tr\.scheduleRowStriped td\s*\{[^}]*color-mix\(in srgb, var\(--dsw-alias-label-primary\) 5%/u)
-    expect(cssText).toMatch(/\.scheduleTable th\s*\{[^}]*font-weight: 700/u)
+    expect(cssText).toMatch(/\.scheduleTable th\s*\{[^}]*font-weight: 500/u)
     // 底部账号栏：单行横向滚动（不换行），chip 不压缩。
     expect(cssText).toMatch(/\.scheduleAccountBar\s*\{[^}]*overflow-x: auto/u)
     expect(cssText).toMatch(/\.scheduleAccountChip\s*\{[^}]*flex: none/u)
@@ -912,7 +993,7 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['account.add'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['account.addBusy'] })).not.toBeNull())
@@ -952,7 +1033,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
       const baselineStatusCalls = callsOf('collectAll.status')
@@ -969,7 +1050,10 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       // 批量横幅进入 running（role=status 容器 aria-busy + 进度文案）；按钮运行态禁用。
       expect(screen.getByRole('status').getAttribute('aria-busy')).toBe('true')
       expect(screen.getByText(t('batch.progress.concurrent', { done: 0, total: 1 }))).not.toBeNull()
-      expect(screen.getByRole('button', { name: en['account.collectAllRunning'] }).getAttribute('disabled')).not.toBeNull()
+      // ReasonButton 语义：运行态禁用为 aria-disabled（保持可聚焦，原因可达）。
+      const runningButton = screen.getByRole('button', { name: en['account.collectAllRunning'] })
+      expect(runningButton.getAttribute('aria-disabled')).toBe('true')
+      expect(runningButton.getAttribute('disabled')).toBeNull()
       // 第二次 tick 返回终态 → 汇总横幅、停止轮询。
       act(() => { vi.advanceTimersByTime(1600) })
       await flush()
@@ -994,7 +1078,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       if (action === 'collectAll.start') return Promise.reject(new Error('collect_busy'))
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const button = await screen.findByRole('button', { name: en['account.collectAll'] })
     // 挂载恢复查询已落定（恰一次），失败路径自身不再发起 collectAll.status。
@@ -1026,7 +1110,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
       const baselineStatusCalls = callsOf('collectAll.status')
@@ -1089,7 +1173,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
           { accountId: 'acc-3', status: 'running', reason: null },
         ],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(t('batch.progress.concurrent', { done: 2, total: 5 }))).not.toBeNull()
@@ -1113,7 +1197,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
         currentAccountId: 'acc-2', runningAccountIds: ['acc-2'], concurrency: 1,
         items: [{ accountId: 'acc-2', status: 'running', reason: null }],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(t('batch.currentList', { names: '账号二' }))).not.toBeNull()
@@ -1142,7 +1226,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
           { accountId: 'acc-5', status: 'skipped', reason: 'risk_paused' },
         ],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 恢复查询收到终态：不进入轮询。
@@ -1201,7 +1285,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       await settleMount()
       expect(callsOf('collect.running')).toBe(1)
       expect(callsOf('collect.status')).toBe(1)
@@ -1233,7 +1317,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 恢复态：按钮「采集中」禁用，进度来自 collect.running 返回记录。
@@ -1272,7 +1356,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(en['run.completed'])).not.toBeNull()
@@ -1286,26 +1370,64 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
     }
   })
 
-  it('D4 recovery_required：提示 run.interrupted，不进入运行态', async () => {
+  it('D4/I3 recovery_required：横幅「上次采集被中断」出现且 toast 不弹，不进入运行态', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
       if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
       if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
       if (action === 'collect.status') {
-        return { status: 'ready', collect: null, recovery: 'recovery_required', lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
+        // 单账号（count=1）：挂载恢复读取 interrupted（2.5 横幅数据源）。
+        return { status: 'ready', collect: null, recovery: 'recovery_required', interrupted: { count: 1, accountIds: ['acc-1'] }, lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
       }
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
-    expect(await screen.findByText(en['run.interrupted'])).not.toBeNull()
+    // 横幅出现（单账号文案），旧 toast 文案不再出现（I3）。
+    expect(await screen.findByText(en['run.interruptedBannerOne'])).not.toBeNull()
+    // 旧 toast 键已删：若回归会渲染键名回退（t 返回 en[key] ?? key），断言键名不出现。
+    expect(screen.queryByText('run.interrupted')).toBeNull()
+    // 选中账号在 accountIds 内 → 「重新采集」按钮；count<2 无「重新采集全部」。
+    expect(screen.getByRole('button', { name: en['run.recollect'] })).not.toBeNull()
+    expect(screen.queryByRole('button', { name: en['run.recollectAll'] })).toBeNull()
     // 不进入运行态：按钮可用、无进度文案。
     expect(screen.getByRole('button', { name: en['works.collect'] }).getAttribute('disabled')).toBeNull()
     expect(screen.queryByRole('button', { name: en['works.collecting'] })).toBeNull()
     expect(screen.queryByText(en['works.progress.fallback'])).toBeNull()
+    // I4：点「重新采集」走账号栏「采集」同一启动路径（collect.start）。
+    fireEvent.click(screen.getByRole('button', { name: en['run.recollect'] }))
+    await vi.waitFor(() => {
+      const startCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'collect.start')
+      expect(startCalls.length).toBeGreaterThan(0)
+      expect((startCalls[0]?.[1] as Record<string, unknown>).accountId).toBe('acc-1')
+    })
+  })
+
+  it('D4b/I4 关闭按钮：横幅隐藏且不再出现（本页面会话内），Host 摘要仍在', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') {
+        // 双账号摘要 + 「重新采集全部」入口（count >= 2 分支）。
+        return { status: 'ready', collect: null, recovery: 'recovery_required', interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] }, lastRun: { accountId: 'acc-1', status: 'interrupted', progress: {}, error: null, finishedAt: null } }
+      }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await settleMount()
+    // count >= 2：多账号文案 + 「重新采集全部」按钮出现。
+    expect(await screen.findByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull()
+    expect(screen.getByRole('button', { name: en['run.recollectAll'] })).not.toBeNull()
+    // 点关闭：横幅消失。
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
   })
 
   it('D5 批量运行中恢复：面板与账号栏按返回值渲染，轮询继续；终态显示汇总不轮询', async () => {
@@ -1327,7 +1449,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 面板运行中渲染 + 账号栏 acc-2 显示采集中。
@@ -1359,7 +1481,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
     expect(screen.queryByText(en['batch.unfinishedTitle'])).toBeNull()
@@ -1392,7 +1514,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 用户先点采集（恢复响应尚未到达）→ 运行态来自用户自己的 collect.start。
@@ -1428,7 +1550,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(within(cardOf('账号二')).getByText(en['account.collecting'])).not.toBeNull()
@@ -1481,7 +1603,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('进入作品页拉第 1 页（limit 10 / offset 0 / publish_time desc）；点表头发新参数回第 1 页；三态循环', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls[0]).toEqual({ accountId: 'acc-1', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 }))
     fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
@@ -1494,7 +1616,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('切账号回第 1 页且排序态保留', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls.length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
@@ -1505,7 +1627,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('翻页只变 offset：排序与 limit 不变，信息文案随页推进', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
@@ -1534,7 +1656,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText('首发行')).not.toBeNull()
     // 点播放表头（请求 2 挂起，旧行保留）→ 再点播放表头升序（请求 3 立即返回）。
@@ -1554,7 +1676,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'collect.status') return { status: 'ready', collect: { accountId: args.accountId, status: 'completed', phase: null, progress: {}, error: null, finishedAt: '2026-11-25T00:00:00Z' } }
       return undefined
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls.length).toBe(1))
     fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
@@ -1571,7 +1693,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('KPI 四卡取值来自 summary；不再有缺口作品卡；工具栏不再有全部时间作品数', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(en['works.kpi.worksTotal'])).not.toBeNull()
     expect(screen.getByText(en['works.kpi.playTotal'])).not.toBeNull()
@@ -1597,7 +1719,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await screen.findByRole('table', { name: en['works.table.label'] })
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3)
@@ -1617,7 +1739,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('作品加载失败：KPI 四卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
     apiMock.hostAction.mockImplementation(baseHandlers(() => { throw new Error('DOUYIN_OPERATION_REQUEST_FAILED') }))
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     // 出错提示与重试只在列表区域出现一次；卡片不再逐个重复。
     expect((await screen.findAllByText(kitEn['state.error'])).length).toBe(1)
@@ -1640,7 +1762,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       return baseHandlers(() => ({ status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }))(action, args)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText('第一条作品')).not.toBeNull()
     failNext = true
@@ -1655,7 +1777,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('加载中：列表区域显示骨架，不显示「暂无数据」', async () => {
     apiMock.hostAction.mockImplementation(baseHandlers(() => new Promise(() => {})))
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(within(worksRegion()).getByText(kitEn['state.loading'])).not.toBeNull())
     expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
@@ -1668,7 +1790,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'accounts.list') return { status: 'ready', accounts: [], remoteError: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(kitEn['state.empty'])).not.toBeNull()
     expect(worksRegion().getAttribute('data-state')).toBe('blank')
@@ -1679,7 +1801,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('Pager total 来自服务端：信息文案与下一页按钮可用', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
     expect(screen.getByRole('button', { name: kitEn['pager.next'] }).getAttribute('disabled')).toBeNull()
@@ -1693,10 +1815,12 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [], total: 0, limit: 10, offset: 0, summary: worksSummaryEmpty }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const exportButton = await screen.findByRole('button', { name: en['works.exportExcel'] })
-    await waitFor(() => expect(exportButton.getAttribute('disabled')).not.toBeNull())
+    // ReasonButton 语义：保持可聚焦，禁用态用 aria-disabled 表达（阶段 7 ui-accessibility）。
+    await waitFor(() => expect(exportButton.getAttribute('aria-disabled')).toBe('true'))
+    expect(exportButton.getAttribute('disabled')).toBeNull()
     expect(screen.queryByRole('button', { name: kitEn['pager.next'] })).toBeNull()
     expect(screen.queryByRole('button', { name: kitEn['pager.prev'] })).toBeNull()
     // 列表区域始终存在；空列表在区域正中显示「暂无数据」（en：No data），不出错、不加载。
@@ -1711,6 +1835,13 @@ describe('词典与源码红线', () => {
 
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+
+  it('R2：路由层拒绝原因（forbidden/unknown_action/method_not_allowed）显示 kit 2.6 文案', () => {
+    const t = (key: DouyinLocaleKey): string => en[key] ?? key
+    expect(reasonText('forbidden', t)).toBe(`${en['reason.forbidden']}（forbidden）`)
+    expect(reasonText('unknown_action', t)).toBe(`${en['reason.unknown_action']}（unknown_action）`)
+    expect(reasonText('method_not_allowed', t)).toBe(`${en['reason.method_not_allowed']}（method_not_allowed）`)
   })
 
   it('无硬编码 copy：组件文本均经 t()（词典外无中文字面量）', () => {
@@ -1776,5 +1907,205 @@ describe('词典与源码红线', () => {
     expect(source).toMatch(/resolveToken/u)
     expect(source).toMatch(/getComputedStyle/u)
     expect(stripSourceComments(source)).not.toMatch(COLOR_LITERAL_RE)
+  })
+})
+
+
+describe('ui-accessibility 作品表手势（A5 守卫）', () => {
+  it('X4 双击行文字区打开一次；双击行内查看详情按钮不触发行处理', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      if (action === 'works.list') {
+        return { status: 'ready', accountId: args.accountId, works: [{ ...workRow, work_id: 'w-0', title: `作品 ${String(args.offset)}` }], total: 183, limit: 10, offset: typeof args.offset === 'number' ? args.offset : 0, summary: { work_count: 183, play_count: 1250000, fans_gain_count: 4021, completion_rate_pct: 38.27, gap_count: 4 } }
+      }
+      if (action === 'work.get') return { status: 'ready', detail: { work: workRow, promotion: null } }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.data'] }))
+    const workGetCalls = (): number => apiMock.hostAction.mock.calls.filter(([action]) => action === 'work.get').length
+    const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '作品 0' }) })
+    fireEvent.doubleClick(row)
+    await waitFor(() => expect(workGetCalls()).toBe(1))
+    // 真实双击 = 两次 click（按钮动作各触发一次）+ 一次 dblclick（行守卫命中不触发）。
+    const actionButton = within(row).getByRole('button', { name: en['action.viewDetail'] })
+    fireEvent.click(actionButton)
+    await waitFor(() => expect(workGetCalls()).toBe(2))
+    fireEvent.click(actionButton)
+    fireEvent.doubleClick(actionButton)
+    await waitFor(() => expect(workGetCalls()).toBe(3))
+  })
+})
+
+describe('P2/P3：locale 座位判定与 attemptId 归位（client-workbench-hooks 附录 B.2）', () => {
+  it('P2 语言切换：locale 快照 zh-CN → en，页面数值格式由中文口径切为英文口径', async () => {
+    let snapshot = { active: 'zh-CN' }
+    const listeners = new Set<() => void>()
+    const liveLocale = {
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      getSnapshot: () => snapshot,
+    }
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      return {}
+    })
+    render(<WorkbenchPage t={t} locale={liveLocale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    await waitFor(() => { expect(screen.getByText(formatCount(123456))).not.toBeNull() })
+    // 官方 publish 语义：语言切换新建冻结快照（引用必变）并通知订阅者。
+    snapshot = { active: 'en' }
+    act(() => { listeners.forEach(fn => fn()) })
+    await waitFor(() => { expect(screen.getByText(formatCount(123456, 'en'))).not.toBeNull() })
+  })
+
+  it('P2 词典同值不影响判定：panel 中英文取值相同时，语言 id 仍决定格式口径', async () => {
+    let snapshot = { active: 'en' }
+    const listeners = new Set<() => void>()
+    const enLocale = {
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      getSnapshot: () => snapshot,
+    }
+    // 构造 panel 中英文同值的词典（旧 localeTagOf(t) 在此判错为 zh）。
+    const samePanelT = ((key: DouyinLocaleKey, values?: Record<string, string | number>): string =>
+      key === 'panel' ? zh.panel : en[key] ?? key) as typeof t
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      return {}
+    })
+    render(<WorkbenchPage t={samePanelT} locale={enLocale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    await waitFor(() => { expect(screen.getByText(formatCount(123456, 'en'))).not.toBeNull() })
+  })
+
+  it('P3 attemptId 自 format.ts 导入可用：输出 32 位小写 hex', () => {
+    expect(attemptId()).toMatch(/^[0-9a-f]{32}$/u)
+  })
+})
+
+
+describe('行内详情/分析按钮（douyin-tabs-regroup D1/D2）', () => {
+  /** 概览默认 mock（browser/accounts/overview/works）。 */
+  const installDefault = (): void => {
+    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      if (action === 'works.list') return { status: 'ready', accountId: args.accountId, works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }
+      if (action === 'work.get') return { status: 'ready', data: {} }
+      if (action === 'work.trend') return { status: 'ready', data: { snapshots: [] } }
+      if (action === 'account.analysis') {
+        return { status: 'ready', analysis: { account: { accountId: 'acc-1', nickname: '账号一', ownerName: null, fanCount: 12000, lastCollectedAt: null, sessionStatus: 'ok', suspiciousEmptyCollect: false }, hotWorks: overviewPayload.overview.hotWorks } }
+      }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      throw new Error(`unexpected action ${action}`)
+    })
+  }
+
+  it('D1 账号作品表行内「查看详情」与行 Enter 打开同一详情（work.get 同目标）', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    const table = await screen.findByRole('table', { name: en['works.table.label'] })
+    const button = within(table).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement
+    fireEvent.click(button)
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('work.get', { accountId: 'acc-1', workId: 'w-1' }))
+    cleanup()
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    const table2 = await screen.findByRole('table', { name: en['works.table.label'] })
+    const row = within(table2).getByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('work.get', { accountId: 'acc-1', workId: 'w-1' }))
+    // 同一目标：按钮点击与行 Enter 两次 work.get 同参（mock 记录跨渲染累计）。
+    const workGetCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'work.get')
+    expect(workGetCalls).toHaveLength(2)
+    expect(workGetCalls[1]).toEqual(workGetCalls[0])
+  })
+
+  it('D1 总览账号表行内「查看分析」进入该账号的单账号分析（与行 Enter 同目标）', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const rankTable = await screen.findByRole('table', { name: en['overview.rank.title'] })
+    fireEvent.click(within(rankTable).getAllByRole('button', { name: en['action.viewAnalysis'] })[0] as HTMLElement)
+    expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
+    // 与行 Enter 同一处理：同步选中账号（侧栏选中态一致）。
+    fireEvent.click(screen.getByRole('button', { name: en['analysis.back'] }))
+    cleanup()
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const rankTable2 = await screen.findByRole('table', { name: en['overview.rank.title'] })
+    const row = within(rankTable2).getByRole('row', { name: `${en['overview.col.account']} 账号一` })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
+  })
+
+  it('D1 总览热门作品表行内「查看详情」打开详情', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const hotTable = await screen.findByRole('table', { name: en['overview.hot.title'] })
+    fireEvent.click(within(hotTable).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement)
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('work.get', { accountId: 'acc-1', workId: 'w-1' }))
+  })
+
+  it('D1 单账号分析热门表行内「查看详情」打开详情', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const rankTable = await screen.findByRole('table', { name: en['overview.rank.title'] })
+    fireEvent.click(within(rankTable).getAllByRole('button', { name: en['action.viewAnalysis'] })[0] as HTMLElement)
+    await screen.findByRole('button', { name: en['analysis.back'] })
+    const analysisHot = await screen.findByRole('table', { name: en['analysis.hot.title'] })
+    fireEvent.click(within(analysisHot).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement)
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('work.get', expect.objectContaining({ accountId: 'acc-1' })))
+  })
+
+  it('D2 点击行内按钮不触发行处理：作品表恰好打开一次，不重复', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    const table = await screen.findByRole('table', { name: en['works.table.label'] })
+    fireEvent.click(within(table).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement)
+    await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('work.get', expect.anything()))
+    // 行处理器只经按钮自身触发一次（stopPropagation；单击也不会触发行的双击打开）。
+    const workGetCalls = apiMock.hostAction.mock.calls.filter(([action]) => action === 'work.get')
+    expect(workGetCalls).toHaveLength(1)
+  })
+
+  it('D2 爆款拆解历史行按钮：单击按钮只进详情一次（行 onClick 不重复触发）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [workRow], total: 1 }
+      if (action === 'collect.running') return { status: 'ready', collect: null, batchRunning: false }
+      if (action === 'collect.status') return { status: 'ready', collect: null }
+      if (action === 'collectAll.status') return { status: 'ready', batch: null }
+      if (action === 'breakdown.rewriteRules') return { status: 'ready', rules: [], total: 0 }
+      if (action === 'breakdown.history') return { status: 'ready', history: [{ candidateId: 'c-1', candidateTitle: '三分钟看懂增程车', candidateAuthor: null, candidatePlayCount: null, hasStoryboard: false, rewriteRuleId: 'rule-1', status: 'succeeded', currentStepLabel: null, updatedAt: '2026-11-20T10:00:00Z', workflowId: 'wf-1' }], total: 1 }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
+    const historyTable = await screen.findByRole('table', { name: en['bd.historyLabel'] })
+    fireEvent.click(within(historyTable).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement)
+    // 行 onClick 与按钮同函数：stopPropagation 下单击 = 打开一次（返回按钮出现且唯一）。
+    expect((await screen.findAllByRole('button', { name: en['bd.backToList'] })).length).toBe(1)
   })
 })

@@ -1,6 +1,6 @@
 # workbench-挂载恢复、登录终态与中断提示对齐 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待真机验收 ｜ 创建：2026-11-26 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 前置：P0 全部合入（[wx-collect-all-concurrency.md](wx-collect-all-concurrency.md) 给视频号补了挂载恢复，[xhs-collect-cancel-and-publish-state.md](xhs-collect-cancel-and-publish-state.md) 给小红书补了取消）。
 
@@ -115,12 +115,16 @@ Host：
 | yootun-agent | 抖音 `src/handlers.ts`、`src/lifecycle.ts` | 登录记录保留 30 分钟与读取时清理；中断摘要；`collect.status` / `collectAll.status` 出参 | 是 | 对齐 |
 | yootun-agent | 视频号 `src/{handlers,route,lifecycle}.ts` | 删除 `account.refreshLoginQr`；登录记录读取时清理；中断摘要与出参 | 是 | 对齐 |
 | yootun-agent | 抖音、视频号 `src/runs.ts` | `recoverInterruptedRuns` 返回账号列表 | 是 | 横幅的操作范围 |
+| yootun-agent | 抖音、视频号 `src/client/schema.ts`、抖音 `src/client/WorkbenchPage.tsx` 顶部状态 | `readInterrupted` 白名单读取（schema 层）；`InterruptedView` 类型 | 是 | 横幅数据投影 |
+| yootun-agent | 视频号 `src/index.ts` | 启动恢复摘要写入 `deps.startupInterruption` | 是 | 附录 A4 |
+| yootun-agent | 视频号 `src/client/format.ts` | `refresh_not_allowed` 的 REASON_KEYS 条目随 action 删除移除 | 是 | 随 W1 |
 | yootun-agent | 抖音、视频号 `src/client/{WorkbenchPage.tsx,WorksPanel.tsx,locales.ts,workbench.module.css}` | 横幅与按钮；移除对应 toast | 是 | 中断后的操作入口 |
 | yootun-agent | 视频号 `src/client/locales.ts` | 删除 `login.refreshQr`（zh / en） | 是 | 孤立词典键 |
 | yootun-agent | 抖音、视频号、小红书 `tests/{host,dispose,runs,lifecycle*}.test.ts`、`tests/client/*` | 用例更新与新增 | 是 | 行为随实现变更 |
 | yootun-agent | `yootun/docs/1110/p2-wx-workbench-baseline.md` §1、`p3-xhs-workbench-baseline.md` §8、`p4-douyin-workbench-baseline.md` §11 | 登记 action 删除与登录终态保留的偏离 | 是 | 冻结基线偏离登记 |
 | yootun-agent | `yootun/docs/1110/09-workbench-migration-plan.md` §5.3 | 视频号 action 清单去掉一项 | 是 | 清单记录 |
 | yootun-agent | `yootun/docs/1126/00-overview.md` | 索引行状态随第 4 节回填 | 是 | 目录索引 |
+| yootun-agent | `yootun/plugins/dsh-wx-channels-workbench/src/errors.ts` | `refresh_not_allowed` 本地码随 action 删除移除（P1 第 1 阶段 Host kit 单临时登记的守卫码） | 是 | 随 W1 删除 |
 
 ## 4. 状态回填
 
@@ -129,7 +133,7 @@ Host：
 | 文档（本文 + 三份基线 + 09 册 + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/mount-restore-login-alignment` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/mount-restore-login-alignment`（基于 `feat/collect-probe-reuse`） | 三插件 test 与 build、`lint`、`typecheck`、verify 脚本、`test:docs` 全过；附录 B X1–X7、L1–L4、W1、I1–I4 全部落地 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -157,7 +161,17 @@ Host：
 
 ### 5.3 本地联调记录
 
-待填（合入前回填）。
+自动验收两轮（第 1 轮发现抖音登录终态保留漏实现、视频号横幅主场景不可达与附录 B 缺口；修复后第 2 轮复验通过）。与实施单的出入及处理（单上文字随实现修订）：
+
+- 登录终态保留的计龄起点：抖音与小红书的 run 记录新增 `settledAt`（进入终态时刻）；视频号沿用既有 `startedAt` 计龄（其 beginLogin 内联的过期清理提取为 `sweepLoginRuns`，loginStatus 与 beginLogin 共用）——2.3 表格的「自进入终态起保留」对视频号为 startedAt 口径（原文未指明，已按实现修订）；
+- 抖音 `recoverInterruptedRuns` 的返回值改为 `{ count, accountIds }`（I1），`StartupRecovery` 接缝与既有测试注入同步更新；
+- 既有用例改动（单上写明的行为变化所致）：
+  - 小红书 host.test 的「终态读取一次后清理：再次查询为 idle」改为保留期内重复读取一致（L1 语义）；小红书 dispose.test 三个用例与 lifecycle-budget.test 的 G2 夹具改为断言清空后的记录表（dispose 清空记录表是 2.2/2.3 卸载行的直接后果），扫码竞态用例以 run 对象引用保留终态断言；L2/L3/L4 落在 host.test；
+  - 抖音 d2.test 的 loginStatus 用例（原断言读完即删）改写为 L1/L2；client D4 改写为 I3（横幅出现、toast 不弹、重新采集走 collect.start）并新增 D4b（I4：count≥2 文案与重新采集全部、关闭后横幅消失）；douyin lifecycle-budget G2 夹具与 lifecycle3/recovery 注入随 dispose 清空（dispose.test 经 createDouyinHostDeps 自带 loginRuns，无需改）与恢复返回值同步；
+  - 视频号 dispose.test 的挂起登录用例改用 run 对象引用断言 timeout settle；wx host.test / batch-concurrency.test 的 action 清单 23 → 22（W1）；wx lifecycle-budget.test G2 夹具同步；wx client 新增 I3(wx) 挂载恢复横幅用例（含 apiMock 基础接线）；
+  - 小红书 client xhs-accounts.test 的共享 collect.status mock 按 collectId 区分（无 collectId 的恢复查询返回 `collect: null`——挂载恢复使未区分 mock 在点击前把页面置为运行态）。
+
+未核对项：真机验收 R1–R8；小红书 client 挂载恢复在真实慢链路上的轮询节奏（自动验收用注入 ports）；wx 侧 I4 的「重新采集」点击路径无独立用例（实现与账号栏同入口、抖音 D4 覆盖点击语义，复验轮 2 记录为残留覆盖缺口）。
 
 ## 附录 A：逐文件规格
 
@@ -220,3 +234,5 @@ Host：
 | 登录终态保留 | 30 分钟 + 读取时清理（沿用视频号常量） | 10 分钟；或定时器清理 |
 | 中断提示 | 页面内横幅 + 操作按钮 | 保留 toast 并加「重新采集」动作按钮 |
 | 横幅关闭的持久化 | 仅当前页面会话 | 写入本地存储（跨重载保持关闭） |
+
+- 生产接线守卫（2026-11-27，P1 阶段 1–4 验收审查）：wx 启动中断摘要写入（重启后「上次采集被中断」横幅的数据源）原先无用例守——接线抽为导出工厂 `applyWxStartupRecovery`，`apply` 与测试共用（tests/p0-fixes.test.ts），删写入→红→恢复→绿。

@@ -11,9 +11,9 @@
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard, DataState, FilterMenu, KpiCard, ytChartStyle } from '@yootun/dsh-client-ui-kit'
+import { DataCard, DataState, FilterMenu, KpiCard, ytChartStyle, isOnInteractiveTarget } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
+import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   asrTranscriptOf, readArchiveRun, readBreakdownDetail, readBreakdownHistory, readBreakdownWorkflows,
@@ -21,7 +21,6 @@ import {
   type BreakdownSegment, type DownloadJobView, type RewriteRuleRow, type ShotScriptView,
   type WorkflowRow,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 import { downloadBase64 } from './OverviewPage.tsx'
 
 const ARCHIVE_POLL_MS = 3000
@@ -647,7 +646,7 @@ export function BreakdownPage(props: BreakdownPageProps): ReactNode {
               <table className={css.dataTable} aria-label={t('bd.historyLabel')}>
                 <thead>
                   <tr>
-                    {[t('bd.col.video'), t('bd.col.status'), t('bd.col.rule'), t('bd.col.step'), t('bd.col.time')].map(label => <th key={label} scope='col'>{label}</th>)}
+                    {[t('bd.col.video'), t('bd.col.status'), t('bd.col.rule'), t('bd.col.step'), t('bd.col.time'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -711,7 +710,7 @@ function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: Rewri
     <tr
       tabIndex={0}
       aria-label={`${props.row.candidateTitle ?? props.row.candidateId}，${props.t('bd.row.openAria')}`}
-      onClick={props.onOpen}
+      onDoubleClick={event => { if (!isOnInteractiveTarget(event)) props.onOpen() }}
       onKeyDown={event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
@@ -735,6 +734,18 @@ function BreakdownHistoryRowView(props: { row: BreakdownHistoryRow; rules: Rewri
           : props.row.currentStepLabel ?? '—'}
       </td>
       <td>{formatDateTime(props.row.updatedAt)}</td>
+      <td className={css.colAction}>
+        <Button
+          variant='ghost'
+          size='sm'
+          onClick={event => {
+            event.stopPropagation()
+            props.onOpen()
+          }}
+        >
+          {props.t('action.viewDetail')}
+        </Button>
+      </td>
     </tr>
   )
 }

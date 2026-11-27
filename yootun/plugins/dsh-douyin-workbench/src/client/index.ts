@@ -15,11 +15,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { zh, en, NS, type DouyinLocaleKey } from './locales.ts'
 import './kit-styles.ts'
 import { WorkbenchIcon } from './WorkbenchIcon.tsx'
-import { WorkbenchPage } from './WorkbenchPage.tsx'
+import { WorkbenchPage, type WorkbenchPageProps } from './WorkbenchPage.tsx'
 
 export { HOST_PATH, hostAction, type HostResponse } from './api.ts'
 export { NS, zh, en, type DouyinLocaleKey } from './locales.ts'
-export { WorkbenchPage, localeTagOf, type WorkbenchPageProps, type Translate } from './WorkbenchPage.tsx'
+export { WorkbenchPage, type WorkbenchLocale, type WorkbenchPageProps, type Translate } from './WorkbenchPage.tsx'
 export { validatePromotionForm, type PromotionInvalidKey } from './PromotionModal.tsx'
 export { progressTextOf } from './WorksPanel.tsx'
 export {
@@ -27,7 +27,7 @@ export {
   fanDelta, formatAgeBucket, formatCount, formatDateTime, formatDuration, formatPercent, formatSeconds,
   genderLabel, gapFieldLabel, gapReasonText, hotLabelText, nextWorkSort, retentionStatus,
   retentionStatusKey, safeHttpUrl, safeWorkUrl, shiftDay, trafficSourceLabel,
-  DEFAULT_WORK_SORT, type WorkSortKey, type WorkSortState,
+  DEFAULT_WORK_SORT, localeTagOf, type WorkSortKey, type WorkSortState,
 } from './format.ts'
 export {
   comparePublishDate, compareRowId, buildServerSnapshot, readAccounts, readBatchStatus,
@@ -62,7 +62,15 @@ export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'yootun-douyin-workbench: dictionaries')
 
-  const injected = (): { t: (key: DouyinLocaleKey, values?: Record<string, string | number>) => string } => ({
+  // WorkbenchPage 的 locale 座位：箭头包装 ctx.locale 的同名方法（类实例解构
+  // 后 this 丢失），getSnapshot 返回官方冻结快照对象本身（引用稳定，uSES 要求）。
+  const locale: WorkbenchPageProps['locale'] = {
+    subscribe: (fn) => ctx.locale.subscribe(fn),
+    getSnapshot: () => ctx.locale.getSnapshot(),
+  }
+
+  const injected = (): WorkbenchPageProps => ({
+    locale,
     t: (key, values) => {
       const text = t(key)
       if (values === undefined) return text

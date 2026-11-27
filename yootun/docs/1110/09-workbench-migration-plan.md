@@ -342,14 +342,13 @@ workbench_wx_fans_profile_get
 
 ### 4.3 Host action 契约
 
-新 Host action 从旧插件行为重译，建议保留以下语义：
+新 Host action 从旧插件行为重译，建议保留以下语义（2026-11-27 起 `account.refreshLoginQr` 删除——[1126/features/mount-restore-and-login-alignment.md](../1126/features/mount-restore-and-login-alignment.md) 2.4：页面无调用方、成功分支缺远端建号）：
 
 ```text
 browser.status
 accounts.list
 account.beginLogin
 account.loginStatus
-account.refreshLoginQr
 account.probe
 account.promote
 account.removeLocal

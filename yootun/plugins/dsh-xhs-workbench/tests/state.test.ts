@@ -4,14 +4,14 @@
  * 运行：`node --test tests/state.test.ts`。
  */
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   clearLocalCredentials, ensureProfileDir, getAccount, hasStorageState, latestSnapshot,
   moveProfile, moveStorageState, nextSessionSeq, paths, readAccounts, safeSegment,
-  saveSnapshot, stateRoot, updateAccount, writeAccounts, type CollectSnapshot,
+  saveSnapshot, stateRoot, updateAccount, writeAccounts, STATE_VERSION, type CollectSnapshot,
 } from '../src/state.ts'
 import { mapNote, parsePostedPage, summarizeSnapshot } from '../src/collector.ts'
 
@@ -72,6 +72,64 @@ test('nextSessionSeq：单调递增', async () => {
   const record = await getAccount('acc-1', root)
   assert.equal(record?.sessionSeq, 2)
   await rm(root, { recursive: true, force: true })
+})
+
+test('X1 两个账号并发 updateAccount（注入延迟的文件接缝）交错读改写后两处字段都保留', async () => {
+  const root = await tempRoot()
+  try {
+    await updateAccount('a', { nickname: 'seed-a' }, root)
+    await updateAccount('b', { nickname: 'seed-b' }, root)
+    // 交错读改写：A 读到旧文件后让出事件循环，B 完成整轮写回，A 再写回——
+    // root 队列串行化后 A 的写回以「读过之后 B 未写」的旧快照为前提不成立，
+    // 必须排在 B 之后，两处字段都保留。
+    const first = updateAccount('a', { sessionStatus: 'ok', lastCollectedAt: '2026-11-27T00:00:00Z' }, root)
+    const second = updateAccount('b', { sessionStatus: 'expired' }, root)
+    await Promise.all([first, second])
+    const state = await readAccounts(root)
+    assert.equal(state.accounts['a']?.lastCollectedAt, '2026-11-27T00:00:00Z', 'A 的采集时间不得被 B 的写回覆盖')
+    assert.equal(state.accounts['a']?.nickname, 'seed-a')
+    assert.equal(state.accounts['b']?.sessionStatus, 'expired', 'B 的会话状态不得被 A 的写回覆盖')
+    assert.equal(state.accounts['b']?.nickname, 'seed-b')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('X2 并发直写 writeAccounts 时 tmp 文件名唯一，无 ENOENT（绕过队列直击 tmp 交错面）', async () => {
+  const root = await tempRoot()
+  try {
+    // 绕过 root 队列直接并发调 writeAccounts：updateAccount 已被队列串行化，
+    // tmp 唯一性由 kit atomicWriteJson 承担（kit H7），本用例在插件层直击同一
+    // 面——若 tmp 名固定为 <file>.tmp，两个写回撞在同一瞬间会让其中一个
+    // rename 报 ENOENT。
+    const state = await readAccounts(root)
+    const writes = Array.from({ length: 8 }, (_, i) =>
+      writeAccounts({ version: STATE_VERSION, accounts: { ...state.accounts, [`u${String(i)}`]: { accountId: `u${String(i)}`, sessionStatus: 'ok' } } }, root))
+    // 8 份完整文档并发写同一目标：唯一的失败形态是固定 tmp 名的交错覆盖
+    // （第二个 rename 报 ENOENT 让 Promise.all 拒绝）；任一份成功 rename 后，
+    // 目标文件必须是完整可解析的文档，且目录无 tmp 残留。
+    await Promise.all(writes)
+    const final = await readAccounts(root)
+    const winner = Object.keys(final.accounts).filter(key => key.startsWith('u'))
+    assert.ok(winner.length >= 1, `最后一次 rename 的完整文档必须落盘，实际键：${Object.keys(final.accounts).join(',')}`)
+    const leftovers = (await readdir(root)).filter(name => name.includes('.tmp'))
+    assert.deepEqual(leftovers, [], '无 tmp 残留')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('X3 同一账号 nextSessionSeq 并发两次得到两个不同的连续序号', async () => {
+  const root = await tempRoot()
+  try {
+    const [s1, s2] = await Promise.all([nextSessionSeq('c', root), nextSessionSeq('c', root)])
+    assert.notEqual(s1, s2, '并发取号不得重号')
+    assert.equal(Math.abs(s1 - s2), 1, '两个序号应连续')
+    const record = await getAccount('c', root)
+    assert.equal(record?.sessionSeq, Math.max(s1, s2), '落盘序号为较大值')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('moveProfile / moveStorageState：目标已存在绝不覆盖', async () => {

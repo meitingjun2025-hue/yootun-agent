@@ -60,7 +60,7 @@ export function toPublicCode(cause: unknown): MediaUploadErrorCode {
 const SERVER_CODE_MAP: ReadonlyArray<readonly [string, MediaUploadErrorCode]> = Object.freeze([
   ['UPLOAD_SIZE_EXCEEDED', 'file_too_large'],
   ['UPLOAD_TYPE_NOT_ALLOWED', 'extension_not_allowed'],
-  ['UNAUTHORIZED', 'storage_auth_failed'],
+  ['UNAUTHORIZED', 'uploader_not_configured'],
   ['STORAGE_AUTH_FAILED', 'storage_auth_failed'],
   ['STORAGE_UNAVAILABLE', 'storage_unavailable'],
   ['VALIDATION_ERROR', 'upload_failed'],

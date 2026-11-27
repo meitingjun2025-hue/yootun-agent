@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { AccessForm } from './form.tsx'
-import { blockApplicationScroll, describeKeyConfigured, gatePhase, GATE_UNKNOWN_FALLBACK_MS, isAuthorized, timeoutScheduler, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
+import { describeKeyConfigured, gatePhase, GATE_UNKNOWN_FALLBACK_MS, isAuthorized, timeoutScheduler, type AccessForms, type CredentialsFace, type AccessSettings } from './logic.ts'
 import { BRAND_EYEBROW } from './locales.ts'
 import { BRAND_MARK_URL } from './brand-mark.ts'
 import css from './access.module.css'
@@ -55,23 +55,28 @@ export function AccessGate(props: GateProps): ReactNode {
   }, [unknown])
   const phase = gatePhase(authorized, fallbackElapsed)
 
-  // 应用阻断跟随授权状态。门禁层自身覆盖启动期应用内容点击路径，不再申请 root.inert：
-  // 官方 onboarding loading 层会在启动瞬间捕获并恢复该属性，与门禁的
-  // fail-closed 锁并发时会形成“授权解锁后被旧快照恢复为 true”的竞态。
-  // 授权成立仍直接清除 inert，作为升级前版本残留的兜底；阻断期间（未授权或
-  // 未知遮罩）申请滚动锁，重复进入先释放上一次申请。
+  // 应用阻断跟随授权状态（未授权或未知遮罩）：阻断期间给 #root 设
+  // aria-hidden（辅助技术读不到背景应用）并置 body overflow hidden。门禁不
+  // 申请 root.inert：官方 onboarding loading 层会在启动瞬间捕获并恢复该属性，
+  // 与门禁 fail-closed 锁并发时形成「授权解锁后被旧快照恢复为 true」的竞态；
+  // 授权成立仍直接清除 inert，作为升级前版本残留的兜底。解除（authorized
+  // 成立）即时移除 aria-hidden；门禁层全部卸载后的最终复位由 mountGate 的
+  // disposer 统一处理（不按实例 previous 快照恢复——双门禁叠加时快照互相
+  // 指向对方设置的值，恢复会把仍在阻断的门禁解锁）。
   const blocking = authorized !== true
   useEffect(() => {
+    const root = document.getElementById('root')
     if (!blocking) {
-      const root = document.getElementById('root')
-      if (root !== null) root.inert = false
+      if (root !== null) {
+        root.inert = false
+        root.removeAttribute('aria-hidden')
+      }
       document.body.style.overflow = ''
-      releaseApplication?.()
-      releaseApplication = undefined
-      return
+      return undefined
     }
-    releaseApplication?.()
-    releaseApplication = blockApplicationScroll()
+    if (root !== null) root.setAttribute('aria-hidden', 'true')
+    document.body.style.overflow = 'hidden'
+    return undefined
   }, [blocking])
 
   useEffect(() => {
@@ -139,13 +144,12 @@ export function AccessGate(props: GateProps): ReactNode {
   )
 }
 
-let gateRoot: Root | undefined
-let releaseApplication: (() => void) | undefined
-
 /**
  * Mount the mandatory gate in its own React root appended to the document
  * body, locking scrolling while unauthorized; the fixed gate layer owns
- * pointer blocking and the card owns the focus trap.
+ * pointer blocking and the card owns the focus trap. 宿主 root 与滚动锁申请
+ * 都由本闭包持有（模块级可变状态归位）：连续挂载时第二次调用移除第一次的
+ * 宿主节点，第一次的 disposer 只卸载自己创建的宿主（R3 语义）。
  * @param props - the gate's injected face.
  * @returns the disposer unmounting the gate and releasing the application.
  */
@@ -154,16 +158,19 @@ export function mountGate(props: GateProps): () => void {
   const host = document.createElement('div')
   host.id = 'yu-access-gate'
   document.body.appendChild(host)
-  gateRoot = createRoot(host)
+  const gateRoot: Root = createRoot(host)
   gateRoot.render(<AccessGate {...props} />)
   return () => {
-    gateRoot?.unmount()
-    gateRoot = undefined
+    // 阻断 effect 无清理函数：aria-hidden 与滚动锁的最终复位由本 disposer 在
+    // 门禁层全部卸载后统一做——不无条件清 body overflow，双挂载时无条件复位
+    // 会解除仍在阻断的另一个门禁的滚动锁。root.inert 复位保留为升级前残留的兜底。
+    gateRoot.unmount()
     const root = document.getElementById('root')
-    if (root !== null) root.inert = false
-    document.body.style.overflow = ''
-    releaseApplication?.()
-    releaseApplication = undefined
+    if (root !== null) {
+      root.inert = false
+      root.removeAttribute('aria-hidden')
+    }
     host.remove()
+    if (document.getElementById('yu-access-gate') === null) document.body.style.overflow = ''
   }
 }

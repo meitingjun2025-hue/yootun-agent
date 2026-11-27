@@ -10,6 +10,7 @@
 import { safeCode } from './errors.ts'
 import { BATCH_SKIP_REASONS } from './runner.ts'
 import type { CollectResult } from './runner.ts'
+import type { ProbedSession, RefreshedSession } from './probe.ts'
 
 /** 批量采集并发缺省值（Config.batchConcurrency 未传时的运行时兜底）。 */
 const DEFAULT_BATCH_CONCURRENCY = 3
@@ -109,11 +110,11 @@ export interface BatchController {
  */
 export function createBatchCollectController(options: {
   collect: {
-    start(input: { accountId: string; signal?: AbortSignal; fromBatch?: boolean }): Promise<{ started: boolean; reason?: string }>
+    start(input: { accountId: string; signal?: AbortSignal; fromBatch?: boolean; probed?: ProbedSession<RefreshedSession> }): Promise<{ started: boolean; reason?: string }>
     wait(accountId: string): Promise<CollectResult | null>
     hasRunning(): boolean
   }
-  probe: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null }>
+  probe: (accountId: string) => Promise<{ sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> }>
   logger?: { warn(message: string): void } | undefined
   trackRun?: ((promise: Promise<void>) => void) | undefined
   concurrency?: number | undefined
@@ -237,8 +238,10 @@ export function createBatchCollectController(options: {
         }
       }
       try {
-        // 阶段 1：逐个账号串行探测（实测 + 上报口径不变）。
+        // 阶段 1：逐个账号串行探测（实测 + 上报口径不变）。ok 账号的探测结果
+        // 按账号暂存，阶段 2 经 collect.start 传入复用；批次结束随闭包回收。
         current.phase = 'probing'
+        const probedByAccount = new Map<string, ProbedSession<RefreshedSession>>()
         for (let index = 0; index < current.items.length; index += 1) {
           const item = current.items[index]
           if (item === undefined || item.status !== 'ready') continue
@@ -247,11 +250,11 @@ export function createBatchCollectController(options: {
           item.status = 'probing'
           item.startedAt = new Date().toISOString()
 
-          let probeResult: { sessionStatus: string; reason: string | null }
+          let probeResult: { sessionStatus: string; reason: string | null; probe?: ProbedSession<RefreshedSession> | undefined }
           try {
             probeResult = await options.probe(item.accountId)
           } catch (error) {
-            probeResult = { sessionStatus: 'unknown', reason: safeCode(error) }
+            probeResult = { sessionStatus: 'unknown', reason: safeCode(error), probe: undefined }
           }
 
           // probe settle 后再查取消：取消条目不再消费探测结果。
@@ -271,6 +274,7 @@ export function createBatchCollectController(options: {
           // 实测通过：进入待取号集合（阶段 2 worker 从这里并发取号）。
           item.status = 'ready'
           item.reason = null
+          if (probeResult.probe !== undefined) probedByAccount.set(item.accountId, probeResult.probe)
         }
         if (cancelled()) {
           failRest('collect_cancelled')
@@ -334,7 +338,8 @@ export function createBatchCollectController(options: {
             item.status = 'running'
             current.runningAccountIds.push(item.accountId)
             updateCurrentAccount()
-            const started = await options.collect.start({ accountId: item.accountId, signal: current.controller.signal, fromBatch: true })
+            const probed = probedByAccount.get(item.accountId)
+            const started = await options.collect.start({ accountId: item.accountId, signal: current.controller.signal, fromBatch: true, ...(probed !== undefined ? { probed } : {}) })
             if (!started.started) {
               failItem(item, started.reason ?? 'collect_failed')
               releaseRunning(item.accountId)

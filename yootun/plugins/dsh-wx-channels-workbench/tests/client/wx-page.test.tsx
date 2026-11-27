@@ -2,14 +2,38 @@
 // @vitest-environment jsdom
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { cleanup, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en, zh, type WxLocaleKey } from '../../src/client/locales.ts'
 
-afterEach(cleanup)
+const apiMock = vi.hoisted(() => ({ hostAction: vi.fn() }))
+vi.mock('../../src/client/api.ts', () => apiMock)
 
-const t = (key: WxLocaleKey): string => en[key] ?? key
+afterEach(() => {
+  cleanup()
+  apiMock.hostAction.mockReset()
+  apiMock.hostAction.mockImplementation(async (action: string) => {
+    if (action === 'browser.status') return { status: 'ok', chrome: 'available', driver: 'available' }
+    if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+    if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null }
+    if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0 }
+    throw new Error(`unexpected action ${action}`)
+  })
+})
+
+const t = (key: WxLocaleKey, values?: Record<string, string | number>): string => {
+  const text = en[key] ?? key
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+}
+
+/** locale 座位假件：快照对象只建一次（引用稳定）；与用例的 en kit 文案口径一致。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
+}
 
 describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
@@ -33,6 +57,10 @@ describe('词典键集', () => {
     // 批量取消与空账号 ID 的稳定码文案（实施单 5.3 补齐轮，2.6 增量）。
     expect(reasonText('collect_cancelled', interpolate)).toBe(`${en['reason.collect_cancelled']}（collect_cancelled）`)
     expect(reasonText('account_id_required', interpolate)).toBe(`${en['reason.account_id_required']}（account_id_required）`)
+    // 路由层拒绝原因文案（workbench-host-kit 2.6：kit 路由字面量的显式分支，R2）。
+    expect(reasonText('forbidden', interpolate)).toBe(`${en['reason.forbidden']}（forbidden）`)
+    expect(reasonText('unknown_action', interpolate)).toBe(`${en['reason.unknown_action']}（unknown_action）`)
+    expect(reasonText('method_not_allowed', interpolate)).toBe(`${en['reason.method_not_allowed']}（method_not_allowed）`)
   })
 
   it('账号采集中状态点文案 zh / en 成对', () => {
@@ -43,7 +71,7 @@ describe('词典键集', () => {
 
 describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 tab）', () => {
   it('tab 数量为 2，顺序为作品数据 → 账号总览，默认选中作品数据', () => {
-    const { container } = render(<WorkbenchPage t={t} />)
+    const { container } = render(<WorkbenchPage t={t} locale={locale} />)
     const tabs = screen.getAllByRole('tab')
     expect(tabs.length).toBe(2)
     expect(tabs[0]?.getAttribute('aria-label') ?? tabs[0]?.textContent).toContain(en['tab.works'])
@@ -53,8 +81,44 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
     void container
   })
 
+  it('I3(wx) 挂载恢复：collect.status 带中断摘要 → 横幅出现（应用退出重开主场景）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
+      if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+      // 挂载恢复的选中账号状态查询：带中断摘要（重启后内存记录为 null，只有 lastRun）。
+      if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    // 横幅出现（多账号文案），不再有 toast。
+    await waitFor(() => expect(screen.getByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull(), { timeout: 4000 })
+    // 账号列表为空：无选中账号 → 无「重新采集」；有「重新采集全部」与关闭。
+    expect(screen.queryByRole('button', { name: en['run.recollect'] })).toBeNull()
+    expect(screen.getByRole('button', { name: en['run.recollectAll'] })).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
+  })
+
+  it('I3(wx) 灵敏度：只有 collect.status 带摘要 → 横幅仍出现（批量恢复路不带摘要）', async () => {
+    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+      if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
+      if (action === 'accounts.list') return { status: 'ok', accounts: [] }
+      // 只有单账号恢复路带摘要：collectAll.status 无摘要（横幅只能来自 collect.status）。
+      if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
+      if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0 }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    await waitFor(() => expect(screen.getByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull(), { timeout: 4000 })
+    fireEvent.click(screen.getByRole('button', { name: en['run.dismissBanner'] }))
+    expect(screen.queryByText(t('run.interruptedBanner', { count: 2 }))).toBeNull()
+  })
+
   it('采集与账号不再是顶级 tab（旧四 tab 契约废除）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.queryByRole('tab', { name: 'Collect' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Accounts' })).toBeNull()
     // 词典里也不再提供旧 tab 键。
@@ -64,7 +128,7 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
 
   it('tab 键盘左右切换在两个 tab 间循环', async () => {
     const { fireEvent } = await import('@testing-library/react')
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const worksTab = screen.getByRole('tab', { name: en['tab.works'] })
     fireEvent.keyDown(worksTab, { key: 'ArrowRight' })
     await waitForTabSelected(en['tab.overview'])
@@ -75,12 +139,12 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
   })
 
   it('jsdom 无 Host：加载态可达（empty/error 由 Host 集成验证）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
   })
 
   it('jsdom 无 Host：挂载恢复查询失败按无运行中采集处理，不弹错误', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     // 恢复查询在无 Host 时失败：按无运行中采集处理，页面骨架保持可用。
     await new Promise(resolve => { setTimeout(resolve, 0) })
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()

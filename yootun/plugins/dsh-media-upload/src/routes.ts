@@ -10,6 +10,7 @@
  */
 import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { permitted } from '@yootun/dsh-workbench-host-kit'
 import { PICK_FILE_PATH, UPLOAD_START_PATH, UPLOAD_STATUS_PATH, MEDIA_PATH, PENDING_PATH, CANCEL_PATH, PICK_KINDS, KIND_EXTENSIONS, MEDIA_PREVIEW_MIME, ALLOWED_CONTENT_TYPES } from './constants.ts'
 import { MediaUploadError, toPublicCode, type MediaUploadErrorCode } from './errors.ts'
 import { extensionOf, normalizeMime } from './mime.ts'
@@ -86,23 +87,9 @@ function finishJson(res: ServerResponse, statusCode: number, value: object): voi
   res.end(JSON.stringify(value))
 }
 
-/** 路由信任判定（对齐官方浏览器信任边界 api-request-trust，wx/xhs 模板同款）：
- * loopback 远端是基础防线，负责把请求绑定到本机；显式 `sec-fetch-site:
- * cross-site` 一律拒绝；显式 Origin 必须精确等于 expectedOrigin（字面 `null`、
- * 异源都拒绝），Origin 缺失不单独视为攻击——Windows Desktop 的 Electron main
- * 进程 `forwardWebRequest` 转发请求时会剥掉 Origin 与 Sec-Fetch-Site 两枚头，
- * 双头缺失是 Desktop 转发的合法形态，来源边界由 loopback 承担。
- * @param req - Node HTTP 请求。
- * @param expectedOrigin - 本 webServer 绑定的精确 origin。
- * @returns 是否放行。 */
-export function permitted(req: IncomingMessage, expectedOrigin: string): boolean {
-  const address = req.socket.remoteAddress ?? ''
-  const loopback = address === '::1' || address.startsWith('127.') || address.startsWith('::ffff:127.')
-  if (!loopback) return false
-  if (req.headers['sec-fetch-site'] === 'cross-site') return false
-  const origin = req.headers.origin
-  return origin === undefined || origin === expectedOrigin
-}
+// 路由信任判定（kit 单一实现，wx/xhs 模板同款口径；media 预览的 no-cors 规则
+// 不在此内，见 mediaPermitted）。
+export { permitted } from '@yootun/dsh-workbench-host-kit'
 
 /**
  * media 预览独立校验：`<img>`/`<video>` 的媒体加载是 no-cors 请求，浏览器

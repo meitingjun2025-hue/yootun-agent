@@ -12,4 +12,5 @@ export { StateDot } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx
 export type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives/src/StateDot.tsx'
 export { Tag } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
 export type { TagTone } from '@deepseek-ai/dsh-client-ui-primitives/src/Tag.tsx'
+export { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives/src/Tooltip.tsx'
 export { observeComposition } from '@deepseek-ai/dsh-client-ui-primitives/src/keyboard-composition.ts'

@@ -21,6 +21,8 @@ export const zh = {
   'handoff.reason.file_too_large': '文件超过大小上限',
   'handoff.reason.extension_not_allowed': '文件类型不支持',
   'handoff.reason.upload_timeout': '上传超时，请重试',
+  'reason.uploader_not_configured': '密钥未激活或无权限，请到设置重新激活',
+  'reason.storage_auth_failed': '存储授权失败，请稍后重试',
   'handoff.reason.default': '请重新选择文件',
 } as const
 
@@ -43,6 +45,8 @@ export const en: Record<HandoffLocaleKey, string> = {
   'handoff.reason.file_too_large': 'File exceeds the size limit',
   'handoff.reason.extension_not_allowed': 'File type not supported',
   'handoff.reason.upload_timeout': 'Upload timed out, try again',
+  'reason.uploader_not_configured': 'The key is not activated or lacks access; activate it in Settings',
+  'reason.storage_auth_failed': 'Storage authorization failed; retry later',
   'handoff.reason.default': 'Choose the file again',
 }
 
