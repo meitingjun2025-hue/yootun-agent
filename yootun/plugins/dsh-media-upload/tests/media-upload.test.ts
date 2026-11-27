@@ -1825,3 +1825,42 @@ test('F5 validateAuthorizationResponse：授权地址与 publicUrl 命中过滤�
   assert.throws(() => MediaUpload.validateAuthorizationResponse({ ...valid, publicUrl: 'https://localhost/p.png' }, meta), /loopback\/private/u)
   assert.throws(() => MediaUpload.validateAuthorizationResponse({ ...valid, publicUrl: 'https://[64:ff9b::a00:1]/p.png' }, meta), /loopback\/private/u)
 })
+
+// --- 启动清扫接线守卫（生产装配在 applyStartupStagingCleanup；缺登记 = 遗留暂存目录永不清） ---
+
+test('启动暂存清扫接线：工厂启动即清扫；卸载按序等待 registry → staging → sweep', async () => {
+  const ctx = new Context()
+  const wb = fakeWorkbench({})
+  const state = MediaUpload.createUploaderState(() => ORIGIN, wb, { maxUploadBytes: 1024 * 1024 }, undefined)
+  let sweepInvoked = 0
+  let sweepSettled = false
+  let releaseSweep: (() => void) | undefined
+  const sweepGate = new Promise<void>(resolve => { releaseSweep = resolve })
+  const order: string[] = []
+  MediaUpload.applyStartupStagingCleanup(
+    ctx,
+    {
+      registry: { destroy: async () => { order.push('registry'); await state.registry.destroy() } },
+      staging: { destroy: async () => { order.push('staging'); await state.staging.destroy() } },
+    },
+    { warn: () => undefined },
+    async () => {
+      sweepInvoked += 1
+      await sweepGate
+      sweepSettled = true
+      return { removed: [] }
+    },
+  )
+  // 登记即清扫（启动时机，不等卸载）。
+  assert.equal(sweepInvoked, 1)
+  assert.equal(order.length, 0, '卸载前不 destroy')
+  // 触发卸载：registry → staging 先行，sweep 未 settle 前卸载不返回。
+  const disposing = ctx.fiber.dispose()
+  await new Promise(resolve => setTimeout(resolve, 20))
+  assert.deepEqual(order, ['registry', 'staging'])
+  assert.equal(sweepSettled, false, '清扫未结束，卸载等待中')
+  releaseSweep?.()
+  await disposing
+  assert.equal(sweepSettled, true)
+  assert.equal(sweepInvoked, 1, '清扫只发起一次')
+})

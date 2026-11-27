@@ -6,7 +6,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import { mkdtemp, open, rm, stat, unlink } from 'node:fs/promises'
+import { mkdtemp, open, readdir, rm, stat, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -214,7 +214,6 @@ function defaultProcessAlive(pid: number): boolean {
  * @returns removed / kept 计数。
  */
 export async function sweepStaleStagingDirs(options: SweepStaleStagingOptions = {}): Promise<SweepStaleStagingResult> {
-  const { readdir } = await import('node:fs/promises')
   const tmpDir = options.tmpDir ?? tmpdir()
   const now = options.now ?? Date.now
   const isAlive = options.isAlive ?? defaultProcessAlive

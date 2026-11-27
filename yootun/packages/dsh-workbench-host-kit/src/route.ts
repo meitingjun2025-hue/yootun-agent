@@ -178,7 +178,9 @@ export function createActionRoute<S extends string, C extends string, A extends 
     try {
       const body = await readJsonBody(req, { maxBytes: options.maxBodyBytes })
       const action = typeof body.action === 'string' ? body.action.trim().slice(0, 64) : ''
-      if (!(action in options.actionSchemas) || options.handlers[action] === undefined) {
+      // Object.hasOwn 而非 `in`：原型链上的键名（toString / constructor /
+      // __proto__）不得命中 allowlist，一律 unknown_action。
+      if (!Object.hasOwn(options.actionSchemas, action) || options.handlers[action] === undefined) {
         sendJson(res, 400, { status: 'error', reason: 'unknown_action' satisfies RouteRefusalReason })
         return
       }
