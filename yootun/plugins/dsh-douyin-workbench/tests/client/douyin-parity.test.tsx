@@ -45,9 +45,10 @@ import { validatePromotionForm } from '../../src/client/PromotionModal.tsx'
 import { progressTextOf } from '../../src/client/WorksPanel.tsx'
 import {
   SCHEDULE_PLATFORMS, buildServerSnapshot, comparePublishDate, compareRowId, readAccounts,
-  readBatchStatus, readOverview, readReportDetail, readReportList, readScheduleRows,
+  readBatchStatus, readOverview, readScheduleRows,
   toScheduleUiRow, type ScheduleUiRow,
 } from '../../src/client/schema.ts'
+import { readReportDetail, readReportList, zh as reportZh } from '@yootun/dsh-client-report'
 import { accountTrendRows, workTrendRows } from '../../src/client/charts.tsx'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 
@@ -323,7 +324,7 @@ describe('错误码词典全表（schedule 18 码 / report 17 码 / AI 9 码）'
 
   it('报表状态五态词典键齐全', () => {
     for (const key of ['report.status.succeeded', 'report.status.incomplete', 'report.status.failed', 'report.status.insufficient', 'report.status.running'] as const) {
-      expect(zh[key]).toBeDefined()
+      expect(reportZh[key]).toBeDefined()
     }
   })
 })
@@ -480,6 +481,19 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
     }
   })
 
+  it('client 源 import 报表共享包时，kit-styles 必须声明共享包样式表（样式随消费插件安装）', () => {
+    const importsReport = readdirSync(clientDir).some(name => {
+      if (!name.endsWith('.ts') && !name.endsWith('.tsx')) return false
+      if (name === 'kit-styles.ts') return false
+      return readFileSync(join(clientDir, name), 'utf8').includes('@yootun/dsh-client-report')
+    })
+    const declared = readFileSync(join(clientDir, 'kit-styles.ts'), 'utf8')
+      .match(/'@yootun\/dsh-client-report\/src\/report\.module\.css'/gu) ?? []
+    expect(importsReport, 'client 源应消费报表共享包').toBe(true)
+    expect(declared, '共享包样式表应恰好声明一次').toHaveLength(1)
+    expect(existsSync(join(packageDir, 'node_modules', '@yootun', 'dsh-client-report', 'src', 'report.module.css')), '共享包样式表存在').toBe(true)
+  })
+
   it('构建脚本容器名配置未被哈希化（tsdown.client.ts container: false）', () => {
     const presetSource = readFileSync(join(packageDir, '..', '..', '..', 'packages', 'client', 'tsdown.client.ts'), 'utf8')
     const sites = presetSource.match(/cssModules: \{ pattern: '\[hash\]_\[local\]', container: false \}/gu) ?? []
@@ -524,7 +538,7 @@ describe('词典完整性', () => {
     expect(zh.panel).toBe('抖音工作台')
     expect(zh['panel.subtitle']).toBe('扫码登录抖音创作者账号，采集并查看作品经营数据')
     expect(zh['tab.notReady']).toBe('本开发阶段未接入')
-    expect(zh['report.empty']).toContain('日报每天 11:00 / 周报周一 12:00')
+    expect(reportZh['report.empty']).toContain('日报每天 11:00 / 周报周一 12:00')
     expect(zh['ai.rerunBody']).toContain('可能产生模型调用费用')
     expect(zh['schedule.col.shootingStatusSub']).toBe('（需要补拍或配音在下方补充）')
     expect(zh['schedule.col.assetLinkSub']).toBe('（编导和账号主理人确认）')

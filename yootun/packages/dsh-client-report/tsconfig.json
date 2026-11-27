@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.base.client.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../packages/client/ui-primitives"
+    }
+  ]
+  // @yootun/dsh-client-ui-kit 不进 references：经 node_modules symlink 解析到
+  // 已构建的 lib/types（与两个插件 tsconfig 的 kit 口径一致，避免 TS2878）。
+}

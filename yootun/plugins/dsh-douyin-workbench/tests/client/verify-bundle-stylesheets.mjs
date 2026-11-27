@@ -23,6 +23,10 @@ check(
   metaText.includes('"node_modules/@yootun/dsh-client-ui-kit/src/page-shell.module.css":{text:'),
   'kit 页面壳样式表未进入 bundle 的 meta.stylesheets',
 )
+check(
+  metaText.includes('"node_modules/@yootun/dsh-client-report/src/report.module.css":{text:'),
+  '报表共享包样式表未进入 bundle 的 meta.stylesheets',
+)
 check(metaText.includes('"src/client/workbench.module.css":{text:'), '插件自身样式表未进入 meta.stylesheets')
 check(metaText.includes('container:yootun-kit-page/inline-size'), '页面壳容器名声明缺失或被哈希')
 
@@ -34,7 +38,7 @@ check(
 )
 check(!/@container [\w-]+_yootun-kit-page/u.test(metaText), '存在逐文件哈希的容器名残留')
 
-for (const mapName of ['page_shell_module_css_default', 'plugin_header_module_css_default', 'data_state_module_css_default']) {
+for (const mapName of ['page_shell_module_css_default', 'plugin_header_module_css_default', 'data_state_module_css_default', 'report_module_css_default']) {
   const mapMatch = bundle.match(new RegExp(`${mapName}\\s*=\\s*\\{([^}]*)\\}`))
   check(mapMatch !== null, `${mapName} 类名映射未内联`)
   if (mapMatch === null) continue

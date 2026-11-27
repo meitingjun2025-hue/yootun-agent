@@ -13,6 +13,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
+import { en as reportEn, zh as reportZh, type ReportLocaleKey } from '@yootun/dsh-client-report'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
@@ -34,6 +35,13 @@ afterEach(cleanup)
 
 const t = (key: DouyinLocaleKey, values?: Record<string, string | number>): string => {
   const text = en[key] ?? key
+  if (values === undefined) return text
+  return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
+}
+
+/** 报表词典直取的翻译函数（报表词条上移共享包后的测试底盘，与 t 同构）。 */
+const reportT = (key: ReportLocaleKey, values?: Record<string, string | number>): string => {
+  const text = reportEn[key]
   if (values === undefined) return text
   return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
 }
@@ -953,17 +961,17 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     const table = await screen.findByRole('table', { name: en['tab.report'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent).filter(text => text !== '')
     expect(headers).toEqual([
-      en['report.col.period'], en['report.col.status'], en['report.col.version'],
-      en['report.col.coverage'], en['report.col.generatedAt'], en['report.col.note'],
+      reportEn['report.col.period'], reportEn['report.col.status'], reportEn['report.col.version'],
+      reportEn['report.col.coverage'], reportEn['report.col.generatedAt'], reportEn['report.col.note'],
     ])
     // 状态五态（已生成 / 数据不全 / 生成失败 / 数据不足 / 生成中）。
     for (const key of ['report.status.succeeded', 'report.status.incomplete', 'report.status.failed', 'report.status.insufficient', 'report.status.running'] as const) {
-      expect(screen.getAllByText(en[key]).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(reportEn[key]).length).toBeGreaterThan(0)
     }
     // 无 nextCursor 时不渲染加载更多。
-    expect(screen.queryByRole('button', { name: en['report.loadMore'] })).toBeNull()
+    expect(screen.queryByRole('button', { name: reportEn['report.loadMore'] })).toBeNull()
     // 每行查看按钮为次操作。
-    expect(screen.getAllByRole('button', { name: en['report.view'] })[0]?.className).toMatch(/ghost/u)
+    expect(screen.getAllByRole('button', { name: reportEn['report.view'] })[0]?.className).toMatch(/ghost/u)
   })
 
   it('详情：工具栏 + 报表头口径 + KPI 涨红跌绿 + 账号表 —* + 重新生成确认文案', async () => {
@@ -1003,24 +1011,24 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     })
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    expect(await screen.findByRole('button', { name: en['report.back'] })).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['report.regenerate'] })).not.toBeNull()
-    expect(screen.getByRole('button', { name: en['report.exportHtml'] }).className).toMatch(/ghost/u)
+    fireEvent.click(await screen.findByRole('button', { name: reportEn['report.view'] }))
+    expect(await screen.findByRole('button', { name: reportEn['report.back'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: reportEn['report.regenerate'] })).not.toBeNull()
+    expect(screen.getByRole('button', { name: reportEn['report.exportHtml'] }).className).toMatch(/ghost/u)
     // PDF 导出按钮不存在（桌面桥从未实现）。
     expect(screen.queryByRole('button', { name: 'Export PDF' })).toBeNull()
-    expect(screen.getByText(en['report.header.interaction'])).not.toBeNull()
+    expect(screen.getByText(reportEn['report.header.interaction'])).not.toBeNull()
     // KPI 环比：上涨 ▲ / 下跌 ▼ / 无基准 flat。
     expect(screen.getByText(/▲8\.5%/u)).not.toBeNull()
     expect(screen.getByText(/▼2\.5%/u)).not.toBeNull()
-    expect(screen.getByText(new RegExp(`${en['report.change.daily']} ${en['report.change.noBase']}`, 'u'))).not.toBeNull()
+    expect(screen.getByText(new RegExp(`${reportEn['report.change.daily']} ${reportEn['report.change.noBase']}`, 'u'))).not.toBeNull()
     // 缺采账号 —* 口径 + QualityBar 缺采清单。
     expect(screen.getByText(/—\*/u)).not.toBeNull()
-    expect(screen.getByText(new RegExp(en['report.quality.missing'].replace('{list}', '.*'), 'u'))).not.toBeNull()
+    expect(screen.getByText(new RegExp(reportEn['report.quality.missing'].replace('{list}', '.*'), 'u'))).not.toBeNull()
     // 重新生成二次确认文案（v{next}）。
-    fireEvent.click(screen.getByRole('button', { name: en['report.regenerate'] }))
-    expect((await screen.findAllByText(t('report.regenerateBody', { version: 3 }))).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: en['report.regenerateConfirm'] }).className).toMatch(/primary/u)
+    fireEvent.click(screen.getByRole('button', { name: reportEn['report.regenerate'] }))
+    expect((await screen.findAllByText(reportT('report.regenerateBody', { version: 3 }))).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: reportEn['report.regenerateConfirm'] }).className).toMatch(/primary/u)
   })
 
   it('日报区段：口径标签/小标题区段/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
@@ -1054,10 +1062,10 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     })
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
-    fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
-    await screen.findByRole('button', { name: en['report.back'] })
+    fireEvent.click(await screen.findByRole('button', { name: reportEn['report.view'] }))
+    await screen.findByRole('button', { name: reportEn['report.back'] })
     // 口径标签为 dl 的 dt（高亮标签）；三张区段卡（趋势/账号/作品）包区段容器（小标题竖杠加粗）。
-    expect(screen.getByText(en['report.header.base']).tagName).toBe('DT')
+    expect(screen.getByText(reportEn['report.header.base']).tagName).toBe('DT')
     expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(3)
     // 账号名加粗类 + 「N 天未发布」提示胶囊。
     expect(screen.getByText('账号一').className).toMatch(/reportAccountName/u)
@@ -1065,12 +1073,12 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     // 较昨日对比行挂 kpiChange（12px 加粗）。
     expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
     // 趋势图：悬浮列 → 深色单行气泡只显示「净粉丝: 值」（旧 chart-tip 同构）。
-    expect(screen.queryByText(`${en['report.trend.lineTip']}: +5`)).toBeNull()
+    expect(screen.queryByText(`${reportEn['report.trend.lineTip']}: +5`)).toBeNull()
     fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
-    expect(await screen.findByText(`${en['report.trend.lineTip']}: +5`)).not.toBeNull()
+    expect(await screen.findByText(`${reportEn['report.trend.lineTip']}: +5`)).not.toBeNull()
     // 气泡不含柱系列说明与日期标题（避免与图下说明重复）。
-    expect(screen.queryByText(en['report.trend.barDaily'])).toBeNull()
-    expect(screen.queryByText(en['report.trend.lineNote'])).toBeNull()
+    expect(screen.queryByText(reportEn['report.trend.barDaily'])).toBeNull()
+    expect(screen.queryByText(reportEn['report.trend.lineNote'])).toBeNull()
   })
 })
 
@@ -1965,6 +1973,8 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
 describe('词典与源码红线', () => {
   const clientDir = join(process.cwd(), 'src', 'client')
+  // 报表页源文件已上移共享包 @yootun/dsh-client-report（src/ 平面直读）。
+  const reportSrcDir = join(process.cwd(), '..', '..', 'packages', 'dsh-client-report', 'src')
 
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
@@ -2024,9 +2034,17 @@ describe('词典与源码红线', () => {
   })
 
   it('关键页面逐文件通过红线扫描（OverviewPage / WorkDetailModal / charts / ReportPage）', () => {
-    for (const name of ['OverviewPage.tsx', 'WorkDetailModal.tsx', 'charts.tsx', 'ReportPage.tsx']) {
+    for (const name of ['OverviewPage.tsx', 'WorkDetailModal.tsx', 'charts.tsx']) {
       expect(existsSync(join(clientDir, name)), `${name} 应存在`).toBe(true)
       const source = stripSourceComments(readFileSync(join(clientDir, name), 'utf8'))
+      expect(source, `${name} inline style`).not.toContain('style="')
+      expect(source, `${name} 字面色值`).not.toMatch(COLOR_LITERAL_RE)
+      expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
+    }
+    // 报表页上移共享包后，红线扫描目标路径随迁移指向共享包报表源文件。
+    for (const name of ['report-page.tsx', 'report-detail.tsx', 'report-chart.tsx', 'report-export.ts']) {
+      expect(existsSync(join(reportSrcDir, name)), `${name} 应存在`).toBe(true)
+      const source = stripSourceComments(readFileSync(join(reportSrcDir, name), 'utf8'))
       expect(source, `${name} inline style`).not.toContain('style="')
       expect(source, `${name} 字面色值`).not.toMatch(COLOR_LITERAL_RE)
       expect(source, `${name} dangerouslySetInnerHTML`).not.toMatch(/dangerouslySetInnerHTML/u)
@@ -2034,7 +2052,8 @@ describe('词典与源码红线', () => {
   })
 
   it('ReportPage 导出 HTML 的自包含 token 内联（专门例外）：运行时经 resolveToken/getComputedStyle 解析，源码零字面色值', () => {
-    const source = readFileSync(join(clientDir, 'ReportPage.tsx'), 'utf8')
+    // 导出序列化随页面上移共享包（report-export.ts），目标路径随迁移。
+    const source = readFileSync(join(reportSrcDir, 'report-export.ts'), 'utf8')
     // 导出的自包含 HTML 颜色在运行时由 token 解析内联（getComputedStyle），
     // 源码层不出现任何字面色值——这是与全局红线并存的受控例外，由本测试锁定。
     expect(source).toMatch(/resolveToken/u)

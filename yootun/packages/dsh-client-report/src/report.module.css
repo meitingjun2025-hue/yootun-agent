@@ -1,0 +1,647 @@
+/*
+ * 报表业务页样式（上移自抖音工作台 workbench.module.css 的报表页类，规则原文
+ * 照搬、类名保持原名）：25 个报表专属类 + 21 个与插件其他页面共用的类 + 组合
+ * 趋势图 11 个类。响应式经 `@container yootun-kit-page`（kit PluginPageShell
+ * 建立的容器名，由消费插件与 kit 两侧共享）；容器名不逐文件哈希由 client 构
+ * 建 preset 的 `cssModules.container: false` 保证。本样式表必须随消费插件进
+ * bundle 的样式安装元数据（插件在 kit-styles.ts 声明 import），否则静默失效。
+ * 颜色全部映射官方 `--dsw-*` token 或集中 `--yt-*` 语义变量；无 `!important`、
+ * 无字面色值、无全局选择器。
+ */
+
+.pageBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.workToolbarRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workTable,
+.dataTable,
+.scheduleTable {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.workTable th,
+.workTable td,
+.dataTable th,
+.dataTable td,
+.scheduleTable th,
+.scheduleTable td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  text-align: start;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* 全站表头统一加粗（真机反馈：各 Tab 表格标题需更醒目）。 */
+.workTable th,
+.dataTable th,
+.scheduleTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-weight: 500;
+}
+
+.workTable td,
+.dataTable td,
+.scheduleTable td {
+  color: var(--dsw-alias-label-primary);
+}
+
+/* 行末操作列（查看详情/查看分析）：宽度固定，按钮不随列内容挤压。 */
+.workTable .colAction,
+.dataTable .colAction {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  text-align: end;
+}
+
+.workTable tbody tr:focus-visible,
+.dataTable tbody tr:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .dataTable tbody tr:hover {
+    background: var(--dsw-alias-bg-multi-select);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dataTable tbody tr {
+    transition: none;
+  }
+}
+
+/* 吸粉量/净增着色：红涨绿跌 token（0/缺失中性） */
+
+.deltaUp {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.deltaDown {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+/* KPI 行 / 指标卡 */
+
+.kpiRow {
+  display: grid;
+  /* auto-fit：行内瓦片数不限 6，均分撑满整行（旧插件 KPI 行铺满口径） */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.kpiTile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-layer-1);
+  min-width: 0;
+}
+
+.kpiValue {
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.metricLabel {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.metricFootnote {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* 提示行 / 空态 / 单元格 */
+
+.inlineHint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+}
+
+.emptyState p {
+  margin: 0;
+}
+
+.cellMain {
+  font-weight: 500;
+}
+
+.tableWrap {
+  overflow: auto;
+  max-height: 62vh;
+  min-width: 0;
+  border-radius: var(--dsw-radius-md);
+}
+
+.tableWrap:focus-visible {
+  outline: 2px solid var(--dsw-alias-border-selected);
+  outline-offset: 1px;
+}
+
+.cellNum {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.cellNote {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* 运营提醒 */
+
+.alertList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alertItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.alertItem[data-tone='gap'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.alertItem[data-tone='business'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* 折线 / 柱线组合 marks */
+
+.plotLayer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.axisSvg,
+.comboSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.axisText {
+  fill: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plotGrid {
+  /* 网格线再淡一档（真机反馈：横向网格线过重抢戏）；仍走 token 混合，浅深主题自适应。 */
+  stroke: color-mix(in srgb, var(--yt-chart-grid) 45%, transparent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.plotCrosshair {
+  position: absolute;
+  top: 0;
+  width: 0;
+  border-left: 1px dashed var(--dsw-alias-label-tertiary);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.comboBar {
+  fill: var(--yt-chart-2);
+  opacity: 0.45;
+}
+
+.comboBarLast {
+  fill: var(--yt-chart-1);
+  opacity: 1;
+}
+
+.comboLine {
+  stroke: var(--yt-chart-4);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  fill: none;
+}
+
+.comboDot {
+  fill: var(--yt-chart-4);
+}
+
+/* 组合图悬浮气泡（旧插件 chart-tip 同构）：深色单行，跟随悬停列，不遮挡指针。 */
+.comboTip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 6px 10px;
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 组合图每期命中列：整期列宽可悬浮/聚焦（弹数值浮层），透明无焦点框。 */
+.comboColumn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: default;
+}
+
+.comboColumn:focus,
+.comboColumn:focus-visible {
+  outline: none;
+}
+
+.formError {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.aiDetails {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.aiDetails summary {
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  user-select: none;
+}
+
+.loadMore {
+  align-self: center;
+}
+
+/* AI 报表 */
+
+.reportBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠承载强调。
+   DataCard 标题为 kit 模块类，按结构选择器在报表区段内覆盖。 */
+.reportSection h2 {
+  padding-left: 10px;
+  border-left: 3px solid var(--dsw-static-blue-500);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: normal;
+}
+
+/* KPI 卡「较昨日/较上周」对比行：12px（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
+.kpiTile .kpiChange {
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+
+/* 账号明细：账号名加粗（旧 ydo-report-cell-main 同构）。 */
+.reportAccountName {
+  font-weight: 500;
+}
+
+/* 「N 天未发布」等提示胶囊（旧 ydo-report-mark 同构）：橙色实底白字，浅深主题一致。 */
+.reportMark {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--dsw-static-amber-600);
+  color: var(--dsw-static-neutral-00);
+  font-size: 12px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.metaList {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.metaRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  min-width: 0;
+}
+
+.metaRow dt {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: var(--dsw-radius-xs);
+  /* 口径标签高亮（旧 ydo-report-meta-k 同构）：品牌蓝淡底 + 蓝字加粗。 */
+  background: color-mix(in srgb, var(--dsw-static-blue-500) 14%, transparent);
+  color: var(--dsw-static-blue-500);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.metaRow dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  overflow-wrap: anywhere;
+}
+
+.qualityBar {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.qualityMissing {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.reportInsufficient {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 16px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: var(--dsw-radius-xl);
+  text-align: center;
+}
+
+.reportInsufficient p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.signalList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.reportWaiting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.workCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.workCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-bg-layer-1);
+  min-width: 0;
+}
+
+.workCardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workCardTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.workCardAccount {
+  flex: none;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.workCardMetrics {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.workCardMetrics dt {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.workCardMetrics dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}
+
+.workCardSecondary {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.progressTrack {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  overflow: hidden;
+}
+
+.progressFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dsw-alias-border-selected);
+}
+
+.insightGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  min-width: 0;
+}
+
+.insightCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--dsw-radius-xl);
+}
+
+.insightCol[data-tone='fact'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
+}
+
+.insightCol[data-tone='infer'] {
+  background: color-mix(in srgb, var(--dsw-alias-border-selected) 10%, transparent);
+}
+
+.insightCol[data-tone='advice'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+}
+
+.insightCol h4 {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.insightList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insightList li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.insightMoreItem {
+  padding: 8px 10px;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.insightMoreItem p {
+  margin: 2px 0 0;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+/* 响应式（容器三档中报表页涉及的规则；kpiRow 与 workToolbarRow 同类规则也在
+   消费插件的样式表内，两处作用域互不重叠——本表只服务报表页模块的类名哈希）。 */
+
+@container yootun-kit-page (max-width: 1119px) {
+  .kpiRow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .insightGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .kpiRow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workToolbarRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
