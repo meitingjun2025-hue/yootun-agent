@@ -31,7 +31,7 @@ P0 八张已合入 `main`（2026-11-26），P1 八张已合入 `main`（2026-11-
 | P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 开发完成（2026-11-27，`feat/douyin-report-remove-pdf`，自动验收通过待合入） |
 | P2 | [report-kernel-extraction.md](features/report-kernel-extraction.md) | 抖音 AI 报表的服务端机制（周期、状态机与租约、投递与对账、定时补建、重建与版本、模型调用与重试、输出校验、提示词加载）抽成平台无关内核，抖音改为「平台适配 + 调用内核」；对外行为逐字节不变 | 已合入 `dev`（2026-11-26） |
 | P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 已合入 `dev`（2026-11-26；部署仓已合入 `master`，测试环境待部署） |
-| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report` 并在包内按 UI 规范整改界面，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 实施中（2026-11-27 进入开发；第 1、2 步已验收并本地提交，待做视频号接入） |
+| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report` 并在包内按 UI 规范整改界面，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 开发完成（2026-11-27，`feat/wx-report-client` 三步验收通过并本地提交，待合入） |
 
 ## 推进顺序
 

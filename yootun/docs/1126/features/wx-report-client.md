@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表工作台与智能体工具 实施单
 
-状态：实施中（第 1、2 步已验收并本地提交，2026-11-27） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（三步均已验收并本地提交，2026-11-27），待合入 ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -285,7 +285,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | docker-helm 部署测试环境 | — | — | 部署仓已合入 `master`，测试环境待部署；客户端先发只是报表 Tab 显示暂不可用，旧功能不受影响 |
 | 第 1 步：纯上移，抖音改为消费 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；分支从 `main` 切出并并入 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 与 [douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md) 两条分支作为基线；核对记录见 5.3 |
 | 第 2 步：界面整改 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；主控验收修正四处后提交，核对记录见 5.3 |
-| 第 3 步：视频号接入 | | `feat/wx-report-client` | 前置：第 2 步的阶段验收通过；验收通过后本地提交 |
+| 第 3 步：视频号接入 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；三仓联调 8 项通过（真实报表读取与重新生成）；核对记录见 5.3 |
 | yootun-agent 合入 `main` | | | 三步都通过后一次合入；待填 |
 | 发版 | | | 待填 |
 
@@ -293,14 +293,14 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
-- [ ] 开发当日重读 5.3 表里列出的文件，与本文的差异已记入 5.3；
+- [x] 开发当日重读 5.3 表里列出的文件，与本文的差异已记入 5.3；
 - [x] `pnpm --filter @yootun/dsh-client-report test`、`build` 通过；
-- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build`；`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
-- [ ] `pnpm --filter @yootun/dsh-managed-mcp test`、`build` 通过；
-- [ ] 仓库级：`pnpm run lint`、`pnpm run typecheck`、`pnpm run verify-client-ui-i18n`、`pnpm run verify-export-jsdoc`；
-- [ ] 两个插件的产物校验通过，且 `lib/client.js` 的样式安装元数据里出现共享包的样式表，冻结类名在安装文本中都有规则；
-- [ ] 视频号错误码穷尽检查生效：临时从映射表删掉一个 `REPORT_*` 键应导致 `build` 失败，验证后恢复，记入 5.3；
-- [ ] 附录 B 的用例全部存在并通过。
+- [x] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build`；`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
+- [x] `pnpm --filter @yootun/dsh-managed-mcp test`、`build` 通过；
+- [x] 仓库级：`pnpm run lint`、`pnpm run typecheck`、`pnpm run verify-client-ui-i18n`、`pnpm run verify-export-jsdoc`；
+- [x] 两个插件的产物校验通过，且 `lib/client.js` 的样式安装元数据里出现共享包的样式表，冻结类名在安装文本中都有规则；
+- [x] 视频号错误码穷尽检查生效：临时从映射表删掉一个 `REPORT_*` 键应导致 `build` 失败，验证后恢复，记入 5.3；
+- [x] 附录 B 的用例全部存在并通过。
 
 三步串行，共用一条特性分支；每一步做完先过自己的阶段验收，通过后做一次本地提交，再进入下一步。每一步的阶段验收条件：
 
@@ -373,7 +373,39 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 
 第 2 步的已知遗留：日报与周报切换控件的元素 id 仍是 `douyin-report-type`，第 3 步处理；浮层靠边翻转的真实落位由 kit 的 `placeTooltip` 决定，共享包用例只锁定翻转标记的存在。
 
-其余联调记录待填：第 3 步的联调与目检结果，视频号错误码穷尽检查的验证记录，视频号插件的样式安装元数据核对结果，合入前的仓库级 `typecheck`。
+2026-11-27 第 3 步「视频号接入」提交前核对：
+
+| 核对项 | 方法 | 结果 |
+|---|---|---|
+| 词典 | 视频号词典第 2 步定稿版对工作区逐条比较键与值 | 改写 0、删除 0；新增 24 条：6 条页面词条加 18 条 `report.error.*`（后 18 条与共享包 `REPORT_REASONS_ZH/EN` 逐字一致） |
+| 共享包 | 读 `dsh-client-report` 的 diff | 仅日报周报切换控件的 id 由 `douyin-report-type` 改为 `yootun-report-type`，接口、词典与组件实现零改动；全仓 grep 该旧串无残留，抖音测试无牵连 |
+| 路由 | 读 `route.ts` 的 diff，对照 2.5 | 三项能力（必填、`date`、幂等键模板）与三个 schema 逐字段一致；空串字段剔除是旧版既有行为，本步只是变量重组，既有 action 的校验行为不变（H3 用例锁定） |
+| Agent 面 | 读 `guard.ts` 与测试 diff | 只读工具表视频号段加两个工具；三张策略表无任何 `*_report_regenerate` |
+| 自动验收 | 视频号、managed-mcp、共享包、抖音的 `test`、`build`；仓库级 `lint`、`typecheck`、`verify-client-ui-i18n`、`verify-export-jsdoc`；`git diff --check` | 全部通过：视频号 vitest 115 条（基线 110 加 5）、managed-mcp 21 条、共享包 41 条、抖音 Host 侧 227 条、vitest 175 条；typecheck 5 项门全过 |
+| 产物 | `verify-bundle-stylesheets` 与产物文本 | 视频号 `lib/client.js` 的样式安装元数据含共享包样式表，冻结类名在安装文本中都有规则；`@container yootun-kit-page` 容器名未被哈希 |
+
+抖音 vitest 用例数说明：合并远程 `main` 的测试加固带入 3 条用例，第 3 步未改抖音测试文件（diff 为零），175 条是合并后的正确基线。
+
+三仓联调（环境与真实数据由主控提供：本地库迁移到 `20261126_0092`、FastAPI `http://127.0.0.1:8000`（`/mcp` 聚合网关）、视频号专属 worker 监听 `tools.wx_channels_operation`、库内已有一条真实 `succeeded` 报表）：
+
+| 项 | 结果 |
+|---|---|
+| `report.get` 缺 `reportId` | 路由 400 `WX_ROUTE_INVALID_REQUEST` |
+| `report.list` | 拿到真实报表行 |
+| `report.get` | 真实 AI 结论（summary、facts、recommendations） |
+| `report.regenerate` | 派发成功；联调期间 v2 至 v6 五次均由视频号专属 worker 真实生成至 `succeeded`，v6 为当前版本 |
+| 幂等键前缀错误 | 路由拒绝 `INVALID_IDEMPOTENCY_KEY` |
+| 既有 action | 合并远程后全量回归通过 |
+
+联调发现并修复一个真实对接缺口：视频号既有透传 `compat` 把工具出参顶层展开，而共享包读取器读 `payload.data.*`（抖音 passthrough 是 data 包裹），不修则报表页永远空列表；测试 mock 形状对齐共享包所以单测未暴露。已把三个报表 action 改走 `runReport`（data 包裹，与抖音同构），未改共享包接口。这是 2.5「经现有的透传调用链」与第 1 步定稿读取器的对接缺口，按实际形状落地。
+
+错误码穷尽变异验证：临时从 `REASON_KEYS` 删除 `REPORT_TIMEOUT`，`build` 因 `TS2741` 失败；恢复后通过。
+
+执行失误披露（开发自报并已修复复验）：中途一条命令误带 `git checkout` 把 `wx-page.test.tsx` 回滚到 HEAD，本步改动全量重放后复跑通过；`report.extra.maxLost` 词条初版含多余字面 `%`，已修正。
+
+第 3 步的已知遗留：浏览器目检待真机验收（5.2 的 C1 至 C9）；库内视频号报表的 works 全为空（11-25 周期无发布作品），作品卡扩展区的真实数据目检待真机 C3 用一条含作品行的报表补做，开发侧由 W4 用服务端真实形状的 fixture 覆盖。
+
+真机验收前本地环境复用方式：`tools.dofe.ai` 仓 `uv run alembic upgrade head` 后 `uv run app`（FastAPI，8000）与 `uv run celery -A tools_dofe.tasks.celery_app.celery_app worker -Q tools.wx_channels_operation -n wx-channels-operation@local`；本次联调的进程与日志（`/tmp/tools-app.log`、`/tmp/tools-wx-worker.log`）仍在。
 
 ## 附录 A：逐文件要点
 
