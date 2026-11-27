@@ -222,3 +222,5 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 | 共享核心的位置 | 新包 `@yootun/dsh-client-workbench-machines` | 放进 `@yootun/dsh-client-ui-kit`（UI 库混入数据流） |
 | 落地方式 | 先各插件内落 machine，再上移共享核心 | 一步到位建包 |
 | 小红书 | 不动 | 同步迁到共享 machine |
+
+**补测两条（2026-11-27，全量审查复验后的变异存活项，纯测试）**：① 三插件 `apply()` 把座位经 slot `inject` 交给页面这一跳补接线用例——假 ctx 真调 `apply()`，断言 `main` 槽注入物的 `locale.getSnapshot()` 与 `ctx.locale` 快照同引用、face 发布即通知、`t` 经 bind 读词典；红绿自证：删 `injected()` 的 `locale,` → 红，工厂改喂假 face → 红，恢复绿（douyin/wx/xhs 各两条变异）。② collect-machine 新增 C6：恢复双路与 `start` 指向同账号只起一张表（FakeClock 计数）、不同账号各持表、`stopPolling()` / `stop()` 全清；红绿自证：删 `beginPolling` 的 `pollers.has` 幂等守卫 → C6 红，恢复绿。类型处理：douyin 包级锁禁 `as never`，三插件统一用 `apply as (ctx: Partial<Record<keyof Parameters<typeof apply>[0], unknown>>) => void` 重映射入参，不触红线。

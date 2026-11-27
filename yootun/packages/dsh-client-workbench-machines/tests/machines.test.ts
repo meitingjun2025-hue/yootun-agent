@@ -341,6 +341,52 @@ test('C3b onLost 收到适配层 recovery 投影（G-2 分流依据）', async (
   machine.stop()
 })
 
+test('C6 beginPolling 同账号幂等：恢复双路与页面发起不起双表；stopPolling 全清', async () => {
+  const clock = new FakeClock()
+  let a1StatusCalls = 0
+  const { ports } = collectPorts(clock, {
+    status: async (accountId: string): Promise<{ collect: TestCollectView | null }> => {
+      if (accountId === 'a1') {
+        a1StatusCalls += 1
+        return { collect: { accountId: 'a1', status: 'running' } }
+      }
+      return { collect: null }
+    },
+  })
+  const machine = createCollectMachine(ports)
+  // (a) 挂载恢复双路指向同一条运行中记录：restore 内两路各调一次 beginPolling('a1')。
+  machine.restore({
+    running: { collect: { accountId: 'a1', status: 'running' }, runningAccountIds: ['a1'] },
+    selected: { collect: { accountId: 'a1', status: 'running' } },
+    accountId: 'a1',
+  })
+  assert.equal(clock.timers.size, 1, '同账号双路恢复只起一张表')
+  await flush()
+  const before = a1StatusCalls
+  clock.tick()
+  await flush()
+  assert.equal(a1StatusCalls, before + 1, '推进一拍只发一次 collect.status')
+  // (b) 页面发起同账号：成功后的 beginPolling('a1') 幂等。
+  await machine.start('a1')
+  assert.equal(clock.timers.size, 1, 'start 复用既有轮询，不重复起表')
+  assert.equal(machine.isPolling('a1'), true)
+  // (c) 第二账号另起一张表；stopPolling 全清。
+  machine.beginPolling('a2')
+  assert.equal(clock.timers.size, 2, '不同账号各持一张表')
+  machine.stopPolling()
+  assert.equal(clock.timers.size, 0, 'stopPolling 清全部表')
+  assert.equal(machine.isPolling('a1'), false)
+  assert.equal(machine.isPolling('a2'), false)
+  // (d) 另起一台 machine：stop() 后 timers 全清。
+  const clock2 = new FakeClock()
+  const machine2 = createCollectMachine(collectPorts(clock2, {}).ports)
+  machine2.beginPolling('a1')
+  machine2.beginPolling('a2')
+  assert.equal(clock2.timers.size, 2)
+  machine2.stop()
+  assert.equal(clock2.timers.size, 0, 'machine.stop() 清全部表')
+})
+
 // --- 批量 B1/B2 ---
 
 interface TestBatchView { status: string | null }
