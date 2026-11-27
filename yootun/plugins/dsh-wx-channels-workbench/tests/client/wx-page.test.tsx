@@ -84,8 +84,8 @@ describe('词典键集', () => {
   })
 })
 
-describe('顶级导航（布局契约：作品数据 / 账号总览 / AI 报表三个 tab）', () => {
-  it('tab 数量为 3，顺序为作品数据 → 账号总览 → AI 报表，默认选中作品数据', () => {
+describe('顶级导航（布局契约：作品数据 / 账号总览 / 报表三个 tab）', () => {
+  it('tab 数量为 3，顺序为作品数据 → 账号总览 → 报表，默认选中作品数据', () => {
     const { container } = render(<WorkbenchPage t={t} locale={locale} />)
     const tabs = screen.getAllByRole('tab')
     expect(tabs.length).toBe(3)
@@ -96,11 +96,14 @@ describe('顶级导航（布局契约：作品数据 / 账号总览 / AI 报表�
     void container
   })
 
-  it('W1 第三个 Tab「AI 报表」存在（id wx-tab-report）且默认不选中；切换后渲染共享包报表页', async () => {
+  it('W1 第三个 Tab「报表」存在（id wx-tab-report；文案与抖音顶级导航的「报表」一致）且默认不选中；切换后渲染共享包报表页', async () => {
     render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.getAllByRole('tab')).toHaveLength(3)
     const reportTab = screen.getByRole('tab', { name: en['tab.report'] })
     expect(reportTab.getAttribute('id')).toBe('wx-tab-report')
+    // Tab 文案与抖音顶级导航的「报表」一致（2026-11-27 真机验收调整）。
+    expect(zh['tab.report']).toBe('报表')
+    expect(en['tab.report']).toBe('Reports')
     expect(reportTab.getAttribute('aria-selected')).toBe('false')
     // 默认选中不变，仍为「作品数据」。
     expect(screen.getByRole('tab', { name: en['tab.works'] }).getAttribute('aria-selected')).toBe('true')

@@ -4,7 +4,11 @@
    @media (hover: hover)；危险语义 = dangerButton 类映射 error token；行状态
    底色 token 优先于斑马纹；已发布/已投流行 error-token 淡底。 */
 
+/* 顶级导航不横向铺满：官方 SegmentedTabs 按项数等分，容器宽度即每项宽度；视频号与
+   小红书用固定 max-width 限宽，抖音顶级 4 项且英文有长标签，改为按内容收敛，中英文
+   都不截断。 */
 .tabsRow {
+  width: fit-content;
   padding-top: 12px;
 }
 
@@ -499,12 +503,12 @@
   color: var(--dsw-alias-state-success-primary);
 }
 
-/* 作品 KPI 行（固定 4 卡；断点同视频号 summaryGrid）。行高取最小值而不是固定值：
-   脚注换行时行高不变，列表区域高度不随数据变化；更长的内容仍可撑开。 */
+/* 作品 KPI 行（固定 4 卡；断点同视频号 summaryGrid）。行高随 kit KpiCard 的内容，同一
+   行卡片等高；不设最小行高：卡片换成 kit KpiCard 后内容不足该值，多出的部分成为卡片
+   下方的空白（2026-11-27 真机验收去掉）。 */
 .summaryGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-auto-rows: minmax(120px, auto);
   gap: 10px;
   min-width: 0;
 }

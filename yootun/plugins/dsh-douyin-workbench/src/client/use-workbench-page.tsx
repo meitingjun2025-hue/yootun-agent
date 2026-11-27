@@ -115,7 +115,7 @@ export function useDouyinWorkbenchPage(props: WorkbenchPageProps) {
   const selectTab = (value: TabValue): void => { dispatch({ type: 'selectTab', value }) }
   /** 点顶级组：组内重选回默认页，切回恢复该组上一次页面（T3/N3）。 */
   const selectGroup = (group: TabGroup): void => { dispatch({ type: 'selectGroup', group }) }
-  /** 总览页进入单账号分析（侧栏账号卡与总览账号表「查看分析」共用）：同步选中。 */
+  /** 总览页账号表的「查看分析」进入单账号分析：同步选中。 */
   const openAccountAnalysis = (accountId: string): void => {
     dispatch({ type: 'selectAccount', accountId })
     dispatch({ type: 'analysis', accountId })

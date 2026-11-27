@@ -197,7 +197,7 @@ describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () =
     expect(screen.getByRole('tab', { name: en['tab.overview'] }).getAttribute('aria-selected')).toBe('true')
   })
 
-  it('N5 账号总览页渲染账号管理栏；点账号卡进入单账号分析；分析内不渲染', async () => {
+  it('N5 账号总览页全宽不渲染账号管理栏；点账号行的「查看分析」进入单账号分析；账号作品页才渲染', async () => {
     apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
@@ -210,14 +210,21 @@ describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () =
     })
     render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
-    // 数据组两个页面共用账号管理栏。
-    const sidebar = await screen.findByRole('complementary', { name: en['account.title'] })
-    expect(sidebar).not.toBeNull()
-    // 点账号卡 = 选中并进入该账号的单账号分析。
-    fireEvent.click(within(sidebar).getByText('账号一'))
+    // 账号管理栏只属于「账号作品」页：总览页全宽（2026-11-27 真机验收调整）。
+    // 账号表现排行表每行有一个「查看分析」，取首行账号的。
+    const analyze = (await screen.findAllByRole('button', { name: en['action.viewAnalysis'] }))[0]
+    expect(screen.queryByRole('complementary', { name: en['account.title'] })).toBeNull()
+    // 点账号行的「查看分析」= 进入该账号的单账号分析。
+    fireEvent.click(analyze)
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
     // 分析页不渲染账号管理栏。
     expect(screen.queryByRole('complementary', { name: en['account.title'] })).toBeNull()
+    // 返回后总览仍全宽；切到「账号作品」才出现账号管理栏。
+    fireEvent.click(screen.getByRole('button', { name: en['analysis.back'] }))
+    await screen.findAllByRole('button', { name: en['action.viewAnalysis'] })
+    expect(screen.queryByRole('complementary', { name: en['account.title'] })).toBeNull()
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
+    expect(await screen.findByRole('complementary', { name: en['account.title'] })).not.toBeNull()
   })
 
   it('N6 二级控件 tab 与页面容器 aria-labelledby 互相指向', async () => {
@@ -1100,6 +1107,19 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     // 浮层不含柱系列口径说明（口径说明在图例与脚注）。
     expect(screen.queryByText(reportEn['report.trend.barDaily'])).toBeNull()
     expect(screen.queryByText(reportEn['report.trend.lineNote'])).toBeNull()
+  })
+})
+
+describe('布局契约（14 册 §3 / §5；2026-11-27 真机验收调整）', () => {
+  const cssText = readFileSync(join(process.cwd(), 'src', 'client', 'workbench.module.css'), 'utf8')
+
+  it('顶级导航按内容收敛，不横向铺满', () => {
+    // 官方 SegmentedTabs 按项数等分：容器多宽每项就多宽，容器必须限宽。
+    expect(cssText).toMatch(/\.tabsRow\s*\{[^}]*width:\s*fit-content/u)
+  })
+
+  it('作品 KPI 行不设最小行高，卡片下方不留空白', () => {
+    expect(cssText).not.toMatch(/\.summaryGrid\s*\{[^}]*grid-auto-rows/u)
   })
 })
 
