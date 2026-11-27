@@ -6,6 +6,7 @@
  */
 import type { StableErrorCode } from '../errors.ts'
 import type { RouteRefusalReason } from '@yootun/dsh-workbench-host-kit'
+import { zh } from './locales.ts'
 import type { WxLocaleKey } from './locales.ts'
 
 /** 页面翻译函数（词典键集见 locales.ts）。 */
@@ -28,6 +29,7 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
   IDEMPOTENCY_IN_PROGRESS: 'reason.IDEMPOTENCY_IN_PROGRESS',
   IDEMPOTENCY_KEY_REQUIRED: 'reason.IDEMPOTENCY_KEY_REQUIRED',
   IDEMPOTENCY_OUTCOME_UNKNOWN: 'reason.IDEMPOTENCY_OUTCOME_UNKNOWN',
+  INVALID_CURSOR: 'report.error.INVALID_CURSOR',
   INVALID_DAY_RANGE: 'reason.INVALID_DAY_RANGE',
   INVALID_IDEMPOTENCY_KEY: 'reason.INVALID_IDEMPOTENCY_KEY',
   INVALID_SORT: 'reason.INVALID_SORT',
@@ -36,6 +38,19 @@ const REASON_KEYS: Readonly<Record<StableErrorCode, WxLocaleKey>> = {
   LOCAL_CLEARED_REQUIRED: 'reason.LOCAL_CLEARED_REQUIRED',
   PAYLOAD_TOO_LARGE: 'reason.PAYLOAD_TOO_LARGE',
   PLAYWRIGHT_DRIVER_MISSING: 'error.CHROME_DRIVER',
+  REPORT_DISABLED: 'report.error.REPORT_DISABLED',
+  REPORT_ENQUEUE_FAILED: 'report.error.REPORT_ENQUEUE_FAILED',
+  REPORT_INPUT_TOO_LARGE: 'report.error.REPORT_INPUT_TOO_LARGE',
+  REPORT_INSUFFICIENT_DATA: 'report.error.REPORT_INSUFFICIENT_DATA',
+  REPORT_LEASE_EXPIRED: 'report.error.REPORT_LEASE_EXPIRED',
+  REPORT_MODEL_CONFIG_MISSING: 'report.error.REPORT_MODEL_CONFIG_MISSING',
+  REPORT_MODEL_FAILED: 'report.error.REPORT_MODEL_FAILED',
+  REPORT_NOT_FOUND: 'report.error.REPORT_NOT_FOUND',
+  REPORT_PAYLOAD_TOO_LARGE: 'report.error.REPORT_PAYLOAD_TOO_LARGE',
+  REPORT_PROMPT_INVALID: 'report.error.REPORT_PROMPT_INVALID',
+  REPORT_SCHEMA_INVALID: 'report.error.REPORT_SCHEMA_INVALID',
+  REPORT_TIMEOUT: 'report.error.REPORT_TIMEOUT',
+  REPORT_TRUNCATED: 'report.error.REPORT_TRUNCATED',
   RUN_ACCOUNT_MISMATCH: 'reason.RUN_ACCOUNT_MISMATCH',
   RUN_COUNT_MISMATCH: 'reason.RUN_COUNT_MISMATCH',
   RUN_LIST_META_REQUIRED: 'reason.RUN_LIST_META_REQUIRED',
@@ -114,6 +129,23 @@ export function reasonText(reason: string, t: Translate): string {
     ?? RUNTIME_REASON_KEYS[normalized]
   if (key !== undefined) return `${t(key)}（${reason}）`
   return t('error.unknownWithCode', { code: reason })
+}
+
+/**
+ * 报表页稳定码 → 文案（`ReportPage` 的 `errorText` 注入，wx-report-client 实
+ * 施单 2.3）：词典已有 `report.error.<码>` 专属文案的码（13 个 `REPORT_*`、
+ * `INVALID_CURSOR`、`IDEMPOTENCY_CONFLICT`、`INVALID_IDEMPOTENCY_KEY`、
+ * `VALIDATION_ERROR`，文案展开自共享包常量）不带码后缀，与抖音一致；其余码
+ * 沿用 {@linkcode reasonText} 的形态（文案附原码）；空码回退报表域默认文案。
+ * @param code - Host 响应中的稳定码；null 为请求失败兜底等无码场景。
+ * @param t - 页面翻译函数。
+ * @returns 展示文案。
+ */
+export function reportErrorText(code: string | null, t: Translate): string {
+  if (code === null || code === '') return t('report.error.default')
+  const domainKey = `report.error.${code}`
+  if (Object.hasOwn(zh, domainKey)) return t(domainKey as WxLocaleKey)
+  return reasonText(code, t)
 }
 
 /**

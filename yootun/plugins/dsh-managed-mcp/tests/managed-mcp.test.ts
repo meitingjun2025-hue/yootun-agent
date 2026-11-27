@@ -222,6 +222,35 @@ test('已分类 Agent 工具无重复、全有归类，Catalog 与 Workbench 名
   assert.equal(classifyAgentTool('yootun_douyin_publish_schedule_row_delete'), 'unknown')
 })
 
+test('A1/A2 视频号 AI 报表：两个只读工具免审批放行，三张策略表无「重新生成」', async () => {
+  // A2：Agent 面不提供「重新生成」，read / task-write / schedule-write 三张表都不出现。
+  assert.equal(classifyAgentTool('yootun_wx_report_regenerate'), 'unknown')
+  for (const toolName of AGENT_TOOL_NAMES) {
+    assert.ok(!toolName.endsWith('_report_regenerate'), `no regenerate tool in policy tables: ${toolName}`)
+  }
+  // A1：两个只读工具归类 read，tools/call 免审批到达假 server 并携带正确工具名。
+  assert.equal(classifyAgentTool('yootun_wx_reports_list'), 'read')
+  assert.equal(classifyAgentTool('yootun_wx_report_get'), 'read')
+  const booted = await boot()
+  try {
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered')
+    const batch = await booted.ctx.tools.execute({
+      signal: AbortSignal.timeout(10_000),
+      calls: [
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('wx-report-read-1'), name: 'mcp__yootun-agent__yootun_wx_reports_list', arguments: '{}' },
+        { type: 'tool-call' as const, id: brandString<ToolCallId>('wx-report-read-2'), name: 'mcp__yootun-agent__yootun_wx_report_get', arguments: '{"reportId":"wx-r-1"}' },
+      ],
+    })
+    assert.equal(batch.results.length, 2)
+    assert.equal(batch.results[0]?.result.isError, false)
+    assert.equal(batch.results[1]?.result.isError, false)
+    assert.ok(booted.fixture.toolCalls.includes('yootun_wx_reports_list'), 'reports_list 到达假 server')
+    assert.ok(booted.fixture.toolCalls.includes('yootun_wx_report_get'), 'report_get 到达假 server')
+  } finally {
+    await shutdown(booted)
+  }
+})
+
 test('未激活时零连接、零工具', async () => {
   const booted = await boot({ access: { setupComplete: false, validationVersion: Number(VALIDATION_VERSION) }, keyValue: 'test-model-key' })
   try {

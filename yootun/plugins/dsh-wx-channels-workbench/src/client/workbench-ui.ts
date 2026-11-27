@@ -42,8 +42,8 @@ export const WORKS_PAGE_SIZE = 10
 /** 采集/登录/批量共用轮询间隔毫秒。 */
 export const POLL_MS = 1200
 
-/** 两 tab 固定顺序（作品数据 → 账号总览）。 */
-export type TabValue = 'works' | 'overview'
+/** 三 tab 固定顺序（作品数据 → 账号总览 → AI 报表）。 */
+export type TabValue = 'works' | 'overview' | 'report'
 
 /** SegmentedTabs 条目（id/panelId 供 aria 关联）。 */
 export interface TabItem { value: TabValue; label: string; id: string; panelId: string }

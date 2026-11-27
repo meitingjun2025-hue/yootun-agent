@@ -1,5 +1,7 @@
 /**
- * 19+4 项 action 的 Host 实现（依赖注入面 + 处理器表）。登录/采集/批量均为
+ * 19+4+3 项 action 的 Host 实现（依赖注入面 + 处理器表；2026-11-27 起新增
+ * report.list / report.get / report.regenerate 三个报表透传 action，见
+ * wx-report-client 实施单 2.5）。登录/采集/批量均为
  * 进程内 AbortController 生命周期（dispose 统一 abort + 等待 settle）；
  * 单账号采集按账号控制器维护（同账号单飞、账号间并发），与批量互斥经
  * `batchHasRunning` 钩子 + batchReserved 同步预留守卫。所有 Workbench 调用经
@@ -183,6 +185,20 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
       ...(asString(args, 'sessionStatus') !== '' ? { sessionStatus: asString(args, 'sessionStatus') } : {}),
     }],
     'run.get': args => ['workbench_wx_collect_run_get', { runId: asString(args, 'runId') }],
+    // AI 报表三个 action：出参为远端投影，「重新生成」是写操作，错误收敛沿用透传链路。
+    'report.list': args => ['workbench_wx_report_list', filterUndefined({
+      reportType: asString(args, 'reportType'),
+      periodStart: asString(args, 'periodStart'),
+      status: asString(args, 'status'),
+      limit: asInteger(args, 'limit'),
+      cursor: asString(args, 'cursor'),
+      allVersions: args.allVersions === true ? true : undefined,
+    })],
+    'report.get': args => ['workbench_wx_report_get', { reportId: asString(args, 'reportId') }],
+    'report.regenerate': args => ['workbench_wx_report_regenerate', {
+      reportId: asString(args, 'reportId'),
+      idempotencyKey: asString(args, 'idempotencyKey'),
+    }],
   }
   /** 2.5 中断摘要：ok 载荷附带启动中断摘要（空摘要时原样返回）。 */
   const withInterrupted = (handler: (args: ActionArgs) => Promise<HandlerPayload>): (args: ActionArgs) => Promise<HandlerPayload> => async args => {
@@ -203,6 +219,18 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     if (build === undefined) throw new WxError('WX_ROUTE_UNKNOWN_ACTION', `action "${action}" has no workbench binding`)
     const pair = build(args)
     return compat(deps, pair[0], pair[1])
+  }
+
+  /** AI 报表三个 action：工具出参整体装进 `data` 键（共享包 readReportList /
+   * readReportDetail 的输入形状，与抖音 passthrough 同构；其余透传 action 仍
+   * 顶层展开）。 */
+  const runReport = async (action: string, args: ActionArgs): Promise<HandlerPayload> => {
+    const build = workbenchActions[action]
+    if (build === undefined) throw new WxError('WX_ROUTE_UNKNOWN_ACTION', `action "${action}" has no workbench binding`)
+    const pair = build(args)
+    return callWx(deps, pair[0], pair[1])
+      .then((result): HandlerPayload => ({ status: 'ok', data: result }))
+      .catch((error: unknown): HandlerPayload => ({ status: 'error', reason: safeCode(error) }))
   }
 
   const handlers: Record<string, ActionHandler> = {
@@ -525,6 +553,9 @@ export function buildRouteHandlers(deps: WxHostDeps, batch: {
     'account.overview': args => runPassthrough('account.overview', args),
     'fans.profile.get': args => runPassthrough('fans.profile.get', args),
     'overview.accounts': args => runPassthrough('overview.accounts', args),
+    'report.list': args => runReport('report.list', args),
+    'report.get': args => runReport('report.get', args),
+    'report.regenerate': args => runReport('report.regenerate', args),
   }
   // dispose 开始后统一稳定拒绝新 action（不登记）；已通过 guard 的在途 action
   // 一律经 runTracked 登记——dispose 等待其 settle（collect/login 另有 abort

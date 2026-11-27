@@ -317,7 +317,7 @@ export function ReportPage(props: ReportPageProps): ReactNode {
     <div className={css.pageBody}>
       <div className={css.workToolbarRow}>
         <SegmentedControl
-          id='douyin-report-type'
+          id='yootun-report-type'
           options={[{ value: 'daily', label: t('report.daily') }, { value: 'weekly', label: t('report.weekly') }]}
           value={reportType}
           onChange={value => { setReportType(value) }}

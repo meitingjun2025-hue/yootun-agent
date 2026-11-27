@@ -4,7 +4,7 @@
 
 ## 1. 旧 Host action（19 项）与新路由映射
 
-新路由固定 `/api/desktop/yootun/wx-workbench`（旧为 `/api/desktop/yootun/wx-channels-operation`）。action 集合与旧一致，全部保留；每项新增 schema 校验 + 未知字段拒绝（旧实现只做长度截断，属本次加固）。2026-11-26 起新增本地只读 `collect.running`，Host action 22 项 → 23 项；同日 `collect.status` / `collectAll.status` 出参与 `collectAll.start` 并发口径随「采集全部并发」实施单更新（[1126/features/wx-collect-all-concurrency.md](../1126/features/wx-collect-all-concurrency.md)）。
+新路由固定 `/api/desktop/yootun/wx-workbench`（旧为 `/api/desktop/yootun/wx-channels-operation`）。action 集合与旧一致，全部保留；每项新增 schema 校验 + 未知字段拒绝（旧实现只做长度截断，属本次加固）。2026-11-26 起新增本地只读 `collect.running`，Host action 22 项 → 23 项；同日 `collect.status` / `collectAll.status` 出参与 `collectAll.start` 并发口径随「采集全部并发」实施单更新（[1126/features/wx-collect-all-concurrency.md](../1126/features/wx-collect-all-concurrency.md)）。2026-11-27 起新增 AI 报表三个透传 action（`report.list` / `report.get` / `report.regenerate`，无旧名；路由 schema 随之新增必填字段、`date` 字段类型与幂等键模板三项校验能力，只被这三个 action 使用），Host action 22 项 → 25 项（见 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md) 2.5）。
 
 | action | 旧行为要点 | 新实现差异 |
 |---|---|---|
@@ -27,6 +27,9 @@
 | works.list / work.get / work.trend | 远端透传（sort/order 长度截断） | 经 workbench；参数 schema 化。2026-11-25 起 `works.list` 另收 `limit` / `offset`（整数 1..100 / 0..1,000,000），`sort` / `order` 为封闭枚举，路由 schema 新增 integer 字段类型 |
 | account.overview | window 参数透传 | 经 workbench |
 | fans.profile.get | 远端透传 | 经 workbench |
+| report.list（2026-11-27 新增） | 无旧行为 | 透传 `workbench_wx_report_list`（`reportType` / `periodStart` / `status` / `limit` / `cursor` / `allVersions`；`periodStart` 为真实日历日期） |
+| report.get（2026-11-27 新增） | 无旧行为 | 透传 `workbench_wx_report_get`（`reportId` 必填） |
+| report.regenerate（2026-11-27 新增） | 无旧行为 | 透传 `workbench_wx_report_regenerate`（`reportId` + `idempotencyKey` 必填；键模板 `wx:report_regenerate:{reportId}:{UUID}`，绑定 `reportId`；契约见 [1126/features/wx-report-server.md](../1126/features/wx-report-server.md)） |
 
 ## 2. 旧模块 → 新模块对照
 
@@ -57,6 +60,8 @@
 ## 5. Workbench 工具映射（19 项，旧名 → 新名）
 
 `wx_channels_*` → `workbench_wx_*` 一一对应（save/remove/session_status_report/collect_run_start/collect_run_set_list_meta/collect_run_heartbeat/collect_ingest_works/collect_ingest_account_metrics/collect_ingest_fans_trend/collect_ingest_fans_profile/collect_run_finish/collect_run_cancel/account_list/collect_run_get/work_list/work_get/work_trend/account_overview/fans_profile_get），调用身份固定 `caller='wx-workbench', domain='wx'`。
+
+2026-11-27 起三个 AI 报表工具经同一身份调用（无旧名，契约在 tools.dofe.ai `docs/1116/yootun-mcp.md` 与 [1126/features/wx-report-server.md](../1126/features/wx-report-server.md)）：`workbench_wx_report_list` / `workbench_wx_report_get` / `workbench_wx_report_regenerate`；对应 Agent 面 `yootun_wx_reports_list` / `yootun_wx_report_get` 两个只读工具免审批（无「重新生成」）。
 
 ## 6. 关键行为红线（从旧审查结论继承）
 
