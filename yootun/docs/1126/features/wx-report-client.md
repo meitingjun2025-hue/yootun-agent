@@ -31,11 +31,11 @@
 
 本单草建于 2026-11-26，当时 1126 的 P0、P1 各单尚未合入，对客户端形态的描述来自各单的条款。P1 合入后，于 2026-11-27 在 `main` 上做了一次基线核对，九个核对项的逐项结论记在 5.3；本文已按核对结果修订，0.1 与第 2 节描述的都是 `main` 上的现有代码。
 
-核对发现的原稿缺口，均已修订进本文：
+核对发现的原稿缺口，均已修订进本文。第 1 项是修订过程中引入又撤回的一次失误，一并记录：
 
 | # | 原稿写法 | 核对结果 | 修订位置 |
 |---|---|---|---|
-| 1 | 报表页用 `locale: 'zh' \| 'en'` 选词典与格式 | 两个插件传给页面的是语言标签（如 `zh-CN`），格式化函数按标签工作 | 2.1 改为 `localeTag: string` |
+| 1 | 报表页用 `locale: 'zh' \| 'en'` 选词典与格式 | 已撤回的一次修订失误：第一版修订把它改成了语言标签，理由是「插件传给页面的是语言标签」。复核 `format.ts` 的 `localeTagOf` 后确认，它把 locale 快照的 active id 归一成 `'zh'` 或 `'en'`，两个插件传给页面的就是这个值，原稿写法与现状一致 | 2.1 保持 `locale: 'zh' \| 'en'` |
 | 2 | 共享包自己解析报表错误码 | 连接失败码与路由拒绝码不在报表码集合内，共享包无从解析；抖音现状用 `domainErrorText('report', code, t)` | 2.1 增加必填的 `errorText` 注入，错误文案全部经它解析 |
 | 3 | 错误码文案常量的键是 `reason.REPORT_*` | 抖音词典里 13 个 `REPORT_*` 码的键是 `report.error.REPORT_*`；既有用例锁定该前缀恰好 17 码加 `default` | 2.3、附录 A3 |
 | 4 | 视频号稳定码白名单加 13 个 | 视频号白名单既没有 `REPORT_*`，也没有 `INVALID_CURSOR`；后者是报表列表翻页会返回的码 | 2.5、附录 A3 改为 14 个 |
@@ -88,13 +88,12 @@ MCP 工具：无。本单只消费 [wx-report-server.md](wx-report-server.md) �
 | `report-detail.tsx` | 详情正文：报表头、KPI 行、趋势、账号表、作品卡、异常、AI 洞察 |
 | `report-chart.tsx` | 组合趋势图：上移自抖音 `charts.tsx` 的 `ReportComboChart` 及其私有的刻度、值域函数；轴刻度文案函数 `axisLabel` 与同文件的折线图共用，共享包复制一份，插件内保留 |
 | `report-export.ts` | 导出 HTML 的序列化 |
-| `report-locale.ts` | 词典注入，形态同 kit 的词典模块 |
 | `locales.ts` | 报表词条：zh 为键集事实源，en 全量同步 |
 | `schema.ts` | 报表的行与详情类型、`readReportList`、`readReportDetail` |
 | `format.ts` | 报表页用到的格式化函数，周期、文件名、版本号辅助函数，幂等键后缀生成 |
 | `report.module.css` | 报表页样式 |
 
-导出：`ReportPage`、`createReportTranslate`、`ReportLocaleProvider`、`REPORT_REASONS_ZH`、`REPORT_REASONS_EN`、`REPORT_ERROR_CODES`、`NS`、`zh`、`en` 与相关类型。
+导出：`ReportPage`、`REPORT_REASONS_ZH`、`REPORT_REASONS_EN`、`REPORT_ERROR_CODES`、`NS`、`zh`、`en` 与相关类型。
 
 `ReportPage` 的 props：
 
@@ -102,13 +101,15 @@ MCP 工具：无。本单只消费 [wx-report-server.md](wx-report-server.md) �
 interface ReportPageProps {
   /** 请求函数：各插件用自己的 hostAction 构造。action 名为 report.list、report.get、report.regenerate。 */
   request: (action: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>
-  /** 语言标签（如 zh-CN）：选择数值与日期的格式。报表词条由 ReportLocaleProvider 给出。 */
-  localeTag: string
+  /** 当前语言：选择报表词条与数值、日期的格式。取值与两个插件页面的 localeTag 相同。 */
+  locale: 'zh' | 'en'
   /** 稳定码到文案：报表码、连接失败码、路由拒绝码都经它解析；码为空时给出该域的默认文案。 */
   errorText: (code: string | null) => string
   onNotice: (text: string, tone?: 'success') => void
   /** 导出文件名前缀，由插件词典提供（如「抖音运营」「视频号运营」）。 */
   filePrefix: string
+  /** 「重新生成」幂等键的前缀（如 douyin:report_regenerate），键为前缀加 reportId 加共享包生成的后缀。 */
+  regenerateKeyPrefix: string
   /** 作品卡的指标布局，由插件声明。 */
   work: ReportWorkLayout
   /** 作品卡的扩展区；视频号用它渲染流量来源与最大流失点，抖音不传。 */
@@ -149,7 +150,7 @@ interface ReportWorkLayout {
 
 ### 2.3 词典
 
-共享包自带词典与 Provider，形态同 kit：插件按当前语言构造 translate 并用 Provider 包住报表页。报表错误码的文案在共享包定义一次，以 `REPORT_REASONS_ZH` 与 `REPORT_REASONS_EN` 导出，键是抖音词典现有的全部 18 条 `report.error.*`：13 个 `REPORT_*` 码、`IDEMPOTENCY_CONFLICT`、`INVALID_IDEMPOTENCY_KEY`、`INVALID_CURSOR`、`VALIDATION_ERROR`，以及 `default`。两个插件的词典展开并入，各自的错误码映射表补对应键。单一事实源在共享包；1126 的编译期穷尽约束保证两边都不会漏。`REPORT_ERROR_CODES` 是 13 个 `REPORT_*` 码的只读数组，供测试核对，Host 侧不 import 它（白名单在 Host 的 `errors.ts` 里手写）。
+共享包自带词典，形态同 kit 的词典模块，按 props 的 `locale` 选择，不需要 Provider。导出文件名前缀属于平台，`report.filePrefix` 这一条留在各插件的词典里，不迁入共享包。报表错误码的文案在共享包定义一次，以 `REPORT_REASONS_ZH` 与 `REPORT_REASONS_EN` 导出，键是抖音词典现有的全部 18 条 `report.error.*`：13 个 `REPORT_*` 码、`IDEMPOTENCY_CONFLICT`、`INVALID_IDEMPOTENCY_KEY`、`INVALID_CURSOR`、`VALIDATION_ERROR`，以及 `default`。两个插件的词典展开并入，各自的错误码映射表补对应键。单一事实源在共享包；1126 的编译期穷尽约束保证两边都不会漏。`REPORT_ERROR_CODES` 是 13 个 `REPORT_*` 码的只读数组，供测试核对，Host 侧不 import 它（白名单在 Host 的 `errors.ts` 里手写）。
 
 抖音词典里现有的报表词条随页面上移迁入共享包。删键后运行 `pnpm run verify-client-ui-i18n`，确认没有残留引用。
 
@@ -278,7 +279,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | 文档（本文、1126 索引） | 2026-11-27 | `main` | 基线核对后修订；等用户通知进入开发 |
 | tools 合入 `dev` | 2026-11-26 | — | 不涉及，契约已在 [wx-report-server.md](wx-report-server.md) 落地 |
 | docker-helm 部署测试环境 | — | — | 部署仓已合入 `master`，测试环境待部署；客户端先发只是报表 Tab 显示暂不可用，旧功能不受影响 |
-| 第 1 步：纯上移，抖音改为消费 | | `feat/wx-report-client` | 前置：[douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已合入 `main`；验收通过后本地提交 |
+| 第 1 步：纯上移，抖音改为消费 | | `feat/wx-report-client` | 前置：[douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已在其分支验收提交；本分支从 `main` 切出并并入该分支与排期修复分支（[douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md)）；验收通过后本地提交 |
 | 第 2 步：界面整改 | | `feat/wx-report-client` | 前置：第 1 步的阶段验收通过；验收通过后本地提交 |
 | 第 3 步：视频号接入 | | `feat/wx-report-client` | 前置：第 2 步的阶段验收通过；验收通过后本地提交 |
 | yootun-agent 合入 `main` | | | 三步都通过后一次合入；待填 |
@@ -327,7 +328,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 |---|---|---|
 | 页面组合层 | 两个插件的 `src/client/WorkbenchPage.tsx`、`use-workbench-page.tsx` | 与原稿一致。抖音的报表分支是 `tab === 'report' && <ReportPage t localeTag onNotice/>`，不 keep-alive，位于账号 `DataState` 之内。视频号的 `tabs` 在 `use-workbench-page.tsx` 内联构造，`TabValue` 在 `workbench-ui.ts`，内容分支是三元表达式；加报表 Tab 要改成显式分支（2.6）。Tab 的 id 与 `panelId` 命名是 `wx-tab-{值}`、`wx-panel-{值}`，与原稿一致 |
 | 请求函数 | kit 的 `host-action.ts`，两个插件的 `src/client/api.ts` | 与原稿一致。两个插件的 `hostAction` 签名可以直接当 `request` 传入 |
-| 抖音报表页现状 | `ReportPage.tsx`、`charts.tsx`、`schema.ts`、`format.ts`、`locales.ts` | PDF 桥、`exportPdf` 与按钮仍在，去 PDF 单尚未实施。`attemptId` 已在 `format.ts`。页面直接 import 插件的 `hostAction`。`ReportPage` 的 props 是 `{ t, localeTag, onNotice }`，传的是语言标签，不是 `'zh' \| 'en'`（修订 0.3 第 1 项）。样式引用 46 个类，25 个专属、21 个共用，组合图 11 个 |
+| 抖音报表页现状 | `ReportPage.tsx`、`charts.tsx`、`schema.ts`、`format.ts`、`locales.ts` | PDF 桥、`exportPdf` 与按钮仍在，去 PDF 单尚未实施。`attemptId` 已在 `format.ts`。页面直接 import 插件的 `hostAction`。`ReportPage` 的 props 是 `{ t, localeTag, onNotice }`，`localeTag` 由 `localeTagOf` 得出，取值 `'zh'` 或 `'en'`（见 0.3 第 1 项）。样式引用 46 个类，25 个专属、21 个共用，组合图 11 个 |
 | 错误码映射 | 抖音、视频号的 `src/client/format.ts`、`locales.ts` | 两个插件都是穷尽记录。抖音 13 个 `REPORT_*` 的词条键是 `report.error.REPORT_*`，不是 `reason.REPORT_*`（修订 0.3 第 3 项）。抖音有分域解析 `domainErrorText`；视频号只有 `reasonText`，文案带码后缀，需要新增 `reportErrorText`（2.3） |
 | 样式装载 | 两个插件的 `kit-styles.ts`、`tests/client/verify-bundle-stylesheets.mjs`、源码层守护用例 | 与原稿一致。源码层守护是抖音 `douyin-parity.test.tsx` 与视频号 `wx-bundle.test.ts`，推导规则只认 kit 路径，共享包要扩展规则（2.4）。产物校验有一段「冻结类名在安装文本中有规则」的循环，共享包的类名映射要加入 |
 | 可达性基线 | kit 的 `reason-button.tsx`、`row-gesture.ts`；抖音报表页的置灰按钮 | kit 导出 `ReasonButton` 与 `isOnInteractiveTarget`。报表页的置灰按钮用 `disabled` 加就近的状态文字说明原因，符合 §4.1，无遗留违规项。原稿「按基线整改」改写为「按基线核对，结论是不需要改」（2.8） |
@@ -352,7 +353,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 ### A2 请求与幂等键
 
 - 抖音、视频号的组合层各自用本插件的 `hostAction` 构造 `request`，action 名与参数相同；
-- 「重新生成」的幂等键后缀由共享包生成（32 位小写十六进制），同一次点击的重试复用同一个后缀；键模板为 `wx:report_regenerate:{reportId}:{后缀}`，与抖音的前缀不同。
+- 「重新生成」的幂等键后缀由共享包生成（32 位小写十六进制），同一次点击的重试复用同一个后缀；键模板为 `{前缀}:{reportId}:{后缀}`，前缀由 props 的 `regenerateKeyPrefix` 给出：抖音传 `douyin:report_regenerate`，视频号传 `wx:report_regenerate`。
 
 ### A3 错误码
 

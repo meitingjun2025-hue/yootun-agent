@@ -45,7 +45,7 @@ P1 内部的先后：先合 [workbench-host-kit.md](features/workbench-host-kit.
 
 分支规则见 [cross-repo-sync.md §5.1](../cross-repo-sync.md#51-分支)：实施单提交在 `main`，代码走 `feat/<slug>` 特性分支，验收通过后合入。P0 与 P1 一起推进，不设发版观察期（2026-11-26 确认）；视频号并发的风控信号在发版后照常观察，`batchConcurrency: 1` 可即时回退。
 
-P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；先完成 [report-kernel-extraction.md](features/report-kernel-extraction.md)（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署；其特性分支从内核单的分支切出，两单一并合入 `dev`）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 与去 PDF 单合入 `main` 之后开始，分三步串行：纯上移、界面整改、视频号接入，每步验收通过后本地提交，三步都通过后一次合入（见该单附录 A1）。基线核对已于 2026-11-27 完成；开始开发当日再比对一次 `main`。服务端未部署测试环境时客户端可以先发，报表 Tab 只会显示暂不可用。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
+P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) 不依赖其他单，可以先行；先完成 [report-kernel-extraction.md](features/report-kernel-extraction.md)（抖音切换到内核并通过一致性对比），再开 [wx-report-server.md](features/wx-report-server.md)（以第二个平台适配接入内核，含专属队列的部署；其特性分支从内核单的分支切出，两单一并合入 `dev`）；[wx-report-client.md](features/wx-report-client.md) 在 P0、P1 合入 `main`、去 PDF 单在其分支验收提交之后开始（分支从 `main` 切出并并入去 PDF 分支），分三步串行：纯上移、界面整改、视频号接入，每步验收通过后本地提交，三步都通过后一次合入（见该单附录 A1）。基线核对已于 2026-11-27 完成；开始开发当日再比对一次 `main`。服务端未部署测试环境时客户端可以先发，报表 Tab 只会显示暂不可用。服务端两张单只动 tools 与 docker-helm，与 P0、P1 的客户端各单没有文件交集，可以并行。
 
 ## 对现有功能的影响
 
