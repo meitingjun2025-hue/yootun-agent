@@ -8,7 +8,7 @@
 
 | 实施单 | 内容 | 状态 |
 |---|---|---|
-| [douyin-schedule-immediate-save.md](features/douyin-schedule-immediate-save.md) | 抖音发布排期看板的即时保存修复：「是否发布」「拍摄情况」「拍摄日期」「发布日期」与发布平台改动后没有发出保存请求（保存函数读到改动前的旧值，被 no-op 判定拦住）；保存在途时继续输入，返回后被覆盖且不补提交 | 已确认，待实施 |
+| [douyin-schedule-immediate-save.md](features/douyin-schedule-immediate-save.md) | 抖音发布排期看板的即时保存修复：「是否发布」「拍摄情况」「拍摄日期」「发布日期」与发布平台改动后没有发出保存请求（保存函数读到改动前的旧值，被 no-op 判定拦住）；保存在途时继续输入，返回后被覆盖且不补提交 | 开发完成（2026-11-27，`feat/douyin-schedule-immediate-save`，自动验收通过待合入） |
 
 ## 对现有功能的影响
 

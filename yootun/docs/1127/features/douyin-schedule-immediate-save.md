@@ -1,6 +1,6 @@
 # douyin-schedule-抖音发布排期看板即时保存修复 实施单
 
-状态：已确认，待实施 ｜ 创建：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待合入 ｜ 创建：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -71,7 +71,7 @@ MCP 工具：无。Host action：无变化。
 | 文档（本文、1127 索引） | 2026-11-27 | `main` | 建单 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/douyin-schedule-immediate-save` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/douyin-schedule-immediate-save` | 独立 review 通过，阻断 0 条；自动验收见 5.1，联调记录见 5.3 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -79,10 +79,10 @@ MCP 工具：无。Host action：无变化。
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
-- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
-- [ ] 附录 A 的 6 条用例存在并通过；
-- [ ] 用例确实能抓住缺陷：临时去掉 `editCell` 里对 `rowsRef` 的同步，A1 到 A5 应失败；临时把 `performSave` 改回用调用时捕获的 dirty 快照，A6 应失败；临时去掉补提交前对两个 ref 的同步，A6 也应失败（第二次保存带的是旧行版本）。验证后恢复，结果记入 5.3；
-- [ ] 「发布排期看板」用例组的既有断言未改，其中「no-op 失焦不发请求」仍然通过。
+- [x] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
+- [x] 附录 A 的 6 条用例存在并通过；
+- [x] 用例确实能抓住缺陷：临时去掉 `editCell` 里对 `rowsRef` 的同步，A1 到 A5 应失败；临时把 `performSave` 改回用调用时捕获的 dirty 快照，A6 应失败；临时去掉补提交前对两个 ref 的同步，A6 也应失败（第二次保存带的是旧行版本）。验证后恢复，结果记入 5.3；
+- [x] 「发布排期看板」用例组的既有断言未改，其中「no-op 失焦不发请求」仍然通过。
 
 ### 5.2 真机验收（用户执行）
 
@@ -96,7 +96,15 @@ MCP 工具：无。Host action：无变化。
 
 ### 5.3 本地联调记录
 
-待填（开发完成后回填）。
+2026-11-27 在 `feat/douyin-schedule-immediate-save` 完成开发与验收，改动三个文件：`SchedulePage.tsx`（`editCell` 同步写 `rowsRef`；`performSave` 成功分支重读 dirty 快照，补提交前同步两个 ref）、`douyin-client.test.tsx`（「发布排期看板」用例组补 A1 到 A6 与四个辅助函数，既有断言零改动）、14 册 §6（补一句）。提交前经独立 review 复核，结论为可以验收，阻断 0 条；review 逐条推演了六种时序（空闲行勾选、保存在途改回、保存在途切账号、失败后同键重试期间继续输入、补提交失败、迟到响应），均正确。
+
+本地验证：`pnpm --filter @yootun/dsh-douyin-workbench test` 通过（Host 侧 node 测试 227 项，vitest 172 项）；`build` 通过。
+
+5.1 第三项的变异验证，每项验证后已恢复：去掉 `editCell` 对 `rowsRef` 的同步，A1 到 A5 失败，`schedule.rowUpdate` 调用 0 次；成功分支改回用调用时捕获的 dirty 快照，A6 失败，调用只有 1 次；去掉补提交前对两个 ref 的同步，A6 失败在行版本断言，第二次保存带的 `expectedVersion` 是 `1` 而不是 `2`。
+
+已知遗留（review 提出，非本单引入，本单不处理）：保存失败后行的 dirty 快照为空，不阻塞账号切换与刷新，此时切走或刷新，未落库的输入会丢。空闲行发起的首次保存失败也是同样的既有模式，行上有同键重试入口。
+
+顺带发现：`yootun/plugins/dsh-douyin-workbench/vitest.config.ts` 头注释写的用例计数已过时，不在本单清单内，未改。
 
 ## 附录 A：回归用例
 
