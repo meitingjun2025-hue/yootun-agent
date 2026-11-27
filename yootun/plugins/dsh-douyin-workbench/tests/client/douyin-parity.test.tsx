@@ -438,6 +438,8 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
   const packageDir = process.cwd()
   const clientDir = join(packageDir, 'src', 'client')
   const kitSrc = join(packageDir, '..', '..', 'packages', 'dsh-client-ui-kit', 'src')
+  // 报表共享包源（本插件经共享包转消费 kit 组件；共享包自身样式表另有专条守护）。
+  const reportSrcDir = join(packageDir, 'node_modules', '@yootun', 'dsh-client-report', 'src')
 
   /** 无样式表的 kit 导出名。 */
   const NO_STYLESHEET_EXPORTS = new Set([
@@ -451,18 +453,28 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
 
   const IRREGULAR_FILES: Readonly<Record<string, string>> = { PluginPageShell: 'page-shell.module.css' }
 
-  /** client 源码里从 kit 桶导入的组件名集合。 */
+  /** 一份源码里从 kit 桶导入的组件名集合。 */
+  function consumedKitComponentsIn(source: string, names: Set<string>): void {
+    for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
+      for (const raw of match[1].split(',')) {
+        const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
+        if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
+      }
+    }
+  }
+
+  /** client 源码与报表共享包源里从 kit 桶导入的组件名集合（共享包整改引入的 kit 组件由本插件声明安装）。 */
   function consumedKitComponents(): Set<string> {
     const names = new Set<string>()
     for (const file of readdirSync(clientDir).sort()) {
       if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue
       if (file === 'kit-styles.ts') continue
-      const source = readFileSync(join(clientDir, file), 'utf8')
-      for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
-        for (const raw of match[1].split(',')) {
-          const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
-          if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
-        }
+      consumedKitComponentsIn(readFileSync(join(clientDir, file), 'utf8'), names)
+    }
+    if (existsSync(reportSrcDir)) {
+      for (const file of readdirSync(reportSrcDir).sort()) {
+        if (!file.endsWith('.ts') && !file.endsWith('.tsx')) continue
+        consumedKitComponentsIn(readFileSync(join(reportSrcDir, file), 'utf8'), names)
       }
     }
     return names

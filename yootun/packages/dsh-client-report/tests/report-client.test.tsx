@@ -1,5 +1,5 @@
 /**
- * 报表页组件测试（jsdom，附录 B P1–P9 与 P16）：直接渲染 ReportPage 并注入
+ * 报表页组件测试（jsdom，附录 B P1–P16 与 2.8「详情加载态」）：直接渲染 ReportPage 并注入
  * mock 的 request；mock 返回的服务端行字段参照抖音既有用例的 Host 投影形态。
  * 断言覆盖：空态与状态五态、详情各状态与轮询、缺采口径、作品卡 work 配置与
  * 扩展区、负责人列随数据有无、重新生成确认与幂等键、HTML 导出、语言切换、
@@ -8,7 +8,7 @@
  */
 // @vitest-environment jsdom
 import { act } from 'react'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { ReportPage, type ReportPageProps, type ReportWorkLayout } from '../src/report-page.tsx'
 import { zh, en, type ReportLocaleKey } from '../src/locales.ts'
@@ -452,5 +452,188 @@ describe('P16 导出失败', () => {
     fireEvent.click(screen.getByRole('button', { name: t('report.exportHtml') }))
     expect(onNotice).toHaveBeenCalledWith(t('report.exportFailed'))
     expect(errorText).not.toHaveBeenCalled()
+  })
+})
+
+describe('P10 列表加载更多失败', () => {
+  it('加载更多失败时保留已加载的行，按钮旁出现一处错误提示与重试；重试成功后并入新行', async () => {
+    let moreCalls = 0
+    const request = vi.fn(async (action: string, args: Record<string, unknown> = {}) => {
+      if (action === 'report.list') {
+        if (args.cursor !== undefined) {
+          moreCalls += 1
+          if (moreCalls === 1) throw new Error('INVALID_CURSOR')
+          return { status: 'ready', data: { items: [listRow('r-2', 'succeeded', 1)], nextCursor: null } }
+        }
+        return { status: 'ready', data: { items: [listRow('r-1', 'succeeded', 1)], nextCursor: 'c1' } }
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    render(<ReportPage {...pageProps(request)} />)
+    expect(await screen.findByText(t('report.status.succeeded'))).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: t('report.loadMore') }))
+    // 已加载的行保留；按钮旁一处错误提示与重试（§4.5：不整页替换成错误）。
+    await vi.waitFor(() => expect(screen.getByRole('alert')).not.toBeNull())
+    expect(screen.getByText('错误:INVALID_CURSOR')).not.toBeNull()
+    expect(screen.getByRole('button', { name: t('report.retry') })).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: t('report.view') })).toHaveLength(1)
+    // 重试成功：第二页并入，错误提示消失。
+    fireEvent.click(screen.getByRole('button', { name: t('report.retry') }))
+    await vi.waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(screen.queryByText('错误:INVALID_CURSOR')).toBeNull()
+    expect(screen.getAllByRole('button', { name: t('report.view') })).toHaveLength(2)
+  })
+
+  it('首屏失败时整块错误（无表格行）', async () => {
+    const request = vi.fn(async () => { throw new Error('workbench_unavailable') })
+    render(<ReportPage {...pageProps(request)} />)
+    expect(await screen.findByText('错误:workbench_unavailable')).not.toBeNull()
+    // DataState 错误块（加载失败 + 重试）出现，列表没有任何行。
+    expect(screen.getByText('加载失败')).not.toBeNull()
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryByRole('button', { name: t('report.view') })).toBeNull()
+  })
+})
+
+describe('P11 重新生成提交中', () => {
+  it('提交中按钮 disabled、aria-busy、busy 文案；状态文字保留', async () => {
+    let release: (() => void) | null = null
+    const request = vi.fn(async (action: string) => {
+      if (action === 'report.list') return { status: 'ready', data: { items: [listRow('r-1', 'succeeded', 1)], nextCursor: null } }
+      if (action === 'report.get') return detailPayload()
+      if (action === 'report.regenerate') {
+        return new Promise<Record<string, unknown>>(resolve => { release = () => resolve({ status: 'ready' }) })
+      }
+      throw new Error(`unexpected action ${action}`)
+    })
+    const view = await openDetail(request, detailPayload())
+    fireEvent.click(screen.getByRole('button', { name: t('report.regenerate') }))
+    const checkbox = await screen.findByRole('checkbox', { name: t('report.regenerateBody', { version: 2 }) }) as HTMLInputElement
+    fireEvent.click(checkbox)
+    await vi.waitFor(() => expect(checkbox.checked).toBe(true))
+    fireEvent.click(screen.getByRole('button', { name: t('report.regenerateConfirm') }))
+    // §4.1：提交中 disabled + aria-busy + busy 文案（官方 Button 原生透传 disabled）。
+    await vi.waitFor(() => {
+      const busyButton = screen.getByRole('button', { name: t('report.submitting') })
+      expect(busyButton.disabled).toBe(true)
+      expect(busyButton.getAttribute('aria-busy')).toBe('true')
+    })
+    // 状态文字保留：按钮 busy 文案与旁边的提交中状态文字并存。
+    expect(screen.getAllByText(t('report.submitting')).length).toBeGreaterThanOrEqual(2)
+    release?.()
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: t('report.regenerate') })).not.toBeNull())
+    view.unmount()
+  })
+})
+
+describe('P12 趋势图浮层', () => {
+  it('聚焦某一列时浮层显示日期与柱、线两个系列的值；缺采列为「—」', async () => {
+    const request = vi.fn()
+    await openDetail(request, detailPayload())
+    fireEvent.focus(screen.getByRole('button', { name: /^11-19 /u }))
+    const tooltip = await screen.findByRole('status')
+    expect(within(tooltip).getByText('11-19')).not.toBeNull()
+    expect(within(tooltip).getByText(zh['report.col.plays'])).not.toBeNull()
+    expect(within(tooltip).getByText('100')).not.toBeNull()
+    expect(within(tooltip).getByText(zh['report.col.netFans'])).not.toBeNull()
+    expect(within(tooltip).getByText('+5')).not.toBeNull()
+    fireEvent.blur(screen.getByRole('button', { name: /^11-19 /u }))
+    await vi.waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+    // 缺采列：柱、线两行都显示「—」不补零。
+    fireEvent.focus(screen.getByRole('button', { name: /^11-20 /u }))
+    const missing = await screen.findByRole('status')
+    expect(within(missing).getAllByText('—')).toHaveLength(2)
+  })
+
+  it('浮层挂翻转侧标记 data-side（jsdom 容器零宽下确定性地落到左侧）', async () => {
+    const request = vi.fn()
+    await openDetail(request, detailPayload())
+    fireEvent.focus(screen.getByRole('button', { name: /^11-19 /u }))
+    const tooltip = await screen.findByRole('status')
+    // kit ChartTooltip 的气泡带 data-side；靠边翻转的落位由 kit placeTooltip 决定
+    // （真实布局目检待真机），本用例锁定翻转机制的挂载面。
+    expect(['left', 'right']).toContain(tooltip.getAttribute('data-side'))
+  })
+})
+
+describe('P13 KPI 行', () => {
+  it('渲染 6 个 KpiCard；不可用的指标显示「—」；没有对比基准时显示说明', async () => {
+    const body = {
+      ...detailBody,
+      coreMetrics: [
+        { key: 'plays', label: '播放增量', value: 12000, available: true, changePct: 8.5, prevValue: 11000, note: null },
+        { key: 'likes', label: '点赞', value: 300, available: true, changePct: -2, prevValue: 310, note: null },
+        { key: 'comments', label: '评论', value: 45, available: true, changePct: 0, prevValue: 45, note: '口径说明' },
+        { key: 'shares', label: '分享', value: 12, available: true, changePct: null, prevValue: null, note: null },
+        { key: 'fansGain', label: '净增粉丝', value: -40, available: true, changePct: -2.5, prevValue: 10, note: null },
+        { key: 'publishes', label: '发布', value: null, available: false, changePct: null, prevValue: null, note: null },
+      ],
+    }
+    const request = vi.fn()
+    await openDetail(request, detailPayload({}, body))
+    // KpiCard 渲染无标题、无 data-tone 的 section（DataCard/ChartFrame 带 h2，
+    // 洞察列带 data-tone）→ 6 张 KPI 卡。
+    const kpiCards = [...document.querySelectorAll('section')]
+      .filter(card => card.querySelector('h2') === null && card.getAttribute('data-tone') === null)
+    expect(kpiCards).toHaveLength(6)
+    // 不可用的指标显示「—」不造 0。
+    const unavailable = kpiCards.find(card => card.textContent.includes('发布')) as HTMLElement
+    expect(unavailable.textContent).toContain('—')
+    // 没有对比基准时显示说明。
+    const noBase = kpiCards.find(card => card.textContent.includes('分享')) as HTMLElement
+    expect(noBase.textContent).toContain(`${zh['report.change.daily']} ${zh['report.change.noBase']}`)
+    // 指标备注进脚注。
+    const noted = kpiCards.find(card => card.textContent.includes('评论')) as HTMLElement
+    expect(noted.textContent).toContain('口径说明')
+  })
+})
+
+describe('详情加载态（2.8「详情加载态」）', () => {
+  /** 列表 1 行、详情请求挂起的 mock；返回释放函数，调用后详情才到达。 */
+  function pendingDetail(): { request: Mock; release: (value: Record<string, unknown>) => void } {
+    let release: (value: Record<string, unknown>) => void = () => undefined
+    const pending = new Promise<Record<string, unknown>>((resolve) => { release = resolve })
+    const request = vi.fn(async (action: string) => {
+      if (action === 'report.list') return { status: 'ready', data: { items: [listRow('r-1', 'succeeded', 1)], nextCursor: null } }
+      if (action === 'report.get') return pending
+      throw new Error(`unexpected action ${action}`)
+    })
+    return { request, release }
+  }
+
+  /** 无标题、无 data-tone 的 section 即 KPI 卡（与 P13 同一判别）。 */
+  function kpiCards(): HTMLElement[] {
+    return [...document.querySelectorAll('section')]
+      .filter(card => card.querySelector('h2') === null && card.getAttribute('data-tone') === null) as HTMLElement[]
+  }
+
+  it('加载中渲染与最终内容同形状的骨架：6 张 KPI 数值骨架、趋势图形骨架、账号表行骨架；加载完成后换成正文', async () => {
+    const { request, release } = pendingDetail()
+    render(<ReportPage {...pageProps(request)} />)
+    fireEvent.click(await screen.findByRole('button', { name: t('report.view') }))
+    await screen.findByText(t('report.trend.daily'))
+    // 骨架形状对应最终内容：KPI 行 6 张卡、趋势卡、账号表卡；正文数据尚未出现。
+    const cards = kpiCards()
+    expect(cards).toHaveLength(6)
+    const busyIn = (node: Element): boolean => node.querySelector('[role="status"][aria-busy="true"]') !== null
+    expect(cards.filter(busyIn)).toHaveLength(6)
+    expect(busyIn(screen.getByText(t('report.trend.daily')).closest('section') as HTMLElement)).toBe(true)
+    expect(busyIn(screen.getByText(t('report.col.account')).closest('section') as HTMLElement)).toBe(true)
+    expect(screen.queryByRole('table', { name: t('report.col.account') })).toBeNull()
+    expect(screen.queryByText(t('report.header.base'))).toBeNull()
+    // 加载完成后换成正文，骨架消失。
+    await act(async () => { release(detailPayload()) })
+    await screen.findByText(t('report.header.base'))
+    expect(screen.getByRole('table', { name: t('report.col.account') })).not.toBeNull()
+    expect(screen.queryAllByRole('status')).toHaveLength(0)
+  })
+
+  it('周报详情加载中，骨架标题用周报词条', async () => {
+    const { request } = pendingDetail()
+    render(<ReportPage {...pageProps(request)} />)
+    fireEvent.click(await screen.findByRole('tab', { name: t('report.weekly') }))
+    fireEvent.click(await screen.findByRole('button', { name: t('report.view') }))
+    await screen.findByText(t('report.trend.weekly'))
+    expect(screen.queryByText(t('report.trend.daily'))).toBeNull()
   })
 })

@@ -1,12 +1,15 @@
 /**
- * 报表趋势组合图（上移自抖音工作台 `charts.tsx` 的 `ReportComboChart`）：播放
- * 增量柱（`--yt-chart-2`，末位最新一期深色 `--yt-chart-1`）+ 净增粉丝线
- * （`--yt-chart-4`）；缺采柱不补零（留空刻度）、线 null 断开；每期整列可悬浮/
- * 聚焦，弹出该期柱值与线值浮层（旧插件 chart-tip 同构）并带完整数值 aria。
- * 轴刻度文案函数 {@linkcode axisLabel} 与折线图共用，各包自带一份。
+ * 报表趋势组合图（上移自抖音工作台 `charts.tsx` 的 `ReportComboChart`，装在
+ * kit ChartFrame 的绘图区内）：播放增量柱（`--yt-chart-2`，末位最新一期深色
+ * `--yt-chart-1`）+ 净增粉丝线（`--yt-chart-4`）；缺采柱不补零（留空刻度）、
+ * 线 null 断开；每期整列可悬浮/聚焦（button 语义，Enter/Space 原生支持），
+ * 弹 kit ChartTooltip 数值浮层（标题为日期，两行为柱、线系列值，缺采「—」，
+ * 靠边自动翻转）并带完整数值 aria。轴刻度文案函数 {@linkcode axisLabel} 与
+ * 折线图共用，各包自带一份。
  * @module
  */
 import { useEffect, useState, type ReactNode } from 'react'
+import { ChartTooltip } from '@yootun/dsh-client-ui-kit'
 import { formatCount } from './format.ts'
 import css from './report.module.css'
 
@@ -23,9 +26,8 @@ function axisLabel(value: number, span: number, localeTag: string): string {
  * @param props.days - 周期标签（日/周）。
  * @param props.bars - 柱值（null = 缺采）。
  * @param props.line - 线值（null = 缺采）。
- * @param props.barLabel - 柱系列名（aria/tooltip）。
- * @param props.lineLabel - 线系列名。
- * @param props.tooltipLabel - 悬浮浮层的短标签（旧插件 chart-tip 单行「净粉丝: ±xx」口径）。
+ * @param props.barLabel - 柱系列名（图例与浮层行 label）。
+ * @param props.lineLabel - 线系列名（图例与浮层行 label）。
  * @param props.localeTag - 数值格式化 locale。
  * @returns 组合图形。
  */
@@ -35,7 +37,6 @@ export function ReportComboChart(props: {
   line: readonly (number | null)[]
   barLabel: string
   lineLabel: string
-  tooltipLabel: string
   localeTag: string
 }): ReactNode {
   const [container, setContainer] = useState<HTMLDivElement | null>(null)
@@ -154,18 +155,24 @@ export function ReportComboChart(props: {
         onMouseLeave={() => { setHoverIndex(null) }}
       />
     ))}
-    {activeIndex !== null && props.line[activeIndex] !== null && props.line[activeIndex] !== undefined && (
-      // 旧插件 chart-tip 同构：深色单行气泡（无标题/色块），跟随悬停列。
-      <span
-        className={css.comboTip}
-        role='status'
-        style={{
-          left: `${((pad.left + slot * activeIndex + slot / 2) / width) * 100}%`,
-          top: `${(yLine(props.line[activeIndex] as number) / height) * 100}%`,
+    {activeIndex !== null && (
+      // kit ChartTooltip：标题为日期，两行为柱、线系列值（缺采「—」）；位置与
+      // 靠边翻转由 placeTooltip 决定，不遮挡当前列。
+      <ChartTooltip
+        visible
+        point={{
+          x: pad.left + slot * activeIndex + slot / 2,
+          y: props.line[activeIndex] === null || props.line[activeIndex] === undefined || lineBound === null
+            ? pad.top + plotHeight / 2
+            : yLine(props.line[activeIndex] as number),
         }}
-      >
-        {`${props.tooltipLabel}: ${formatSignedCount(props.line[activeIndex] as number, props.localeTag)}`}
-      </span>
+        title={props.days[activeIndex] ?? ''}
+        rows={[
+          { label: props.barLabel, value: cellText(props.bars[activeIndex]), color: '--yt-chart-2' },
+          { label: props.lineLabel, value: props.line[activeIndex] === null || props.line[activeIndex] === undefined ? '—' : formatSignedCount(props.line[activeIndex] as number, props.localeTag), color: '--yt-chart-4' },
+        ]}
+        container={container}
+      />
     )}
     </div>
   )

@@ -18,7 +18,7 @@ import css from './report.module.css'
 import { attemptId, formatDateTime, shiftDay } from './format.ts'
 import { createReportTranslate, type ReportLocaleKey, type ReportTranslate } from './locales.ts'
 import { readReportDetail, readReportList, type ReportDetail, type ReportListItem, type ReportWork } from './schema.ts'
-import { periodTitle, ReportDetailBody } from './report-detail.tsx'
+import { periodTitle, ReportDetailBody, ReportDetailSkeleton } from './report-detail.tsx'
 import { serializeReportHtml } from './report-export.ts'
 
 /** 作品卡的指标布局，由插件声明。 */
@@ -60,6 +60,9 @@ export function ReportPage(props: ReportPageProps): ReactNode {
   const [items, setItems] = useState<ReportListItem[]>([])
   const [listState, setListState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [listError, setListError] = useState<string | null>(null)
+  // 「加载更多」的失败提示（§4.5：失败列表保留已加载数据，按钮旁提示与重试；
+  // 首屏失败才整块错误）。null = 无在途错误。
+  const [moreError, setMoreError] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [detailId, setDetailId] = useState<string | null>(null)
@@ -90,7 +93,10 @@ export function ReportPage(props: ReportPageProps): ReactNode {
   const loadList = useCallback(async (options?: { more?: boolean }): Promise<void> => {
     const seq = ++listSeqRef.current
     if (options?.more === true) setLoadingMore(true)
-    else setListState('loading')
+    else {
+      setListState('loading')
+      setMoreError(null)
+    }
     try {
       const res = await props.request('report.list', {
         reportType,
@@ -104,10 +110,16 @@ export function ReportPage(props: ReportPageProps): ReactNode {
       setItems(previous => (options?.more === true ? [...previous, ...view.items] : view.items))
       setListState('ready')
       setListError(null)
+      setMoreError(null)
     } catch (error) {
       if (listSeqRef.current !== seq) return
-      setListState('error')
-      setListError(error instanceof Error ? error.message : requestFailedCode)
+      // 加载更多失败保留已加载的行，只在按钮旁提示；首屏失败整块错误。
+      if (options?.more === true) {
+        setMoreError(error instanceof Error ? error.message : requestFailedCode)
+      } else {
+        setListState('error')
+        setListError(error instanceof Error ? error.message : requestFailedCode)
+      }
     } finally {
       if (listSeqRef.current === seq) setLoadingMore(false)
     }
@@ -248,31 +260,40 @@ export function ReportPage(props: ReportPageProps): ReactNode {
               variant='ghost'
               size='sm'
               disabled={(detail?.status === 'pending' || detail?.status === 'running') || regenerating}
+              aria-busy={regenerating || undefined}
               onClick={() => { setRegenAck(false); setRegenConfirmOpen(true) }}
             >
-              {t('report.regenerate')}
+              {regenerating ? t('report.submitting') : t('report.regenerate')}
             </Button>
             <Button variant='ghost' size='sm' disabled={exportingHtml || detail === null || detail.status === 'pending' || detail.status === 'running'} aria-busy={exportingHtml || undefined} onClick={exportHtml}>
               {exportingHtml ? t('report.exporting') : t('report.exportHtml')}
             </Button>
           </span>
         </div>
-        <DataState state={detailState} shape='block' onRetry={() => { if (detailId !== null) void loadDetail(detailId) }}>
-          {detailState === 'error' && detailError !== null && (
-            <p className={css.formError} role='alert'>{props.errorText(detailError)}</p>
+        {detailState === 'loading'
+          ? (
+            // §4.6：加载态与最终内容形状相似（KPI 数值骨架 + 趋势图形骨架 +
+            // 账号表行骨架），不用整块骨架。
+            <ReportDetailSkeleton t={t} weekly={(detail?.reportType ?? reportType) === 'weekly'} />
+          )
+          : (
+            <DataState state={detailState} shape='block' onRetry={() => { if (detailId !== null) void loadDetail(detailId) }}>
+              {detailState === 'error' && detailError !== null && (
+                <p className={css.formError} role='alert'>{props.errorText(detailError)}</p>
+              )}
+              {detailState === 'ready' && detail !== null && (
+                <ReportDetailBody
+                  detail={detail}
+                  t={t}
+                  locale={props.locale}
+                  errorText={props.errorText}
+                  work={props.work}
+                  renderWorkExtra={props.renderWorkExtra}
+                  onRegenerate={() => { setRegenAck(false); setRegenConfirmOpen(true) }}
+                />
+              )}
+            </DataState>
           )}
-          {detailState === 'ready' && detail !== null && (
-            <ReportDetailBody
-              detail={detail}
-              t={t}
-              locale={props.locale}
-              errorText={props.errorText}
-              work={props.work}
-              renderWorkExtra={props.renderWorkExtra}
-              onRegenerate={() => { setRegenAck(false); setRegenConfirmOpen(true) }}
-            />
-          )}
-        </DataState>
         {regenConfirmOpen && detail !== null && (
           <RiskConfirmation
             open
@@ -319,7 +340,9 @@ export function ReportPage(props: ReportPageProps): ReactNode {
               <thead>
                 <tr>
                   {[t('report.col.period'), t('report.col.status'), t('report.col.version'), t('report.col.coverage'),
-                    t('report.col.generatedAt'), t('report.col.note'), ''].map((label, index) => <th key={index} scope='col'>{label}</th>)}
+                    t('report.col.generatedAt'), t('report.col.note'), ''].map((label, index) => (
+                      <th key={index} scope='col' className={index === 6 ? css.cellAction : undefined}>{label}</th>
+                    ))}
                 </tr>
               </thead>
               <tbody>
@@ -337,7 +360,7 @@ export function ReportPage(props: ReportPageProps): ReactNode {
                           ? props.errorText(item.errorCode)
                           : item.summary ?? '—'}
                       </td>
-                      <td><Button variant='ghost' size='sm' onClick={() => { void openDetail(item.reportId) }}>{t('report.view')}</Button></td>
+                      <td className={css.cellAction}><Button variant='ghost' size='sm' onClick={() => { void openDetail(item.reportId) }}>{t('report.view')}</Button></td>
                     </tr>
                   )
                 })}
@@ -346,9 +369,17 @@ export function ReportPage(props: ReportPageProps): ReactNode {
           </div>
         )}
         {hasMore && items.length > 0 && (
-          <Button variant='ghost' size='sm' className={css.loadMore} disabled={loadingMore} aria-busy={loadingMore || undefined} onClick={() => { void loadList({ more: true }) }}>
-            {t('report.loadMore')}
-          </Button>
+          <div className={css.loadMoreRow}>
+            <Button variant='ghost' size='sm' disabled={loadingMore} aria-busy={loadingMore || undefined} onClick={() => { void loadList({ more: true }) }}>
+              {t('report.loadMore')}
+            </Button>
+            {moreError !== null && (
+              <span className={css.loadMoreError}>
+                <span className={css.formError} role='alert'>{props.errorText(moreError)}</span>
+                <Button variant='ghost' size='sm' onClick={() => { void loadList({ more: true }) }}>{t('report.retry')}</Button>
+              </span>
+            )}
+          </div>
         )}
       </DataState>
     </div>

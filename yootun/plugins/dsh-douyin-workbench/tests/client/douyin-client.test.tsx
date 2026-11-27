@@ -1031,7 +1031,7 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     expect(screen.getByRole('button', { name: reportEn['report.regenerateConfirm'] }).className).toMatch(/primary/u)
   })
 
-  it('日报区段：口径标签/小标题区段/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
+  it('日报区段：口径标签/趋势卡标题/账号名加粗/未发布提示胶囊；趋势图悬浮弹数值浮层', async () => {
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
@@ -1064,19 +1064,31 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: reportEn['report.view'] }))
     await screen.findByRole('button', { name: reportEn['report.back'] })
-    // 口径标签为 dl 的 dt（高亮标签）；三张区段卡（趋势/账号/作品）包区段容器（小标题竖杠加粗）。
+    // 口径标签为 dl 的 dt（高亮标签）。
     expect(screen.getByText(reportEn['report.header.base']).tagName).toBe('DT')
-    expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(3)
+    // 2.8「趋势图容器」：趋势改用 kit ChartFrame（业务问题标题的 h2）；随
+    // `.reportSection h2` 结构选择器覆盖删除，区段容器类不再出现。
+    expect(screen.getByText(reportT('report.trend.daily')).tagName).toBe('H2')
+    expect(document.querySelectorAll('[class*="reportSection"]').length).toBe(0)
     // 账号名加粗类 + 「N 天未发布」提示胶囊。
     expect(screen.getByText('账号一').className).toMatch(/reportAccountName/u)
     expect(screen.getByText('3 天未发布').className).toMatch(/reportMark/u)
-    // 较昨日对比行挂 kpiChange（12px 加粗）。
-    expect(screen.getByText(/▲8\.5%/u).className).toMatch(/kpiChange/u)
-    // 趋势图：悬浮列 → 深色单行气泡只显示「净粉丝: 值」（旧 chart-tip 同构）。
-    expect(screen.queryByText(`${reportEn['report.trend.lineTip']}: +5`)).toBeNull()
+    // 2.8「KPI 行/变化量」：KPI 改用 kit KpiCard，变化说明经 footnote 传入
+    // （涨红跌绿 token 不变），旧 kpiTile/kpiChange 瓦片类不再绑定。
+    const changeNode = screen.getByText(/▲8\.5%/u)
+    const kpiCard = changeNode.closest('section')
+    expect(kpiCard).not.toBeNull()
+    expect(kpiCard?.querySelector('h2')).toBeNull()
+    // 2.8「趋势图浮层」：旧深色单行气泡换成 kit ChartTooltip——标题是日期，
+    // 两行是柱、线两个系列的值。
     fireEvent.mouseEnter(screen.getByRole('button', { name: /^11-19 /u }))
-    expect(await screen.findByText(`${reportEn['report.trend.lineTip']}: +5`)).not.toBeNull()
-    // 气泡不含柱系列说明与日期标题（避免与图下说明重复）。
+    const tooltip = await screen.findByRole('status')
+    expect(within(tooltip).getByText('11-19')).not.toBeNull()
+    expect(within(tooltip).getByText(reportT('report.col.plays'))).not.toBeNull()
+    expect(within(tooltip).getByText('100')).not.toBeNull()
+    expect(within(tooltip).getByText(reportT('report.col.netFans'))).not.toBeNull()
+    expect(within(tooltip).getByText('+5')).not.toBeNull()
+    // 浮层不含柱系列口径说明（口径说明在图例与脚注）。
     expect(screen.queryByText(reportEn['report.trend.barDaily'])).toBeNull()
     expect(screen.queryByText(reportEn['report.trend.lineNote'])).toBeNull()
   })

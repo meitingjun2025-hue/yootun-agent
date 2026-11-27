@@ -1,21 +1,24 @@
 /**
- * 报表详情正文（上移自抖音工作台 `ReportPage.tsx`，结构与文案不变）：报表头
- * meta（对比基准/KPI 口径/互动口径/作品口径/标注说明 + QualityBar）+ KPI 行
- * （涨红跌绿 ▲▼ + 上期值 + 无对比基准 flat）+ 趋势图（柱+线，缺采断开不补
- * 零，末位深色）+ 账号表（「—*」无快照口径；数据不带负责人时不渲染该列）+
- * 作品卡（按插件声明的 {@link ReportWorkLayout} 渲染主行/次要行/进度条，平台
- * 特有内容经 `renderWorkExtra` 注入）+ 异常列表 + AI 洞察三列（事实/推断/建议
- * + 展开完整依据 details）+ 数据不足态（信号清单 + 重新生成）。
+ * 报表详情正文（上移自抖音工作台 `ReportPage.tsx`，数据与文案口径不变，界面
+ * 按 plugin-ui-ux-standard §三/§四/§五 整改）：报表头 meta（对比基准/KPI 口径/
+ * 互动口径/作品口径/标注说明 + QualityBar）+ KPI 行（kit KpiCard 六卡，变化
+ * 说明经 footnote，涨红跌绿 token 不变）+ 趋势图（kit ChartFrame 业务问题标题
+ * + 只读 ChartLegend 双系列 + 柱线 marks，缺采断开不补零，末位深色）+ 账号表
+ * （「—*」无快照口径；数据不带负责人时不渲染该列）+ 作品卡（按插件声明的
+ * {@link ReportWorkLayout} 渲染主行/次要行/进度条，平台特有内容经
+ * `renderWorkExtra` 注入）+ 异常列表 + AI 洞察三列（事实/推断/建议 + 展开完整
+ * 依据 details）+ 数据不足态（信号清单 + 重新生成）+ 加载骨架（KPI 数值骨架 +
+ * 趋势图形骨架 + 账号表行骨架）。
  * @module
  */
 import type { ReactNode } from 'react'
 import { Button, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
-import { DataCard } from '@yootun/dsh-client-ui-kit'
+import { ChartFrame, ChartLegend, DataCard, DataState, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { formatCount, formatDateTime, formatPercent, shiftDay } from './format.ts'
 import css from './report.module.css'
 import { ReportComboChart } from './report-chart.tsx'
 import type { ReportTranslate } from './locales.ts'
-import type { ReportDetail, ReportWork } from './schema.ts'
+import type { ReportDetail, ReportMetric, ReportWork } from './schema.ts'
 import type { ReportWorkLayout } from './report-page.tsx'
 
 /** 周期标题（周报 end-1 闭区间；列表行、详情标题与导出共用同一口径）。 */
@@ -140,38 +143,39 @@ export function ReportDetailBody(props: {
 
       <div className={css.kpiRow}>
         {data.coreMetrics.map(metric => (
-          <div key={metric.key} className={css.kpiTile}>
-            <span className={css.metricLabel}>{metric.label ?? metric.key}</span>
-            <strong className={css.kpiValue}>{metric.available ? (metric.key === 'interactionRate' ? formatPercent(metric.value) : formatCount(metric.value, props.locale)) : '—'}</strong>
-            {metric.changePct !== null
-              ? (
-                <span className={`${css.kpiChange} ${metric.changePct > 0 ? css.deltaUp : metric.changePct < 0 ? css.deltaDown : ''}`}>
-                  {`${weekly ? t('report.change.weekly') : t('report.change.daily')} ${metric.changePct > 0 ? '▲' : metric.changePct < 0 ? '▼' : ''}${Math.abs(metric.changePct).toFixed(1)}%`}
-                  {metric.prevValue !== null ? ` · ${t('report.change.prev', { value: formatCount(metric.prevValue, props.locale) })}` : ''}
-                </span>
-              )
-              : <span className={css.metricFootnote}>{`${weekly ? t('report.change.weekly') : t('report.change.daily')} ${t('report.change.noBase')}`}</span>}
-            {metric.note !== null && <span className={css.metricFootnote}>{metric.note}</span>}
-          </div>
+          <KpiCard
+            key={metric.key}
+            label={metric.label ?? metric.key}
+            value={metric.available ? (metric.key === 'interactionRate' ? formatPercent(metric.value) : formatCount(metric.value, props.locale)) : '—'}
+            footnote={kpiFootnote(metric, weekly, props.locale, t)}
+          />
         ))}
       </div>
 
-      <div className={css.reportSection}>
-      <DataCard title={weekly ? t('report.trend.weekly') : t('report.trend.daily')} state='ready' footnote={t('report.trend.gapText')}>
+      <ChartFrame
+        title={weekly ? t('report.trend.weekly') : t('report.trend.daily')}
+        ariaLabel={weekly ? t('report.trend.weekly') : t('report.trend.daily')}
+        state='ready'
+        legend={
+          <ChartLegend
+            items={[
+              { id: 'bar', label: t('report.col.plays'), color: '--yt-chart-2', value: formatCount(seriesSum(data.trendSeries.bars), props.locale) },
+              { id: 'line', label: t('report.col.netFans'), color: '--yt-chart-4', value: formatCount(seriesSum(data.trendSeries.line), props.locale) },
+            ]}
+          />
+        }
+        footnote={`${t('report.trend.barNote')}：${weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')} · ${t('report.trend.lineNote')}：${weekly ? t('report.trend.lineWeekly') : t('report.trend.lineDaily')} · ${t('report.trend.gapText')}`}
+      >
         <ReportComboChart
           days={data.trendSeries.days}
           bars={data.trendSeries.bars}
           line={data.trendSeries.line}
-          barLabel={weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')}
-          lineLabel={t('report.trend.lineNote')}
-          tooltipLabel={t('report.trend.lineTip')}
+          barLabel={t('report.col.plays')}
+          lineLabel={t('report.col.netFans')}
           localeTag={props.locale}
         />
-        <p className={css.inlineHint}>{`${t('report.trend.barNote')}：${weekly ? t('report.trend.barWeekly') : t('report.trend.barDaily')} · ${t('report.trend.lineNote')}：${weekly ? t('report.trend.lineWeekly') : t('report.trend.lineDaily')}`}</p>
-      </DataCard>
-      </div>
+      </ChartFrame>
 
-      <div className={css.reportSection}>
       <DataCard title={weekly ? t('report.accounts.weekly', { from: start, to: endText }) : t('report.accounts.daily', { day: start })} state='ready'>
         <div className={css.tableWrap} role='region' aria-label={t('report.col.account')} tabIndex={0}>
           <table className={css.dataTable} aria-label={t('report.col.account')}>
@@ -211,9 +215,7 @@ export function ReportDetailBody(props: {
           </table>
         </div>
       </DataCard>
-      </div>
 
-      <div className={css.reportSection}>
       <DataCard
         title={weekly
           ? t('report.works.weekly', { count: data.works.length })
@@ -231,7 +233,6 @@ export function ReportDetailBody(props: {
             </div>
           )}
       </DataCard>
-      </div>
 
       {data.anomalies.length > 0 && (
         <DataCard title={t('report.anomaly.gap')} state='ready'>
@@ -295,6 +296,55 @@ export function ReportDetailBody(props: {
           </div>
         </DataCard>
       )}
+    </div>
+  )
+}
+
+/**
+ * KPI 卡脚注（涨红跌绿沿用现有 token，不使用 KpiCard 的 delta 配色）：变化行
+ * `较昨日 ▲8.5% · 上期 …` 或无对比基准说明，附指标备注。
+ */
+function kpiFootnote(metric: ReportMetric, weekly: boolean, locale: 'zh' | 'en', t: ReportTranslate): ReactNode {
+  const changeLabel = weekly ? t('report.change.weekly') : t('report.change.daily')
+  return (
+    <>
+      {metric.changePct !== null
+        ? (
+          <span className={`${css.kpiChange} ${metric.changePct > 0 ? css.deltaUp : metric.changePct < 0 ? css.deltaDown : ''}`}>
+            {`${changeLabel} ${metric.changePct > 0 ? '▲' : metric.changePct < 0 ? '▼' : ''}${Math.abs(metric.changePct).toFixed(1)}%`}
+            {metric.prevValue !== null ? ` · ${t('report.change.prev', { value: formatCount(metric.prevValue, locale) })}` : ''}
+          </span>
+        )
+        : <span className={css.kpiChange}>{`${changeLabel} ${t('report.change.noBase')}`}</span>}
+      {metric.note !== null && <span>{metric.note}</span>}
+    </>
+  )
+}
+
+/** 系列合计（图例值槽；缺失期不参与求和，全缺为 null → 「—」）。 */
+function seriesSum(values: readonly (number | null)[]): number | null {
+  const present = values.filter((value): value is number => value !== null)
+  return present.length === 0 ? null : present.reduce((total, value) => total + value, 0)
+}
+
+/**
+ * 详情加载骨架（§4.6 三态与最终内容形状相似）：KPI 行数值骨架 + 趋势卡图形
+ * 骨架 + 账号表行骨架。标题按正在打开的报表类型取日报或周报词条。
+ * @param props.weekly - 正在打开的是否周报。
+ * @param props.t - 报表词典翻译函数。
+ * @returns 骨架元素。
+ */
+export function ReportDetailSkeleton(props: { weekly: boolean; t: ReportTranslate }): ReactNode {
+  const title = props.t(props.weekly ? 'report.trend.weekly' : 'report.trend.daily')
+  return (
+    <div className={css.reportBody}>
+      <div className={css.kpiRow}>
+        {[0, 1, 2, 3, 4, 5].map(index => <KpiCard key={index} label='' value='' state='loading' />)}
+      </div>
+      <ChartFrame title={title} ariaLabel={title} state='loading' />
+      <DataCard title={props.t('report.col.account')}>
+        <DataState state='loading' shape='rows' />
+      </DataCard>
     </div>
   )
 }

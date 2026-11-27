@@ -1,12 +1,12 @@
 /*
- * 报表业务页样式（上移自抖音工作台 workbench.module.css 的报表页类，规则原文
- * 照搬、类名保持原名）：25 个报表专属类 + 21 个与插件其他页面共用的类 + 组合
- * 趋势图 11 个类。响应式经 `@container yootun-kit-page`（kit PluginPageShell
- * 建立的容器名，由消费插件与 kit 两侧共享）；容器名不逐文件哈希由 client 构
- * 建 preset 的 `cssModules.container: false` 保证。本样式表必须随消费插件进
- * bundle 的样式安装元数据（插件在 kit-styles.ts 声明 import），否则静默失效。
- * 颜色全部映射官方 `--dsw-*` token 或集中 `--yt-*` 语义变量；无 `!important`、
- * 无字面色值、无全局选择器。
+ * 报表业务页样式：组件样式收敛到 kit 的 KpiCard / ChartFrame / ChartLegend /
+ * ChartTooltip / DataCard / DataState（样式表随消费插件安装），本表只保留页面
+ * 布局、表格与自绘趋势 marks。响应式经 `@container yootun-kit-page`（kit
+ * PluginPageShell 建立的容器名，由消费插件与 kit 两侧共享）；容器名不逐文件
+ * 哈希由 client 构建 preset 的 `cssModules.container: false` 保证。本样式表必须
+ * 随消费插件进 bundle 的样式安装元数据（插件在 kit-styles.ts 声明 import），
+ * 否则静默失效。颜色全部映射官方 `--dsw-*` token 或集中 `--yt-*` 语义变量；
+ * 无 `!important`、无字面色值、无全局选择器。
  */
 
 .pageBody {
@@ -23,21 +23,16 @@
   flex-wrap: wrap;
 }
 
-.workTable,
-.dataTable,
-.scheduleTable {
+/* 表格（列表与账号表同一密度：数字右对齐、表头 32px、行高 32px）。 */
+.dataTable {
   width: max-content;
   min-width: 100%;
   border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
 
-.workTable th,
-.workTable td,
 .dataTable th,
-.dataTable td,
-.scheduleTable th,
-.scheduleTable td {
+.dataTable td {
   padding: 7px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   text-align: start;
@@ -47,9 +42,7 @@
 }
 
 /* 全站表头统一加粗（真机反馈：各 Tab 表格标题需更醒目）。 */
-.workTable th,
-.dataTable th,
-.scheduleTable th {
+.dataTable th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -58,22 +51,10 @@
   font-weight: 500;
 }
 
-.workTable td,
-.dataTable td,
-.scheduleTable td {
+.dataTable td {
   color: var(--dsw-alias-label-primary);
 }
 
-/* 行末操作列（查看详情/查看分析）：宽度固定，按钮不随列内容挤压。 */
-.workTable .colAction,
-.dataTable .colAction {
-  width: 96px;
-  min-width: 96px;
-  max-width: 96px;
-  text-align: end;
-}
-
-.workTable tbody tr:focus-visible,
 .dataTable tbody tr:focus-visible {
   outline: 2px solid var(--dsw-alias-border-selected);
   outline-offset: -2px;
@@ -91,6 +72,14 @@
   }
 }
 
+/* 列表「查看」操作列：宽度固定，按钮不随列内容挤压。 */
+.cellAction {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  text-align: end;
+}
+
 /* 吸粉量/净增着色：红涨绿跌 token（0/缺失中性） */
 
 .deltaUp {
@@ -101,45 +90,20 @@
   color: var(--dsw-alias-state-success-primary);
 }
 
-/* KPI 行 / 指标卡 */
+/* KPI 行：6 个 KpiCard（kit 卡片），列数按容器三档（880+ 六列）。 */
 
 .kpiRow {
   display: grid;
-  /* auto-fit：行内瓦片数不限 6，均分撑满整行（旧插件 KPI 行铺满口径） */
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
   min-width: 0;
 }
 
-.kpiTile {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px;
-  border-radius: var(--dsw-radius-xl);
-  background: var(--dsw-alias-bg-layer-1);
-  min-width: 0;
-}
-
-.kpiValue {
-  font-size: 20px;
-  line-height: 26px;
-  font-weight: 500;
-  color: var(--dsw-alias-label-primary);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.metricLabel {
+/* KPI 卡脚注里的较昨日/较上周变化行：12px 加粗（不随主数值字号放大）。 */
+.kpiChange {
   font-size: 12px;
   line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.metricFootnote {
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--dsw-alias-label-tertiary);
+  font-weight: 500;
 }
 
 /* 提示行 / 空态 / 单元格 */
@@ -195,6 +159,22 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+/* 列表加载更多：按钮居中；失败时按钮旁一处错误提示与重试（不整块替换）。 */
+
+.loadMoreRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.loadMoreError {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 运营提醒 */
 
 .alertList {
@@ -226,7 +206,7 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* 折线 / 柱线组合 marks */
+/* 柱线组合 marks（装在 kit ChartFrame 的绘图区内） */
 
 .plotLayer {
   position: relative;
@@ -235,7 +215,6 @@
   min-width: 0;
 }
 
-.axisSvg,
 .comboSvg {
   display: block;
   width: 100%;
@@ -286,22 +265,7 @@
   fill: var(--yt-chart-4);
 }
 
-/* 组合图悬浮气泡（旧插件 chart-tip 同构）：深色单行，跟随悬停列，不遮挡指针。 */
-.comboTip {
-  position: absolute;
-  transform: translate(-50%, calc(-100% - 8px));
-  padding: 6px 10px;
-  border-radius: var(--dsw-radius-sm);
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-label-primary-foreground);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: nowrap;
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 组合图每期命中列：整期列宽可悬浮/聚焦（弹数值浮层），透明无焦点框。 */
+/* 每期命中列：整期列宽可悬浮/聚焦（弹 ChartTooltip 数值浮层），透明无焦点框。 */
 .comboColumn {
   position: absolute;
   top: 0;
@@ -335,42 +299,21 @@
   user-select: none;
 }
 
-.loadMore {
-  align-self: center;
-}
-
-/* AI 报表 */
+/* AI 报表详情正文：相邻一级分区纵向 20px（§三）。 */
 
 .reportBody {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   min-width: 0;
 }
 
-/* 区段小标题（旧 ydo-report-section-title 同构）：左侧品牌蓝竖杠承载强调。
-   DataCard 标题为 kit 模块类，按结构选择器在报表区段内覆盖。 */
-.reportSection h2 {
-  padding-left: 10px;
-  border-left: 3px solid var(--dsw-static-blue-500);
-  font-size: 15px;
-  font-weight: 500;
-  white-space: normal;
-}
-
-/* KPI 卡「较昨日/较上周」对比行：12px（旧 ydo-report-kpi-change 同构），不随主数值字号放大。 */
-.kpiTile .kpiChange {
-  font-size: 12px;
-  line-height: 18px;
-  font-weight: 500;
-}
-
-/* 账号明细：账号名加粗（旧 ydo-report-cell-main 同构）。 */
+/* 账号明细：账号名加粗。 */
 .reportAccountName {
   font-weight: 500;
 }
 
-/* 「N 天未发布」等提示胶囊（旧 ydo-report-mark 同构）：橙色实底白字，浅深主题一致。 */
+/* 「N 天未发布」等提示胶囊：橙色实底白字，浅深主题一致。 */
 .reportMark {
   display: inline-block;
   margin-left: 6px;
@@ -403,7 +346,7 @@
   flex: none;
   padding: 1px 8px;
   border-radius: var(--dsw-radius-xs);
-  /* 口径标签高亮（旧 ydo-report-meta-k 同构）：品牌蓝淡底 + 蓝字加粗。 */
+  /* 口径标签高亮：品牌蓝淡底 + 蓝字加粗。 */
   background: color-mix(in srgb, var(--dsw-static-blue-500) 14%, transparent);
   color: var(--dsw-static-blue-500);
   font-size: 12px;
@@ -622,22 +565,24 @@
   overflow-wrap: anywhere;
 }
 
-/* 响应式（容器三档中报表页涉及的规则；kpiRow 与 workToolbarRow 同类规则也在
-   消费插件的样式表内，两处作用域互不重叠——本表只服务报表页模块的类名哈希）。 */
+/* 响应式（容器三档中报表页涉及的规则）。KPI 行 880 及以上六列、640–879 两列、
+   小于 640 单列；洞察三列窄于 1120 单列；列表工具栏窄于 640 折为纵向。 */
 
 @container yootun-kit-page (max-width: 1119px) {
-  .kpiRow {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .insightGrid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-@container yootun-kit-page (max-width: 639px) {
+@container yootun-kit-page (max-width: 879px) {
   .kpiRow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container yootun-kit-page (max-width: 639px) {
+  .kpiRow {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workToolbarRow {
