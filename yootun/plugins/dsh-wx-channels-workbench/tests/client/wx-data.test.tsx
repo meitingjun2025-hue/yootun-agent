@@ -891,6 +891,58 @@ describe('批量运行中的选中驱动轮询（R4：运行中账号的作品�
     expect(calls.filter(call => call.action === 'account.overview' && call.args.accountId === 'finder-a').length).toBe(2)
   })
 
+  it('D8c 页面发起的采集终态后，批量再采到同一账号：选中驱动路恢复起表显示进度', async () => {
+    let phase: 'idle' | 'pageRunning' | 'terminal' | 'batchRunning' = 'idle'
+    const runningA = {
+      accountId: 'finder-a', status: 'running', startedAt: '2026-11-18T10:00:00.000Z',
+      finishedAt: null, error: null, progress: { phase: 'details', done: 2, total: 5 }, result: null,
+    }
+    const doneA = {
+      accountId: 'finder-a', status: 'completed', startedAt: '2026-11-18T10:00:00.000Z',
+      finishedAt: '2026-11-18T10:03:00.000Z', error: null, progress: {}, result: null,
+    }
+    const batchCollecting = {
+      ...OK, ready: false, phase: 'collecting', total: 1, currentAccountIndex: 0, currentAccountId: 'finder-a',
+      runningAccountIds: ['finder-a'], concurrency: 3, error: null,
+      completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0,
+      items: [{ accountId: 'finder-a', status: 'running', reason: null }],
+    }
+    const { calls } = await renderPage(baseHandlers({
+      'accounts.list': () => ({ ...OK, accounts: [ACCOUNT], remoteOk: true }),
+      'collect.running': () => ({ ...OK, collect: null, batchRunning: false }),
+      'collect.status': args => {
+        if (String(args.accountId ?? '') !== 'finder-a') {
+          return { ...OK, busy: false, collect: null, runningAccountIds: [], lastRun: null }
+        }
+        if (phase === 'pageRunning' || phase === 'batchRunning') {
+          return { ...OK, busy: true, collect: runningA, runningAccountIds: ['finder-a'], lastRun: null }
+        }
+        if (phase === 'terminal') {
+          return { ...OK, busy: false, collect: doneA, runningAccountIds: [], lastRun: null }
+        }
+        return { ...OK, busy: false, collect: null, runningAccountIds: [], lastRun: null }
+      },
+      'collect.start': () => ({ ...OK, started: true }),
+      'collectAll.start': () => ({ ...OK, started: true, batchId: 'batch-1' }),
+      'collectAll.status': () => phase === 'batchRunning'
+        ? batchCollecting
+        : { ...OK, ready: true, phase: 'finished', total: 0, currentAccountIndex: 0, currentAccountId: null, runningAccountIds: [], concurrency: 3, error: null, completedCount: 0, partialCount: 0, failedCount: 0, skippedCount: 0, items: [] },
+    }))
+    void calls
+    // 页面发起甲：发起路轮询，进度上屏（phase 先置，覆盖 start 回执后的首拍）。
+    phase = 'pageRunning'
+    fireEvent.click(screen.getByRole('button', { name: t('works.collect') }))
+    expect(await screen.findByText(t('collect.progress.details', { done: 2, total: 5 }))).not.toBeNull()
+    // 甲落终态：发起路停表（machine pollers 随终态删除，选中让位随之解除）。
+    phase = 'terminal'
+    await waitFor(() => expect(screen.queryByText(t('collect.progress.details', { done: 2, total: 5 }))).toBeNull(), { timeout: 3000 })
+    // 批量再采到甲：甲回到运行集合，选中驱动路另起一路显示进度。
+    phase = 'batchRunning'
+    fireEvent.click(screen.getByRole('button', { name: t('account.collectAll') }))
+    expect(await screen.findByText(t('batch.currentList', { names: '演示账号' }))).not.toBeNull()
+    expect(await screen.findByText(t('collect.progress.details', { done: 2, total: 5 }))).not.toBeNull()
+  })
+
   it('D8b 切换选中后到达的过期响应被丢弃：不停止新选中账号的轮询、不清它的进度', async () => {
     const runningIds = ['finder-a', 'finder-b']
     const runningA = {

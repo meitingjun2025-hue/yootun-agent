@@ -46,7 +46,7 @@ class FakeClock {
 
 const flush = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
 
-// --- 登录 L1–L4 ---
+// --- 登录 L1–L5 ---
 
 interface TestLoginView { key: string; status: string }
 
@@ -173,7 +173,39 @@ test('L4 stop 之后迟到的响应不改变状态', async () => {
   assert.equal(machine.get().login?.status, 'waiting', '迟到响应不改状态')
 })
 
+test('L5 二次 begin 跟随新 key：旧序号的响应被丢弃，新 key 终态收敛', async () => {
+  const settled: TestLoginView[] = []
+  let beginCalls = 0
+  const machine = createLoginMachine({
+    begin: async (): Promise<TestLoginView> => {
+      beginCalls += 1
+      return beginCalls === 1 ? { key: 'k1', status: 'waiting' } : { key: 'k2', status: 'waiting' }
+    },
+    status: async (key: string): Promise<TestLoginView> => key === 'k1' ? { key: 'k1', status: 'waiting' } : { key: 'k2', status: 'ok' },
+    keyOf: (view: TestLoginView) => view.key,
+    statusOf: (view: TestLoginView) => view.status,
+    activeStatuses: ['waiting'] as const,
+    terminalStatuses: ['ok', 'timeout', 'failed', 'idle'] as const,
+    pollIntervalMs: 2000,
+    poller: new FakeClock(),
+    onSettled: (view: TestLoginView) => { settled.push(view) },
+  })
+  try {
+    await machine.begin()
+    await flush()
+    assert.equal(machine.get().login?.key, 'k1', '首次 begin 进入 k1 等待态')
+    // 首张登录卡仍在轮询时再次发起（宿主每次新建 pending key）。
+    await machine.begin()
+    await flush()
+    assert.equal(machine.get().login, null, '新 key 的终态（ok）收起卡片')
+    assert.deepEqual(settled, [{ key: 'k2', status: 'ok' }], 'onSettled 恰一次且归属新 key')
+  } finally {
+    machine.stop()
+  }
+})
+
 // --- 单账号采集 C1–C5 ---
+
 
 interface TestCollectView { accountId: string; status: string; error?: string }
 

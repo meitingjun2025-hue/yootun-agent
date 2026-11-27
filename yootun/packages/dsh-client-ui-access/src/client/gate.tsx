@@ -166,11 +166,13 @@ export function mountGate(props: GateProps): () => void {
     // 会解除仍在阻断的另一个门禁的滚动锁。root.inert 复位保留为升级前残留的兜底。
     gateRoot.unmount()
     const root = document.getElementById('root')
-    if (root !== null) {
-      root.inert = false
-      root.removeAttribute('aria-hidden')
-    }
+    if (root !== null) root.inert = false
     host.remove()
-    if (document.getElementById('yu-access-gate') === null) document.body.style.overflow = ''
+    // aria-hidden 与滚动锁同一守卫口径：门禁层仍有挂载（双挂载时另一门禁还在
+    // 阻断）时不解除，全部门禁卸载后才统一复位。
+    if (document.getElementById('yu-access-gate') === null) {
+      root?.removeAttribute('aria-hidden')
+      document.body.style.overflow = ''
+    }
   }
 }
