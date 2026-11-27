@@ -81,7 +81,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
   let state: CollectState<CollectView> = { record: null, runningAccountIds: [], startReason: null }
   const listeners = new Set<() => void>()
   const pollers = new Map<string, AccountPoller>()
-  let restoreGeneration = 0
   let restoreInitiated = false
 
   const set = (next: CollectState<CollectView>): void => {
@@ -127,7 +126,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
     async start(accountId, options) {
       if (accountId === '') return
       restoreInitiated = true
-      restoreGeneration += 1
       // 乐观运行态：点击瞬间进入 running 投影（端口 start 回执到达前）。
       const optimisticSame = state.record !== null && ports.accountIdOf(state.record, accountId) === accountId
       set({ ...state, startReason: null, runningAccountIds: state.runningAccountIds.includes(accountId) ? state.runningAccountIds : [...state.runningAccountIds, accountId], record: optimisticSame ? state.record : ports.optimisticRunning(accountId) })
@@ -200,7 +198,6 @@ export function createCollectMachine<CollectView>(ports: CollectMachinePorts<Col
 
     invalidateRestore() {
       restoreInitiated = true
-      restoreGeneration += 1
     },
 
     stop() {

@@ -15,6 +15,7 @@ import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
+import { createWorkbenchLocaleSeat } from '../../src/client/index.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -142,7 +143,7 @@ beforeEach(() => {
   })
 })
 
-/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例词典口径一致（zh 格式）。 */
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 取 en——既有 kit 文案断言按 en 口径、formatCount 的 zh 断言走其缺省参数（见实施单 5.3）。 */
 const localeSnapshot = { active: 'en' }
 const locale = {
   subscribe: () => () => undefined,
@@ -170,6 +171,14 @@ describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () =
     expect(screen.queryByRole('tab', { name: en['tab.schedule'] })).toBeNull()
     fireEvent.click(screen.getByRole('tab', { name: en['nav.group.report'] }))
     expect(screen.queryByRole('tab', { name: en['tab.report'] })).toBeNull()
+  })
+
+  it('N4 首次进素材与知识组：默认落在爆款素材看板', () => {
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['nav.group.material'] }))
+    const subTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === t('nav.subLevel', { group: en['nav.group.material'] }))
+    expect(subTabs.map(tab => tab.textContent)).toEqual([en['tab.material'], en['tab.breakdown'], en['tab.gene']])
+    expect(subTabs[0]?.getAttribute('aria-selected')).toBe('true')
   })
 
   it('N3 在账号总览切到别的组再切回数据 → 仍是账号总览（组不重置页内状态）', () => {
@@ -2107,5 +2116,42 @@ describe('行内详情/分析按钮（douyin-tabs-regroup D1/D2）', () => {
     fireEvent.click(within(historyTable).getAllByRole('button', { name: en['action.viewDetail'] })[0] as HTMLElement)
     // 行 onClick 与按钮同函数：stopPropagation 下单击 = 打开一次（返回按钮出现且唯一）。
     expect((await screen.findAllByRole('button', { name: en['bd.backToList'] })).length).toBe(1)
+  })
+})
+
+describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
+  it('createWorkbenchLocaleSeat：类实例 face 解构后可用、快照引用稳定；apply 经工厂注入', () => {
+    class FakeLocaleFace {
+      snapshot = { active: 'zh-CN' }
+      readonly listeners = new Set<() => void>()
+      // 读 this 的方法形态（生产 ctx.locale 即类实例）：工厂不保 this 就会在此抛错。
+      getSnapshot(): { active: string } { return this.snapshot }
+      subscribe(fn: () => void): () => void {
+        this.listeners.add(fn)
+        return () => { this.listeners.delete(fn) }
+      }
+      publish(next: { active: string }): void {
+        this.snapshot = next
+        this.listeners.forEach(fn => fn())
+      }
+    }
+    const face = new FakeLocaleFace()
+    // 解构即生产现场（useSyncExternalStore(locale.subscribe, locale.getSnapshot)）。
+    const { subscribe, getSnapshot } = createWorkbenchLocaleSeat(face)
+    let notified = 0
+    const unsubscribe = subscribe(() => { notified += 1 })
+    const first = getSnapshot()
+    expect(first).toBe(face.snapshot)
+    face.publish({ active: 'en' })
+    expect(notified).toBe(1)
+    expect(getSnapshot()).not.toBe(first)
+    expect(getSnapshot().active).toBe('en')
+    unsubscribe()
+    face.publish({ active: 'zh-CN' })
+    expect(notified).toBe(1)
+    // 源码级兜底：apply 的座位必须经工厂（防改回内联对象或 undefined）。
+    const indexSource = readFileSync(join(process.cwd(), 'src', 'client', 'index.ts'), 'utf8')
+    expect(indexSource).toContain('const locale = createWorkbenchLocaleSeat(ctx.locale)')
+    expect(indexSource).toContain('export function createWorkbenchLocaleSeat')
   })
 })
