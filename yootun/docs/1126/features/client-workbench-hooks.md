@@ -118,7 +118,7 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 | 文档（本文 + UI 规范 §8.1 + OVERVIEW + 1126 索引） | 2026-11-26 | `main` | 草案，待审查 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/client-workbench-hooks` | 待填，分三步合入（见附录 A0） |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/client-workbench-hooks` | 三步并一步落地：machines 包 + 抖音/视频号 flows 与页面拆分 + locale/attemptId 收口（见 5.3） |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -146,7 +146,13 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 
 ### 5.3 本地联调记录
 
-待填（合入前回填；需记录 locale 快照在语言切换时 `getSnapshot()` 返回新引用的实测结果）。
+**locale 快照与座位（2026-11-27 实测）**
+
+- 取当前语言的响应式 API 是 `ctx.locale` 上的两个方法（按属性名搜不到）：`getSnapshot()` 返回当前冻结快照，`active` 为语言 id，两次变化之间引用稳定（`packages/client/locale/src/client/index.ts:228`）；`subscribe(fn)` 每次快照变化通知并返回退订函数（同文件 `:239`）；语言切换 `publish()` 一定新建冻结快照（`revision + 1`），引用必变（同文件 `:496`）。
+- 座位必须箭头包装：`ctx.locale` 是类实例，直接传给页面后 `useSyncExternalStore(locale.subscribe, …)` 解构丢 `this`，React 调用即抛 `TypeError`。三插件 `client/index.ts` 的 `apply` 内一次性构造 `{ subscribe: (fn) => ctx.locale.subscribe(fn), getSnapshot: () => ctx.locale.getSnapshot() }`；`getSnapshot` 返回官方快照对象本身，不能每拍包新对象（`useSyncExternalStore` 会无限循环）。页面侧由附录 B 的 P2 用例（注入假座位，`zh` 切 `en`）覆盖。
+- **测试假座位的 `active` 取 `en`，不是 `zh`**（对裁定「固定返回 zh」的实测修正）：抖音既有用例的 kit 组件文案断言按 en 口径写（douyin-client.test.tsx 的 `pagerInfo` 助手自带注释「kit Pager 信息文案（en 词典直取；页面 kitTranslate 为 en）」——旧 `localeTagOf(t)` 以 en 词典判定为 en），而 `formatCount` 的 zh 口径断言走该函数的缺省参数 `localeTag = 'zh'`，与座位无关。座位给 `zh` 时 9 例失败、给 `en` 时全绿，其余 diff 零改动。视频号、小红书同口径。
+- 既有用例的夹具改动：三插件 client 测试的 `render(<WorkbenchPage t={t} />)` 机械补 `locale={locale}`（抖音 57+37、小红书 8 处，视频号见其提交），加模块级座位假件（快照对象只建一次）；断言行零改动，`git diff` 可证只动 import 行、座位块与渲染行。
+- `attemptId()` 自 AnalysisPage 迁至 format.ts（实现不变），六处引用改走 format.ts；douyin 测试 151 例 + 新增 P2×2、P3×1 = 154 例全过。
 
 ## 附录 A：逐文件规格
 
@@ -173,7 +179,7 @@ export function localeTagOf(activeLocaleId: string): 'zh' | 'en'
 
 ### A3 locale 与 `attemptId`
 
-- 三插件 `client/index.ts`：slot `inject` 返回 `{ t, locale: ctx.locale }`；
+- 三插件 `client/index.ts`：`apply` 内一次性构造 locale 座位，`subscribe` 与 `getSnapshot` 用箭头包装 `ctx.locale` 的同名方法，`getSnapshot` 返回官方快照对象本身；slot `inject` 返回 `{ t, locale }`；
 - `WorkbenchPage.tsx`：`const active = useSyncExternalStore(locale.subscribe, locale.getSnapshot, locale.getSnapshot).active`；`localeTagOf(active)`；
 - `format.ts`：新增 `localeTagOf(activeLocaleId)`；抖音新增 `attemptId()`（自 `AnalysisPage.tsx` 迁入，实现不变），`AnalysisPage.tsx` 改为从 `format.ts` 导入并停止导出该函数。
 

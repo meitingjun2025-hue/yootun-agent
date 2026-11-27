@@ -334,6 +334,7 @@ AssistantDock
 | 挂载、布局、设置分区、窗口安全距离 | 官方 slot / layout / settings 体系 | 插件不新建全局布局机制 |
 | 品牌位、门禁、激活设置 | yootun 已有 brand/access 包 | 已有实现优先复用 |
 | 工作台壳、助手 Dock、洞察卡、图表族、筛选条、状态族、回执 | `@yootun/dsh-client-ui-kit` | 官方没有的跨插件复合能力，首个插件批次建立 |
+| 登录/采集/批量/作品查询等数据流 machine | `@yootun/dsh-client-workbench-machines`（共享核心）+ 插件 `flows.ts` 适配层 | 无 React/DOM 依赖的纯状态基座；竞态守卫随流进 machine，页面经 `useSyncExternalStore` 订阅；同构流第二个消费者出现时核心上移共享包，插件只留 Host action 与 schema 投影适配 |
 | 领域画布、看板、日历、媒体墙、拓扑、专属空态 | 插件局部 CSS Modules / 组件 | 只服务单一业务域且不重做通用原子件 |
 
 `@yootun/dsh-client-ui-kit` 不 speculative 预先创建；第一批插件落地时随真实消费者建立。首批预期组件：`PluginPageShell`、`PluginHeader`、`FilterBar`、`DataCard`、`KpiCard`、`ChartFrame`、`ChartLegend`、`ChartTooltip`、`DataState`、`AssistantDock`、`OperationReceipts`。同一形态第二个消费者出现时必须上移，不允许第三个插件复制。

@@ -49,9 +49,16 @@ const t = (key: XhsLocaleKey, values?: Record<string, string | number>): string 
 }
 
 async function renderAccounts(): Promise<void> {
-  render(<WorkbenchPage t={t} />)
+  render(<WorkbenchPage t={t} locale={locale} />)
   fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
   await waitFor(() => expect(screen.getByRole('button', { name: en['accounts.add'] })).not.toBeNull())
+}
+
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例 kit 文案口径一致（en）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
 }
 
 describe('账号管理页（12 册 §4）', () => {

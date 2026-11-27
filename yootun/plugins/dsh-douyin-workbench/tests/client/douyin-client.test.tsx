@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
-import { formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
+import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -142,9 +142,16 @@ beforeEach(() => {
   })
 })
 
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例词典口径一致（zh 格式）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
+}
+
 describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   it('tablist 顺序与文案恰好 7 项，默认账号总览', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const navTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en.panel)
     expect(navTabs.length).toBe(7)
     expect(navTabs.map(tab => tab.textContent)).toEqual([
@@ -155,7 +162,7 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 
   it('单账号分析不是顶级 Tab（总览账号行 Enter 下钻进入，返回保留筛选）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
@@ -197,7 +204,7 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
@@ -214,7 +221,7 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
   })
 
   it('切任意 Tab 收起 AI 弹层（AnalysisPage 随总览面板卸载）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const row = await screen.findByRole('row', { name: `${en['overview.col.account']} 账号一` })
     fireEvent.keyDown(row, { key: 'Enter' })
     fireEvent.click(screen.getByRole('button', { name: en['analysis.aiEntry'] }))
@@ -226,14 +233,14 @@ describe('顶级导航（parity 矩阵 §0：7 Tab 固定顺序）', () => {
 
 describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   it('tab.notReady 文案不再出现于任何 Tab；爆款拆解面板加载 breakdown action', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
     expect(screen.queryByText(en['tab.notReady'])).toBeNull()
   })
 
   it('爆款拆解面板结构（新建区 + 历史列表）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.breakdown'] }))
     expect(await screen.findByRole('button', { name: en['bd.startButton'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['bd.downloadButton'] })).not.toBeNull()
@@ -242,7 +249,7 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   })
 
   it('爆款素材看板为真实实现（四子页 + KPI + 看板表加载 material action）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.material'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.videos.list', expect.objectContaining({ scope: 'material' })))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('material.facets', expect.anything()))
@@ -256,7 +263,7 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
   })
 
   it('爆款基因库为真实实现（检索工具栏 + KPI + facets + 卡片墙加载 gene.search）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.gene'] }))
     await waitFor(() => expect(apiMock.hostAction).toHaveBeenCalledWith('gene.search', expect.objectContaining({ limit: 20 })))
     expect(screen.getByRole('button', { name: en['gene.reset'] })).not.toBeNull()
@@ -270,7 +277,7 @@ describe('D6/D7/D8 三 Tab 均为真实实现（占位全部消失）', () => {
 
 describe('账号总览页结构（parity 矩阵 §1）', () => {
   it('4 筛选 + KPI 6 卡 + 排行 11 列 + 爆款 6 列 + 分布 + 提醒 + 导出总览', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     await waitFor(() => expect(screen.getByRole('button', { name: en['overview.filter.account'] })).not.toBeNull())
     expect(screen.getByRole('button', { name: en['overview.filter.window'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['overview.filter.sort'] })).not.toBeNull()
@@ -310,7 +317,7 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     await waitFor(() => expect(screen.getByText(en['overview.kpi.accounts'])).not.toBeNull())
     expect(screen.queryByText(en['overview.kpi.totalPlay'])).toBeNull()
     expect(screen.queryByText(en['overview.kpi.netFans'])).toBeNull()
@@ -324,7 +331,7 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
       if (action === 'overview.get') throw new Error('ACCOUNT_NOT_ACCESSIBLE')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(await screen.findByRole('alert')).not.toBeNull()
     expect(screen.getByText(en['state.retry'])).not.toBeNull()
     expect(screen.queryByRole('table', { name: en['overview.rank.title'] })).toBeNull()
@@ -333,7 +340,7 @@ describe('账号总览页结构（parity 矩阵 §1）', () => {
 
 describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表格）', () => {
   it('左账号栏 + 右作品面板；12 列列序冻结', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByRole('complementary', { name: en['account.title'] })).not.toBeNull()
     const table = await screen.findByRole('table', { name: en['works.table.label'] })
@@ -351,7 +358,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
   })
 
   it('表头排序三态循环（default → desc → asc → default）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await screen.findByRole('table', { name: en['works.table.label'] })
     const playHeader = screen.getByRole('button', {
@@ -385,7 +392,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     row.focus()
@@ -426,7 +433,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -478,7 +485,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       throw new Error(`unexpected action ${action}`)
     })
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -527,7 +534,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
       if (action === 'work.promotion.save') throw new Error('PROMOTION_ALREADY_EXISTS')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const row = await screen.findByRole('row', { name: t('row.detailAria', { title: '第一条作品' }) })
     fireEvent.keyDown(row, { key: 'Enter' })
@@ -559,7 +566,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
   })
 
   it('导出 Excel 按钮存在且为次操作（ghost）；采集按钮为主操作（primary）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const collect = await screen.findByRole('button', { name: en['works.collect'] })
     const refresh = screen.getByRole('button', { name: en['works.refresh'] })
@@ -572,7 +579,7 @@ describe('账号作品页（parity 矩阵 §3：唯一两列布局 + 12 列表�
   })
 
   it('删除账号入口为 danger 语义（error token 类）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const remove = await screen.findByRole('button', { name: en['account.remove'] })
     expect(remove.className).toMatch(/dangerButton/u)
@@ -595,7 +602,7 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('12 列表头 + 两处副标 + 底部账号栏 chip', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
     const table = await screen.findByRole('table', { name: en['tab.schedule'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.querySelector('span')?.textContent)
@@ -614,7 +621,7 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('已发布折叠（默认收起；展开后已发布行带 published 类；未发布斑马纹）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
     const toggle = await screen.findByRole('button', { name: t('schedule.fold.expand', { count: 1 }) })
     expect(toggle.getAttribute('aria-expanded')).toBeNull()
@@ -635,7 +642,7 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
   })
 
   it('底部账号条：chip 按钮选中态 aria-pressed（单行横向滚动容器）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
     const chip = await screen.findByRole('button', { name: /账号一/u })
     expect(chip.getAttribute('aria-pressed')).toBe('true')
@@ -651,7 +658,7 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
       if (action === 'schedule.rowUpdate') throw new Error('SCHEDULE_VALIDATION_ERROR')
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
     const ownerInput = await screen.findByLabelText(en['schedule.col.editingOwner'])
     // no-op：值不变时失焦不调用 rowUpdate。
@@ -681,7 +688,7 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
       if (action === 'schedule.rowDelete') return { status: 'ready', data: {} }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.schedule'] }))
     const deleteButton = await screen.findByRole('button', { name: t('schedule.deleteAria', { id: '1' }) })
     fireEvent.click(deleteButton)
@@ -718,7 +725,7 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
   })
 
   it('列表：日报/周报切换 + 7 列 + 状态五态 + 加载更多缺省 + 空态文案', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
     const table = await screen.findByRole('table', { name: en['tab.report'] })
     const headers = [...table.querySelectorAll('thead th')].map(th => th.textContent).filter(text => text !== '')
@@ -771,7 +778,7 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     expect(await screen.findByRole('button', { name: en['report.back'] })).not.toBeNull()
@@ -821,7 +828,7 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     await screen.findByRole('button', { name: en['report.back'] })
@@ -852,7 +859,7 @@ describe('AI 报表页（parity 矩阵 §5）', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.report'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.view'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['report.exportPdf'] }))
@@ -912,7 +919,7 @@ describe('按钮语义与状态样式（parity 矩阵 §8）', () => {
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     fireEvent.click(await screen.findByRole('button', { name: en['account.add'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['account.addBusy'] })).not.toBeNull())
@@ -952,7 +959,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
       const baselineStatusCalls = callsOf('collectAll.status')
@@ -994,7 +1001,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       if (action === 'collectAll.start') return Promise.reject(new Error('collect_busy'))
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const button = await screen.findByRole('button', { name: en['account.collectAll'] })
     // 挂载恢复查询已落定（恰一次），失败路径自身不再发起 collectAll.status。
@@ -1026,7 +1033,7 @@ describe('批量采集启动反馈（collectAll.start）', () => {
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await flush()
       const baselineStatusCalls = callsOf('collectAll.status')
@@ -1089,7 +1096,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
           { accountId: 'acc-3', status: 'running', reason: null },
         ],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(t('batch.progress.concurrent', { done: 2, total: 5 }))).not.toBeNull()
@@ -1113,7 +1120,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
         currentAccountId: 'acc-2', runningAccountIds: ['acc-2'], concurrency: 1,
         items: [{ accountId: 'acc-2', status: 'running', reason: null }],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(t('batch.currentList', { names: '账号二' }))).not.toBeNull()
@@ -1142,7 +1149,7 @@ describe('批量面板多账号与熔断展示（collectAll.status 出参增量�
           { accountId: 'acc-5', status: 'skipped', reason: 'risk_paused' },
         ],
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 恢复查询收到终态：不进入轮询。
@@ -1201,7 +1208,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       await settleMount()
       expect(callsOf('collect.running')).toBe(1)
       expect(callsOf('collect.status')).toBe(1)
@@ -1233,7 +1240,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 恢复态：按钮「采集中」禁用，进度来自 collect.running 返回记录。
@@ -1272,7 +1279,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(screen.getByText(en['run.completed'])).not.toBeNull()
@@ -1299,7 +1306,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
     // 横幅出现（单账号文案），旧 toast 文案不再出现（I3）。
@@ -1335,7 +1342,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
     // count >= 2：多账号文案 + 「重新采集全部」按钮出现。
@@ -1365,7 +1372,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 面板运行中渲染 + 账号栏 acc-2 显示采集中。
@@ -1397,7 +1404,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       if (action === 'collectAll.status') return { status: 'ready', batch: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await settleMount()
     expect(screen.queryByText(en['batch.unfinishedTitle'])).toBeNull()
@@ -1430,7 +1437,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       // 用户先点采集（恢复响应尚未到达）→ 运行态来自用户自己的 collect.start。
@@ -1466,7 +1473,7 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
         if (action === 'collectAll.status') return { status: 'ready', batch: null }
         throw new Error(`unexpected action ${action}`)
       })
-      render(<WorkbenchPage t={t} />)
+      render(<WorkbenchPage t={t} locale={locale} />)
       fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
       await settleMount()
       expect(within(cardOf('账号二')).getByText(en['account.collecting'])).not.toBeNull()
@@ -1519,7 +1526,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('进入作品页拉第 1 页（limit 10 / offset 0 / publish_time desc）；点表头发新参数回第 1 页；三态循环', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls[0]).toEqual({ accountId: 'acc-1', sort: 'publish_time', order: 'desc', limit: 10, offset: 0 }))
     fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
@@ -1532,7 +1539,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('切账号回第 1 页且排序态保留', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls.length).toBeGreaterThan(0))
     fireEvent.click(screen.getByRole('button', { name: playAria('default') }))
@@ -1543,7 +1550,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('翻页只变 offset：排序与 limit 不变，信息文案随页推进', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
@@ -1572,7 +1579,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText('首发行')).not.toBeNull()
     // 点播放表头（请求 2 挂起，旧行保留）→ 再点播放表头升序（请求 3 立即返回）。
@@ -1592,7 +1599,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'collect.status') return { status: 'ready', collect: { accountId: args.accountId, status: 'completed', phase: null, progress: {}, error: null, finishedAt: '2026-11-25T00:00:00Z' } }
       return undefined
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(worksCalls.length).toBe(1))
     fireEvent.click(screen.getByRole('button', { name: kitEn['pager.next'] }))
@@ -1609,7 +1616,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('KPI 四卡取值来自 summary；不再有缺口作品卡；工具栏不再有全部时间作品数', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(en['works.kpi.worksTotal'])).not.toBeNull()
     expect(screen.getByText(en['works.kpi.playTotal'])).not.toBeNull()
@@ -1635,7 +1642,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await screen.findByRole('table', { name: en['works.table.label'] })
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3)
@@ -1655,7 +1662,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('作品加载失败：KPI 四卡显示「—」，列表区域只给一处出错提示与一个重试', async () => {
     apiMock.hostAction.mockImplementation(baseHandlers(() => { throw new Error('DOUYIN_OPERATION_REQUEST_FAILED') }))
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     // 出错提示与重试只在列表区域出现一次；卡片不再逐个重复。
     expect((await screen.findAllByText(kitEn['state.error'])).length).toBe(1)
@@ -1678,7 +1685,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       }
       return baseHandlers(() => ({ status: 'ready', accountId: 'acc-1', works: [workRow], total: 1, limit: 10, offset: 0, summary: worksSummary }))(action, args)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText('第一条作品')).not.toBeNull()
     failNext = true
@@ -1693,7 +1700,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('加载中：列表区域显示骨架，不显示「暂无数据」', async () => {
     apiMock.hostAction.mockImplementation(baseHandlers(() => new Promise(() => {})))
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     await waitFor(() => expect(within(worksRegion()).getByText(kitEn['state.loading'])).not.toBeNull())
     expect(screen.queryByText(kitEn['state.empty'])).toBeNull()
@@ -1706,7 +1713,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'accounts.list') return { status: 'ready', accounts: [], remoteError: null }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(kitEn['state.empty'])).not.toBeNull()
     expect(worksRegion().getAttribute('data-state')).toBe('blank')
@@ -1717,7 +1724,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
 
   it('Pager total 来自服务端：信息文案与下一页按钮可用', async () => {
     installWorksMock()
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     expect(await screen.findByText(pagerInfo(183, 1, 19))).not.toBeNull()
     expect(screen.getByRole('button', { name: kitEn['pager.next'] }).getAttribute('disabled')).toBeNull()
@@ -1731,7 +1738,7 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
       if (action === 'works.list') return { status: 'ready', accountId: 'acc-1', works: [], total: 0, limit: 10, offset: 0, summary: worksSummaryEmpty }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     const exportButton = await screen.findByRole('button', { name: en['works.exportExcel'] })
     await waitFor(() => expect(exportButton.getAttribute('disabled')).not.toBeNull())
@@ -1821,5 +1828,59 @@ describe('词典与源码红线', () => {
     expect(source).toMatch(/resolveToken/u)
     expect(source).toMatch(/getComputedStyle/u)
     expect(stripSourceComments(source)).not.toMatch(COLOR_LITERAL_RE)
+  })
+})
+
+
+describe('P2/P3：locale 座位判定与 attemptId 归位（client-workbench-hooks 附录 B.2）', () => {
+  it('P2 语言切换：locale 快照 zh-CN → en，页面数值格式由中文口径切为英文口径', async () => {
+    let snapshot = { active: 'zh-CN' }
+    const listeners = new Set<() => void>()
+    const liveLocale = {
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      getSnapshot: () => snapshot,
+    }
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      return {}
+    })
+    render(<WorkbenchPage t={t} locale={liveLocale} />)
+    await waitFor(() => { expect(screen.getByText(formatCount(123456))).not.toBeNull() })
+    // 官方 publish 语义：语言切换新建冻结快照（引用必变）并通知订阅者。
+    snapshot = { active: 'en' }
+    act(() => { listeners.forEach(fn => fn()) })
+    await waitFor(() => { expect(screen.getByText(formatCount(123456, 'en'))).not.toBeNull() })
+  })
+
+  it('P2 词典同值不影响判定：panel 中英文取值相同时，语言 id 仍决定格式口径', async () => {
+    let snapshot = { active: 'en' }
+    const listeners = new Set<() => void>()
+    const enLocale = {
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      getSnapshot: () => snapshot,
+    }
+    // 构造 panel 中英文同值的词典（旧 localeTagOf(t) 在此判错为 zh）。
+    const samePanelT = ((key: DouyinLocaleKey, values?: Record<string, string | number>): string =>
+      key === 'panel' ? zh.panel : en[key] ?? key) as typeof t
+    apiMock.hostAction.mockImplementation(async (action: string) => {
+      if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
+      if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
+      if (action === 'overview.get') return overviewPayload
+      return {}
+    })
+    render(<WorkbenchPage t={samePanelT} locale={enLocale} />)
+    await waitFor(() => { expect(screen.getByText(formatCount(123456, 'en'))).not.toBeNull() })
+  })
+
+  it('P3 attemptId 自 format.ts 导入可用：输出 32 位小写 hex', () => {
+    expect(attemptId()).toMatch(/^[0-9a-f]{32}$/u)
   })
 })

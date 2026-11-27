@@ -16,8 +16,7 @@ import { hostAction } from './api.ts'
 import {
   basisLines, domainErrorText, fanDelta, formatAgeBucket, formatCount, formatDateTime,
   formatPercent, formatSeconds, genderLabel, hotLabelText, reasonText, shanghaiToday, shiftDay,
-  trafficSourceLabel, type Translate,
-} from './format.ts'
+  trafficSourceLabel, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import { readAccountTrend, readAiAnalysis, readAnalysis, type AiAnalysisView, type AnalysisData, type HotWorkRow } from './schema.ts'
 import { DistributionBars, LineTrendChart, accountTrendRows } from './charts.tsx'
@@ -783,9 +782,4 @@ function ExportIcon(): ReactNode {
       <path d='M8 2.5v7m0 0L5.2 6.7M8 9.5l2.8-2.8M3 12.5h10' stroke='currentColor' strokeWidth='1.4' strokeLinecap='round' strokeLinejoin='round' />
     </svg>
   )
-}
-
-/** 客户端幂等键后缀（32 位小写 hex）。 */
-export function attemptId(): string {
-  return crypto.randomUUID().replaceAll('-', '')
 }

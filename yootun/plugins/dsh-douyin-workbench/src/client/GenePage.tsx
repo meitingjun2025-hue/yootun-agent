@@ -14,13 +14,12 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Button, Input, Modal, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, FilterMenu, KpiCard } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, type Translate } from './format.ts'
+import { domainErrorText, formatCount, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   readGeneEvidence, readGeneList, readGeneRecord, readGeneSearch,
   type GeneDimension, type GeneFacetEntry, type GeneRecord, type GeneSearch,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 
 const SEARCH_DEBOUNCE_MS = 400
 const GENE_PAGE_LIMIT = 20

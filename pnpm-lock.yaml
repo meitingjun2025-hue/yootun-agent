@@ -20925,6 +20925,15 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.11.6)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.2.2(@types/node@22.20.1)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.13)(yaml@2.9.0))
 
+  yootun/packages/dsh-client-workbench-machines:
+    devDependencies:
+      tsdown:
+        specifier: ^0.22.2
+        version: 0.22.2(oxc-resolver@11.20.0)(publint@0.3.24)(tsx@4.23.13)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   yootun/packages/dsh-workbench-host-kit:
     devDependencies:
       tsdown:
@@ -20973,6 +20982,9 @@ importers:
       '@yootun/dsh-client-ui-kit':
         specifier: workspace:*
         version: link:../../packages/dsh-client-ui-kit
+      '@yootun/dsh-client-workbench-machines':
+        specifier: workspace:*
+        version: link:../../packages/dsh-client-workbench-machines
       '@yootun/dsh-workbench-host-kit':
         specifier: workspace:*
         version: link:../../packages/dsh-workbench-host-kit
@@ -21205,6 +21217,9 @@ importers:
       '@yootun/dsh-client-ui-kit':
         specifier: workspace:*
         version: link:../../packages/dsh-client-ui-kit
+      '@yootun/dsh-client-workbench-machines':
+        specifier: workspace:*
+        version: link:../../packages/dsh-client-workbench-machines
       '@yootun/dsh-workbench-host-kit':
         specifier: workspace:*
         version: link:../../packages/dsh-workbench-host-kit

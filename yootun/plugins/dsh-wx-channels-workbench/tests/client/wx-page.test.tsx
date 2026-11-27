@@ -28,6 +28,13 @@ const t = (key: WxLocaleKey, values?: Record<string, string | number>): string =
   return text.replace(/\{(\w+)\}/gu, (_match, token: string) => String(values[token] ?? `{${token}}`))
 }
 
+/** locale 座位假件：快照对象只建一次（引用稳定）；与用例的 en kit 文案口径一致。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
+}
+
 describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
@@ -64,7 +71,7 @@ describe('词典键集', () => {
 
 describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 tab）', () => {
   it('tab 数量为 2，顺序为作品数据 → 账号总览，默认选中作品数据', () => {
-    const { container } = render(<WorkbenchPage t={t} />)
+    const { container } = render(<WorkbenchPage t={t} locale={locale} />)
     const tabs = screen.getAllByRole('tab')
     expect(tabs.length).toBe(2)
     expect(tabs[0]?.getAttribute('aria-label') ?? tabs[0]?.textContent).toContain(en['tab.works'])
@@ -83,7 +90,7 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
       if (action === 'collectAll.status') return { status: 'ok', ready: true, phase: 'ready', items: [], total: 0, interrupted: { count: 2, accountIds: ['acc-1', 'acc-2'] } }
       throw new Error(`unexpected action ${action}`)
     })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.works'] }))
     // 横幅出现（多账号文案），不再有 toast。
     await waitFor(() => expect(screen.getByText(t('run.interruptedBanner', { count: 2 }))).not.toBeNull(), { timeout: 4000 })
@@ -95,7 +102,7 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
   })
 
   it('采集与账号不再是顶级 tab（旧四 tab 契约废除）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.queryByRole('tab', { name: 'Collect' })).toBeNull()
     expect(screen.queryByRole('tab', { name: 'Accounts' })).toBeNull()
     // 词典里也不再提供旧 tab 键。
@@ -105,7 +112,7 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
 
   it('tab 键盘左右切换在两个 tab 间循环', async () => {
     const { fireEvent } = await import('@testing-library/react')
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     const worksTab = screen.getByRole('tab', { name: en['tab.works'] })
     fireEvent.keyDown(worksTab, { key: 'ArrowRight' })
     await waitForTabSelected(en['tab.overview'])
@@ -116,12 +123,12 @@ describe('顶级导航（布局契约：只有作品数据 / 账号总览两个 
   })
 
   it('jsdom 无 Host：加载态可达（empty/error 由 Host 集成验证）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()
   })
 
   it('jsdom 无 Host：挂载恢复查询失败按无运行中采集处理，不弹错误', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     // 恢复查询在无 Host 时失败：按无运行中采集处理，页面骨架保持可用。
     await new Promise(resolve => { setTimeout(resolve, 0) })
     expect(screen.getByRole('region', { name: en.panel })).not.toBeNull()

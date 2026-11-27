@@ -16,14 +16,13 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, SegmentedControl, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, FilterMenu, Pager } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
+import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   readMaterialBoard, readMaterialFacets, readMaterialRunStatus, readMaterialRuns, readMaterialSeeds,
   type AccountSeedRow, type KeywordSeedRow, type MaterialBoard, type MaterialCandidateRow,
   type MaterialFacetTag, type MaterialRunRow, type MaterialSeeds,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 
 const BOARD_PAGE_SIZE = 20
 const RUNS_PAGE_LIMIT = 50

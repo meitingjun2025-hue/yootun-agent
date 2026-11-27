@@ -60,6 +60,13 @@ async function pickFiles(kind: 'image' | 'video', files: File[]): Promise<void> 
   await waitFor(() => expect(apiMock.startUploadSession).toHaveBeenCalled())
 }
 
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例 kit 文案口径一致（en）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
+}
+
 describe('词典键集', () => {
   it('en 与 zh 键集完全一致', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
@@ -76,7 +83,7 @@ describe('词典键集', () => {
 
 describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣爆款看板三个 tab）', () => {
   it('tab 数量为 3，顺序固定，默认选中爆款仿写', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     // 顶级导航 tablist 以 panel 名标注；素材区子 tab 是另一个 tablist，不混入。
     const navTabs = screen.getAllByRole('tab').filter(tab => tab.closest('[role="tablist"]')?.getAttribute('aria-label') === en.panel)
     expect(navTabs.length).toBe(3)
@@ -85,7 +92,7 @@ describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣
   })
 
   it('「素材」「发布」「创作」等泛化命名不是顶级 tab（布局契约铁律）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.queryByRole('tab', { name: zh['material.title'] })).toBeNull()
     for (const banned of ['素材', '发布', '创作', '看板']) {
       expect(zh['tab.rewrite'] === banned || zh['tab.accounts'] === banned || zh['tab.hotboard'] === banned).toBe(false)
@@ -96,7 +103,7 @@ describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣
   })
 
   it('切到账号管理显示账号页（添加账号按钮可达，无新增顶级页面）', async () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     fireEvent.click(screen.getByRole('tab', { name: en['tab.accounts'] }))
     await waitFor(() => expect(screen.getByRole('button', { name: en['accounts.add'] })).not.toBeNull())
   })
@@ -104,7 +111,7 @@ describe('顶级导航（12 册 §2：只有爆款仿写 / 账号管理 / 车衣
 
 describe('爆款仿写页区域（12 册 §3 ↔ 旧 client.js Overlay 仿写区）', () => {
   it('素材区（图片/视频 子 tab、添加、计数上限文案）、对标区、提交行、右栏空态全部可达', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.getByRole('region', { name: en['material.title'] })).not.toBeNull()
     expect(screen.getByRole('region', { name: en['reference.title'] })).not.toBeNull()
     expect(screen.getByRole('button', { name: en['material.addImage'] })).not.toBeNull()
@@ -119,7 +126,7 @@ describe('爆款仿写页区域（12 册 §3 ↔ 旧 client.js Overlay 仿写区
   })
 
   it('视频子 tab 显示理解视频开关（仅视频）', () => {
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     expect(screen.queryByRole('switch', { name: en['material.understandVideo'] })).toBeNull()
     fireEvent.click(screen.getByText(en['material.tab.video']))
     expect(screen.getByRole('switch', { name: en['material.understandVideo'] })).not.toBeNull()
@@ -136,7 +143,7 @@ describe('上传拦截与表单保留（铁律 3：上传失败不丢表单；fa
     apiMock.startUploadSession.mockResolvedValue({ uploadId: 'up-1', accept: ['jpg'], maxBytes: 500_000_000 })
     apiMock.sendUploadBytes.mockResolvedValue(true)
     apiMock.pollUploadStatus.mockResolvedValue({ status: 'uploading', progress: 20, bytesSent: 2, bytesTotal: 5, attempt: 0 })
-    render(<WorkbenchPage t={t} />)
+    render(<WorkbenchPage t={t} locale={locale} />)
     await pickFiles('image', [makeFile('a.jpg', 'image/jpeg')])
     // 上传中：素材组内拦截——按钮可点但置灰，点击出提示，不调 task.create。
     await waitFor(() => expect(screen.getByText('20%')).not.toBeNull(), { timeout: 4000 })

@@ -63,9 +63,16 @@ beforeEach(() => {
 const t = (key: XhsLocaleKey): string => en[key] ?? key
 
 async function renderHotboard(): Promise<void> {
-  render(<WorkbenchPage t={t} />)
+  render(<WorkbenchPage t={t} locale={locale} />)
   fireEvent.click(screen.getByRole('tab', { name: en['tab.hotboard'] }))
   await waitFor(() => expect(screen.getByRole('tablist', { name: en['hb.title'] })).not.toBeNull())
+}
+
+/** locale 座位假件：快照对象只建一次（引用稳定）；active 与用例 kit 文案口径一致（en）。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
 }
 
 describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {

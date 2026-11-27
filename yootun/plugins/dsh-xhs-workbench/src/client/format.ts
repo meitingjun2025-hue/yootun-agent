@@ -229,3 +229,8 @@ export function composeFullText(edited: { title: string; body: string; tags: str
   const tags = edited.tags.map(tag => `#${tag}`).join(' ')
   return [edited.title, edited.body, tags].map(part => String(part ?? '').trim()).filter(Boolean).join('\n\n')
 }
+
+/** locale 服务的语言 id → 工作台标签（zh 开头归中文，其余归英文）。 */
+export function localeTagOf(activeLocaleId: string): 'zh' | 'en' {
+  return activeLocaleId.startsWith('zh') ? 'zh' : 'en'
+}

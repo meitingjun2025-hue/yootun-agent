@@ -6,7 +6,7 @@
  */
 // @vitest-environment jsdom
 import { strict as assert } from 'node:assert'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { en as kitEn, type YtKitLocaleKey } from '@yootun/dsh-client-ui-kit'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
@@ -63,6 +63,14 @@ function mockHost(handlers: Record<string, Handler>): { calls: RecordedCall[] } 
   })
   vi.stubGlobal('fetch', fetchMock)
   return { calls }
+}
+
+
+/** locale 座位假件：快照对象只建一次（引用稳定）；与用例的 en kit 文案口径一致。 */
+const localeSnapshot = { active: 'en' }
+const locale = {
+  subscribe: () => () => undefined,
+  getSnapshot: () => localeSnapshot,
 }
 
 const OK = { status: 'ok' }
@@ -169,7 +177,7 @@ function baseHandlers(overrides: Record<string, Handler> = {}): Record<string, H
 
 async function renderPage(handlers: Record<string, Handler>): Promise<{ calls: RecordedCall[] }> {
   const host = mockHost(handlers)
-  render(<WorkbenchPage t={t} />)
+  render(<WorkbenchPage t={t} locale={locale} />)
   // 等账号列表就绪（默认作品数据 tab 自动拉 works.list + 固定 last_7d 摘要）。
   await waitFor(() => expect(host.calls.some(call => call.action === 'accounts.list')).toBe(true))
   return host
@@ -2200,5 +2208,34 @@ describe('fansTrendSlots（横轴固定 7 位）', () => {
   it('非法输入（起日晚于止日 / 非日期）返回空数组', () => {
     assert.deepEqual(fansTrendSlots('2026-11-24', '2026-11-23'), [])
     assert.deepEqual(fansTrendSlots('not-a-day', '2026-11-24'), [])
+  })
+})
+
+
+describe('P2：locale 座位判定（client-workbench-hooks 附录 B.2）', () => {
+  it('语言切换：locale 快照 zh-CN → en，作品摘要卡数值口径由中文切为英文；panel 词典同值不影响判定', async () => {
+    let snapshot = { active: 'zh-CN' }
+    const listeners = new Set<() => void>()
+    const liveLocale = {
+      subscribe: (fn: () => void) => {
+        listeners.add(fn)
+        return () => { listeners.delete(fn) }
+      },
+      getSnapshot: () => snapshot,
+    }
+    // 构造 panel 中英文同值的词典（旧 localeTagOf(t) 在此判错为 zh）。
+    const samePanelT = ((key: WxLocaleKey, values?: Record<string, string | number>): string =>
+      key === 'panel' ? zh.panel : en[key] ?? key) as typeof t
+    const { calls } = mockHost(baseHandlers({
+      'account.overview': () => ({ ...OK, metrics: { totals: { daily_play_count: 1250000 } }, fans_trend: { totals: {} }, availability: {} }),
+    }))
+    render(<WorkbenchPage t={samePanelT} locale={liveLocale} />)
+    await waitFor(() => expect(calls.some(call => call.action === 'account.overview')).toBe(true))
+    expect(screen.getByText(formatCount(1250000, 'zh'))).not.toBeNull()
+    // 官方 publish 语义：语言切换新建冻结快照（引用必变）并通知订阅者。
+    snapshot = { active: 'en' }
+    act(() => { listeners.forEach(fn => fn()) })
+    await waitFor(() => expect(screen.getByText(formatCount(1250000, 'en'))).not.toBeNull())
+    expect(screen.queryByText(formatCount(1250000, 'zh'))).toBeNull()
   })
 })

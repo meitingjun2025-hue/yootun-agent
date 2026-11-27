@@ -226,3 +226,8 @@ export function shiftDay(dayText: string, deltaDays: number): string {
   date.setUTCDate(date.getUTCDate() + deltaDays)
   return date.toISOString().slice(0, 10)
 }
+
+/** locale 服务的语言 id → 工作台标签（zh 开头归中文，其余归英文）。 */
+export function localeTagOf(activeLocaleId: string): 'zh' | 'en' {
+  return activeLocaleId.startsWith('zh') ? 'zh' : 'en'
+}

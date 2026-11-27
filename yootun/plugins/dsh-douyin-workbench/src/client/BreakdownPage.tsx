@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Input, Modal, StateDot, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataCard, DataState, FilterMenu, KpiCard, ytChartStyle } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate } from './format.ts'
+import { domainErrorText, formatCount, formatDateTime, formatRateRatio, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   asrTranscriptOf, readArchiveRun, readBreakdownDetail, readBreakdownHistory, readBreakdownWorkflows,
@@ -21,7 +21,6 @@ import {
   type BreakdownSegment, type DownloadJobView, type RewriteRuleRow, type ShotScriptView,
   type WorkflowRow,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 import { downloadBase64 } from './OverviewPage.tsx'
 
 const ARCHIVE_POLL_MS = 3000

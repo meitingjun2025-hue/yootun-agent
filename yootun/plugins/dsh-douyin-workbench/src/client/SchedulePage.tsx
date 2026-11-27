@@ -16,13 +16,12 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Checkbox, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { DataState } from '@yootun/dsh-client-ui-kit'
 import { hostAction } from './api.ts'
-import { avatarFallbackChar, domainErrorText, formatCount, safeHttpUrl, type Translate } from './format.ts'
+import { avatarFallbackChar, domainErrorText, formatCount, safeHttpUrl, type Translate, attemptId } from './format.ts'
 import css from './workbench.module.css'
 import {
   SCHEDULE_PLATFORMS, buildServerSnapshot, comparePublishDate, compareRowId, readScheduleRow,
   readScheduleRows, type ScheduleUiRow,
 } from './schema.ts'
-import { attemptId } from './AnalysisPage.tsx'
 import type { AccountRow } from './WorkbenchPage.tsx'
 
 /** 12 列宽序冻结（colgroup）。 */

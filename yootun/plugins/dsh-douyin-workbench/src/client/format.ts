@@ -670,3 +670,13 @@ export function shiftDay(dayText: string, deltaDays: number): string {
   date.setUTCDate(date.getUTCDate() + deltaDays)
   return date.toISOString().slice(0, 10)
 }
+
+/** 客户端幂等键后缀（32 位小写 hex；自 AnalysisPage 迁入，实现不变）。 */
+export function attemptId(): string {
+  return crypto.randomUUID().replaceAll('-', '')
+}
+
+/** locale 服务的语言 id → 工作台标签（zh 开头归中文，其余归英文）。 */
+export function localeTagOf(activeLocaleId: string): 'zh' | 'en' {
+  return activeLocaleId.startsWith('zh') ? 'zh' : 'en'
+}
