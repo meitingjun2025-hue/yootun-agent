@@ -1,6 +1,6 @@
 # douyin-report-抖音 AI 报表去除 PDF 导出 实施单
 
-状态：已确认，待实施（等用户通知后进入开发） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：开发完成（2026-11-27，自动验收通过），待合入 ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -59,7 +59,7 @@ MCP 工具：无。Host action：无变化（`report.list` / `report.get` / `rep
 | 文档（本文、1126 索引） | 2026-11-27 | `main` | 基线核对后修订；14 册 §10 随代码更新 |
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
-| 开发完成（自动验收通过） | | `feat/douyin-report-remove-pdf` | 待填 |
+| 开发完成（自动验收通过） | 2026-11-27 | `feat/douyin-report-remove-pdf` | 独立 review 通过，阻断 0 条；自动验收见 5.1，联调记录见 5.3 |
 | yootun-agent 合入 `main` | | | 待填 |
 | 发版 | | | 待填 |
 
@@ -67,10 +67,10 @@ MCP 工具：无。Host action：无变化（`report.list` / `report.get` / `rep
 
 ### 5.1 自动验收（开发侧执行，合入前）
 
-- [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
-- [ ] `pnpm run verify-client-ui-i18n` 通过：删除词条后没有残留引用；
-- [ ] `grep -rnE "exportPdf|exportReportPdf|export_unsupported|report\.exportPdf" yootun/plugins/dsh-douyin-workbench/src yootun/plugins/dsh-douyin-workbench/tests` 无输出；
-- [ ] 报表页其余既有用例的断言未改。
+- [x] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build` 通过；
+- [x] `pnpm run verify-client-ui-i18n` 通过：删除词条后没有残留引用；
+- [x] `grep -rnE "exportPdf|exportReportPdf|export_unsupported|report\.exportPdf" yootun/plugins/dsh-douyin-workbench/src yootun/plugins/dsh-douyin-workbench/tests` 无输出；
+- [x] 报表页其余既有用例的断言未改。
 
 ### 5.2 真机验收（用户执行）
 
@@ -82,4 +82,8 @@ MCP 工具：无。Host action：无变化（`report.list` / `report.get` / `rep
 
 ### 5.3 本地联调记录
 
-待填（合入前回填）。
+2026-11-27 在 `feat/douyin-report-remove-pdf` 完成开发与验收，改动六个文件：`ReportPage.tsx`、`locales.ts`、`format.ts`、`douyin-client.test.tsx`、`douyin-parity.test.tsx` 与 14 册 §10。提交前经独立 review 复核，结论为可以验收，阻断 0 条。
+
+本地验证：`pnpm --filter @yootun/dsh-douyin-workbench test` 通过（Host 侧 node 测试全过，vitest 4 个文件 165 用例）；`build` 通过（tsc、tsdown、产物样式校验、运行时 bundle 校验）；`pnpm run verify-client-ui-i18n` 通过（1402 个 Client UI 源文件）；5.1 的残留 grep 无输出。首次运行前重建了四个上游包的构建产物（`@yootun/dsh-workbench-host-kit`、`@yootun/dsh-client-workbench-machines`、`@yootun/dsh-client-ui-kit`、`@yootun/dsh-workbench-mcp`），它们不进版本库，没有源码改动。
+
+review 的两条建议的处置：测试注释里的「已移除」改为「不存在」，提交前已改并复跑 vitest；`RUNTIME_REASON_KEYS` 删掉唯一成员后成为空表，`reasonText` 对它的读取恒为空，没有测试依赖，行为与删表前一致。实施单只要求删一条，空表保留，留待后续清理。
