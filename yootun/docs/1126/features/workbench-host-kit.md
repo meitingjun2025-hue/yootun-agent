@@ -204,6 +204,8 @@ type HandlerPayload<S extends string, C extends string> =
 
 未核对项：真机验收清单 5.2 K1–K4；kit `resolveSystemChrome` 的真实 PATH 命中路径（测试用注入接缝）。
 
+2026-11-27 合入后：macOS 与 Windows 构建的 `yootun/scripts/self-test.mjs` 断言「内联接入层生成常量」失败。本单给 `dsh-managed-mcp` 的 `alwaysBundle` 追加 host-kit 条目后，该断言仍按「数组只有接入层一条」匹配整段文本；`rc.5.4` 打包早于本单合入，直到下一次推送触发构建才暴露。断言已改为前缀匹配（接入层仍是数组首个条目），修正随视频号 AI 报表客户端合入后的推送进入 `main`。
+
 ## 附录 A：逐文件规格
 
 ### A1 新包

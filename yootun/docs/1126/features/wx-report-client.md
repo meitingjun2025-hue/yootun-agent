@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表工作台与智能体工具 实施单
 
-状态：开发完成（三步均已验收并本地提交，2026-11-27），待合入 ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27），待发版 ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -23,7 +23,7 @@
 
 ### 0.2 目标
 
-把报表页抽成纯 client 包 `@yootun/dsh-client-report`，并在包内按 [plugin-ui-ux-standard.md](../../plugin-ui-ux-standard.md) 整改界面；抖音改为消费，视频号新增第三个 Tab「AI 报表」，两个平台用同一份整改后的报表页；两个只读的报表工具进入普通会话。
+把报表页抽成纯 client 包 `@yootun/dsh-client-report`，并在包内按 [plugin-ui-ux-standard.md](../../plugin-ui-ux-standard.md) 整改界面；抖音改为消费，视频号新增第三个 Tab「报表」，两个平台用同一份整改后的报表页；两个只读的报表工具进入普通会话。
 
 前置单：[wx-report-server.md](wx-report-server.md)（工具契约与部署，已合入 `dev`）、[douyin-report-remove-pdf.md](douyin-report-remove-pdf.md)（上移前先去掉 PDF）。
 
@@ -55,7 +55,7 @@
 - 视频号 Host 新增三个 action：`report.list`、`report.get`、`report.regenerate`；
 - 视频号路由补三项校验能力：必填字段、日期格式、幂等键模板，只被这三个 action 使用；
 - 视频号稳定码白名单加入 14 个码（13 个 `REPORT_*` 与 `INVALID_CURSOR`），错误码映射与词典补齐；
-- 视频号工作台新增第三个 Tab「AI 报表」；
+- 视频号工作台新增第三个 Tab「报表」；
 - Agent 面策略表加入两个只读工具。
 
 不做：
@@ -207,7 +207,7 @@ HTML 导出失败是共享包的本地失败，不经过 Host action，文案不
 |---|---|
 | 位置 | 第三个 Tab，排在「作品数据」「账号总览」之后；值 `report`，元素 id `wx-tab-report` 与 `wx-panel-report` |
 | 默认选中 | 不变，仍为「作品数据」 |
-| 词条 | `tab.report`：「AI 报表」与「AI reports」 |
+| 词条 | `tab.report`：「报表」与「Reports」，与抖音顶级导航的「报表」一致；初版为「AI 报表」，2026-11-27 真机验收后调整，见 [device-review-fixes.md](../../1127/features/device-review-fixes.md) |
 | 内容 | 共享包的 `ReportPage`，占满内容区 |
 
 接入点有三处：
@@ -286,7 +286,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | 第 1 步：纯上移，抖音改为消费 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；分支从 `main` 切出并并入 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 与 [douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md) 两条分支作为基线；核对记录见 5.3 |
 | 第 2 步：界面整改 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；主控验收修正四处后提交，核对记录见 5.3 |
 | 第 3 步：视频号接入 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；三仓联调 8 项通过（真实报表读取与重新生成）；核对记录见 5.3 |
-| yootun-agent 合入 `main` | | | 三步都通过后一次合入；待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 三步通过后经 `feat/wx-report-client` 一次合入并推送；推送后的 macOS、Windows 构建 self-test 断言过时，修正后重跑，见 [workbench-host-kit.md](workbench-host-kit.md) 5.3 |
 | 发版 | | | 待填 |
 
 ## 5. 验收
@@ -315,7 +315,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | # | 步骤 | 预期 |
 |---|---|---|
 | C1 | 抖音「AI 报表」：列表、详情、版本切换、重新生成、导出 HTML | 数据、文案与上移前一致；界面是 2.8 整改后的形态 |
-| C2 | 视频号工作台出现第三个 Tab「AI 报表」，点击进入 | 没有报表时显示空态并说明调度时刻；有报表时显示列表 |
+| C2 | 视频号工作台出现第三个 Tab「报表」，点击进入 | 没有报表时显示空态并说明调度时刻；有报表时显示列表 |
 | C3 | 打开一份视频号日报 | KPI、趋势、账号表（没有负责人列）、作品卡（含流量来源与最大流失点）、AI 洞察显示正常；没有数据的格子显示「—」而不是 0 |
 | C4 | 切换日报与周报、翻页、打开历史版本、切换版本 | 不出现旧报表的内容闪回；版本标签正确 |
 | C5 | 点「重新生成」并确认，随后立刻再点一次 | 第一次生成新版本；第二次提示已有生成中的版本，不重复生成 |

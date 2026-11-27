@@ -12,7 +12,7 @@
 |---|---|
 | 页面骨架 | 对齐旧插件 |
 | 区域关系 | 对齐旧插件 |
-| 顶级导航 | 对齐旧插件：作品数据 / 账号总览；2026-11-27 起新增第三项「AI 报表」（旧插件无此页，基准见 §11 与 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)） |
+| 顶级导航 | 对齐旧插件：作品数据 / 账号总览；2026-11-27 起新增第三项「报表」（旧插件无此页，基准见 §11 与 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)） |
 | 交互方式 | 对齐旧插件，包括作品行双击打开详情、Enter 等价路径、工具栏就地进度 |
 | 信息密度 | 对齐旧插件，包括 4 张作品摘要卡、10 项账号指标、4 项关注者指标、画像五维同屏 |
 | 视觉样式 | 按 yootun 新规范重做 |
@@ -44,17 +44,17 @@ PluginPageShell
 ├─ SegmentedTabs
 │  ├─ 作品数据
 │  ├─ 账号总览
-│  └─ AI 报表（2026-11-27 起，§11）
+│  └─ 报表（2026-11-27 起，§11）
 └─ Body
    ├─ 作品数据：左侧账号管理 + 右侧作品面板
    ├─ 账号总览：全宽三段数据区
-   └─ AI 报表：全宽报表页（共享包 ReportPage）
+   └─ 报表：全宽报表页（共享包 ReportPage）
 ```
 
 顶级导航只能是三个页面：
 
 ```text
-作品数据 / 账号总览 / AI 报表
+作品数据 / 账号总览 / 报表
 ```
 
 不得再把“采集”和“账号”做成顶级 tab：
@@ -63,7 +63,7 @@ PluginPageShell
 - 单账号采集属于作品工具栏；
 - 全账号采集属于账号管理栏；
 - 账号总览是独立的全宽数据页；
-- AI 报表是独立的全宽数据页（2026-11-27 起随 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md) 加入，默认不选中）。
+- 报表是独立的全宽数据页（2026-11-27 起随 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md) 加入，默认不选中；Tab 名与抖音顶级导航的「报表」一致，初版为「AI 报表」，同日真机验收后调整）。
 
 ## 3. 作品数据页
 
@@ -485,7 +485,7 @@ work.trend → { account_id, work_id, snapshots }
 
 ## 11. AI 报表页（2026-11-27 新增）
 
-本节是视频号工作台第三个 Tab「AI 报表」的布局契约。旧插件没有这一页，基准不是旧仓库而是抖音工作台的 AI 报表页：页面组件、读取器、趋势图、词典与样式都由共享包 `@yootun/dsh-client-report` 承载（实施与验收条款见 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)，界面依据 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md)），本插件只做注入与组合。
+本节是视频号工作台第三个 Tab「报表」的布局契约。旧插件没有这一页，基准不是旧仓库而是抖音工作台的 AI 报表页：页面组件、读取器、趋势图、词典与样式都由共享包 `@yootun/dsh-client-report` 承载（实施与验收条款见 [1126/features/wx-report-client.md](../1126/features/wx-report-client.md)，界面依据 [../plugin-ui-ux-standard.md](../plugin-ui-ux-standard.md)），本插件只做注入与组合。
 
 Tab 结构：
 

@@ -28,10 +28,10 @@ P0 八张已合入 `main`（2026-11-26），P1 八张已合入 `main`（2026-11-
 | P1 | [mount-restore-and-login-alignment.md](features/mount-restore-and-login-alignment.md) | 小红书补齐挂载恢复（按账号查询运行中的采集）；三工作台登录终态记录统一为保留 30 分钟；删除视频号无页面入口且成功分支缺远端建号的 `account.refreshLoginQr`（页面行为不变）；抖音、视频号的采集中断由 toast 改为带「重新采集」/「重新采集全部」的横幅 | 已合入 `main`（2026-11-27），待真机验收 |
 | P1 | [upload-experience-fixes.md](features/upload-experience-fixes.md) | 上传结果保留由 60 秒延长到 10 分钟、`UNAUTHORIZED` 映射为激活密钥问题、启动时清理已退出进程遗留的暂存目录、`isForbiddenPublicHost` 改按地址块判断（补齐 mapped / NAT64 / 6to4 / localhost 变体）、上传传输函数上移 kit 去重 | 已合入 `main`（2026-11-27），待真机验收 |
 | P1 | [write-quota-and-audit-attribution.md](features/write-quota-and-audit-attribution.md) | tools 审计行附加调用方身份（key、租户、主体）。写操作配额与多租户幂等收据隔离本期不做：配额随网关迁移决策，设计输入写在附录；收据隔离在接入第二个租户前必须单独建单 | tools 侧已合入 `dev`（2026-11-27）；测试环境部署与日志字段白名单核对待填 |
-| P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 开发完成（2026-11-27，`feat/douyin-report-remove-pdf`，自动验收通过待合入） |
+| P2 | [douyin-report-remove-pdf.md](features/douyin-report-remove-pdf.md) | 抖音 AI 报表去掉「导出 PDF」：它依赖的桌面桥从未实现，点击只能得到「不支持」；HTML 导出不变 | 已合入 `main`（2026-11-27），待发版 |
 | P2 | [report-kernel-extraction.md](features/report-kernel-extraction.md) | 抖音 AI 报表的服务端机制（周期、状态机与租约、投递与对账、定时补建、重建与版本、模型调用与重试、输出校验、提示词加载）抽成平台无关内核，抖音改为「平台适配 + 调用内核」；对外行为逐字节不变 | 已合入 `dev`（2026-11-26） |
 | P2 | [wx-report-server.md](features/wx-report-server.md) | 视频号新增与抖音同构的 AI 日报与周报：新表、独立提示词、专属队列 `tools.wx_channels_operation` 与专属 worker、8 个工具名（旧域 3 个源能力、Workbench 3 个、Agent 2 个只读）；关注者画像不进报表 | 已合入 `dev`（2026-11-26；部署仓已合入 `master`，测试环境待部署） |
-| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report` 并在包内按 UI 规范整改界面，抖音改为消费；视频号新增第三个 Tab「AI 报表」与 3 个 Host action；两个只读报表工具进普通会话 | 开发完成（2026-11-27，`feat/wx-report-client` 三步验收通过并本地提交，待合入） |
+| P2 | [wx-report-client.md](features/wx-report-client.md) | 报表页抽成纯 client 包 `@yootun/dsh-client-report` 并在包内按 UI 规范整改界面，抖音改为消费；视频号新增第三个 Tab「报表」与 3 个 Host action；两个只读报表工具进普通会话 | 已合入 `main`（2026-11-27），待发版 |
 
 ## 推进顺序
 
@@ -67,7 +67,7 @@ P2 四张单的先后：[douyin-report-remove-pdf.md](features/douyin-report-rem
 | [会话工具承接卡片](features/media-upload-tool-handoff.md) | 模型调用 `media_upload` 后弹出卡片（原先是死路） | 用上传工具的用户 | 纯新增 |
 | [抖音去 PDF](features/douyin-report-remove-pdf.md) | 抖音 AI 报表详情少一个「导出 PDF」按钮（该按钮原本只能提示不支持） | 用抖音报表的用户 | 纯界面，按单回退 |
 | [抖音报表页界面](features/wx-report-client.md) | AI 报表的 KPI 卡、趋势图（标题、图例、浮层）、区段标题与分区间距按 UI 规范整改；加载更多失败时保留已加载的行。数据、文案含义、幂等与轮询行为不变 | 用抖音报表的用户 | 纯界面，按该单第 2 步的提交回退 |
-| [视频号 AI 报表](features/wx-report-client.md) | 视频号工作台多一个「AI 报表」Tab，界面是整改后的报表页；普通会话可以查询视频号报表 | 用视频号工作台的用户 | 纯新增 |
+| [视频号 AI 报表](features/wx-report-client.md) | 视频号工作台多一个「报表」Tab，界面是整改后的报表页；普通会话可以查询视频号报表 | 用视频号工作台的用户 | 纯新增 |
 
 既有流程不变、并有测试守住的部分：
 

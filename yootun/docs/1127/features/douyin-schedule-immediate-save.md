@@ -1,6 +1,6 @@
 # douyin-schedule-抖音发布排期看板即时保存修复 实施单
 
-状态：开发完成（2026-11-27，自动验收通过），待合入 ｜ 创建：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：已合入 `main`（2026-11-27），待发版 ｜ 创建：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -72,7 +72,7 @@ MCP 工具：无。Host action：无变化。
 | tools 合入 `dev` | — | — | 不涉及 |
 | docker-helm 部署测试环境 | — | — | 不涉及 |
 | 开发完成（自动验收通过） | 2026-11-27 | `feat/douyin-schedule-immediate-save` | 独立 review 通过，阻断 0 条；自动验收见 5.1，联调记录见 5.3 |
-| yootun-agent 合入 `main` | | | 待填 |
+| yootun-agent 合入 `main` | 2026-11-27 | `main` | 经 `feat/wx-report-client` 并入后一次合入并推送 |
 | 发版 | | | 待填 |
 
 ## 5. 验收

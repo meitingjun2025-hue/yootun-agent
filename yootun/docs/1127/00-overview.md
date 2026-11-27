@@ -8,7 +8,8 @@
 
 | 实施单 | 内容 | 状态 |
 |---|---|---|
-| [douyin-schedule-immediate-save.md](features/douyin-schedule-immediate-save.md) | 抖音发布排期看板的即时保存修复：「是否发布」「拍摄情况」「拍摄日期」「发布日期」与发布平台改动后没有发出保存请求（保存函数读到改动前的旧值，被 no-op 判定拦住）；保存在途时继续输入，返回后被覆盖且不补提交 | 开发完成（2026-11-27，`feat/douyin-schedule-immediate-save`，自动验收通过待合入） |
+| [douyin-schedule-immediate-save.md](features/douyin-schedule-immediate-save.md) | 抖音发布排期看板的即时保存修复：「是否发布」「拍摄情况」「拍摄日期」「发布日期」与发布平台改动后没有发出保存请求（保存函数读到改动前的旧值，被 no-op 判定拦住）；保存在途时继续输入，返回后被覆盖且不补提交 | 已合入 `main`（2026-11-27），待发版 |
+| [device-review-fixes.md](features/device-review-fixes.md) | 真机验收修复：抖音顶级 Tab 不再横向铺满；抖音账号总览页全宽、账号管理栏只在账号作品页；抖音账号作品页 KPI 行去掉最小行高；视频号第三个 Tab「AI 报表」改为「报表」 | 开发完成（2026-11-27，自动验收通过），待真机验收 |
 
 ## 对现有功能的影响
 
@@ -17,6 +18,7 @@
 | 单 | 变化 | 谁会感受到 | 回退方式 |
 |---|---|---|---|
 | [抖音发布排期即时保存](features/douyin-schedule-immediate-save.md) | 勾选「是否发布」等 5 类控件改动后立即保存，勾选「是否发布」的行在保存成功后才进入已发布组；保存在途时的输入不再丢失 | 用发布排期看板的抖音用户 | 纯修复，按单回退 |
+| [真机验收修复](features/device-review-fixes.md) | 抖音顶部 4 个 Tab 不铺满；账号总览页左侧不再有账号管理栏；账号作品页 KPI 下方空白消失、作品列表更高；视频号第三个 Tab 叫「报表」 | 用抖音、视频号工作台的用户 | 纯界面与文案，按单回退 |
 
 ## 验收分工
 
