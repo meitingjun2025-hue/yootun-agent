@@ -1,6 +1,6 @@
 # wx-report-视频号 AI 报表工作台与智能体工具 实施单
 
-状态：已确认，待实施（等用户通知后进入开发） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
+状态：实施中（第 1 步纯上移已验收并本地提交，2026-11-27） ｜ 创建：2026-11-26 ｜ 最近修订：2026-11-27 ｜ 流程依据：[cross-repo-sync.md](../../cross-repo-sync.md)
 
 ## 0. 背景与目标
 
@@ -93,7 +93,7 @@ MCP 工具：无。本单只消费 [wx-report-server.md](wx-report-server.md) �
 | `format.ts` | 报表页用到的格式化函数，周期、文件名、版本号辅助函数，幂等键后缀生成 |
 | `report.module.css` | 报表页样式 |
 
-导出：`ReportPage`、`REPORT_REASONS_ZH`、`REPORT_REASONS_EN`、`REPORT_ERROR_CODES`、`NS`、`zh`、`en` 与相关类型。
+导出：`ReportPage`、`readReportList`、`readReportDetail`、`REPORT_REASONS_ZH`、`REPORT_REASONS_EN`、`REPORT_ERROR_CODES`、`NS`、`zh`、`en` 与相关类型。两个读取器供插件的页面用例断言投影结果，页面运行时只在共享包内部调用；词典的翻译函数只在包内使用，不导出。
 
 `ReportPage` 的 props：
 
@@ -110,6 +110,8 @@ interface ReportPageProps {
   filePrefix: string
   /** 「重新生成」幂等键的前缀（如 douyin:report_regenerate），键为前缀加 reportId 加共享包生成的后缀。 */
   regenerateKeyPrefix: string
+  /** 请求抛出的值不是 Error、轮询连续 5 次失败时的兜底码，由插件给出本域的请求失败稳定码。不传时为空码，`errorText` 给出该域的默认文案。 */
+  requestFailedCode?: string | undefined
   /** 作品卡的指标布局，由插件声明。 */
   work: ReportWorkLayout
   /** 作品卡的扩展区；视频号用它渲染流量来源与最大流失点，抖音不传。 */
@@ -125,6 +127,8 @@ interface ReportWorkLayout {
   progress?: { key: string; kind: 'percent'; label: string }
 }
 ```
+
+`requestFailedCode` 的取值：抖音传 `douyin_operation_request_failed`，上移前三处兜底解析到的就是这个码，文案逐字相同；视频号的稳定码表里没有对应的码，第 3 步接入时随 `reportErrorText`（2.3）一起定，不传则显示 `errorText` 对空码的默认文案。
 
 `ReportWork` 从服务端的 `works[].metrics` 投影，分两部分：`metrics` 是数值指标，类型 `Readonly<Record<string, number | null>>`，读取器遍历服务端给出的键，值为有限数字则保留，否则记为空，不要求两个平台的键一致；`extra` 是同一对象里非数值的键，类型 `Readonly<Record<string, unknown>>`，原样保留给扩展区，由注入方自己校验。两个平台的指标键如下：
 
@@ -279,7 +283,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | 文档（本文、1126 索引） | 2026-11-27 | `main` | 基线核对后修订；等用户通知进入开发 |
 | tools 合入 `dev` | 2026-11-26 | — | 不涉及，契约已在 [wx-report-server.md](wx-report-server.md) 落地 |
 | docker-helm 部署测试环境 | — | — | 部署仓已合入 `master`，测试环境待部署；客户端先发只是报表 Tab 显示暂不可用，旧功能不受影响 |
-| 第 1 步：纯上移，抖音改为消费 | | `feat/wx-report-client` | 前置：[douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 已在其分支验收提交；本分支从 `main` 切出并并入该分支与排期修复分支（[douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md)）；验收通过后本地提交 |
+| 第 1 步：纯上移，抖音改为消费 | 2026-11-27 | `feat/wx-report-client` | 阶段验收通过，已本地提交，未推送；分支从 `main` 切出并并入 [douyin-report-remove-pdf.md](douyin-report-remove-pdf.md) 与 [douyin-schedule-immediate-save.md](../../1127/features/douyin-schedule-immediate-save.md) 两条分支作为基线；核对记录见 5.3 |
 | 第 2 步：界面整改 | | `feat/wx-report-client` | 前置：第 1 步的阶段验收通过；验收通过后本地提交 |
 | 第 3 步：视频号接入 | | `feat/wx-report-client` | 前置：第 2 步的阶段验收通过；验收通过后本地提交 |
 | yootun-agent 合入 `main` | | | 三步都通过后一次合入；待填 |
@@ -290,7 +294,7 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 ### 5.1 自动验收（开发侧执行，合入前）
 
 - [ ] 开发当日重读 5.3 表里列出的文件，与本文的差异已记入 5.3；
-- [ ] `pnpm --filter @yootun/dsh-client-report test`、`build` 通过；
+- [x] `pnpm --filter @yootun/dsh-client-report test`、`build` 通过；
 - [ ] `pnpm --filter @yootun/dsh-douyin-workbench test`、`build`；`pnpm --filter @yootun/dsh-wx-channels-workbench test`、`build` 通过；
 - [ ] `pnpm --filter @yootun/dsh-managed-mcp test`、`build` 通过；
 - [ ] 仓库级：`pnpm run lint`、`pnpm run typecheck`、`pnpm run verify-client-ui-i18n`、`pnpm run verify-export-jsdoc`；
@@ -336,7 +340,24 @@ Workbench 白名单不改：视频号 caller 的域已含 `wx`，`workbench_wx_r
 | 视频号稳定码 | 视频号 `src/errors.ts` | `SERVER_ERROR_CODES` 没有任何 `REPORT_*`，也没有 `INVALID_CURSOR`，原稿漏了后者；白名单要加 14 个（修订 0.3 第 4 项） |
 | Agent 面策略表 | `dsh-managed-mcp/src/guard.ts`、`tests/managed-mcp.test.ts` | 与原稿一致。抖音的是 `yootun_douyin_reports_list` 与 `yootun_douyin_report_get`；视频号段 6 个只读工具，追加两个报表工具。测试用 `AGENT_TOOL_NAMES.length` 动态断言 |
 
-其余联调记录待填：每一步提交前的样式安装元数据核对结果、错误码穷尽检查的验证记录、三步各自的目检结果。
+2026-11-27 第 1 步「纯上移」提交前核对：
+
+| 核对项 | 方法 | 结果 |
+|---|---|---|
+| 渲染一致性 | 上移前的 `ReportPage` 与共享包的 `ReportPage` 用同一批 mock 请求渲染，比较规范化后的 DOM、请求序列、`onNotice` 序列、导出的 HTML 与文件名 | 37 个场景全部一致：中英文列表、空列表、加载失败、加载更多、详情各状态、趋势图悬停列、重新生成的确认与提交、导出 HTML、日报周报切换、兜底码两条路径 |
+| 样式规则 | 迁移前样式表中报表 57 个类（25 个专属、21 个共用、11 个组合图）的规则，对共享包样式表逐条比较选择器、嵌套的 `@media` 与 `@container` 上下文、声明体 | 缺失 0、多出 0 |
+| 词典 | 迁移前抖音词典 1200 条，对「现抖音词典加共享包词典」逐条比较键与值 | 移除 107 条，全部在共享包：102 条逐字相同；5 条作品卡次要行词条由「收藏 {value}」这类模板改为纯标签「收藏」，值由组件按 `work` 配置拼接，渲染文本相同。保留的 1093 条值不变 |
+| 抖音既有用例 | 读 `douyin-client.test.tsx`、`douyin-parity.test.tsx` 的 diff | 断言的期望值、键名与结构零改动。变化三类：词条与读取器的符号来源换成共享包（28 行）；源码扫描与读取路径的目标换成共享包文件；新增 1 条「`kit-styles` 声明共享包样式表」的守护用例。`report.error.*` 的键集锁定用例未改并通过 |
+| 产物 | 读抖音 `lib/client.js` | 样式安装元数据含共享包样式表；14 条 `@container yootun-kit-page` 规则的容器名未被哈希 |
+| 自动验收 | 共享包与抖音的 `test`、`build`；仓库级 `lint`、`verify-client-ui-i18n`、`verify-export-jsdoc`；`git diff --check` | 全部通过：共享包 30 条用例；抖音 Host 侧 227 条、vitest 172 条 |
+
+主控验收发回的修正（已改完并复验）：样式漏了迁移前的两条规则（表格行悬停底色、减少动效偏好下关闭过渡），已补入；请求抛出非 Error 值与轮询连续 5 次失败时的兜底文案变了，加了 `requestFailedCode`，抖音传 `douyin_operation_request_failed`；导出面多了只在包内使用的翻译函数，已去掉。
+
+主控做词典对照时另发现共享包英文词典的 10 条错误码文案被改写（如 `REPORT_DISABLED` 由「AI reports are currently disabled」改成「AI reports are not enabled」），违反 2.3 的「与现状逐字相同」，已直接改回原文。
+
+第 1 步的已知遗留，不在本步处理：`report.exporting` 词条抖音与共享包各一份且文案相同，抖音的总览与分析页、共享包的报表页都在用；共享包样式表里随并写规则带入的 4 个类（`workTable`、`scheduleTable`、`colAction`、`axisSvg`）在共享包内没有对应元素，第 2 步重做表格样式时删除；日报与周报切换控件的元素 id 仍是 `douyin-report-type`，第 3 步视频号接入时改成不带平台名的 id。
+
+其余联调记录待填：第 2 步、第 3 步的目检结果，视频号错误码穷尽检查的验证记录，视频号插件的样式安装元数据核对结果。
 
 ## 附录 A：逐文件要点
 
