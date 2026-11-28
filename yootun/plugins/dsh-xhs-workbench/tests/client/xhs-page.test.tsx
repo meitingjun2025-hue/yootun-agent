@@ -10,13 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
 import { en, zh, type XhsLocaleKey } from '../../src/client/locales.ts'
-// 与 src/client/index.ts 同构：显式引入模块增强，补全 ClientContext 的合并面
-// （包入口在门禁程序里以产物 d.ts 身份参与，d.ts 生成会丢掉这组空导入）。
-import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 const apiMock = vi.hoisted(() => ({
   hostAction: vi.fn(),

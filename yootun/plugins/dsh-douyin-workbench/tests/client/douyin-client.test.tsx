@@ -17,11 +17,6 @@ import { en as reportEn, type ReportLocaleKey } from '@yootun/dsh-client-report'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
-// tsc 生成 d.ts 时会丢弃 `import type {}` 副作用导入，包的 lib 产物不含 cordis
-// Context 的 locale / slots 增强声明；门禁把测试的相对导入重定向到产物，
-// 消费这些成员的测试在此显式导入增强载体。
-import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { firstOf } from './element.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
