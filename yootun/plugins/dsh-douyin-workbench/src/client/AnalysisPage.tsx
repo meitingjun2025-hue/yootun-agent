@@ -368,7 +368,8 @@ export function AnalysisPage(props: AnalysisPageProps): ReactNode {
                     <thead>
                       <tr>
                         {[t('overview.col.rank'), t('overview.col.video'), t('overview.col.publishTime'), t('col.play'),
-                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis'), t('action.viewDetail')].map(label => <th key={label} scope='col'>{label}</th>)}
+                          t('overview.col.engagement'), t('overview.col.fansGain'), t('overview.col.hotBasis')].map(label => <th key={label} scope='col'>{label}</th>)}
+                        <th scope='col' className={css.colAction}>{t('action.viewDetail')}</th>
                       </tr>
                     </thead>
                     <tbody>

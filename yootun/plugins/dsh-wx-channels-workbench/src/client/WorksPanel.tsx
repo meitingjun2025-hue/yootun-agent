@@ -2,10 +2,11 @@
  * 作品面板（作品数据页右侧，对齐旧工作台布局）：作品工具栏（采集本账号全部 /
  * 刷新 / 最近采集时间；采集进度与刷新提示在按钮下方就地呈现，不进顶部通知条）
  * → 4 张作品摘要卡（作品总数 / 近7日播放 / 近7日关注量 / 作品完播率，空态
- * 「未采集数据」）→ 高密度 13 列作品表格 + 底部分页（kit Pager，固定每页 10
- * 条）。表头排序为服务端排序：点击发起新查询并回第 1 页（button + aria-sort；
- * 行 tabIndex=0，鼠标双击或行内 Enter 打开作品详情 Modal，焦点回归由官方
- * Modal 承担；详情乐观打开，行数据立即上屏，work.get 到达后增量替换）。
+ * 「未采集数据」）→ 高密度作品表格（13 个数据列 + 行末「查看详情」操作列）+
+ * 底部分页（kit Pager，固定每页 10 条）。表头排序为服务端排序：点击发起新查询
+ * 并回第 1 页（button + aria-sort；行 tabIndex=0，鼠标双击、行内 Enter 或
+ * 「查看详情」按钮打开作品详情 Modal，焦点回归由官方 Modal 承担；详情乐观打开，
+ * 行数据立即上屏，work.get 到达后增量替换）。
  * 完播率与最近采集时间读 works.list 随带的整账号聚合值，不在页面基于当页行
  * 计算。
  * @module
@@ -281,6 +282,7 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     </th>
                   )
                 })}
+                <th scope='col' className={css.colAction}>{t('action.viewDetail')}</th>
               </tr>
             </thead>
             <tbody>
@@ -302,6 +304,18 @@ export function WorksPanel(props: WorksPanelProps): ReactNode {
                     {columns.map(column => (
                       <td key={column.labelKey}>{column.cell(row)}</td>
                     ))}
+                    <td className={css.colAction}>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={event => {
+                          event.stopPropagation()
+                          openDetail(row)
+                        }}
+                      >
+                        {t('action.viewDetail')}
+                      </Button>
+                    </td>
                   </tr>
                 )
               })}

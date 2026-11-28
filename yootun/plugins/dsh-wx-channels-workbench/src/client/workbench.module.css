@@ -456,6 +456,14 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* 作品表操作列（查看详情）：表头与单元格同为固定宽、右对齐，与抖音账号作品表同构。 */
+.workTable .colAction {
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  text-align: end;
+}
+
 .sortButton {
   display: flex;
   align-items: center;
@@ -768,15 +776,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 账号表现表：字号与行高同作品表（12px / 18px）。 */
 .accountTable th,
 .accountTable td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   white-space: nowrap;
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .accountTable th {
-  font-size: 12px;
   font-weight: 500;
   color: var(--dsw-alias-label-secondary);
   text-align: left;

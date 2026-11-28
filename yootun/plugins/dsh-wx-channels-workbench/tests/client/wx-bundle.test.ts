@@ -108,3 +108,16 @@ describe('构建脚本容器名配置（源码层，防哈希化回退）', () =
     expect(presetSource.match(/cssModules: \{ pattern: '\[hash\]_\[local\]' \}/gu)).toBeNull()
   })
 })
+
+describe('表格样式契约（源码层）', () => {
+  const css = readFileSync(join(clientDir, 'workbench.module.css'), 'utf8')
+
+  it('账号表现表单元格的字号与行高同作品表（12px / 18px）', () => {
+    // 账号表现表与作品表同为高密度数据表，字号一致。
+    expect(css).toMatch(/\.accountTable th,\s*\.accountTable td\s*\{[^}]*font-size:\s*12px;[^}]*line-height:\s*18px;?\s*\}/u)
+  })
+
+  it('作品表操作列固定宽、右对齐（表头与单元格用同一个类）', () => {
+    expect(css).toMatch(/\.workTable \.colAction\s*\{[^}]*width:\s*96px;[^}]*text-align:\s*end/u)
+  })
+})

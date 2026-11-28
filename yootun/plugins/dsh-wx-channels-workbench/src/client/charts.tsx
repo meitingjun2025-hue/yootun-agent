@@ -71,13 +71,13 @@ function isLabeledIndex(count: number, index: number): boolean {
   return index === 0 || index === count - 1
 }
 
-/** x 轴日期标签：稀疏规则外的行渲染 null（数据列热区不受影响）。 */
-function LabeledAxisText(props: { x: string; y: number; labeled: boolean; children: ReactNode }): ReactNode {
+/** x 轴日期标签：稀疏规则外的行渲染 null（数据列热区不受影响）；`anchor` 由调用方按行位置给出，首行左锚、末行右锚，两端的标签不越出绘图区。 */
+function LabeledAxisText(props: { x: string; y: number; labeled: boolean; anchor: 'start' | 'middle' | 'end'; children: ReactNode }): ReactNode {
   if (!props.labeled) return null
   return (
     <text
       x={props.x} y={props.y}
-      textAnchor="middle" className={css.axisText}
+      textAnchor={props.anchor} className={css.axisText}
     >
       {props.children}
     </text>
@@ -249,6 +249,7 @@ export function LineTrendChart(props: {
             key={row.day === '' ? `slot:${index}` : row.day}
             x={xAt(index).toFixed(1)} y={height - 8}
             labeled={row.emptySlot !== true && isLabeledIndex(rows.length, index)}
+            anchor={index === 0 ? 'start' : index === rows.length - 1 ? 'end' : 'middle'}
           >
             {row.day.slice(5)}
           </LabeledAxisText>

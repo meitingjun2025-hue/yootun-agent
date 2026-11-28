@@ -964,6 +964,28 @@ describe('批量运行中的选中驱动轮询（R4：运行中账号的作品�
     expect(workGetCalls()).toBe(1)
   })
 
+  it('X4b 作品表每行有「查看详情」按钮（固定宽右对齐的操作列），点击打开详情且只请求一次', async () => {
+    const { calls } = await renderPage(baseHandlers({
+      'work.get': args => workGetPayload(String(args.workId ?? '')),
+    }))
+    await screen.findByText('第一条作品', undefined, { timeout: 3000 })
+    const workGetCalls = (): number => calls.filter(call => call.action === 'work.get').length
+    const table = screen.getByRole('table', { name: t('works.table.label') })
+    const rows = within(table as HTMLElement).getAllByRole('row').slice(1)
+    // 每行恰一个按钮，都在带操作列类的单元格里；表头的末列同样带该类（与按钮同为右对齐）。
+    for (const row of rows) {
+      const buttons = within(row).getAllByRole('button', { name: t('action.viewDetail') })
+      expect(buttons).toHaveLength(1)
+      expect(buttons[0]?.closest('td')?.className).toMatch(/colAction/u)
+    }
+    const headers = within(table as HTMLElement).getAllByRole('columnheader')
+    expect(headers.at(-1)?.textContent).toBe(t('action.viewDetail'))
+    expect(headers.at(-1)?.className).toMatch(/colAction/u)
+    fireEvent.click(within(rows[0] as HTMLElement).getByRole('button', { name: t('action.viewDetail') }))
+    await waitFor(() => expect(workGetCalls()).toBe(1))
+    expect(await screen.findByRole('dialog', { name: '第一条作品' })).not.toBeNull()
+  })
+
   it('D8b 切换选中后到达的过期响应被丢弃：不停止新选中账号的轮询、不清它的进度', async () => {
     const runningIds = ['finder-a', 'finder-b']
     const runningA = {
@@ -1024,11 +1046,11 @@ describe('批量运行中的选中驱动轮询（R4：运行中账号的作品�
 })
 
 describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）', () => {
-  it('真实 schema 渲染：13 列表头、snake_case 字段、null 计数显示占位', async () => {
+  it('真实 schema 渲染：14 列表头（含操作列）、snake_case 字段、null 计数显示占位', async () => {
     const { calls } = await renderPage(baseHandlers())
     expect(await screen.findByText('第一条作品')).not.toBeNull()
-    // 表头 13 列：作品 / 发布时间 / 完播率 / 平均播放时长 / 播放 / 喜欢 / 收藏 /
-    // 评论 / 分享 / 转发聊天和朋友圈 / 关注量 / 企微链接点击 / 添加通讯录。
+    // 表头 14 列：作品 / 发布时间 / 完播率 / 平均播放时长 / 播放 / 喜欢 / 收藏 /
+    // 评论 / 分享 / 转发聊天和朋友圈 / 关注量 / 企微链接点击 / 添加通讯录 / 查看详情（操作列）。
     const table = screen.getByRole('table', { name: t('works.table.label') })
     expect(table.getAttribute('aria-label')).toBe(t('works.table.label'))
     const headers = within(table as HTMLElement).getAllByRole('columnheader')
@@ -1047,6 +1069,7 @@ describe('作品页（工具栏 / 摘要卡 / 高密度表格 / 详情 Modal）'
       `${t('col.follow')}↕`,
       t('col.wecomClick'),
       t('col.contactAdd'),
+      t('action.viewDetail'),
     ])
     // 数值列：真实值与缺失占位（不补 0）。
     const firstRow = screen.getByText('第一条作品').closest('tr')
@@ -1829,6 +1852,9 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
     expect([...labels].map(label => label.textContent)).toEqual([
       '10-25', '10-30', '11-04', '11-09', '11-13', '11-18', '11-23',
     ])
+    // 首行左锚、末行右锚：两端的标签不越出绘图区。
+    expect([...labels].map(label => label.getAttribute('text-anchor')))
+      .toEqual(['start', 'middle', 'middle', 'middle', 'middle', 'middle', 'end'])
     // 标题随所选时间窗，不再写死「近 7 天」；en 标题括号进词典后为半角（上一轮真机缺陷）。
     const trendTitle = screen.getByText(t('chart.fansTrendRange', { range: '10-25 – 11-23' }))
     expect(trendTitle.textContent).toContain('(10-25 – 11-23)')

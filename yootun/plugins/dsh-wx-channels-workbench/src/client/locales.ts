@@ -168,6 +168,7 @@ export const zh = {
   'sort.default': '默认排序',
   'sort.aria': '{label}：{order}',
   'cover.fallback': '封面',
+  'action.viewDetail': '查看详情',
   'row.detailAria': '{title}，双击或回车查看详情',
   // 作品详情 Modal
   'works.detail': '作品详情',
@@ -514,6 +515,7 @@ export const en: Record<WxLocaleKey, string> = {
   'sort.default': 'default order',
   'sort.aria': '{label}: {order}',
   'cover.fallback': 'Cover',
+  'action.viewDetail': 'View detail',
   'row.detailAria': '{title}; double-click or press Enter for details',
   'works.detail': 'Work details',
   'works.detailSubtitle': 'Basics · Core metrics · Traffic sources · Retention',

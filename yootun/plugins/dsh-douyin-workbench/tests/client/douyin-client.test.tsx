@@ -2249,6 +2249,27 @@ describe('行内详情/分析按钮（douyin-tabs-regroup D1/D2）', () => {
     expect(await screen.findByRole('button', { name: en['analysis.back'] })).not.toBeNull()
   })
 
+  it('D1 操作列表头与行内按钮同为固定宽、右对齐（账号表、热门作品表、分析页热门表、拆解历史表）', async () => {
+    installDefault()
+    render(<WorkbenchPage t={t} locale={locale} />)
+    fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
+    const assertActionColumn = (table: HTMLElement, action: string): void => {
+      // 表头末列与按钮所在单元格带同一个操作列类，同为右对齐。
+      const lastHeader = within(table).getAllByRole('columnheader').at(-1) as HTMLElement
+      expect(lastHeader.textContent).toBe(action)
+      expect(lastHeader.className).toMatch(/colAction/u)
+      const button = within(table).getAllByRole('button', { name: action })[0] as HTMLElement
+      expect(button.closest('td')?.className).toBe(lastHeader.className)
+    }
+    assertActionColumn(await screen.findByRole('table', { name: en['overview.rank.title'] }), en['action.viewAnalysis'])
+    assertActionColumn(await screen.findByRole('table', { name: en['overview.hot.title'] }), en['action.viewDetail'])
+    fireEvent.click(screen.getAllByRole('button', { name: en['action.viewAnalysis'] })[0])
+    assertActionColumn(await screen.findByRole('table', { name: en['analysis.hot.title'] }), en['action.viewDetail'])
+    // 爆款拆解历史表在 jsdom 里要先跑出一条任务，按源码守护同一写法。
+    expect(readFileSync(join(process.cwd(), 'src', 'client', 'BreakdownPage.tsx'), 'utf8'))
+      .toContain("<th scope='col' className={css.colAction}>{t('action.viewDetail')}</th>")
+  })
+
   it('D1 总览热门作品表行内「查看详情」打开详情', async () => {
     installDefault()
     render(<WorkbenchPage t={t} locale={locale} />)
