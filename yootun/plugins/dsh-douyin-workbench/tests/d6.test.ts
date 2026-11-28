@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import { ACTION_TOOL_MAP, buildRouteHandlers, createDouyinHostDeps } from '../src/index.ts'
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createFakeWorkbench, tempRoot, type FakeWorkbenchCall } from './fakes.ts'
+import { routeAction } from './route-actions.ts'
 
 async function d6Deps(script: { outcomes?: Array<{ structuredContent?: unknown; throwCode?: string }> } = {}): Promise<{
   handlers: Record<string, import('../src/route.ts').ActionHandler>
@@ -52,7 +53,7 @@ test('rewriteRules：items 投影为 rules + total；prompt 不在投影内', as
     outcomes: [{ structuredContent: { items: [{ rewriteRuleId: 'r1', name: '汽车口播', description: '说明', prompt: 'secret' }] } }],
   })
   try {
-    const payload = await handlers['breakdown.rewriteRules']({})
+    const payload = await routeAction(handlers, 'breakdown.rewriteRules')({})
     assert.equal(payload.status, 'ready')
     assert.equal(payload.total, 1)
     assert.deepEqual(payload.rules, [{ rewriteRuleId: 'r1', name: '汽车口播', description: '说明', prompt: 'secret' }])
@@ -68,7 +69,7 @@ test('archiveStart：shareUrl→douyinVideoUrl + confirm + 幂等键；回执 ar
     outcomes: [{ structuredContent: { runId: 'run-1', runStatus: 'waiting', nextAction: 'poll_status' } }],
   })
   try {
-    const payload = await handlers['breakdown.archiveStart']({ shareUrl: 'https://v.douyin.com/x/', idempotencyKey: `douyin:vv_archive:${uuid}` })
+    const payload = await routeAction(handlers, 'breakdown.archiveStart')({ shareUrl: 'https://v.douyin.com/x/', idempotencyKey: `douyin:vv_archive:${uuid}` })
     assert.equal(payload.status, 'ready')
     assert.deepEqual(payload.archive, { runId: 'run-1', runStatus: 'waiting', nextAction: 'poll_status' })
     assert.deepEqual(calls[0]?.args, {
@@ -84,7 +85,7 @@ test('archiveStart：shareUrl→douyinVideoUrl + confirm + 幂等键；回执 ar
 test('archiveStart：IDEMPOTENCY_OUTCOME_UNKNOWN 原样投影且不自动重发', async () => {
   const { handlers, calls, cleanup } = await d6Deps({ outcomes: [{ throwCode: 'IDEMPOTENCY_OUTCOME_UNKNOWN' }] })
   try {
-    await assert.rejects(() => handlers['breakdown.archiveStart']({ shareUrl: 'https://v.douyin.com/x/', idempotencyKey: `douyin:vv_archive:${uuid}` }), (error: unknown) => {
+    await assert.rejects(() => routeAction(handlers, 'breakdown.archiveStart')({ shareUrl: 'https://v.douyin.com/x/', idempotencyKey: `douyin:vv_archive:${uuid}` }), (error: unknown) => {
       const envelope = (error as { payload?: { error?: { code?: string } } }).payload?.error?.code
       return envelope === 'IDEMPOTENCY_OUTCOME_UNKNOWN'
     })
@@ -100,7 +101,7 @@ test('archiveStatus：runId 透传；pending/running/succeeded/failed 原样投�
       outcomes: [{ structuredContent: { runId: 'run-9', runStatus, nextAction: runStatus === 'succeeded' ? 'done' : 'poll_status' } }],
     })
     try {
-      const payload = await handlers['breakdown.archiveStatus']({ runId: 'run-9' })
+      const payload = await routeAction(handlers, 'breakdown.archiveStatus')({ runId: 'run-9' })
       assert.equal((payload.archive as { runStatus: string }).runStatus, runStatus)
       assert.deepEqual(calls[0]?.args, { runId: 'run-9' })
     } finally {
@@ -112,7 +113,7 @@ test('archiveStatus：runId 透传；pending/running/succeeded/failed 原样投�
 test('archiveStatus：ASYNC_RUN_NOT_FOUND 稳定错误路径', async () => {
   const { handlers, cleanup } = await d6Deps({ outcomes: [{ throwCode: 'ASYNC_RUN_NOT_FOUND' }] })
   try {
-    await assert.rejects(() => handlers['breakdown.archiveStatus']({ runId: 'nope' }), (error: unknown) => {
+    await assert.rejects(() => routeAction(handlers, 'breakdown.archiveStatus')({ runId: 'nope' }), (error: unknown) => {
       const envelope = (error as { payload?: { error?: { code?: string } } }).payload?.error?.code
       return envelope === 'ASYNC_RUN_NOT_FOUND'
     })
@@ -129,10 +130,10 @@ test('downloadStart/downloadStatus：参数与回执投影；failed errorCode �
     ],
   })
   try {
-    const started = await handlers['breakdown.downloadStart']({ shareUrl: 'https://v.douyin.com/y/', idempotencyKey: `douyin:vv_download:${uuid}` })
+    const started = await routeAction(handlers, 'breakdown.downloadStart')({ shareUrl: 'https://v.douyin.com/y/', idempotencyKey: `douyin:vv_download:${uuid}` })
     assert.deepEqual(started.download, { jobId: 'job-1', status: 'pending' })
     assert.deepEqual(calls[0]?.args, { douyinVideoUrl: 'https://v.douyin.com/y/', idempotencyKey: `douyin:vv_download:${uuid}` })
-    const done = await handlers['breakdown.downloadStatus']({ jobId: 'job-1' })
+    const done = await routeAction(handlers, 'breakdown.downloadStatus')({ jobId: 'job-1' })
     assert.deepEqual(done.download, { jobId: 'job-1', status: 'ready', downloadUrl: 'https://tos/x.mp4' })
     assert.deepEqual(calls[1]?.args, { jobId: 'job-1' })
   } finally {
@@ -140,7 +141,7 @@ test('downloadStart/downloadStatus：参数与回执投影；failed errorCode �
   }
   const failed = await d6Deps({ outcomes: [{ structuredContent: { jobId: 'job-2', status: 'failed', error: { code: 'DOUYIN_VIDEO_DOWNLOAD_FAILED' } } }] })
   try {
-    const payload = await failed.handlers['breakdown.downloadStatus']({ jobId: 'job-2' })
+    const payload = await routeAction(failed.handlers, 'breakdown.downloadStatus')({ jobId: 'job-2' })
     assert.equal((payload.download as { status: string }).status, 'failed')
   } finally {
     await failed.cleanup()
@@ -152,11 +153,11 @@ test('workflowStart：candidateId + confirm + 幂等键；rewriteRuleId/force �
     outcomes: [{ structuredContent: { workflowId: 'wf-1', candidateId: 'c1', status: 'queued' } }, { structuredContent: { workflowId: 'wf-2', candidateId: 'c1', status: 'queued' } }, { structuredContent: { workflowId: 'wf-3', candidateId: 'c1', status: 'queued' } }],
   })
   try {
-    await handlers['breakdown.workflowStart']({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey })
+    await routeAction(handlers, 'breakdown.workflowStart')({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey })
     assert.deepEqual(calls[0]?.args, { candidateId: 'c1', idempotencyKey: wfKey, confirm: true }, '缺省不带 rewriteRuleId/force')
-    await handlers['breakdown.workflowStart']({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey, rewriteRuleId: 'r1' })
+    await routeAction(handlers, 'breakdown.workflowStart')({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey, rewriteRuleId: 'r1' })
     assert.deepEqual(calls[1]?.args, { candidateId: 'c1', idempotencyKey: wfKey, confirm: true, rewriteRuleId: 'r1' })
-    await handlers['breakdown.workflowStart']({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey, force: true })
+    await routeAction(handlers, 'breakdown.workflowStart')({ candidateId: 'c1', confirm: true, idempotencyKey: wfKey, force: true })
     assert.deepEqual(calls[2]?.args, { candidateId: 'c1', idempotencyKey: wfKey, confirm: true, force: true })
   } finally {
     await cleanup()
@@ -171,13 +172,14 @@ test('workflowStatus：workflowId 优先 / candidateId 回退 / limit 透传；�
     ],
   })
   try {
-    const byId = await handlers['breakdown.workflowStatus']({ workflowId: 'wf-1', limit: 5 })
+    const byId = await routeAction(handlers, 'breakdown.workflowStatus')({ workflowId: 'wf-1', limit: 5 })
     assert.deepEqual(calls[0]?.args, { workflowId: 'wf-1', limit: 5 })
     assert.deepEqual(byId.workflows, [{ workflowId: 'wf-1', candidateId: 'c1', status: 'running' }])
     assert.equal(byId.total, 1)
-    const byCandidate = await handlers['breakdown.workflowStatus']({ candidateId: 'c2' })
+    const byCandidate = await routeAction(handlers, 'breakdown.workflowStatus')({ candidateId: 'c2' })
     assert.deepEqual(calls[1]?.args, { candidateId: 'c2' })
-    assert.equal((byCandidate.workflows[0] as { candidateId: string }).candidateId, 'c2')
+    const byCandidateWorkflows = byCandidate.workflows as Array<{ candidateId: string }>
+    assert.equal(byCandidateWorkflows[0]?.candidateId, 'c2')
     assert.equal(byCandidate.total, 5)
   } finally {
     await cleanup()
@@ -193,7 +195,7 @@ test('detail：三源组合（storyboards 主体 + analysis/candidate 辅助成�
     ],
   })
   try {
-    const payload = await handlers['breakdown.detail']({ candidateId: 'c1' })
+    const payload = await routeAction(handlers, 'breakdown.detail')({ candidateId: 'c1' })
     assert.equal(payload.status, 'ready')
     assert.deepEqual(payload.storyboards, [{ input: { rewriteRuleId: 'r1' } }])
     assert.deepEqual(payload.analysis, { status: 'succeeded', candidates: [{ products: { asr: { transcript: '全文' } } }] })
@@ -218,7 +220,7 @@ test('detail：storyboards 失败即整单失败；辅助源独立降级透出�
     ],
   })
   try {
-    const payload = await degraded.handlers['breakdown.detail']({ candidateId: 'c1' })
+    const payload = await routeAction(degraded.handlers, 'breakdown.detail')({ candidateId: 'c1' })
     assert.deepEqual(payload.storyboards, [])
     assert.equal(payload.analysis, null)
     assert.equal(payload.analysisError, 'CANDIDATE_NOT_FOUND')
@@ -229,7 +231,7 @@ test('detail：storyboards 失败即整单失败；辅助源独立降级透出�
   }
   const fatal = await d6Deps({ outcomes: [{ throwCode: 'CANDIDATE_NOT_FOUND' }] })
   try {
-    await assert.rejects(() => fatal.handlers['breakdown.detail']({ candidateId: 'c1' }), (error: unknown) => {
+    await assert.rejects(() => routeAction(fatal.handlers, 'breakdown.detail')({ candidateId: 'c1' }), (error: unknown) => {
       return (error as { code?: unknown }).code === 'CANDIDATE_NOT_FOUND'
     }, 'storyboards 失败不显示假详情')
     assert.equal(fatal.calls.length, 1, '主体失败即短路，不再拉辅助源')
@@ -252,7 +254,7 @@ test('export：camelCase 信封投影为下载字段；base64 与字节数自洽
     }],
   })
   try {
-    const payload = await handlers['breakdown.export']({ candidateId: 'c1' })
+    const payload = await routeAction(handlers, 'breakdown.export')({ candidateId: 'c1' })
     assert.equal(payload.status, 'ready')
     assert.equal(payload.file_name, 'douyin-storyboard-c1-20261122.xlsx')
     assert.equal(payload.mime_type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -268,7 +270,7 @@ test('export：base64 与声明字节数不自洽 → export_failed', async () =
     outcomes: [{ structuredContent: { fileName: 'douyin-storyboard-c1.xlsx', contentBase64: 'AAAA', sizeBytes: 99 } }],
   })
   try {
-    await assert.rejects(() => handlers['breakdown.export']({ candidateId: 'c1' }), (error: unknown) => {
+    await assert.rejects(() => routeAction(handlers, 'breakdown.export')({ candidateId: 'c1' }), (error: unknown) => {
       const code = (error as { code?: unknown }).code
       return code === 'export_failed'
     })
@@ -282,7 +284,7 @@ test('export：文件名不合规回退强制前缀；CANDIDATE_NOT_FOUND/STORYB
     outcomes: [{ structuredContent: { fileName: 'evil/../name.txt', contentBase64: 'QUJD', sizeBytes: 3 } }],
   })
   try {
-    const payload = await fallback.handlers['breakdown.export']({ candidateId: 'c1' })
+    const payload = await routeAction(fallback.handlers, 'breakdown.export')({ candidateId: 'c1' })
     assert.equal(payload.file_name, 'douyin-storyboard-export.xlsx')
   } finally {
     await fallback.cleanup()
@@ -290,7 +292,7 @@ test('export：文件名不合规回退强制前缀；CANDIDATE_NOT_FOUND/STORYB
   for (const code of ['CANDIDATE_NOT_FOUND', 'STORYBOARD_NOT_READY']) {
     const rejected = await d6Deps({ outcomes: [{ throwCode: code }] })
     try {
-      await assert.rejects(() => rejected.handlers['breakdown.export']({ candidateId: 'c1' }), (error: unknown) => {
+      await assert.rejects(() => routeAction(rejected.handlers, 'breakdown.export')({ candidateId: 'c1' }), (error: unknown) => {
         return (error as { code?: unknown }).code === code
       })
     } finally {
@@ -306,7 +308,7 @@ test('export：内容超上限稳定报错 export_too_large', async () => {
     outcomes: [{ structuredContent: { fileName: 'douyin-storyboard-c1.xlsx', contentBase64: big, sizeBytes: bytes } }],
   })
   try {
-    await assert.rejects(() => handlers['breakdown.export']({ candidateId: 'c1' }), (error: unknown) => {
+    await assert.rejects(() => routeAction(handlers, 'breakdown.export')({ candidateId: 'c1' }), (error: unknown) => {
       return (error as { code?: unknown }).code === 'export_too_large'
     })
   } finally {
@@ -323,7 +325,7 @@ test('history：limit 默认 10；hasStoryboard 按 succeeded 保守判定', asy
     ], total: 3 } }],
   })
   try {
-    const payload = await handlers['breakdown.history']({})
+    const payload = await routeAction(handlers, 'breakdown.history')({})
     assert.deepEqual(calls[0]?.args, { limit: 10 })
     assert.deepEqual(payload.history, [
       { workflowId: 'wf-1', candidateId: 'c1', status: 'succeeded', hasStoryboard: true },
@@ -331,7 +333,7 @@ test('history：limit 默认 10；hasStoryboard 按 succeeded 保守判定', asy
       { workflowId: 'wf-3', candidateId: 'c3', status: 'running', hasStoryboard: false },
     ])
     assert.equal(payload.total, 3)
-    const withLimit = await handlers['breakdown.history']({ limit: 200 })
+    const withLimit = await routeAction(handlers, 'breakdown.history')({ limit: 200 })
     void withLimit
     assert.deepEqual(calls[1]?.args, { limit: 200 })
   } finally {
@@ -351,8 +353,8 @@ test('D6 直接 Workbench 调用携带 action 级 AbortSignal（guard 注入、d
   const deps = createDouyinHostDeps({ root, workbenchFace: recordingFace, logger: { warn: () => undefined } })
   const handlers = buildRouteHandlers(deps)
   try {
-    await handlers['breakdown.archiveStatus']({ runId: 'run-1' })
-    await handlers['breakdown.history']({})
+    await routeAction(handlers, 'breakdown.archiveStatus')({ runId: 'run-1' })
+    await routeAction(handlers, 'breakdown.history')({})
     for (const [index, signal] of seen.entries()) {
       assert.ok(signal instanceof AbortSignal, `第 ${index} 次调用携带 action 级 signal`)
       assert.equal(signal.aborted, false, '在途期间 signal 未被误触发')
@@ -363,8 +365,8 @@ test('D6 直接 Workbench 调用携带 action 级 AbortSignal（guard 注入、d
 })
 
 test('dispose 取消挂起的直接 action（在途 archiveStatus 被 abort，不伪成功）', async () => {
-  const hangingFace = {
-    async callTool(_caller: string, _domain: string, _name: string, _args: unknown, signal?: AbortSignal) {
+  const hangingFace: ReturnType<typeof createFakeWorkbench>['face'] = {
+    async callTool(_caller, _domain, _name, _args, signal) {
       return new Promise((_resolve, reject) => {
         if (signal?.aborted === true) {
           reject(new Error('aborted'))
@@ -377,7 +379,7 @@ test('dispose 取消挂起的直接 action（在途 archiveStatus 被 abort，�
   const { root, cleanup } = await tempRoot()
   const deps = createDouyinHostDeps({ root, workbenchFace: hangingFace, logger: { warn: () => undefined } })
   const handlers = buildRouteHandlers(deps)
-  const pending = handlers['breakdown.archiveStatus']({ runId: 'run-1' })
+  const pending = routeAction(handlers, 'breakdown.archiveStatus')({ runId: 'run-1' })
   const settled = pending.then(() => 'resolved', () => 'rejected')
   await new Promise(resolve => { setTimeout(resolve, 20) })
   await disposeHostTasks({ deps })

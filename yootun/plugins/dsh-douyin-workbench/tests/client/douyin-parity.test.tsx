@@ -37,7 +37,7 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_WORK_SORT, batchReasonKey, deltaText, domainErrorText,
   fanDelta, formatAgeBucket, formatCount, formatDateTime, formatDuration, formatPercent,
-  formatSeconds, genderLabel, gapFieldLabel, gapReasonText, hotLabelText, nextWorkSort,
+  genderLabel, gapFieldLabel, gapReasonText, hotLabelText, nextWorkSort,
   reasonText, retentionStatus, retentionStatusKey, safeHttpUrl, safeWorkUrl, shiftDay,
   trafficSourceLabel, type Translate,
 } from '../../src/client/format.ts'
@@ -456,7 +456,7 @@ describe('kit 样式表装载清单（源码层，防新增组件漏样式）', 
   /** 一份源码里从 kit 桶导入的组件名集合。 */
   function consumedKitComponentsIn(source: string, names: Set<string>): void {
     for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
-      for (const raw of match[1].split(',')) {
+      for (const raw of match[1]?.split(',') ?? []) {
         const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
         if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
       }
@@ -540,7 +540,7 @@ describe('词典完整性', () => {
   })
 
   it('占位符一致（zh/en 同键占位符集合相同）', () => {
-    const tokens = (text: string): string[] => [...text.matchAll(/\{(\w+)\}/gu)].map(match => match[1]).sort().join(',')
+    const tokens = (text: string): string => [...text.matchAll(/\{(\w+)\}/gu)].map(match => match[1]).sort().join(',')
     for (const key of Object.keys(zh) as DouyinLocaleKey[]) {
       expect(tokens(en[key]), key).toBe(tokens(zh[key]))
     }

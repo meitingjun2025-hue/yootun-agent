@@ -13,10 +13,16 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { en as kitEn } from '@yootun/dsh-client-ui-kit'
-import { en as reportEn, zh as reportZh, type ReportLocaleKey } from '@yootun/dsh-client-report'
+import { en as reportEn, type ReportLocaleKey } from '@yootun/dsh-client-report'
 import { en, zh, type DouyinLocaleKey } from '../../src/client/locales.ts'
 import { attemptId, formatCount, formatPercent, reasonText, shanghaiToday, shiftDay } from '../../src/client/format.ts'
 import { apply, createWorkbenchLocaleSeat, type WorkbenchPageProps } from '../../src/client/index.ts'
+// tsc 生成 d.ts 时会丢弃 `import type {}` 副作用导入，包的 lib 产物不含 cordis
+// Context 的 locale / slots 增强声明；门禁把测试的相对导入重定向到产物，
+// 消费这些成员的测试在此显式导入增强载体。
+import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import { firstOf } from './element.ts'
 
 /** 字面色值红线：#hex 与 rgb()/rgba()/hsl()/hsla()/oklch()/oklab() 函数色。 */
 const COLOR_LITERAL_RE = /#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?|oklch|oklab)\(/u
@@ -198,7 +204,7 @@ describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () =
   })
 
   it('N5 账号总览页全宽不渲染账号管理栏；点账号行的「查看分析」进入单账号分析；账号作品页才渲染', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
       if (action === 'accounts.list') return { status: 'ready', accounts: [accountRow], remoteError: null }
       if (action === 'overview.get') return overviewPayload
@@ -212,7 +218,7 @@ describe('顶级导航（douyin-tabs-regroup：4 组 + 组内二级段）', () =
     fireEvent.click(screen.getByRole('tab', { name: en['tab.overview'] }))
     // 账号管理栏只属于「账号作品」页：总览页全宽（2026-11-27 真机验收调整）。
     // 账号表现排行表每行有一个「查看分析」，取首行账号的。
-    const analyze = (await screen.findAllByRole('button', { name: en['action.viewAnalysis'] }))[0]
+    const analyze = firstOf(await screen.findAllByRole('button', { name: en['action.viewAnalysis'] }))
     expect(screen.queryByRole('complementary', { name: en['account.title'] })).toBeNull()
     // 点账号行的「查看分析」= 进入该账号的单账号分析。
     fireEvent.click(analyze)
@@ -932,7 +938,9 @@ describe('发布排期看板（parity 矩阵 §4）', () => {
     expect(releaseFirst).not.toBeNull()
     // 第一次保存返回前继续输入。
     fireEvent.change(ownerInput, { target: { value: '赵六' } })
-    releaseFirst?.()
+    // 闭包赋值后控制流仍把 releaseFirst 窄化为 null，放宽回声明类型再调用。
+    const release = releaseFirst as (() => void) | null
+    release?.()
     const calls = await waitFor(() => {
       const updates = rowUpdateArgs()
       expect(updates).toHaveLength(2)
@@ -1302,7 +1310,9 @@ describe('批量采集启动反馈（collectAll.start）', () => {
       await flush()
       expect(callsOf('collectAll.start')).toBe(1)
       // 释放首个请求：resolve 后照常投影 Host batch 并立即 tick。
-      resolveStart?.({ status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } })
+      // 闭包赋值后控制流仍把 resolveStart 窄化为 null，放宽回声明类型再调用。
+      const resolve = resolveStart as ((value: Record<string, unknown>) => void) | null
+      resolve?.({ status: 'ready', batch: { batchId: 'batch-1', status: 'running', phase: 'probing', items: [] } })
       await flush()
       expect(callsOf('collectAll.start')).toBe(1)
       expect(callsOf('collectAll.status') - baselineStatusCalls).toBe(1)
@@ -1705,8 +1715,11 @@ describe('采集状态挂载恢复（collect.running；实施单附录 B.2）', 
       expect(screen.getByRole('button', { name: en['works.collecting'] }).getAttribute('disabled')).not.toBeNull()
       expect(screen.getByText(t('works.progress.collect', { index: 1, total: 5 }))).not.toBeNull()
       // 迟到的恢复响应：stale 运行投影（9/9）与终态记录都不得覆盖用户采集。
-      resolveRunning?.({ status: 'ready', collect: runningView('acc-1', 9, 9), batchRunning: false })
-      resolveRecoveryStatus?.({ status: 'ready', collect: completedView('acc-1') })
+      // 闭包赋值后控制流仍把两个 resolve 窄化为 null，放宽回声明类型再调用。
+      const resolveRunningNow = resolveRunning as ((value: Record<string, unknown>) => void) | null
+      const resolveRecoveryNow = resolveRecoveryStatus as ((value: Record<string, unknown>) => void) | null
+      resolveRunningNow?.({ status: 'ready', collect: runningView('acc-1', 9, 9), batchRunning: false })
+      resolveRecoveryNow?.({ status: 'ready', collect: completedView('acc-1') })
       await flush()
       expect(screen.getByText(t('works.progress.collect', { index: 1, total: 5 }))).not.toBeNull()
       expect(screen.queryByText(t('works.progress.collect', { index: 9, total: 9 }))).toBeNull()
@@ -1846,7 +1859,9 @@ describe('作品列表服务端分页 / 排序 / KPI 行', () => {
     await waitFor(() => expect(worksCallCount).toBe(2))
     fireEvent.click(screen.getByRole('button', { name: playAria('desc') }))
     expect(await screen.findByText('收藏排序行')).not.toBeNull()
-    resolveSecond?.({ status: 'ready', accountId: 'acc-1', works: [{ ...workRow, work_id: 'w-stale', title: '过期播放行' }], total: 183, limit: 10, offset: 0, summary: summary183 })
+    // 闭包赋值后控制流仍把 resolveSecond 窄化为 null，放宽回声明类型再调用。
+    const resolveSecondNow = resolveSecond as ((value: Record<string, unknown>) => void) | null
+    resolveSecondNow?.({ status: 'ready', accountId: 'acc-1', works: [{ ...workRow, work_id: 'w-stale', title: '过期播放行' }], total: 183, limit: 10, offset: 0, summary: summary183 })
     await flush()
     expect(screen.queryByText('过期播放行')).toBeNull()
     expect(screen.getByText('收藏排序行')).not.toBeNull()
@@ -2171,7 +2186,7 @@ describe('P2/P3：locale 座位判定与 attemptId 归位（client-workbench-hoo
       getSnapshot: () => snapshot,
     }
     // 构造 panel 中英文同值的词典（旧 localeTagOf(t) 在此判错为 zh）。
-    const samePanelT = ((key: DouyinLocaleKey, values?: Record<string, string | number>): string =>
+    const samePanelT = ((key: DouyinLocaleKey): string =>
       key === 'panel' ? zh.panel : en[key] ?? key) as typeof t
     apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chromeAvailable: true, driverAvailable: true, platform: 'linux', hint: null }
@@ -2263,7 +2278,7 @@ describe('行内详情/分析按钮（douyin-tabs-regroup D1/D2）', () => {
     }
     assertActionColumn(await screen.findByRole('table', { name: en['overview.rank.title'] }), en['action.viewAnalysis'])
     assertActionColumn(await screen.findByRole('table', { name: en['overview.hot.title'] }), en['action.viewDetail'])
-    fireEvent.click(screen.getAllByRole('button', { name: en['action.viewAnalysis'] })[0])
+    fireEvent.click(firstOf(screen.getAllByRole('button', { name: en['action.viewAnalysis'] })))
     assertActionColumn(await screen.findByRole('table', { name: en['analysis.hot.title'] }), en['action.viewDetail'])
     // 爆款拆解历史表在 jsdom 里要先跑出一条任务，按源码守护同一写法。
     expect(readFileSync(join(process.cwd(), 'src', 'client', 'BreakdownPage.tsx'), 'utf8'))
@@ -2389,13 +2404,13 @@ describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
     applyUnderTest({
       locale: localeFace,
       slots: {
-        inject: (_name, factory) => factory(),
-        register: (spec, _component) => {
+        inject: (_name: string, factory: () => unknown) => factory(),
+        register: (spec: Record<string, unknown>, _component: unknown) => {
           registered.push({ name: String(spec.name), spec })
           return () => undefined
         },
       },
-      effect: fn => fn(),
+      effect: (fn: () => unknown) => fn(),
     })
     const mainSpec = registered.find(entry => entry.name === 'main')
     expect(mainSpec).toBeDefined()

@@ -14,12 +14,12 @@ afterEach(() => {
 
 describe('插件侧 hostAction 绑定', () => {
   it('绑定本工作台同源路由', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ready', accounts: [] }), { status: 200 }))
+    const fetchMock = vi.fn(async (_path: string, _init?: RequestInit) => new Response(JSON.stringify({ status: 'ready', accounts: [] }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     const res = await hostAction('accounts.list')
     expect(res.status).toBe('ready')
     expect(res.accounts).toEqual([])
-    const [path] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const [path] = fetchMock.mock.calls[0] ?? []
     expect(path).toBe(HOST_PATH)
     expect(HOST_PATH).toBe('/api/desktop/yootun/douyin-workbench')
   })
