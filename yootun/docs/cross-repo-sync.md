@@ -83,6 +83,7 @@ export const CALLER_DOMAINS = {
 - **影响面从速查表复制**，逐行填改/不改 + 具体文件路径 + 依据；"不改"也要写，防止遗漏判断；
 - **状态回填四个时间点分开记**：tools 合入 `dev`、docker-helm 部署测试环境、yootun-agent 合入 `main`、发版。tools 合入不等于服务端已上线；
 - 不记裸 commit hash，用日期与版本号。
+- **用例编号不进测试文件名**：章节号、用例编号、轮次与批次号只用于实施单与分册内的引用；写到测试文件时按被测功能命名（[分区约定](../AGENTS.md#构建与测试)）。
 
 首份实施单 [1124/features/infra-whitelist-domain-gate.md](1124/features/infra-whitelist-domain-gate.md) 即第二节白名单机制落地的实施与验收单。
 
