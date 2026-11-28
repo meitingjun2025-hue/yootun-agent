@@ -154,7 +154,7 @@ credentials.resolve(MODELS_API_KEY) 返回非空值
 
 自愈退避（2026-11-26 起）：基值 30 秒（Config `rebuildBackoffMs`，1000..600000）、×2 倍增、上限 = max(基值, 5 分钟)、抖动 ±20%；`failed` 已有待触发定时器则忽略（一次失败只对应一次重建），`connected` 复位到基值；`dispose` 清除定时器与状态订阅。
 
-设置页状态出口（2026-11-26 起）：`POST /api/desktop/yootun/agent-status` 返回监督器只读快照 `{ status: 'ok', state, attempt, since, count, retryAt? }`，`state` 取值 `disabled`（门禁未通过，attempt 为 0）/ `connecting` / `connected` / `failed`（带下次重建时间 `retryAt`）/ `waiting-credentials`；体可省略，有体时必须是空对象；插件卸载中 503 `plugin_disposing`；信任判定同 §10.3；响应不含 key、URL 或任何凭证相关信息。设置区块「智能体工具」行按此轮询（可见时每 5 秒）。
+设置页状态出口（2026-11-26 起）：`POST /api/desktop/yootun/agent-status` 返回监督器只读快照 `{ status: 'ok', state, attempt, since, count, retryAt? }`，`state` 取值 `disabled`（门禁未通过，attempt 为 0）/ `connecting` / `connected` / `failed`（带下次重建时间 `retryAt`）/ `waiting-credentials`；体可省略，有体时必须是空对象；插件卸载中 503 `plugin_disposing`；信任判定同 §10.3；响应不含 key、URL 或任何凭证相关信息。设置区块「智能体工具」行按此轮询（可见时每 5 秒）。路由随 `webServer` 的可用性注册（2026-11-28 起）：服务就绪后注册，服务变化时在新实例上重新注册，组合没有 `webServer` 时不注册、插件其余职责不受影响，见 [managed-mcp-status-route.md](../1128/features/managed-mcp-status-route.md) 2.1。
 
 transport headers：
 

@@ -136,6 +136,7 @@ MCP 工具：无。
 
 - Config 增 `rebuildBackoffMs: z.number().step(1).min(1000).max(600000).default(30_000)`；
 - `inject` 不变（`['tools']`）；`apply` 内 `const webServer = ctx.get('webServer')`，存在时 `ctx.effect(() => webServer.register({ kind: 'exact', path: STATUS_PATH, handler }))`；handler 与 yootun 其余路由同一信任判定（本包内实现一份 `permitted`，合并见 P1 host-kit 单）；`disposing` 后返回 503；
+- 2026-11-28 修订：上一条的注册写法改为 `ctx.inject(['webServer'], scope => { scope.effect(() => scope.webServer.register(…)) })`，状态路由随 `webServer` 的可用性注册（服务就绪后注册、服务变化时重新注册），`inject` 仍为 `['tools']`；见 [managed-mcp-status-route.md](../../1128/features/managed-mcp-status-route.md) 2.1；
 - 路由处理只读监督器快照，不触发任何网络请求。
 
 ### A3 `dsh-client-ui-access/src/client/section.tsx`
