@@ -77,6 +77,8 @@ MCP 工具：无。
 
 按钮规格：官方 `Button`，`variant='ghost'`、`size='sm'`，放在行末操作列，列宽固定。
 
+操作列的表头与按钮单元格带同一个操作列类，同为固定宽、右对齐（2026-11-28 真机验收修正，见 [device-review-fixes.md](../../1128/features/device-review-fixes.md) 2.1）。
+
 ### 2.4 词典新增（`src/client/locales.ts`，zh 为键集事实源，en 成对）
 
 | 键 | zh | en |

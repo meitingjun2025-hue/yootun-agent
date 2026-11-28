@@ -168,10 +168,11 @@ PluginPageShell
 | 关注量 | 是 |
 | 企微链接点击 | 否 |
 | 添加通讯录 | 否 |
+| 查看详情（操作列，2026-11-28 新增） | 否 |
 
 实现要求：
 
-- 不设置“操作”列；
+- 行末「查看详情」操作列固定宽、表头与单元格同为右对齐，与抖音账号作品表同构（2026-11-28 真机验收调整，见 [device-review-fixes.md](../1128/features/device-review-fixes.md) 2.2）；
 - 作品列不显示 ID 副行；
 - 可排序列表头是 button，`aria-sort` 与箭头一致；
 - 点击排序循环：默认 → 降序 → 升序；
@@ -265,7 +266,7 @@ work.trend → { account_id, work_id, snapshots }
 
 ### 5.2 账号表现表
 
-9 列：序号（表头「序号」，en「No.」）/ 账号（昵称 + 会话状态 Tag + 「未采集数据」Tag，不显示头像与昵称首字）/ 关注者 / 净增（带符号涨跌色）/ 播放 / 喜欢 / 评论 / 分享 / 作品（`work_count` 缺失回退 `feed_count`）。数字列表头与数据同选择器右对齐。行可聚焦（Enter / Space 选中账号，`aria-selected` + `aria-current`）；服务端按 `sort` 排序；`<880` 容器前两列 sticky。
+9 列：序号（表头「序号」，en「No.」）/ 账号（昵称 + 会话状态 Tag + 「未采集数据」Tag，不显示头像与昵称首字）/ 关注者 / 净增（带符号涨跌色）/ 播放 / 喜欢 / 评论 / 分享 / 作品（`work_count` 缺失回退 `feed_count`）。数字列表头与数据同选择器右对齐。行可聚焦（Enter / Space 选中账号，`aria-selected` + `aria-current`）；服务端按 `sort` 排序；`<880` 容器前两列 sticky。字号与行高同作品表（12px / 18px；2026-11-28 真机验收调整，见 [device-review-fixes.md](../1128/features/device-review-fixes.md) 2.3）。
 
 ### 5.3 关注者增长
 
@@ -278,7 +279,7 @@ work.trend → { account_id, work_id, snapshots }
 趋势图：
 
 - 范围**严格等于所选时间窗**，横轴固定 7 个位置（2026-11-25 真机验收后调整，规则见 [device-review-fixes.md](../1125/features/device-review-fixes.md) 2.5）：不足 7 天时从最后一个位置往前排、左侧留空；等于 7 天全排；超过 7 天等间隔取 7 个日期，首尾必选；单日窗口只画一个点并标出数值；
-- x 轴最多 7 个日期，全部显示；
+- x 轴最多 7 个日期，全部显示；第一个位置左锚、最后一个位置右锚，两端的标签不越出绘图区（2026-11-28 真机验收调整，见 [device-review-fixes.md](../1128/features/device-review-fixes.md) 2.4）；
 - 主线为关注者总数（各账号非空值合计；全部账号模式为合计线，单账号模式为该账号线）；
 - y 轴有稳定刻度；hover / focus 显示日期和数值；缺失日断线，不伪造成 0。
 
