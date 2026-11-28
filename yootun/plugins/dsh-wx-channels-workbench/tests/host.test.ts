@@ -294,7 +294,7 @@ test('handler 抛非稳定码错误收敛为稳定 reason，不透传原文', as
   await handler(req, fakeRes(responded))
   assert.equal(responded[0]?.status, 200)
   const reason = String(responded[0]?.payload.reason)
-  assert.equal(STABLE_ERROR_CODES.includes(reason), true, `reason ${reason} 必须是稳定码`)
+  assert.equal((STABLE_ERROR_CODES as readonly string[]).includes(reason), true, `reason ${reason} 必须是稳定码`)
   assert.equal(reason.includes('secret'), false)
 })
 
@@ -514,6 +514,7 @@ test('collect.start 同步互斥：并发第二请求被拒（TOCTOU 缺口锁�
 })
 
 test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
+  const { createCollectController } = await import('../src/runner.ts')
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
   const root = join(tmpdir(), `wx-rr-${String(Math.random()).slice(2)}`)
   const { mkdir, writeFile } = await import('node:fs/promises')
@@ -527,7 +528,11 @@ test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
     logger: { warn: () => undefined },
   })
   const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
-  const handlers = buildRouteHandlers(deps, batch as never)
+    const collect = createCollectController(
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
   const result = await handlers['account.removeRemote']?.({ accountId: 'acc1' }) as Record<string, unknown>
   assert.equal(result.status, 'error')
   assert.equal(result.reason, 'LOCAL_CLEARED_REQUIRED')
@@ -535,6 +540,7 @@ test('removeRemote 前置：本地 storage_state 存在时拒绝', async () => {
 })
 
 test('accounts.list：远端删除墓碑不回流为可操作账号', async () => {
+  const { createCollectController } = await import('../src/runner.ts')
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
   const deps = createWxHostDeps({
     root: join(tmpdir(), `wx-al-${String(Math.random()).slice(2)}`),
@@ -556,12 +562,17 @@ test('accounts.list：远端删除墓碑不回流为可操作账号', async () =
     logger: { warn: () => undefined },
   })
   const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
-  const handlers = buildRouteHandlers(deps, batch as never)
+    const collect = createCollectController(
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
   const result = await handlers['accounts.list']?.({}) as { accounts?: Array<{ accountId: string }> }
   assert.deepEqual(result.accounts?.map(row => row.accountId), ['active-1'])
 })
 
 test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省不携带', async () => {
+  const { createCollectController } = await import('../src/runner.ts')
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
   const calls: Array<{ name: string; args: Record<string, unknown> }> = []
   const deps = createWxHostDeps({
@@ -576,7 +587,11 @@ test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省�
     logger: { warn: () => undefined },
   })
   const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
-  const handlers = buildRouteHandlers(deps, batch as never)
+    const collect = createCollectController(
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
   await handlers['works.list']?.({ accountId: 'acc1', sort: 'play_count', order: 'desc', publishedFrom: '2026-11-11', publishedTo: '2026-11-17' })
   await handlers['works.list']?.({ accountId: 'acc1' })
   assert.deepEqual(calls[0]?.args, { accountId: 'acc1', sort: 'play_count', order: 'desc', publishedFrom: '2026-11-11', publishedTo: '2026-11-17' })
@@ -589,6 +604,7 @@ test('works.list 窗口参数：publishedFrom/publishedTo 透传 tools，缺省�
 })
 
 test('works.list 分页参数：limit / offset 透传 tools，offset 0 不被丢弃', async () => {
+  const { createCollectController } = await import('../src/runner.ts')
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
   const calls: Array<{ name: string; args: Record<string, unknown> }> = []
   const deps = createWxHostDeps({
@@ -603,7 +619,11 @@ test('works.list 分页参数：limit / offset 透传 tools，offset 0 不被丢
     logger: { warn: () => undefined },
   })
   const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
-  const handlers = buildRouteHandlers(deps, batch as never)
+    const collect = createCollectController(
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
   await handlers['works.list']?.({ accountId: 'acc1', sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
   await handlers['works.list']?.({ accountId: 'acc1', limit: 10, offset: 0 })
   assert.deepEqual(calls[0]?.args, { accountId: 'acc1', sort: 'play_count', order: 'asc', limit: 10, offset: 20 })
@@ -652,18 +672,18 @@ test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错�
   const client = createIngestClient({ workbench: workbench as never, accountId: 'acc1', root: join(tmpdir(), `wx-ing-${String(Math.random()).slice(2)}`), retries: 3, sleep: async () => undefined })
   await client.startRun({ newAttempt: true })
   // meta 失败 RUN_NOT_RUNNING → 无 onRecover 时抛出（重建由 ingestAll 的 withRetry 驱动）。
-  await client.publishListMeta({ expectedWorkCount: 1, listComplete: true }).catch(() => undefined)
+  await client.publishListMeta({ expectedWorkCount: 1, listComplete: true, signal: undefined }).catch(() => undefined)
   // ingestAll：第一批 RUN_NOT_RUNNING → recoverRun（startRun+重发 meta）→ 重试成功。
   const ingest = await client.ingestAll([
     { workId: 'w1', publishTime: '2026-02-01T00:00:00.000Z', dailyMetrics: [] } as never,
-  ], { observedCount: 1 })
+  ], { observedCount: 1, signal: undefined })
   assert.deepEqual(ingest.succeededWorkIds, ['w1'])
   assert.equal(runStartCount >= 2, true, 'RUN_NOT_RUNNING 触发 run 重建')
   const startCalls = calls.filter(entry => entry[0] === 'workbench_wx_collect_run_start')
   assert.equal(startCalls.length >= 2, true)
   // 确定性错误不重试：RUN_ACCOUNT_MISMATCH 直接抛，且不再 start。
   const before = runStartCount
-  await client.ingestAccountMetrics({ startDay: '2026-02-01', endDay: '2026-02-03', rows: [{ day: '2026-02-01' }], trafficSource: null }).catch((error: unknown) => {
+  await client.ingestAccountMetrics({ startDay: '2026-02-01', endDay: '2026-02-03', rows: [{ day: '2026-02-01' }], trafficSource: null, signal: undefined }).catch((error: unknown) => {
     assert.equal((error as { payload?: { error?: { code?: string } } }).payload?.error?.code, 'RUN_ACCOUNT_MISMATCH')
   })
   // 构造确定性错误：让 finish 抛 RUN_ACCOUNT_MISMATCH。
@@ -680,7 +700,7 @@ test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错�
   } as never, accountId: 'acc1', root: join(tmpdir(), `wx-det-${String(Math.random()).slice(2)}`), retries: 3, sleep: async () => undefined })
   await deterministic.startRun({ newAttempt: true })
   const finishStart = deterministic.heartbeatSeq
-  await deterministic.finish({ clientStatus: 'completed', clientCounts: { expectedWorkCount: 0, succeededWorkCount: 0, failedWorkCount: 0 } }).catch((error: unknown) => {
+  await deterministic.finish({ clientStatus: 'completed', clientCounts: { expectedWorkCount: 0, succeededWorkCount: 0, failedWorkCount: 0 }, signal: undefined }).catch((error: unknown) => {
     assert.equal((error as { payload?: { error?: { code?: string } } }).payload?.error?.code, 'RUN_ACCOUNT_MISMATCH')
   })
   void finishStart
@@ -691,6 +711,7 @@ test('ingest 编排：RUN_NOT_RUNNING 重建 run 并重发 meta；确定性错�
 // --- overview.accounts：多账号汇总的参数装配（E.2 host 行） ---
 
 test('overview.accounts：空参数只带 window/sort，账号与会话状态按需透传', async () => {
+  const { createCollectController } = await import('../src/runner.ts')
   const { buildRouteHandlers, createWxHostDeps } = await import('../src/handlers.ts')
   const calls: Array<{ name: string; args: Record<string, unknown> }> = []
   const deps = createWxHostDeps({
@@ -705,7 +726,11 @@ test('overview.accounts：空参数只带 window/sort，账号与会话状态按
     logger: { warn: () => undefined },
   })
   const batch = { get status() { return {} as never }, get running() { return false }, start: async () => ({ started: false }) }
-  const handlers = buildRouteHandlers(deps, batch as never)
+    const collect = createCollectController(
+    { workbench: deps.workbench, root: deps.root, chromeFactory: deps.chromeFactory, logger: deps.logger, locks: deps.locks },
+    { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
+  )
+  const handlers = buildRouteHandlers(deps, batch as never, collect)
 
   // 空参数：仅 window/sort 两键。
   await handlers['overview.accounts']?.({})
@@ -751,7 +776,7 @@ test('L1/L2 登录终态：30 分钟内重复读取一致；过期后清理返�
       start: async () => ({ started: false }),
       stop: () => undefined,
     }, {
-      start: () => ({ started: false, record: null, reason: 'collect_busy' }),
+      start: async () => ({ started: false, record: null, reason: 'collect_busy' }),
       status: () => null,
       running: () => null,
       runningAccountIds: () => [],
@@ -804,7 +829,7 @@ test('I2 collect.status / collectAll.status 附带中断摘要；单账号采集
       stop: () => undefined,
     }, {
       // 采集本体假件：start 直接受理（I2 只断言摘要清空；启动链路见其他用例）。
-      start: () => ({ started: true, record: null }),
+      start: async () => ({ started: true, record: null }),
       status: () => null,
       running: () => null,
       runningAccountIds: () => [],

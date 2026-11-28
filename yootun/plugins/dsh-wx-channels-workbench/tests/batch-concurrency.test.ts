@@ -251,7 +251,7 @@ test('U7 批量：ok 账号阶段 2 只再启动 1 次 Chrome，上报次数 = �
       logger: { warn: message => { console.error('U7 WARN:', message) } },
       chromeFactory: infra.factory,
     })
-    const { batch, handlers } = wireHost(deps, { rand: () => 0, sleep: async () => undefined })
+    const { handlers } = wireHost(deps, { rand: () => 0, sleep: async () => undefined })
     const started = await callHandler(handlers, 'collectAll.start', {})
     assert.equal(started.started, true)
     // 等 batch run 自然收敛（runPromise 经 trackRun 登记；不能先 dispose——
@@ -288,7 +288,7 @@ test('U8 批量：靠后账号探测结果超 TTL → 回落重新探测（3 次
         probedAt: accountId === 'a2' ? Date.now() - PROBE_REUSE_TTL_MS - 1_000 : Date.now(),
       },
     })
-    const { batch, handlers } = wireHost(deps, { batchProbe: staleProbe, rand: () => 0, sleep: async () => undefined })
+    const { handlers } = wireHost(deps, { batchProbe: staleProbe, rand: () => 0, sleep: async () => undefined })
     const started = await callHandler(handlers, 'collectAll.start', {})
     assert.equal(started.started, true)
     await deps.taskRegistry.awaitSettled()

@@ -5,7 +5,7 @@
  * 运行：`node --test tests/session.test.ts`。
  */
 import assert from 'node:assert/strict'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -156,6 +156,7 @@ test('loginWithQrCode：resolvedId 被占用时丢弃成果返回 PROFILE_BUSY�
   fake.state.profileJson = userInfoPayload('real-busy', null, null)
   const locks = createProfileLocks()
   const release = locks.acquireProfileLock('real-busy')
+  if (release === null) throw new Error('测试前置失败：profile 锁未获取')
   const result = await loginWithQrCode({
     root, chromeFactory: fake.factory, timeoutMs: 1000,
     isResolvedBusy: isProfileLockedInjectee,

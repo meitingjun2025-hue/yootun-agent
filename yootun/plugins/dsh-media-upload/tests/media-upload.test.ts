@@ -10,14 +10,16 @@ import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createServer, request as httpRequest } from 'node:http'
-import type { IncomingMessage } from 'node:http'
+import { createServer, request as httpRequest, IncomingMessage } from 'node:http'
+import type { RequestOptions } from 'node:http'
+import { Socket } from 'node:net'
 import { test, after } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as MediaUpload from '../src/index.ts'
 import { permitted } from '../src/routes.ts'
 import type { UploaderDeps } from '../src/deps.ts'
@@ -112,7 +114,7 @@ function fakeWorkbench(options: FakeWorkbenchOptions): UploaderDeps['workbench']
 }
 
 /** 本地路由服务器：把 fetch 变成浏览器客户端。 */
-async function startRouteServer(routes: UploaderRoute[]): Promise<{ origin: string; close: () => Promise<void> }> {
+async function startRouteServer(routes: MediaUpload.UploadRoute[]): Promise<{ origin: string; close: () => Promise<void> }> {
   const byPath = new Map(routes.map(route => [route.path, route]))
   const server = createServer((req, res) => {
     const route = byPath.get(req.url?.split('?')[0] ?? '')
@@ -178,10 +180,11 @@ function clientFetch(origin: string, path: string, init: RequestInit = {}): Prom
 }
 
 /** PNG 头若干字节 + 填充，构造合法图片字节。 */
-function pngBytes(size: number): Buffer {
-  const head = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
-  const filler = Buffer.alloc(Math.max(0, size - head.byteLength), 0x61)
-  return Buffer.concat([head, filler])
+function pngBytes(size: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(Math.max(0, size))
+  bytes.set([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+  bytes.fill(0x61, 12)
+  return bytes
 }
 
 test('路由信任判定：Desktop 转发双头缺失放行，跨站与非同源拒绝', async () => {
@@ -208,12 +211,20 @@ test('路由信任判定：Desktop 转发双头缺失放行，跨站与非同源
   }
 })
 
+/** transferEncoding 由 Node 运行时支持，@types/node 22 尚未声明；测试侧补齐请求参数类型。 */
+interface ChunkedRequestOptions extends RequestOptions {
+  transferEncoding: 'chunked'
+}
+
 /** 模拟 Desktop 转发的 chunked 上传：流式 write，避免 Node 按 buffer 长度自动补 content-length。 */
-function chunkedUpload(origin: string, headers: Record<string, string>, body: Buffer): Promise<number> {
+function chunkedUpload(origin: string, headers: Record<string, string>, body: Uint8Array): Promise<number> {
   return new Promise((resolve, reject) => {
     const url = new URL(`${origin}/_dsh/uploader/uploadStart`)
+    const options: ChunkedRequestOptions = {
+      host: url.hostname, port: url.port, path: url.pathname, method: 'POST', transferEncoding: 'chunked', headers,
+    }
     const req = httpRequest(
-      { host: url.hostname, port: url.port, path: url.pathname, method: 'POST', transferEncoding: 'chunked', headers },
+      options,
       res => { void res.resume(); resolve(res.statusCode ?? 0) },
     )
     req.on('error', reject)
@@ -437,7 +448,7 @@ test('MIME 魔数与声明不符拒绝（mime_mismatch）', async () => {
     const pick = await (await clientFetch(h.origin, '/_dsh/uploader/pick-file', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'image' }),
     })).json() as { uploadId: string }
-    const fake = Buffer.alloc(512, 0x41)
+    const fake = new Uint8Array(512).fill(0x41)
     const start = await clientFetch(h.origin, '/_dsh/uploader/uploadStart', {
       method: 'POST',
       headers: {
@@ -524,14 +535,6 @@ test('扩展名不在档位白名单拒绝（extension_not_allowed）', async ()
 })
 
 test('授权响应非法逐项拒绝（协议/公网/过期/大小/类型）', async () => {
-  const base = (tosUrl: string): Record<string, unknown> => ({
-    method: 'PUT',
-    url: `${tosUrl}/put/key`,
-    headers: { 'content-type': 'image/png' },
-    publicUrl: 'https://media.example.test/objects/public.png',
-    expiresAt: new Date(Date.now() + 600_000).toISOString(),
-    maxBytes: 1024 * 1024,
-  })
   const tos = await startFakeTos()
   const cases: Array<{ name: string; override: (authorize: Record<string, unknown>) => Record<string, unknown>; expected: string }> = [
     { name: 'method 非 PUT', override: authorize => ({ ...authorize, method: 'POST' }), expected: 'upload_authorization_invalid' },
@@ -708,10 +711,12 @@ test('media_upload 工具：真实组合注册、不接受路径参数、人机�
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(NativeToolExecutor)
     await ctx.plugin({ inject: ['tools'], apply: scope => { MediaUpload.applyUploaderWiring(scope, deps, 30_000) } })
-    const schema = (ctx.tools.schemas() as Array<{ name: string; parameters: Record<string, unknown> }>).find(entry => entry.name === 'media_upload')
+    const schema = ctx.tools.schemas().find(entry => entry.name === 'media_upload')
     assert.ok(schema !== undefined, 'media_upload 已注册')
-    assert.ok('kind' in schema.parameters.properties, '参数只有 kind 档位')
-    assert.equal('path' in schema.parameters.properties, false, 'schema 无路径参数')
+    const { properties } = schema.parameters
+    if (typeof properties !== 'object' || properties === null) throw new Error('media_upload schema 缺 properties 表')
+    assert.equal('kind' in properties, true, '参数只有 kind 档位')
+    assert.equal('path' in properties, false, 'schema 无路径参数')
     assert.equal(schema.parameters.additionalProperties, false)
 
     // 调用带 path 参数：工具不读取、不使用（仍走人机回环）。
@@ -769,7 +774,6 @@ test('media_upload 工具：调用方取消投影取消错误；上传失败回�
   const wb = fakeWorkbench({ tos })
   const state = MediaUpload.createUploaderState(() => ORIGIN, wb, { maxUploadBytes: 1024 * 1024 }, undefined)
   const deps = { ...state.deps, transport: 'loopback-test' } as UploaderDeps
-  const routes = MediaUpload.uploaderRoutes(deps)
   ctx.reflect.provide('webServer', {
     getOrigin: () => ORIGIN,
     register: () => () => undefined,
@@ -1696,12 +1700,18 @@ test('E1/E2 mapServerErrorCode：UNAUTHORIZED → uploader_not_configured；STOR
 })
 
 test('T1 暂存目录名含当前进程号；同一暂存区两次 stage 得到同一目录', async () => {
-  const { Readable } = await import('node:stream')
-  const { join, dirname } = await import('node:path')
+  const { dirname } = await import('node:path')
   const staging = new MediaUpload.StagingArea()
+  /** 预缓冲的假请求体：stage 的参数类型是请求消息，假体装同一份 PNG 字节后立即封口。 */
+  const fakeBody = (): IncomingMessage => {
+    const message = new IncomingMessage(new Socket())
+    message.push(pngBytes(64))
+    message.push(null)
+    return message
+  }
   try {
-    const first = await staging.stage(Readable.from(pngBytes(64)), 64, 'image/png')
-    const second = await staging.stage(Readable.from(pngBytes(64)), 64, 'image/png')
+    const first = await staging.stage(fakeBody(), 64, 'image/png')
+    const second = await staging.stage(fakeBody(), 64, 'image/png')
     const marker = `yootun-media-${String(process.pid)}-`
     assert.ok(first.path.includes(marker), `目录名含进程号：${first.path}`)
     assert.equal(dirname(first.path), dirname(second.path), '同一暂存区两次创建同一目录')
@@ -1711,7 +1721,7 @@ test('T1 暂存目录名含当前进程号；同一暂存区两次 stage 得到�
 })
 
 test('T2/T3/T4/T5 启动清理：pid 判定 + 旧命名 24h + 前缀限定 + 失败告警继续', async () => {
-  const { mkdtemp, mkdir, rm, writeFile, utimes } = await import('node:fs/promises')
+  const { mkdtemp, mkdir, writeFile, utimes } = await import('node:fs/promises')
   const { join } = await import('node:path')
   const tmp = await mkdtemp(join(tmpdir(), 'wx-sweep-test-'))
   try {
@@ -1830,7 +1840,8 @@ test('F5 validateAuthorizationResponse：授权地址与 publicUrl 命中过滤�
 
 test('启动暂存清扫接线：工厂启动即清扫；卸载按序等待 registry → staging → sweep', async () => {
   const ctx = new Context()
-  const wb = fakeWorkbench({})
+  // 清扫接线不触发授权；给纯内存的 TOS 桩满足 fakeWorkbench 的签名。
+  const wb = fakeWorkbench({ tos: { url: '', puts: [], statusQueue: [], close: async () => undefined } })
   const state = MediaUpload.createUploaderState(() => ORIGIN, wb, { maxUploadBytes: 1024 * 1024 }, undefined)
   let sweepInvoked = 0
   let sweepSettled = false

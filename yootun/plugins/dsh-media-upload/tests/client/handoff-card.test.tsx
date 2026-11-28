@@ -140,7 +140,7 @@ describe('C3 done 收起', () => {
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, { target: { files: [file] } })
     await flush(1000)
     expect(screen.getByText(en['handoff.done'])).not.toBeNull()
-    expect((container.textContent ?? '').includes('https://')).toBe(false, 'done 不展示 URL（URL 由工具返回模型）')
+    expect((container.textContent ?? '').includes('https://')).toBe(false)
     expect(screen.queryByRole('button', { name: en['handoff.cancel'] })).toBeNull()
     await flush(2000)
     expect(container.querySelector('article')).toBeNull()
@@ -190,7 +190,7 @@ describe('C5 取消', () => {
     await flush()
     fireEvent.click(screen.getByRole('button', { name: en['handoff.cancel'] }))
     await flush()
-    expect(cancelCalls).toBe(2, '第一次失败后自动重试一次')
+    expect(cancelCalls).toBe(2)
     expect(container.querySelector('article')).toBeNull()
 
     // 两次都失败：卡片保留（等 pending 对账收敛）。
@@ -219,7 +219,7 @@ describe('C6 可见性轮询', () => {
     })
     render(<HandoffCard t={t} />)
     await flush()
-    expect(pendingCalls).toBe(1, '挂载且可见立即拉一次')
+    expect(pendingCalls).toBe(1)
     await flush(3000)
     expect(pendingCalls).toBe(2)
     const setHidden = (state: 'visible' | 'hidden'): void => {
@@ -228,12 +228,12 @@ describe('C6 可见性轮询', () => {
     }
     setHidden('hidden')
     await flush(9000)
-    expect(pendingCalls).toBe(2, '隐藏期间不轮询')
+    expect(pendingCalls).toBe(2)
     setHidden('visible')
     await flush()
-    expect(pendingCalls).toBe(3, '恢复可见立即拉一次')
+    expect(pendingCalls).toBe(3)
     await flush(3000)
-    expect(pendingCalls).toBe(4, '可见后恢复 3s 节奏')
+    expect(pendingCalls).toBe(4)
   })
 })
 

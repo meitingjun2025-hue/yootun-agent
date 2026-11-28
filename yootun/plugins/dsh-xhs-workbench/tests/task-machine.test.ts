@@ -33,7 +33,7 @@ function makeMachine(overrides: {
   createTask?: (input: { mediaType: string; idempotencyKey: string }) => Promise<{ taskId: string; taskStatus?: string }>
   queryStatus?: () => Promise<Record<string, unknown>>
   queryResult?: () => Promise<{ versions: TaskVersion[] }>
-  cancelTask?: () => Promise<unknown>
+  cancelTask?: (taskId: string, idempotencyKey: string) => Promise<unknown>
   onChange?: () => void
 } = {}) {
   const timers = fakeTimers()

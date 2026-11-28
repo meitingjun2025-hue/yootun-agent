@@ -16,7 +16,7 @@ import { disposeHostTasks } from '../src/lifecycle.ts'
 import { buildRouteHandlers, createXhsHostDeps, type XhsHostDeps } from '../src/handlers.ts'
 import { writeAccounts } from '../src/state.ts'
 import { Config } from '../src/index.ts'
-import { createFakeChrome, createFakeState, createFakeWorkbench, postedPage, sessionCookie, userInfoPayload } from './fakes.ts'
+import { createFakeChrome, createFakeWorkbench, postedPage, sessionCookie, userInfoPayload } from './fakes.ts'
 
 /** 独立状态根目录（每用例新建，用后清理）。 */
 async function tempRoot(): Promise<string> {
@@ -26,13 +26,21 @@ async function tempRoot(): Promise<string> {
 }
 
 function fakeRes(responded: Array<{ status: number; payload: Record<string, unknown> }>): ServerResponse {
+  let statusCode = 0
   return {
-    statusCode: 0,
+    get statusCode() { return statusCode },
+    set statusCode(value: number) { statusCode = value },
     setHeader() {},
     end(payload: unknown) {
-      responded.push({ status: this.statusCode, payload: JSON.parse(String(payload)) as Record<string, unknown> })
+      responded.push({ status: statusCode, payload: JSON.parse(String(payload)) as Record<string, unknown> })
     },
   } as unknown as ServerResponse
+}
+
+/** 测试前置断言：即时占锁必须成功，失败的用例在此显式失败并收窄释放函数类型。 */
+function mustRelease(release: (() => void) | null): () => void {
+  if (release === null) throw new Error('测试前置失败：profile 锁未获取')
+  return release
 }
 
 function fakeReq(body: unknown, headers: Record<string, unknown> = {}, remote = '127.0.0.1'): IncomingMessage {
@@ -117,7 +125,7 @@ test('schema：未知字段拒绝、未知 action 拒绝、类型拒绝、字符
 
 test('体上限：超过 64KB 投影 XHS_ROUTE_PAYLOAD_TOO_LARGE（413）', async () => {
   const responded: Array<{ status: number; payload: Record<string, unknown> }> = []
-  const handler = createRouteHandler(() => 'http://127.0.0.1:1', { 'collect.status': async () => ({ status: 'ok' }) })
+  const handler = createRouteHandler(() => 'http://127.0.0.1:1', { 'collect.status': async () => ({ status: 'ready' }) })
   const req = {
     method: 'POST',
     socket: { remoteAddress: '127.0.0.1' },
@@ -132,8 +140,8 @@ test('体上限：超过 64KB 投影 XHS_ROUTE_PAYLOAD_TOO_LARGE（413）', asyn
 })
 
 test('路由信任：loopback 基础防线，浏览器标记缺失放行（Desktop 转发形态），显式跨站/异源/null 拒绝', async () => {
-  const responded: Array<{ status: number }> = []
-  const handler = createRouteHandler(() => 'http://127.0.0.1:1', { 'collect.status': async () => ({ status: 'ok' }) })
+  const responded: Array<{ status: number; payload: Record<string, unknown> }> = []
+  const handler = createRouteHandler(() => 'http://127.0.0.1:1', { 'collect.status': async () => ({ status: 'ready' }) })
   const make = (headers: Record<string, unknown> = {}, remote = '127.0.0.1'): IncomingMessage => ({
     method: 'POST',
     socket: { remoteAddress: remote },
@@ -338,14 +346,16 @@ test('account.beginLogin：扫码成功落账号（pending → resolved 迁移�
   assert.equal((again.login as Record<string, unknown>).accountId, 'real-id')
   // 账号记录 ok + storage_state 备份落盘。
   const record = JSON.parse(await readFile(join(root, 'accounts.json'), 'utf8')) as { accounts: Record<string, { sessionStatus: string }> }
-  assert.equal(record.accounts['real-id'].sessionStatus, 'ok')
+  const savedRow = record.accounts['real-id']
+  assert.ok(savedRow !== undefined, 'real-id 已落盘')
+  assert.equal(savedRow.sessionStatus, 'ok')
   assert.ok(await readFile(join(root, 'storage-state', 'real-id.json'), 'utf8'))
   await rm(root, { recursive: true, force: true })
 })
 
 test('account.beginLogin：waiting 幂等复用；login 运行中同账号 probe 返回 PROFILE_BUSY', async () => {
   const root = await tempRoot()
-  const { deps, state } = await testDeps(root)
+  const { deps } = await testDeps(root)
   // cookie 一直不出现 → 等待态保持到超时。
   const handlers = buildRouteHandlers(deps)
   const first = await handlers['account.beginLogin']!({ accountId: 'acc-1' }) as Record<string, unknown>
@@ -368,7 +378,7 @@ test('account.beginLogin：resolvedId 已被占用时丢弃扫码成果（PROFIL
   state.profileJson = userInfoPayload('real-id', null, null)
   const handlers = buildRouteHandlers(deps)
   // 模拟 real-id 已被其他浏览器操作占用。
-  const release = deps.locks.acquireProfileLock('real-id')
+  const release = mustRelease(deps.locks.acquireProfileLock('real-id'))
   const begin = await handlers['account.beginLogin']!({}) as Record<string, unknown>
   await deps.taskRegistry.awaitSettled()
   release()
@@ -388,7 +398,7 @@ test('account.beginLogin：扫码超时收敛 LOGIN_TIMEOUT，窗口关闭无临
   const root = await tempRoot()
   const { deps, state } = await testDeps(root)
   const handlers = buildRouteHandlers(deps)
-  const begin = await handlers['account.beginLogin']!({ accountId: 'acc-timeout' }) as Record<string, unknown>
+  await handlers['account.beginLogin']!({ accountId: 'acc-timeout' })
   await deps.taskRegistry.awaitSettled()
   const status = await handlers['account.loginStatus']!({ loginId: 'acc-timeout' }) as Record<string, unknown>
   const login = status.login as Record<string, unknown>
@@ -424,8 +434,10 @@ test('account.probe：ok 回写账号状态并刷新 storage_state 备份', asyn
   assert.equal(payload.status, 'ready')
   assert.equal(payload.sessionStatus, 'ok')
   const record = JSON.parse(await readFile(join(root, 'accounts.json'), 'utf8')) as { accounts: Record<string, { sessionStatus: string; sessionSeq: number }> }
-  assert.equal(record.accounts['acc-1'].sessionStatus, 'ok')
-  assert.equal(record.accounts['acc-1'].sessionSeq, 1)
+  const savedRow = record.accounts['acc-1']
+  assert.ok(savedRow !== undefined, 'acc-1 已落盘')
+  assert.equal(savedRow.sessionStatus, 'ok')
+  assert.equal(savedRow.sessionSeq, 1)
   await rm(root, { recursive: true, force: true })
 })
 
@@ -482,7 +494,7 @@ test('account.removeLocal：锁占用即拒绝（PROFILE_BUSY），不删除任�
   await mkdir(join(root, 'storage-state'), { recursive: true })
   await writeFile(join(root, 'storage-state', 'acc-1.json'), '{"cookies":[]}\n', { mode: 0o600 })
   const { deps } = await testDeps(root)
-  const release = deps.locks.acquireProfileLock('acc-1')
+  const release = mustRelease(deps.locks.acquireProfileLock('acc-1'))
   const handlers = buildRouteHandlers(deps)
   const payload = await handlers['account.removeLocal']!({ accountId: 'acc-1' }) as Record<string, unknown>
   release()
@@ -635,7 +647,7 @@ test('collect.start：profile 锁占用时同账号操作即拒绝（即时占�
   const root = await tempRoot()
   const { deps } = await testDeps(root)
   const handlers = buildRouteHandlers(deps)
-  const release = deps.locks.acquireProfileLock('acc-1')
+  const release = mustRelease(deps.locks.acquireProfileLock('acc-1'))
   assert.ok(deps.locks.isProfileLocked('acc-1'))
   const probe = await handlers['account.probe']!({ accountId: 'acc-1' }) as Record<string, unknown>
   assert.equal(probe.reason, 'PROFILE_BUSY')
@@ -698,8 +710,7 @@ test('collect.cancel：运行中取消落 cancelled/collect_cancelled，锁释�
   assert.equal(collect.collectStatus, 'cancelled')
   assert.equal(collect.error, 'collect_cancelled')
   // 锁随采集 promise 的 finally 释放：账号可立即再次采集。
-  const release = deps.locks.acquireProfileLock('acc-x')
-  assert.notEqual(release, null)
+  const release = mustRelease(deps.locks.acquireProfileLock('acc-x'))
   release()
   await rm(root, { recursive: true, force: true })
 })
@@ -901,7 +912,7 @@ test('hotboard 写前置：confirm/幂等键确定性失败不烧键；op→acti
   assert.equal(noKey.reason, 'idempotency_key_required')
   const badTag = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'bogus', labelCode: 'c1', confirm: true, idempotencyKey: 'k-1' }) as Record<string, unknown>
   assert.equal(badTag.reason, 'XHS_HOTBOARD_INVALID_ARGUMENT')
-  assert.deepEqual(workbench.calls, [])
+  assert.deepEqual(workbench.calls.length, 0)
   const ok = await handlers['hotboard.noteTagUpdate']!({ noteId: 'n1', tagType: 'style', labelCode: 'c1', confirm: true, idempotencyKey: 'k-2' }) as Record<string, unknown>
   assert.equal(ok.status, 'ready')
   assert.deepEqual(workbench.calls[0]?.args, { noteId: 'n1', tagType: 'style', labelCode: 'c1', confirm: true, idempotencyKey: 'k-2' })
@@ -1049,7 +1060,7 @@ test('task.create：images/video 参数投影、确定性校验失败稳定拒�
   assert.equal(noImages.reason, 'image_urls_required')
   const noVideo = await handlers['task.create']!({ mediaType: 'video', idempotencyKey: 'k-1' }) as Record<string, unknown>
   assert.equal(noVideo.reason, 'video_url_required')
-  assert.deepEqual(workbench.calls, [])
+  assert.deepEqual(workbench.calls.length, 0)
   // images 成功：versionCount 固定 1、coverIndex 0、对标投影 {source:'manual',url}/{name}。
   const created = await handlers['task.create']!({
     mediaType: 'images', idempotencyKey: 'k-2', theme: ' 主题 ', direction: '方向',

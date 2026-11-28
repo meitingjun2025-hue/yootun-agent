@@ -5,7 +5,17 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createAccountsMachine, type AccountsMachinePorts } from '../src/client/accounts-machine.ts'
+import { createAccountsMachine, type AccountRow, type AccountsMachinePorts, type CollectState } from '../src/client/accounts-machine.ts'
+
+/** 最小合法账号行：补齐投影必需字段，缺省值不参与断言。 */
+const stubRow = (accountId: string, nickname: string): AccountRow => ({
+  accountId,
+  nickname,
+  avatar: null,
+  sessionStatus: 'ok',
+  sessionCheckedAt: null,
+  lastCollectedAt: null,
+})
 
 /** 假 ports：可编程 listAccounts / collectStatus；其余动作不参与本组用例。 */
 function fakePorts(overrides: Partial<AccountsMachinePorts> = {}): AccountsMachinePorts {
@@ -30,7 +40,7 @@ test('冷启动 init 只发一次 accounts.list（挂载恢复复用同一刷新
   const machine = createAccountsMachine(fakePorts({
     listAccounts: async () => {
       listCalls += 1
-      return { accounts: [{ accountId: 'a1', nickname: 'A1' }] }
+      return { accounts: [stubRow('a1', 'A1')] }
     },
   }))
   machine.init()
@@ -46,10 +56,10 @@ test('冷启动 init 只发一次 accounts.list（挂载恢复复用同一刷新
 })
 
 test('恢复查询在途时选中账号切换：迟到的恢复结果丢弃', async () => {
-  let releaseCollect: ((value: { status?: string; collect?: Record<string, unknown> | null }) => void) | undefined
-  const gate = new Promise<{ status?: string; collect?: Record<string, unknown> | null }>(resolve => { releaseCollect = resolve })
+  let releaseCollect: ((value: { status?: string; collect?: CollectState | null }) => void) | undefined
+  const gate = new Promise<{ status?: string; collect?: CollectState | null }>(resolve => { releaseCollect = resolve })
   const machine = createAccountsMachine(fakePorts({
-    listAccounts: async () => ({ accounts: [{ accountId: 'a1', nickname: 'A1' }, { accountId: 'a2', nickname: 'A2' }] }),
+    listAccounts: async () => ({ accounts: [stubRow('a1', 'A1'), stubRow('a2', 'A2')] }),
     collectStatus: async input => {
       assert.ok(!('collectId' in input), '恢复查询按账号发起')
       return await gate
@@ -61,7 +71,7 @@ test('恢复查询在途时选中账号切换：迟到的恢复结果丢弃', as
     assert.equal(machine.get().selectedId, 'a1')
     // 查询在途：用户切到 a2。
     machine.select('a2')
-    releaseCollect?.({ status: 'running', collect: { accountId: 'a1', collectStatus: 'running', progress: {} } })
+    releaseCollect?.({ status: 'running', collect: { collectId: 'col-restore', accountId: 'a1', collectStatus: 'running', pagesDone: 0, notesTotal: 0 } })
     await flush()
     await flush()
     assert.equal(machine.get().selectedId, 'a2')

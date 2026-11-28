@@ -94,9 +94,9 @@ describe('看板子导航（12 册 §5：四子区 + 总数角标）', () => {
   })
 
   it('计数请求失败时关键词角标回退到已加载候选列表 meta.total', async () => {
-    apiMock.hostAction.mockImplementationOnce(async (action: string, args?: Record<string, unknown>) => {
+    apiMock.hostAction.mockImplementationOnce(async (action: string) => {
       if (action === 'hotboard.candidates') return { status: 'error', code: 'XHS_HOTBOARD_INVALID_ARGUMENT' }
-      return await defaultHostAction(action, args)
+      return await defaultHostAction(action)
     })
     await renderHotboard()
     await gotoSub('keywords')
@@ -134,7 +134,7 @@ describe('案例看板（12 册 §5.1）', () => {
 })
 
 async function gotoSub(id: 'board' | 'keywords' | 'tags' | 'rules'): Promise<void> {
-  const labels: Record<string, string> = { board: en['hb.subBoard'], keywords: en['hb.subKeywords'], tags: en['hb.subTags'], rules: en['hb.subRules'] }
+  const labels: Record<typeof id, string> = { board: en['hb.subBoard'], keywords: en['hb.subKeywords'], tags: en['hb.subTags'], rules: en['hb.subRules'] }
   const tab = (await screen.findAllByRole('tab')).find(tab => tab.textContent?.startsWith(labels[id]))
   if (tab !== undefined && tab.getAttribute('aria-selected') !== 'true') fireEvent.click(tab)
 }
@@ -211,7 +211,7 @@ describe('写操作路由契约（真实 e2e 回归：action→op 映射）', ()
     expect(await screen.findByText(/contract-check/)).not.toBeNull()
     fireEvent.click(screen.getAllByRole('button', { name: en['action.confirmYes'] })[0] as HTMLButtonElement)
     await waitFor(() => {
-      const call = apiMock.hostAction.mock.calls.find(([name]: [string]) => name === 'hotboard.keywordSave')
+      const call = apiMock.hostAction.mock.calls.find((entry: unknown[]) => entry[0] === 'hotboard.keywordSave')
       expect(call).toBeDefined()
       const args = call?.[1] as Record<string, unknown>
       expect(args.op).toBe('create')
