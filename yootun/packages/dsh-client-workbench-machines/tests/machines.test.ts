@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createBatchMachine, createCollectMachine, createLatest, createLoginMachine, createPoller, createWorksQuery, pollBatchOnce, type WorksPageLike } from '../src/index.ts'
+import { createBatchMachine, createCollectMachine, createLatest, createLoginMachine, createWorksQuery, pollBatchOnce, type WorksPageLike } from '../src/index.ts'
 
 /** 手动时钟 + 可驱动的定时器表：tick() 推进到下一个到期回调。 */
 class FakeClock {

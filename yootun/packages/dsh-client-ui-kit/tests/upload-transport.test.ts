@@ -6,7 +6,7 @@
  */
 import { createServer, type Server } from 'node:http'
 import { afterAll, describe, expect, it } from 'vitest'
-import { createUploadTransport, type UploadSessionInfo } from '../src/upload-transport.ts'
+import { createUploadTransport, type UploadSessionInfo, type UploadStatusSnapshot } from '../src/upload-transport.ts'
 
 const servers: Server[] = []
 
@@ -41,7 +41,7 @@ const PATHS = { pick: '/pick', start: '/start', status: '/status' }
 
 describe('createUploadTransport（K1）', () => {
   it('K1 startSession：POST + JSON 头 + 会话投影（accept 数组、maxBytes 非法 → Infinity）', async () => {
-    const seen: Array<{ method?: string; contentType?: unknown }> = []
+    const seen: Array<{ method: string | undefined; contentType: unknown }> = []
     const url = await startServer({
       '/pick': { body: JSON.stringify({ uploadId: 'u-1', accept: ['image/png', 42], maxBytes: 'not-a-number' }) },
     })
@@ -53,7 +53,7 @@ describe('createUploadTransport（K1）', () => {
     const session: UploadSessionInfo | null = await transport.startSession('image')
     expect(session).not.toBeNull()
     expect(session?.uploadId).toBe('u-1')
-    expect(session?.accept).toEqual(['image/png', '42'], '与小红书原实现一致：accept 逐项 String 归一')
+    expect(session?.accept, '与小红书原实现一致：accept 逐项 String 归一').toEqual(['image/png', '42'])
     expect(session?.maxBytes).toBe(Number.POSITIVE_INFINITY)
     expect(seen[0]?.method).toBe('POST')
     expect(seen[0]?.contentType).toBe('application/json')

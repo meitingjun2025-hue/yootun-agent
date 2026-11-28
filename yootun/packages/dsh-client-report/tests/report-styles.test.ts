@@ -21,9 +21,11 @@ function referencedClasses(): Map<string, Set<string>> {
     if (!name.endsWith('.tsx') && !name.endsWith('.ts')) continue
     const source = readFileSync(join(srcDir, name), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
     for (const match of source.matchAll(/\bcss\.([A-Za-z0-9_]+)/gu)) {
-      const bucket = refs.get(match[1]) ?? new Set<string>()
+      const cls = match[1]
+      if (cls === undefined) throw new Error(`css. 引用缺少捕获组: ${match[0]}`)
+      const bucket = refs.get(cls) ?? new Set<string>()
       bucket.add(name)
-      refs.set(match[1], bucket)
+      refs.set(cls, bucket)
     }
   }
   return refs
@@ -32,7 +34,9 @@ function referencedClasses(): Map<string, Set<string>> {
 /** 样式表中定义的类名（剥注释后提取，注释里的 `.module.css` 等字样不计）。 */
 function definedClasses(cssText: string): Set<string> {
   const source = cssText.replace(/\/\*[\s\S]*?\*\//gu, '')
-  return new Set([...source.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/gu)].map(match => match[1]))
+  return new Set([...source.matchAll(/\.([A-Za-z][A-Za-z0-9_-]*)/gu)]
+    .map(match => match[1])
+    .filter((name): name is string => name !== undefined))
 }
 
 describe('P14 报表样式守护', () => {

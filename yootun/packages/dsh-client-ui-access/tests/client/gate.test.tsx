@@ -4,27 +4,40 @@
  * 的宿主节点——宿主 root 由 mountGate 闭包持有，不再落在模块级变量上。
  * 运行：`pnpm --filter @yootun/dsh-client-ui-access test`（vitest 段）。
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mountGate, type GateProps } from '../../src/client/gate.tsx'
 import { ACCESS_CREDENTIAL_REF, VALIDATION_VERSION } from '../../src/access-constants.ts'
-import { describeKeyConfigured } from '../../src/client/logic.ts'
-import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { AccessSettings } from '../../src/client/logic.ts'
+import type { AccessLocaleKey } from '../../src/client/locales.ts'
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 
-/** 只服务于挂载/卸载断言的最小快照表单（值不驱动门禁渲染分支）。 */
-function snapshotForm(value: Record<string, unknown> = {}): ConfigForm<never> {
-  // 快照单引用：useSyncExternalStore 要求两次变化之间 getSnapshot 引用稳定。
-  const snap = { status: 'ready', value: value as never, base: undefined, user: undefined, revision: 1, writable: true }
+/** 只服务于挂载/卸载断言的最小快照表单（快照单引用，避免 useSyncExternalStore 重渲染循环）。 */
+function snapshotForm<T>(value: T): ConfigForm<T> {
+  const snap: ConfigFormSnapshot<T> = { status: 'ready', value, base: undefined, user: undefined, revision: 1, writable: true }
   return {
     getSnapshot: () => snap,
     subscribe: () => () => undefined,
-  } as never
+    mutate: async () => false,
+    set: async () => false,
+    unset: async () => false,
+  }
+}
+
+/** `yootun-access` 分区的就绪快照表单；参数覆盖默认值。 */
+function accessForm(value: Partial<AccessSettings> = {}): ConfigForm<AccessSettings> {
+  return snapshotForm({ setupComplete: true, validationVersion: Number(VALIDATION_VERSION), enabledPlugins: [], modelId: '', ...value })
+}
+
+/** `defaultModel` 槽位快照表单：门禁判定不读该分区，只补齐形态。 */
+function defaultModelForm(): ConfigForm<{ provider: string; model: string }> {
+  return snapshotForm({ provider: '', model: '' })
 }
 
 function gateProps(): GateProps {
   return {
     forms: {
-      access: snapshotForm(),
-      defaultModel: snapshotForm(),
+      access: accessForm(),
+      defaultModel: defaultModelForm(),
       models: undefined,
     },
     credentials: {
@@ -32,7 +45,7 @@ function gateProps(): GateProps {
       set: async () => ({ ok: true }),
       unset: async () => ({ ok: true }),
     },
-    t: (key: never) => String(key),
+    t: (key: AccessLocaleKey) => String(key),
   }
 }
 
@@ -52,7 +65,7 @@ describe('mountGate 挂载/卸载所有权（R3）', () => {
     const dispose2 = mountGate(gateProps())
     const second = document.getElementById('yu-access-gate')
     expect(second).not.toBeNull()
-    expect(second).not.toBe(first, '第二次挂载应创建并接管新的宿主节点')
+    expect(second, '第二次挂载应创建并接管新的宿主节点').not.toBe(first)
 
     dispose1()
     // 第一次的 disposer 只移除自己创建的宿主：第二次的宿主仍在文档中。
@@ -72,8 +85,8 @@ describe('mountGate 挂载/卸载所有权（R3）', () => {
     expect(document.getElementById('yu-access-gate')).not.toBeNull()
     dispose()
     expect(document.getElementById('yu-access-gate')).toBeNull()
-    expect(rootEl.inert).toBe(false, 'disposer 应复位 root.inert')
-    expect(document.body.style.overflow).toBe('', 'disposer 应复位滚动锁')
+    expect(rootEl.inert, 'disposer 应复位 root.inert').toBe(false)
+    expect(document.body.style.overflow, 'disposer 应复位滚动锁').toBe('')
   })
 })
 
@@ -86,9 +99,9 @@ describe('门禁背景对辅助技术隐藏（ui-accessibility G1/G2）', () => 
   })
 
   /** credentials 注入面：describe 按脚本应答（configured 判定的来源）。 */
-  function credentialsDescribe(script: () => Promise<{ ok: boolean; value: Record<string, unknown> }>): GateProps['credentials'] {
+  function credentialsDescribe(script: () => Promise<{ ok: boolean; value?: Record<string, { configured: boolean }> }>): GateProps['credentials'] {
     return {
-      describe: (() => script()) as never,
+      describe: () => script(),
       set: async () => ({ ok: true }),
       unset: async () => ({ ok: true }),
     }
@@ -100,49 +113,53 @@ describe('门禁背景对辅助技术隐藏（ui-accessibility G1/G2）', () => 
     let respond: () => void = () => {}
     const hold = new Promise<void>(resolve => { respond = resolve })
     const disposePending = mountGate({
-      forms: { access: snapshotForm(settingsReady), defaultModel: snapshotForm(), models: undefined },
+      forms: { access: accessForm(settingsReady), defaultModel: defaultModelForm(), models: undefined },
       credentials: credentialsDescribe(async () => { await hold; return { ok: true, value: {} } }),
-      t: (key: never) => String(key),
+      t: (key: AccessLocaleKey) => String(key),
     })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBe('true')
+    await vi.waitFor(() => expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBe('true'))
     respond()
-    await new Promise(resolve => setTimeout(resolve, 0))
     disposePending()
     expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBeNull()
 
     // 第二挂载：configured=false → 授权否 → 仍阻断。
     const disposeDenied = mountGate({
-      forms: { access: snapshotForm(settingsReady), defaultModel: snapshotForm(), models: undefined },
+      forms: { access: accessForm(settingsReady), defaultModel: defaultModelForm(), models: undefined },
       credentials: credentialsDescribe(async () => ({ ok: true, value: { [ACCESS_CREDENTIAL_REF]: { configured: false } } })),
-      t: (key: never) => String(key),
+      t: (key: AccessLocaleKey) => String(key),
     })
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBe('true')
+    await vi.waitFor(() => expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBe('true'))
     disposeDenied()
     expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBeNull()
 
     // 第三挂载：configured=true + settings 就绪 → 授权成立 → 阻断解除，不设 aria-hidden。
+    // aria-hidden 为 null 在判定链未启动时同样成立，等待条件并入 describe 调用计数
+    // 区分两者：计数非零说明回包已处理，再等到 null 即授权解除已落盘。
+    let describedCount = 0
     const disposeGranted = mountGate({
-      forms: { access: snapshotForm(settingsReady), defaultModel: snapshotForm(), models: undefined },
-      credentials: credentialsDescribe(async () => ({ ok: true, value: { [ACCESS_CREDENTIAL_REF]: { configured: true } } })),
-      t: (key: never) => String(key),
+      forms: { access: accessForm(settingsReady), defaultModel: defaultModelForm(), models: undefined },
+      credentials: credentialsDescribe(async () => {
+        describedCount += 1
+        return { ok: true, value: { [ACCESS_CREDENTIAL_REF]: { configured: true } } }
+      }),
+      t: (key: AccessLocaleKey) => String(key),
     })
-    await new Promise(resolve => setTimeout(resolve, 20))
-    expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBeNull()
+    await vi.waitFor(() => {
+      expect(describedCount).toBeGreaterThan(0)
+      expect(document.getElementById('root')?.getAttribute('aria-hidden')).toBeNull()
+    })
     disposeGranted()
   })
 
   it('G2 disposer 调用后 #root 不带 aria-hidden，且全程未写入 inert', async () => {
     const props: GateProps = {
-      forms: { access: snapshotForm(), defaultModel: snapshotForm(), models: undefined },
+      forms: { access: accessForm(), defaultModel: defaultModelForm(), models: undefined },
       credentials: credentialsDescribe(async () => ({ ok: true, value: { [ACCESS_CREDENTIAL_REF]: { configured: false } } })),
-      t: (key: never) => String(key),
+      t: (key: AccessLocaleKey) => String(key),
     }
     const rootEl = document.getElementById('root')!
     const dispose = mountGate(props)
-    await new Promise(resolve => setTimeout(resolve, 0))
-    expect(rootEl.getAttribute('aria-hidden')).toBe('true')
+    await vi.waitFor(() => expect(rootEl.getAttribute('aria-hidden')).toBe('true'))
     dispose()
     expect(rootEl.getAttribute('aria-hidden')).toBeNull()
     expect(rootEl.inert).not.toBe(true)

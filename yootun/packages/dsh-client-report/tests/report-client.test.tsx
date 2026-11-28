@@ -111,6 +111,7 @@ function pageProps(request: Mock, overrides: Partial<ReportPageProps> = {}, loca
 
 /** 打开详情（列表 1 行 + 详情载荷），等待到指定的详情态锚点文本出现。 */
 async function openDetail(request: Mock, detail: Record<string, unknown>, overrides: Partial<ReportPageProps> = {}, waitText: string = t('report.header.base')) {
+  // 本函数整体替换 request 的实现；用例自带的特殊分支需在本函数返回后重新 mockImplementation。
   request.mockImplementation(async (action: string) => {
     if (action === 'report.list') return { status: 'ready', data: { items: [listRow('r-1', 'succeeded', 1)], nextCursor: null } }
     if (action === 'report.get') return detail
@@ -163,7 +164,7 @@ describe('P2 详情各状态', () => {
       errorCode: 'REPORT_INSUFFICIENT_DATA',
       resultJson: { data: null, ai: null },
     }), {}, t('report.insufficient.all'))
-    expect(screen.getByText(new RegExp(t('report.insufficient.dailyRows')), 'u')).not.toBeNull()
+    expect(screen.getByText(new RegExp(t('report.insufficient.dailyRows'), 'u'))).not.toBeNull()
     // 指引按钮与详情工具栏的「重新生成」并存。
     expect(screen.getAllByRole('button', { name: t('report.regenerate') }).length).toBeGreaterThanOrEqual(2)
   })
@@ -279,7 +280,7 @@ describe('P3 缺采口径', () => {
     expect(screen.getAllByText(/—\*/u).length).toBeGreaterThan(0)
     expect(screen.getByText(new RegExp(`${t('report.quality.missing').replace('{list}', '')}`, 'u'))).not.toBeNull()
     expect(screen.getAllByText(/账号二/u).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(new RegExp(t('report.missing.session_expired')), 'u').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(new RegExp(t('report.missing.session_expired'), 'u')).length).toBeGreaterThan(0)
   })
 })
 
@@ -497,8 +498,12 @@ describe('P10 列表加载更多失败', () => {
 
 describe('P11 重新生成提交中', () => {
   it('提交中按钮 disabled、aria-busy、busy 文案；状态文字保留', async () => {
-    let release: (() => void) | null = null
-    const request = vi.fn(async (action: string) => {
+    // regenerate 请求保持挂起，放行函数在 mock 实现的闭包里赋值，用确定赋值断言声明时机。
+    let release!: () => void
+    const request = vi.fn()
+    const view = await openDetail(request, detailPayload())
+    // openDetail 挂的默认实现不含 regenerate；提交路径换成本用例的挂起实现。
+    request.mockImplementation(async (action: string) => {
       if (action === 'report.list') return { status: 'ready', data: { items: [listRow('r-1', 'succeeded', 1)], nextCursor: null } }
       if (action === 'report.get') return detailPayload()
       if (action === 'report.regenerate') {
@@ -506,7 +511,6 @@ describe('P11 重新生成提交中', () => {
       }
       throw new Error(`unexpected action ${action}`)
     })
-    const view = await openDetail(request, detailPayload())
     fireEvent.click(screen.getByRole('button', { name: t('report.regenerate') }))
     const checkbox = await screen.findByRole('checkbox', { name: t('report.regenerateBody', { version: 2 }) }) as HTMLInputElement
     fireEvent.click(checkbox)
@@ -514,13 +518,13 @@ describe('P11 重新生成提交中', () => {
     fireEvent.click(screen.getByRole('button', { name: t('report.regenerateConfirm') }))
     // §4.1：提交中 disabled + aria-busy + busy 文案（官方 Button 原生透传 disabled）。
     await vi.waitFor(() => {
-      const busyButton = screen.getByRole('button', { name: t('report.submitting') })
+      const busyButton = screen.getByRole('button', { name: t('report.submitting') }) as HTMLButtonElement
       expect(busyButton.disabled).toBe(true)
       expect(busyButton.getAttribute('aria-busy')).toBe('true')
     })
     // 状态文字保留：按钮 busy 文案与旁边的提交中状态文字并存。
     expect(screen.getAllByText(t('report.submitting')).length).toBeGreaterThanOrEqual(2)
-    release?.()
+    release()
     await vi.waitFor(() => expect(screen.getByRole('button', { name: t('report.regenerate') })).not.toBeNull())
     view.unmount()
   })

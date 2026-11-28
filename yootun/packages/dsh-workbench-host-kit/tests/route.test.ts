@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createActionRoute, permitted, readJsonBody, sendJson, type ActionHandler, type HandlerPayload, type RouteRequest, type RouteResponse } from '../src/route.ts'
+import { createActionRoute, permitted, readJsonBody, sendJson, type ActionHandler, type RouteRequest, type RouteResponse } from '../src/route.ts'
 
 interface RecordedResponse {
   status: number
@@ -37,7 +37,6 @@ function fakeReq(body: unknown, headers: Record<string, unknown> = {}, remote = 
 }
 
 type TestCode = 'T_ROUTE_INVALID_REQUEST' | 'T_ROUTE_PAYLOAD_TOO_LARGE' | 'T_ROUTE_REFUSED' | 'CONFIRMATION_REQUIRED'
-type TestPayload = HandlerPayload<'ready', TestCode>
 const handler: ActionHandler<'ready', TestCode> = async () => ({ status: 'ready' })
 
 const codes = {

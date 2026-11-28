@@ -66,7 +66,9 @@ describe('语义 token', () => {
   it('组件样式只消费 --yt-*/--dsw-* 变量，不引入第二套色板', () => {
     for (const file of cssFiles()) {
       const source = readFileSync(file, 'utf8')
-      const colorVars = [...source.matchAll(/var\((--[a-z-]+)/gu)].map(match => match[1])
+      const colorVars = [...source.matchAll(/var\((--[a-z-]+)/gu)]
+        .map(match => match[1])
+        .filter((name): name is string => name !== undefined)
       for (const name of colorVars) {
         expect(name.startsWith('--yt-') || name.startsWith('--dsw-') || name.startsWith('--ds-'), `${file}: ${name}`).toBe(true)
       }

@@ -76,6 +76,7 @@ export async function startWorkbenchFixture(options: WorkbenchFixtureOptions = {
         if (toolName === BUSINESS_ERROR_TOOL) {
           // 真实 Tools 稳定错误 envelope 形态（docs/1116/yootun-mcp.md §6.4）。
           return {
+            content: [],
             isError: true,
             structuredContent: {
               error: { code: 'TASK_ALREADY_CANCELLED', message: 'task already cancelled', retryable: false, requestId: null },
@@ -84,7 +85,7 @@ export async function startWorkbenchFixture(options: WorkbenchFixtureOptions = {
         }
         if (toolName === SLOW_TOOL) await new Promise(resolve => setTimeout(resolve, SLOW_DELAY_MS))
         if (toolName === HANG_TOOL) await new Promise<void>(() => {})
-        return { structuredContent: { ok: true, tool: toolName } }
+        return { content: [], structuredContent: { ok: true, tool: toolName } }
       })
     }
     return mcp
