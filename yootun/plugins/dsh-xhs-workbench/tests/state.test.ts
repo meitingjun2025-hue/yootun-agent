@@ -198,8 +198,9 @@ test('mapNote：字段映射与缺口不补 0', () => {
   assert.equal(row?.noteType, 'video')
   assert.equal(row?.publishedAt, new Date(1700000000 * 1000).toISOString())
   assert.deepEqual(row?.metrics, { plays: 12000, likes: 3, comments: 0 })
-  assert.equal(row?.metrics?.collects, undefined)
-  assert.equal(row?.metrics?.shares, undefined)
+  const metrics: Record<string, unknown> | undefined = row?.metrics
+  assert.equal(metrics?.collects, undefined)
+  assert.equal(metrics?.shares, undefined)
   assert.equal(row?.coverUrl, 'https://img.example/1.jpg')
   assert.equal(row?.sticky, true)
   // 无 id 行丢弃；空对象返回 null。

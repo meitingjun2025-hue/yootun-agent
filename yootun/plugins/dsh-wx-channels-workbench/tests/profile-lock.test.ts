@@ -19,6 +19,7 @@ import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
 import { createCollectController } from '../src/runner.ts'
 import type { ChromeFactory } from '../src/session.ts'
+import type { ActionHandler } from '../src/route.ts'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -92,9 +93,9 @@ interface AccountScript {
   /** 从第 N 次调用起 factory 直接抛 GOOGLE_CHROME_MISSING。 */
   failFromCall?: number
   /** collect 本体 page.goto 的 gate（进入时先触发 entered）。 */
-  collectGoto?: { gate: Promise<void>; entered?: Promise<void> }
+  collectGoto?: { gate: Promise<void>; entered?: (() => void) | undefined }
   /** collect 本体 context.close 的包装（进入时先触发 entered，gate 可选）。 */
-  collectClose?: { gate?: Promise<void>; entered?: Promise<void> }
+  collectClose?: { gate?: Promise<void>; entered?: (() => void) | undefined }
 }
 
 /**
@@ -145,7 +146,7 @@ function makeFactory(scripts: Record<string, AccountScript>): ChromeFactory {
   }
 }
 
-function buildHandlers(root: string, chromeFactory: ChromeFactory): { deps: ReturnType<typeof createWxHostDeps>; handlers: Record<string, (args: Record<string, string>) => Promise<object>> } {
+function buildHandlers(root: string, chromeFactory: ChromeFactory): { deps: ReturnType<typeof createWxHostDeps>; locks: ReturnType<typeof createWxHostDeps>['locks']; handlers: Record<string, ActionHandler> } {
   const deps = createWxHostDeps({
     root,
     workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
@@ -163,10 +164,10 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory): { deps: Retu
     { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
-  return { deps, locks: deps.locks, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  return { deps, locks: deps.locks, handlers: buildRouteHandlers(deps, batch as never, collect) }
 }
 
-async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string>): Promise<Record<string, unknown>> {
+async function callHandler(handlers: Record<string, ActionHandler>, action: string, args: Record<string, string>): Promise<Record<string, unknown>> {
   const handler = handlers[action]
   assert.ok(handler !== undefined, `handler ${action} 必须存在`)
   return await handler(args) as Record<string, unknown>

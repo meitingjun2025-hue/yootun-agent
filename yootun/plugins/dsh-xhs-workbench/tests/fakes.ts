@@ -4,7 +4,7 @@
  * 结构子集，不依赖 playwright。
  */
 import { writeFile } from 'node:fs/promises'
-import { LOGIN_URL, USER_INFO_PATH, CREATOR_ORIGIN, type XhsBrowserContext, type XhsPage } from '../src/session.ts'
+import { LOGIN_URL, USER_INFO_PATH, type XhsBrowserContext, type XhsPage } from '../src/session.ts'
 import { NOTE_MANAGER_URL } from '../src/collector.ts'
 import type { ChromeFactory } from '../src/chrome.ts'
 import type { XhsWorkbenchFace } from '../src/workbench.ts'
@@ -106,17 +106,17 @@ export function createFakeChrome(state: FakeCreatorState = createFakeState()): F
       if (state.creatorRedirectsToLogin && url.includes('creator.xiaohongshu.com')) state.url = LOGIN_URL
       return null
     },
-    async evaluate(fn, arg) {
+    async evaluate<T>(fn: (arg: string) => T | Promise<T>, arg: string): Promise<T> {
       if (state.evaluateError !== null) throw state.evaluateError
       if (state.url === NOTE_MANAGER_URL) {
         state.postedCalls.push(arg)
-        return state.postedResponses.shift() ?? '{}'
+        return (state.postedResponses.shift() ?? '{}') as T
       }
       // user/info 同源 fetch 由宿主状态直接应答（测试内不发起真实网络请求）。
       if (arg === USER_INFO_PATH) {
-        return { status: state.profileJson === null ? 0 : 200, json: state.profileJson }
+        return { status: state.profileJson === null ? 0 : 200, json: state.profileJson } as T
       }
-      return await (fn as (target: string) => Promise<unknown>)(arg)
+      return await fn(arg)
     },
     async isVisible(selector) {
       if (selector.includes('login-box')) return state.loginBoxVisible

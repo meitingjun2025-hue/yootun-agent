@@ -12,6 +12,7 @@ import { apply, buildRouteHandlers, createDouyinHostDeps, Config } from '../src/
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createFakeContext, createFakeWorkbench, tempRoot } from './fakes.ts'
 import { readRuns, recoverInterruptedRuns, updateRun, runsFilePath } from '../src/runs.ts'
+import { routeAction } from './route-actions.ts'
 
 /** 等待异步条件成立（轮询；超时抛错）。 */
 async function waitForAsync(condition: () => Promise<boolean>, timeoutMs = 2000, label = 'condition'): Promise<void> {
@@ -49,11 +50,11 @@ test('collect.status 在启动恢复完成前等待（recovery 期间不产生 c
     const deps = createDouyinHostDeps({
       root,
       workbenchFace: fake.face,
-      recovery: async () => { await gate; return 0 },
+      recovery: async () => { await gate; return { count: 0, accountIds: [] } },
     })
     const handlers = buildRouteHandlers(deps)
     let settled = false
-    const pending = handlers['collect.status']({ accountId: 'acc-wait' }).then(result => {
+    const pending = routeAction(handlers, 'collect.status')({ accountId: 'acc-wait' }).then(result => {
       settled = true
       return result
     })
@@ -74,7 +75,7 @@ test('恢复完成后：interrupted + 无 runId → recovery_required（不伪�
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face })
     const handlers = buildRouteHandlers(deps)
     await deps.startupReady
-    const payload = await handlers['collect.status']({ accountId: 'acc-i1' })
+    const payload = await routeAction(handlers, 'collect.status')({ accountId: 'acc-i1' })
     assert.equal(payload.recovery, 'recovery_required')
     assert.equal((payload.lastRun as Record<string, unknown>).status, 'interrupted')
   } finally {
@@ -92,13 +93,13 @@ test('远端 run_get 返回终态 → 本地 runs.json 状态同步 + recovery_r
     const deps = createDouyinHostDeps({ root, workbenchFace: fake.face })
     const handlers = buildRouteHandlers(deps)
     await deps.startupReady
-    const payload = await handlers['collect.status']({ accountId: 'acc-t1' })
+    const payload = await routeAction(handlers, 'collect.status')({ accountId: 'acc-t1' })
     assert.equal(payload.recovery, 'recovery_required')
     assert.equal(payload.remoteStatus, 'completed')
     assert.equal((payload.lastRun as Record<string, unknown>).status, 'completed', '本地 runs.json 已同步远端终态')
     assert.equal((await readRuns(root))['attempt-t1']?.status, 'completed')
     // 再次查询：已终态，不再 recovery。
-    const again = await handlers['collect.status']({ accountId: 'acc-t1' })
+    const again = await routeAction(handlers, 'collect.status')({ accountId: 'acc-t1' })
     assert.equal(again.recovery, undefined)
   } finally {
     await cleanup()
@@ -117,7 +118,7 @@ test('远端 run_get 失败或仍 running → recovery_required（不伪造本�
       const deps = createDouyinHostDeps({ root, workbenchFace: fake.face })
       const handlers = buildRouteHandlers(deps)
       await deps.startupReady
-      const payload = await handlers['collect.status']({ accountId: 'acc-x' })
+      const payload = await routeAction(handlers, 'collect.status')({ accountId: 'acc-x' })
       assert.equal(payload.recovery, 'recovery_required', label)
       assert.equal((await readRuns(root))['attempt-x']?.status, 'interrupted', `${label}：本地不改写`)
     } finally {
@@ -135,8 +136,8 @@ test('runs.json 语义损坏 → 恢复失败，业务 action 一律 run_state_c
     const handlers = buildRouteHandlers(deps)
     await deps.startupReady
     assert.equal(deps.startupError, 'run_state_corrupt')
-    await assert.rejects(() => handlers['accounts.list']({}), (error: unknown) => (error as { code?: string }).code === 'run_state_corrupt')
-    await assert.rejects(() => handlers['collect.status']({ accountId: 'a' }), (error: unknown) => (error as { code?: string }).code === 'run_state_corrupt')
+    await assert.rejects(() => routeAction(handlers, 'accounts.list')({}), (error: unknown) => (error as { code?: string }).code === 'run_state_corrupt')
+    await assert.rejects(() => routeAction(handlers, 'collect.status')({ accountId: 'a' }), (error: unknown) => (error as { code?: string }).code === 'run_state_corrupt')
     // 损坏文件保持原样（不得被恢复/查询改写）。
     assert.equal(await readFile(join(root, 'runs.json'), 'utf8'), corrupt)
   } finally {

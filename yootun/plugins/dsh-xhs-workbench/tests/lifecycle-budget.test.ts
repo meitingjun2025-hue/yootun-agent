@@ -15,7 +15,7 @@ import { BrowserLaunchTimeoutError, closeContext, launchWithTimeout, type Chrome
 import { safeCode } from '../src/errors.ts'
 import { createTaskRegistry, disposeHostTasks } from '../src/lifecycle.ts'
 import { buildRouteHandlers, createXhsHostDeps } from '../src/handlers.ts'
-import { createFakeChrome, sessionCookie, userInfoPayload } from './fakes.ts'
+import { createFakeChrome, createFakeWorkbench, sessionCookie, userInfoPayload } from './fakes.ts'
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
@@ -156,6 +156,7 @@ test('G5 publish：dispose 等待挂起的 publishDraft 至预算；浏览器保
     }
     const deps = createXhsHostDeps({
       root,
+      workbench: createFakeWorkbench().face,
       browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
       logger: { warn: () => undefined },
       chromeFactory: factory,
@@ -205,6 +206,7 @@ test('G5 publish：启动超预算后锁释放、account.probe 不再 PROFILE_BU
     }
     const deps = createXhsHostDeps({
       root,
+      workbench: createFakeWorkbench().face,
       browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
       logger: { warn: () => undefined },
       chromeFactory: hangingFactory,

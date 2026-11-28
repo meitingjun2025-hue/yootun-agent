@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WorkbenchPage } from '../../src/client/WorkbenchPage.tsx'
 import { PublishPanel } from '../../src/client/PublishPanel.tsx'
 import { en, type XhsLocaleKey } from '../../src/client/locales.ts'
+import type { CollectState } from '../../src/client/accounts-machine.ts'
 
 const apiMock = vi.hoisted(() => ({
   hostAction: vi.fn(),
@@ -238,9 +239,9 @@ describe('账号管理页（12 册 §4）', () => {
     const restoreGate = new Promise<{ status: string; collect: CollectState | null }>(resolve => {
       restoreReleased = () => resolve({ status: 'ready', collect: { collectId: 'col-restore', accountId: 'acc-a', collectStatus: 'running', pagesDone: 9, notesTotal: 9, truncated: false, error: null } })
     })
-    const accountRow = { accountId: 'acc-a', nickname: '甲', avatar: null, publishWindowOpen: false, sessionStatus: 'ok', lastCollectedAt: null, followers: 0 }
+    const accountRow = { accountId: 'acc-a', nickname: '甲', avatar: null, publishWindowOpen: false, sessionStatus: 'ok', sessionCheckedAt: null, lastCollectedAt: null }
     const machine = createAccountsMachine({
-      listAccounts: async () => ({ status: 'ready', accounts: [accountRow] }),
+      listAccounts: async () => ({ accounts: [accountRow] }),
       beginLogin: async () => ({ login: { status: 'waiting', loginId: 'l1' } }),
       loginStatus: async () => ({ login: { status: 'idle' } }),
       probe: async () => ({ status: 'ready', accountId: 'acc-a', sessionStatus: 'ok' }),

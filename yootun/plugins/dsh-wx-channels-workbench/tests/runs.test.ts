@@ -75,7 +75,7 @@ interface AccountScript {
   /** 从第 N 次调用起 factory 直接抛 GOOGLE_CHROME_MISSING。 */
   failFromCall?: number
   /** collect 本体（该账号第 3 次调用）page.goto 的 gate。 */
-  collectGoto?: { gate: Promise<void>; entered?: Promise<void> }
+  collectGoto?: { gate: Promise<void>; entered?: (() => void) | undefined }
 }
 
 /** 调用序：handler probe(1) → runCollection 内 probe(2) → collect 本体(3)。 */
@@ -809,7 +809,6 @@ test('非法 runs.json：updateRun / recoverInterruptedRuns / removeAccountRuns 
   const file = join(root, 'runs.json')
   const content = '{"version":1,"runs":{"a":{"accountId":"a","startedAt":"x","status":"weird"}},"extra":"keep"}'
   writeFileSync(file, content, 'utf8')
-  const before = readFileSync(file)
   await assert.rejects(updateRun(root, 'a', 'a', { progress: { phase: 'x' } }), (error: unknown) => {
     assert.equal(safeCode(error), 'run_state_corrupt')
     return true

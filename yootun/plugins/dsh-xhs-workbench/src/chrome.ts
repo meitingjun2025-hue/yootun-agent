@@ -6,9 +6,9 @@
  * 同一账号 Profile，storage_state 仅作备份介质。
  * @module
  */
-import type { BrowserContext } from 'playwright-core'
 import { ChromeMissingError, DriverMissingError, LAUNCH_ARGS, resolveSystemChrome } from '@yootun/dsh-workbench-host-kit'
 import { platform as osPlatform } from 'node:os'
+import type { XhsBrowserContext } from './session.ts'
 
 export {
   chromeCandidates,
@@ -60,9 +60,9 @@ export async function browserStatus(options: { chromium?: unknown; platform?: st
   return { chromeAvailable, driverAvailable, platform }
 }
 
-/** 系统 Chrome 持久化上下文启动结果。 */
+/** 系统 Chrome 持久化上下文启动结果（按消费子集声明；测试注入的 fake context 也是这个面）。 */
 export interface ChromeLaunch {
-  context: BrowserContext
+  context: XhsBrowserContext
 }
 
 /** Chrome launcher seam（测试注入 fake context；undefined = launchChrome 真实实现）。 */

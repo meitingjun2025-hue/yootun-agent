@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRouteHandlers, createXhsHostDeps } from '../src/handlers.ts'
 import { disposeHostTasks } from '../src/lifecycle.ts'
+import { createFakeWorkbench } from './fakes.ts'
 import { createFakeChrome, sessionCookie } from './fakes.ts'
 
 async function tempRoot(): Promise<string> {
@@ -23,6 +24,7 @@ test('dispose：登录等待中 abort → run 落 login_aborted，新 action 稳
   const fake = createFakeChrome()
   const deps = createXhsHostDeps({
     root,
+    workbench: createFakeWorkbench().face,
     browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
     logger: { warn: () => undefined },
     chromeFactory: fake.factory,
@@ -52,6 +54,7 @@ test('dispose：采集运行中 abort → run 落 cancelled(collect_cancelled)�
   const fake = createFakeChrome()
   const deps = createXhsHostDeps({
     root,
+    workbench: createFakeWorkbench().face,
     browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
     logger: { warn: () => undefined },
     chromeFactory: fake.factory,
@@ -81,6 +84,7 @@ test('dispose：扫描码成功与 abort 竞态——清理不误删正式账号
   fake.state.profileJson = { data: { userId: 'acc-keep', userName: '保留' } }
   const deps = createXhsHostDeps({
     root,
+    workbench: createFakeWorkbench().face,
     browserStatusFn: async () => ({ chromeAvailable: true, driverAvailable: true, platform: 'linux' }),
     logger: { warn: () => undefined },
     chromeFactory: fake.factory,

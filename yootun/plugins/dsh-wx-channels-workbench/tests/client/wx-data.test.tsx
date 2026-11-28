@@ -1559,7 +1559,7 @@ describe('账号总览页（多账号汇总：筛选器 / 10 卡 / 账号表现�
   }
 
   /** 日期算术（fixture 专用）：ISO 日 + N 天。 */
-  function dayOffset(start: string, offset: number): string {
+  function dayOffset(_start: string, offset: number): string {
     return new Date(Date.UTC(2026, 10, 17 + offset)).toISOString().slice(0, 10)
   }
 
@@ -2323,7 +2323,7 @@ describe('P2：locale 座位判定（client-workbench-hooks 附录 B.2）', () =
       getSnapshot: () => snapshot,
     }
     // 构造 panel 中英文同值的词典（旧 localeTagOf(t) 在此判错为 zh）。
-    const samePanelT = ((key: WxLocaleKey, values?: Record<string, string | number>): string =>
+    const samePanelT = ((key: WxLocaleKey, _values?: Record<string, string | number>): string =>
       key === 'panel' ? zh.panel : en[key] ?? key) as typeof t
     const { calls } = mockHost(baseHandlers({
       'account.overview': () => ({ ...OK, metrics: { totals: { daily_play_count: 1250000 } }, fans_trend: { totals: {} }, availability: {} }),
@@ -2403,13 +2403,13 @@ describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
     applyUnderTest({
       locale: localeFace,
       slots: {
-        inject: (_name, factory) => factory(),
-        register: (spec, _component) => {
+        inject: (_name: string, factory: () => unknown) => factory(),
+        register: (spec: { name: string }, _component: unknown) => {
           registered.push({ name: String(spec.name), spec })
           return () => undefined
         },
       },
-      effect: fn => fn(),
+      effect: (fn: () => unknown) => fn(),
     })
     const mainSpec = registered.find(entry => entry.name === 'main')
     expect(mainSpec).toBeDefined()

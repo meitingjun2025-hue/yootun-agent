@@ -14,12 +14,12 @@ import { basename, join } from 'node:path'
 import { test } from 'node:test'
 import { createBatchCollectController } from '../src/collect-all.ts'
 import { buildRouteHandlers, createWxHostDeps } from '../src/handlers.ts'
+import type { ActionHandler } from '../src/route.ts'
 import { createCollectController, type CollectController } from '../src/runner.ts'
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createRouteHandler } from '../src/route.ts'
 import { readRuns } from '../src/runs.ts'
 import { probeAndReport } from '../src/probe.ts'
-import { runCollection } from '../src/runner.ts'
 import type { ChromeFactory } from '../src/session.ts'
 import type { WxWorkbenchFace } from '../src/ingest.ts'
 
@@ -84,7 +84,7 @@ function makeEnv(prefix: string, accounts: Array<{ id: string; storage?: boolean
 interface AccountScript {
   authAs?: string
   /** collect 本体（该账号第 3 次调用）page.goto 挂起；signalOf 给出的 signal abort 时 goto 失败（模拟 Playwright context closed）。 */
-  collectGoto?: { entered?: Promise<void> }
+  collectGoto?: { entered?: (() => void) | undefined }
 }
 
 /**
@@ -147,10 +147,10 @@ function buildHandlers(root: string, chromeFactory: ChromeFactory, logger?: { wa
     { workbench: deps.workbench, root, chromeFactory, logger: deps.logger, locks: deps.locks },
     { batchHasRunning: () => batch.running || deps.batchReserved, taskRegistry: deps.taskRegistry, signals: deps.collectSignals },
   )
-  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) as Record<string, (args: Record<string, string>) => Promise<object>> }
+  return { deps, handlers: buildRouteHandlers(deps, batch as never, collect) }
 }
 
-async function callHandler(handlers: Record<string, (args: Record<string, string>) => Promise<object>>, action: string, args: Record<string, string> = {}): Promise<Record<string, unknown>> {
+async function callHandler(handlers: Record<string, ActionHandler>, action: string, args: Record<string, string> = {}): Promise<Record<string, unknown>> {
   const handler = handlers[action]
   assert.ok(handler !== undefined, `handler ${action} 必须存在`)
   return await handler(args) as Record<string, unknown>
@@ -277,7 +277,7 @@ test('dispose：batch 在途账号 abort、后续账号按取消结算、整体 
     trackRun: promise => { registry.track(promise) },
   })
   batchRef = batch
-  const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string>) => Promise<object>>
+  const handlers = buildRouteHandlers(deps, batch, collect)
 
   const started = await callHandler(handlers, 'collectAll.start', {})
   assert.equal(started.started, true)
@@ -348,7 +348,7 @@ test('dispose：批量三账号并发在途时 abort 全部、等全部 settle�
     sleep: () => Promise.resolve(),
   })
   batchRef = batch
-  const handlers = buildRouteHandlers(deps, batch, collect) as Record<string, (args: Record<string, string>) => Promise<object>>
+  const handlers = buildRouteHandlers(deps, batch, collect)
 
   const started = await callHandler(handlers, 'collectAll.start', {})
   assert.equal(started.started, true)
@@ -611,7 +611,7 @@ test('dispose：晚 factory resolve 的清理（close+二次清理）被等待�
 
   // 清理 promise 在登录启动时即经 trackCleanup 登记到 deps 的 registry。
   const loginPromise = loginWithQrCode({
-    root, signal: controller.signal, chromeFactory: factory,
+    root, signal: controller.signal, chromeFactory: factory, locks: deps.locks,
     trackCleanup: promise => { deps.taskRegistry.track(promise) },
   })
   await factoryEntered.promise
@@ -714,7 +714,7 @@ test('apply：dispose effect 先注册、route 后注册（Cordis 逆序释放 �
     yootunWorkbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
   }
   const { apply } = await import('../src/index.ts')
-  apply(ctx as never, { stateDir: root })
+  apply(ctx as never, { stateDir: root, batchConcurrency: 3, disposeBudgetMs: 20000, browserCloseTimeoutMs: 8000, launchTimeoutMs: 60000 })
 
   assert.ok(effects.length >= 2, `应注册至少两个 effect，实际 ${String(effects.length)}`)
   assert.ok(effects[0]?.name.includes('dispose'), `dispose effect 应先注册，实际顺序: ${JSON.stringify(effects.map(e => e.name))}`)

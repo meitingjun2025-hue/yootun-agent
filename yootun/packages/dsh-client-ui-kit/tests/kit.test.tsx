@@ -588,12 +588,14 @@ describe('createHostAction', () => {
   })
 
   it('T5: 请求方法、头、凭证与 redirect 同源契约一致', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: 'ok' }), { status: 200 }))
+    const fetchMock = vi.fn(async (...[_path, _init]: [string, RequestInit]) => new Response(JSON.stringify({ status: 'ok' }), { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
     const call = createHostAction('/api/test')
     await call('x.get', { id: 7 })
     expect(fetchMock).toHaveBeenCalledOnce()
-    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const firstCall = fetchMock.mock.calls[0]
+    if (firstCall === undefined) throw new Error('fetch 应已被调用一次')
+    const [path, init] = firstCall
     expect(path).toBe('/api/test')
     expect(init.method).toBe('POST')
     expect(init.credentials).toBe('same-origin')

@@ -44,7 +44,7 @@ function stylesheetFileOf(component: string): string {
 /** 一份源码里从 kit 桶导入的组件名集合。 */
 function consumedKitComponentsIn(source: string, names: Set<string>): void {
   for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
-    for (const raw of match[1].split(',')) {
+    for (const raw of (match[1] ?? '').split(',')) {
       // 取导入原名（剥 `X as 别名` 与 `type`），别名不代表新组件。
       const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
       if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)

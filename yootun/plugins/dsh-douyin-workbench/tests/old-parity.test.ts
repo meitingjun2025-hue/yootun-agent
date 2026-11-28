@@ -160,7 +160,9 @@ function makeRouter(sc: Record<string, unknown>): (url: string) => CollectorFetc
     if (url.includes('/web/api/creator/data/item/summarize')) {
       const id = query.searchParams.get('item_id')
       const summary = fx('1015/item_summarize.sample.json') as { item_list: Array<Record<string, unknown>> }
-      summary.item_list[0].aweme_id = id
+      const row = summary.item_list[0]
+      if (row === undefined) throw new Error('fixture 1015/item_summarize.sample.json 缺少 item_list[0]')
+      row.aweme_id = id
       return send(summary)
     }
     if (url.includes('/item_analysis/metrics_trend')) return send(trend)
@@ -261,7 +263,7 @@ test('旧插件逐字段对齐（差分护栏，合计差异必须为 0）', { s
       diff(a.dashboard.gaps, b.dashboard.gaps, 'dashboard.gaps', out)
       diff(OldI.mergeDashboardRows(a.dashboard), mergeDailyRows(b.dashboard), 'daily(mergeDashboardRows)', out)
       diff(a.dashboard.fansProfile, b.dashboard.fansProfile, 'fansProfile', out)
-    } else {
+    } else if (!old.ok && !nu.ok) {
       diff(old.name, nu.name, 'error.name', out)
       const po = old.partial
       const pn = nu.partial

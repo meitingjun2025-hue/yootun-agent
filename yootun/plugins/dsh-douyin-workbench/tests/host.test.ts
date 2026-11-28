@@ -15,6 +15,7 @@ import { buildRouteHandlers } from '../src/index.ts'
 import { runsFilePath } from '../src/runs.ts'
 import { join } from 'node:path'
 import { createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
+import { routeAction } from './route-actions.ts'
 
 test('连接器新码原样投影与 host_unreachable 登记（2026-11-26，分册 08 §5.2）', () => {
   const workbenchError = (code: string): Error => Object.assign(new Error(`x-${code}`), { name: 'WorkbenchMcpError', code })
@@ -113,7 +114,7 @@ test('全量 57 个 action 精确实现；browser.status 投影不回传设备�
       'gene.regenerate',
       'gene.list',
     ])
-    const payload = await handlers['browser.status']({})
+    const payload = await routeAction(handlers, 'browser.status')({})
     assert.equal(payload.status, 'ready')
     assert.equal(payload.chromeAvailable, true)
     assert.equal(payload.driverAvailable, true)
@@ -134,7 +135,7 @@ test('browser.status 无 Chrome 时给稳定安装提示且不抛错', async () 
       workbenchFace: createFakeWorkbench().face,
       browserStatusFn: async () => ({ chromeAvailable: false, driverAvailable: false, platform: 'win32', hint: 'install_google_chrome' }),
     })
-    const payload = await buildRouteHandlers(deps)['browser.status']({})
+    const payload = await routeAction(buildRouteHandlers(deps), 'browser.status')({})
     assert.equal(payload.status, 'ready')
     assert.equal(payload.chromeAvailable, false)
     assert.equal(payload.hint, 'install_google_chrome')
@@ -160,7 +161,7 @@ test('H2 collect.running：无运行中采集时 collect 为 null、batchRunning
   const { deps, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collect.running']({})
+    const payload = await routeAction(handlers, 'collect.running')({})
     assert.equal(payload.status, 'ready')
     assert.equal(payload.collect, null)
     assert.equal(payload.batchRunning, false)
@@ -173,7 +174,7 @@ test('H5 collect.running：只读本地投影——零 Workbench 调用、不读
   const { deps, calls, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collect.running']({})
+    const payload = await routeAction(handlers, 'collect.running')({})
     assert.equal(payload.status, 'ready')
     assert.equal(calls.length, 0, '本地 action 不发起任何 Workbench 调用')
     assert.equal(existsSync(runsFilePath(deps.root)), false, '不得创建或改写 runs.json')
@@ -187,7 +188,7 @@ test('本地 action 零远端绑定；D1 未实现的远端 action 不产生任�
   const { deps, calls, cleanup } = await testDeps()
   try {
     const handlers = buildRouteHandlers(deps)
-    await handlers['browser.status']({})
+    await routeAction(handlers, 'browser.status')({})
     assert.equal(calls.length, 0, 'browser.status 不发起远端调用')
     for (const [action, binding] of Object.entries(ACTION_TOOL_MAP)) {
       if (binding.kind === 'local') {
@@ -272,15 +273,15 @@ test('I2 collect.status / collectAll.status 附带启动中断摘要；单账号
     await deps.startupReady
     assert.notEqual(deps.startupInterruption, null, '注入恢复：摘要进 deps')
     const handlers = buildRouteHandlers(deps)
-    const status = await handlers['collect.status']({ accountId: 'acc-i2' })
+    const status = await routeAction(handlers, 'collect.status')({ accountId: 'acc-i2' })
     assert.deepEqual((status as Record<string, unknown>).interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collect.status 附带摘要')
-    const batchStatus = await handlers['collectAll.status']({})
+    const batchStatus = await routeAction(handlers, 'collectAll.status')({})
     assert.deepEqual((batchStatus as Record<string, unknown>).interrupted, { count: 2, accountIds: ['a1', 'a2'] }, 'I2：collectAll.status 附带摘要')
     // 单账号采集成功启动 → 摘要清空，两个 status 不再附带。
-    const started = await handlers['collect.start']({ accountId: 'acc-i2' })
+    const started = await routeAction(handlers, 'collect.start')({ accountId: 'acc-i2' })
     assert.equal((started as Record<string, unknown>).status, 'ready')
     assert.equal(deps.startupInterruption, null, '成功启动后摘要清空')
-    const statusAfter = await handlers['collect.status']({ accountId: 'acc-i2' })
+    const statusAfter = await routeAction(handlers, 'collect.status')({ accountId: 'acc-i2' })
     assert.equal((statusAfter as Record<string, unknown>).interrupted, undefined)
     await deps.taskRegistry.awaitSettled()
   } finally {

@@ -1,0 +1,6 @@
+{
+ "as never": {},
+ "两段式断言": {
+  "tests/media-upload.test.ts": 4
+ }
+}

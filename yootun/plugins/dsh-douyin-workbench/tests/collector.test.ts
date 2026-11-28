@@ -93,7 +93,6 @@ test('collectAccountWorksOn 列表阶段失效：已采集页范围内作品以�
 })
 
 test('collectAccountWorksOn 资料阶段失效：全部范围内作品入库且 listComplete 取真实值', async () => {
-  const status8 = fx('work_list.status_code_8.sample.json')
   const lastPage = fx('work_list.lastpage.sample.json')
   const page1 = fx('work_list.page1.sample.json')
   const page = makePage(url => {

@@ -16,6 +16,7 @@ import { batchCandidates, createBatchCollectController, createCollectController,
 import { createAttemptId, readRuns, updateRun } from '../src/runs.ts'
 import { paths, updateAccount } from '../src/state.ts'
 import { createFakeWorkbench, tempRoot } from './fakes.ts'
+import { routeAction } from './route-actions.ts'
 
 /** 采集成功结果（completed 口径）。 */
 const ok = (): CollectResult => ({ status: 'ready', runStatus: 'completed', listComplete: true })
@@ -365,17 +366,17 @@ test('B6 批量运行中：collect.start 与重复 collectAll.start 均 collect_
       logger: { warn: () => undefined },
     })
     const handlers = buildRouteHandlers(deps)
-    const first = await handlers['collectAll.start']({})
+    const first = await routeAction(handlers, 'collectAll.start')({})
     assert.equal(first.status, 'ready')
-    const single = await handlers['collect.start']({ accountId: 'b6' })
+    const single = await routeAction(handlers, 'collect.start')({ accountId: 'b6' })
     assert.equal(single.status, 'error')
     assert.equal(single.reason, 'collect_busy')
-    const repeat = await handlers['collectAll.start']({})
+    const repeat = await routeAction(handlers, 'collectAll.start')({})
     assert.equal(repeat.status, 'error')
     assert.equal(repeat.reason, 'collect_busy')
     release?.()
     await deps.taskRegistry.awaitSettled()
-    const running = await handlers['collect.running']({})
+    const running = await routeAction(handlers, 'collect.running')({})
     assert.equal(running.batchRunning, false)
     assert.equal([...deps.signals.keys()].filter(key => key.startsWith('collect:batch:')).length, 0, 'settle 后 batch signal 清理')
   } finally {
@@ -484,7 +485,8 @@ test('B11 错峰：worker k 首取等待 k×3000 毫秒，取号间隔非负（�
   await flush()
   // 首取：worker 0 等待 0、worker 1 等待 1×3000（rand=0 落基数下限）。
   assert.ok(sleeps[0] === 0, `worker 0 首取零等待，实际 ${sleeps[0]}`)
-  assert.ok(sleeps[1] >= 3_000, `worker 1 首取 ≥ 3000ms，实际 ${sleeps[1]}`)
+  const firstWorkerWait = sleeps[1]
+  assert.ok(firstWorkerWait !== undefined && firstWorkerWait >= 3_000, `worker 1 首取 ≥ 3000ms，实际 ${firstWorkerWait}`)
   collect.settle('a1')
   collect.settle('a2')
   await flush()
@@ -584,7 +586,7 @@ test('B6b 真实单账号控制器接线：批量运行中页面发起被拒，�
   try {
     const workbench = createFakeWorkbench({})
     const collect = createCollectController(
-      { callTool: async (tool, args, signal) => workbench.callTool('douyin-workbench', 'douyin', tool, args, signal), root, locks: createProfileLocks() },
+      { callTool: async (tool, args, signal) => workbench.face.callTool('douyin-workbench', 'douyin', tool, args, signal), root, locks: createProfileLocks() },
       { batchHasRunning: () => true },
     )
     // 页面路径（无 fromBatch）：批量运行中被互斥钩子拒绝。

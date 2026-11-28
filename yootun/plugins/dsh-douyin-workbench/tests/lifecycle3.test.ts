@@ -15,6 +15,7 @@ import { disposeHostTasks } from '../src/lifecycle.ts'
 import { batchCandidates, createBatchCollectController } from '../src/runner.ts'
 import { createFakeWorkbench, tempRoot, type FakeWorkbenchCall } from './fakes.ts'
 import type { WorkbenchFace } from '../src/workbench.ts'
+import { routeAction } from './route-actions.ts'
 
 /** 快速失败的 chrome factory（探测路径不启动浏览器）。 */
 const fastFailChrome = async (): Promise<never> => { throw new Error('no chrome in lifecycle tests') }
@@ -59,7 +60,7 @@ test('§1 startup 等待期 dispose 竞态：等待中的请求被 abort，不�
     const handlers = buildRouteHandlers(deps)
     // recovery gate pending 时发起 works.list。
     let actionSettled = false
-    const pending = handlers['works.list']({ accountId: 'acc-r' }).then(
+    const pending = routeAction(handlers, 'works.list')({ accountId: 'acc-r' }).then(
       () => { actionSettled = true },
       () => { actionSettled = true },
     )
@@ -263,7 +264,7 @@ test('§2 collectAll.start 信号生命周期：action: 清理、collect:batch: 
     await seedAccount(root, 'd1')
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: fastFailChrome })
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collectAll.start']({})
+    const payload = await routeAction(handlers, 'collectAll.start')({})
     assert.equal(payload.status, 'ready')
     const batchKeys = [...deps.signals.keys()].filter(key => key.startsWith('collect:batch:'))
     assert.equal(batchKeys.length, 1, 'batch 后台 signal 已登记且保留')
@@ -296,7 +297,7 @@ test('§3 collect.start 前置阶段：pending 提升的 save/remove 收到请�
     })
     const handlers = buildRouteHandlers(deps)
     let settled = false
-    const pending = handlers['collect.start']({ accountId: 'pending-p' }).then(
+    const pending = routeAction(handlers, 'collect.start')({ accountId: 'pending-p' }).then(
       () => { settled = true },
       () => { settled = true },
     )
@@ -332,7 +333,7 @@ test('§3 dispose 后调用 collect.start：立即 plugin_disposing，零 Workbe
     const handlers = buildRouteHandlers(deps)
     await disposeHostTasks({ deps })
     const before = hanging.calls.length
-    await assert.rejects(() => handlers['collect.start']({ accountId: 'normal-acc' }), (error: unknown) => (error as { code?: string }).code === 'plugin_disposing')
+    await assert.rejects(() => routeAction(handlers, 'collect.start')({ accountId: 'normal-acc' }), (error: unknown) => (error as { code?: string }).code === 'plugin_disposing')
     assert.equal(hanging.calls.length, before, 'dispose 后不得发出任何 Workbench 调用')
     assert.equal([...deps.signals.keys()].filter(key => key.startsWith('collect:')).length, 0)
   } finally {
@@ -346,7 +347,7 @@ test('§3 collect.start 正常路径：action signal 清理、collect: 信号保
     await seedAccount(root, 'e1')
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: fastFailChrome })
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collect.start']({ accountId: 'e1' })
+    const payload = await routeAction(handlers, 'collect.start')({ accountId: 'e1' })
     assert.equal(payload.status, 'ready')
     assert.ok([...deps.signals.keys()].includes('collect:e1'), '后台采集信号保留')
     assert.equal([...deps.signals.keys()].filter(key => key.startsWith('action:')).length, 0)
@@ -363,10 +364,10 @@ test('H3 collect.running：单账号运行中投影 accountId/status，终态后
     await seedAccount(root, 'h3')
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: fastFailChrome })
     const handlers = buildRouteHandlers(deps)
-    assert.equal((await handlers['collect.running']({})).collect, null)
-    const started = await handlers['collect.start']({ accountId: 'h3' })
+    assert.equal((await routeAction(handlers, 'collect.running')({})).collect, null)
+    const started = await routeAction(handlers, 'collect.start')({ accountId: 'h3' })
     assert.equal(started.status, 'ready')
-    const running = await handlers['collect.running']({})
+    const running = await routeAction(handlers, 'collect.running')({})
     assert.equal(running.status, 'ready')
     assert.equal(running.batchRunning, false)
     const collect = running.collect
@@ -376,7 +377,7 @@ test('H3 collect.running：单账号运行中投影 accountId/status，终态后
     assert.equal(view.accountId, 'h3')
     // 快速失败 factory 让 run 立即到终态：投影回到 null（终态不入 running 查询）。
     await deps.taskRegistry.awaitSettled()
-    assert.equal((await handlers['collect.running']({})).collect, null)
+    assert.equal((await routeAction(handlers, 'collect.running')({})).collect, null)
   } finally {
     await cleanup()
   }
@@ -392,15 +393,15 @@ test('H4 collect.running：批量运行中（探测阶段）batchRunning 为 tru
     const hangingChrome = async (): Promise<never> => { await gate; throw new Error('no chrome in lifecycle tests') }
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face, chromeFactory: hangingChrome })
     const handlers = buildRouteHandlers(deps)
-    const started = await handlers['collectAll.start']({})
+    const started = await routeAction(handlers, 'collectAll.start')({})
     assert.equal(started.status, 'ready')
-    const running = await handlers['collect.running']({})
+    const running = await routeAction(handlers, 'collect.running')({})
     assert.equal(running.batchRunning, true)
     assert.equal(running.collect, null, '批量探测不产生单账号运行投影')
     // release：probe 快速失败 → 全部 skipped → batch failed（no_eligible_account）。
     releaseProbe?.()
     await deps.taskRegistry.awaitSettled()
-    assert.equal((await handlers['collect.running']({})).batchRunning, false)
+    assert.equal((await routeAction(handlers, 'collect.running')({})).batchRunning, false)
   } finally {
     await cleanup()
   }

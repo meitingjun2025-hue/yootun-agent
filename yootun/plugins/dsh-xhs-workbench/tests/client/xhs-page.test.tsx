@@ -298,13 +298,13 @@ describe('locale 座位工厂（P2/F：生产接线守卫）', () => {
     applyUnderTest({
       locale: localeFace,
       slots: {
-        inject: (_name, factory) => factory(),
-        register: (spec, _component) => {
+        inject: (_name: string, factory: () => unknown) => factory(),
+        register: (spec: { name: string }, _component: unknown) => {
           registered.push({ name: String(spec.name), spec })
           return () => undefined
         },
       },
-      effect: fn => fn(),
+      effect: (fn: () => unknown) => fn(),
     })
     const mainSpec = registered.find(entry => entry.name === 'main')
     expect(mainSpec).toBeDefined()

@@ -5,13 +5,14 @@
  * 运行：`node --test tests/d2.test.ts`。
  */
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { buildRouteHandlers, createDouyinHostDeps } from '../src/index.ts'
 import { FakeWorkbenchError, createFakeWorkbench, tempRoot, type FakeWorkbenchCall } from './fakes.ts'
 import type { WorkbenchFace } from '../src/workbench.ts'
+import { routeAction } from './route-actions.ts'
 
 /** 组装 D2 deps（可脚本 workbench；Chrome factory 走缺省——本文件不触发登录）。 */
 async function d2Deps(script: { outcomes?: Array<{ structuredContent?: unknown; throwCode?: string }> } = {}): Promise<{
@@ -36,7 +37,6 @@ test('accounts.list：本地+远端合并、本地优先、墓碑过滤、pendin
     { account_id: 'remote-only', nickname: '只在远端' },
   ] } }] })
   try {
-    await deps.callTool === undefined
     const handlers = buildRouteHandlers(deps)
     // 本地写一条 acc-1（昵称空，验证远端兜底）与一条 pending。
     const { writeAccounts } = await import('../src/state.ts')
@@ -44,7 +44,7 @@ test('accounts.list：本地+远端合并、本地优先、墓碑过滤、pendin
       'acc-1': { accountId: 'acc-1' },
       'pending-123': { accountId: 'pending-123', sessionStatus: 'unknown' },
     } }, deps.root)
-    const payload = await handlers['accounts.list']({})
+    const payload = await routeAction(handlers, 'accounts.list')({})
     assert.equal(payload.status, 'ready')
     const accounts = payload.accounts as Array<Record<string, unknown>>
     const ids = accounts.map(row => row.accountId)
@@ -71,7 +71,7 @@ test('accounts.list：远端失败不整体失败，remoteError 透出', async (
   try {
     const deps = createDouyinHostDeps({ root, workbenchFace: face })
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['accounts.list']({})
+    const payload = await routeAction(handlers, 'accounts.list')({})
     assert.equal(payload.status, 'ready')
     assert.equal(payload.remoteError, 'workbench_network_error')
     assert.deepEqual(payload.accounts, [])
@@ -84,19 +84,19 @@ test('L1/L2 account.loginStatus：无 run 回 idle；终态保留 30 分钟内�
   const { deps, cleanup } = await d2Deps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const idle = await handlers['account.loginStatus']({ accountId: 'nobody' })
+    const idle = await routeAction(handlers, 'account.loginStatus')({ accountId: 'nobody' })
     assert.equal((idle.login as Record<string, unknown>).status, 'idle')
     // 手工注入终态 run（settledAt = 现在）：保留期内重复读取一致（L1）。
     const { loginRuns } = deps
     loginRuns.set('k1', { key: 'k1', status: 'timeout', accountId: null, error: 'login_timeout', saveError: null, startedAt: new Date().toISOString(), settledAt: Date.now() })
-    const first = await handlers['account.loginStatus']({ accountId: 'k1' })
+    const first = await routeAction(handlers, 'account.loginStatus')({ accountId: 'k1' })
     assert.equal((first.login as Record<string, unknown>).status, 'timeout')
-    const second = await handlers['account.loginStatus']({ accountId: 'k1' })
+    const second = await routeAction(handlers, 'account.loginStatus')({ accountId: 'k1' })
     assert.equal((second.login as Record<string, unknown>).status, 'timeout', 'L1：保留期内重复读取结果一致')
     // 回拨 settledAt（等效时钟推进 31 分钟）：下一次读取清理 → idle（L2）。
     const run = loginRuns.get('k1') as { settledAt?: number }
     run.settledAt = Date.now() - 31 * 60 * 1000
-    const third = await handlers['account.loginStatus']({ accountId: 'k1' })
+    const third = await routeAction(handlers, 'account.loginStatus')({ accountId: 'k1' })
     assert.equal((third.login as Record<string, unknown>).status, 'idle', 'L2：过期终态清理后 idle')
     assert.equal(loginRuns.has('k1'), false)
   } finally {
@@ -125,12 +125,12 @@ test('删除顺序：removeLocal 成功（runs 同步清理）后才允许 remov
     const handlers = buildRouteHandlers(deps)
     const { updateRun } = await import('../src/runs.ts')
     await updateRun(deps.root, 'del-acc', 'attempt-1', { status: 'completed' })
-    const local = await handlers['account.removeLocal']({ accountId: 'del-acc' })
+    const local = await routeAction(handlers, 'account.removeLocal')({ accountId: 'del-acc' })
     assert.equal(local.status, 'ready')
     assert.equal(local.localCleared, true)
     const { readRuns } = await import('../src/runs.ts')
     assert.deepEqual(await readRuns(deps.root), {}, 'runs.json 该账号记录随 removeLocal 清理')
-    const remote = await handlers['account.removeRemote']({ accountId: 'del-acc' })
+    const remote = await routeAction(handlers, 'account.removeRemote')({ accountId: 'del-acc' })
     assert.equal(remote.status, 'ready')
     assert.equal(calls[calls.length - 1]?.name, 'workbench_douyin_account_remove')
     // 半清理失败：storage_state 路径被目录占位（rm 文件语义失败）→ removed=false
@@ -140,7 +140,7 @@ test('删除顺序：removeLocal 成功（runs 同步清理）后才允许 remov
     const storageDir = join(deps.root, 'storage-state')
     await mkdir(storageDir, { recursive: true })
     await mkdir(paths(deps.root).storageStatePath('del-acc2'))
-    const blocked = await handlers['account.removeLocal']({ accountId: 'del-acc2' })
+    const blocked = await routeAction(handlers, 'account.removeLocal')({ accountId: 'del-acc2' })
     assert.equal(blocked.status, 'error')
     assert.equal(blocked.reason, 'cleanup_failed')
     assert.equal(calls.filter(call => call.name === 'workbench_douyin_account_remove' && call.args !== undefined && (call.args as Record<string, unknown>).accountId === 'del-acc2').length, 0, '半清理失败不得发起远端删除')
@@ -153,7 +153,7 @@ test('collect.start：无 storage_state 拒绝 session_required，不建 run 不
   const { deps, calls, cleanup } = await d2Deps()
   try {
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collect.start']({ accountId: 'no-cred' })
+    const payload = await routeAction(handlers, 'collect.start')({ accountId: 'no-cred' })
     assert.equal(payload.status, 'error')
     assert.equal(payload.reason, 'session_required')
     assert.equal(calls.length, 0)
@@ -181,7 +181,7 @@ test('G-2 run 恢复：running 记录重启后标 interrupted；collect.status �
     const fake = createFakeWorkbench()
     const deps = createDouyinHostDeps({ root, workbenchFace: fake.face })
     const handlers = buildRouteHandlers(deps)
-    const status = await handlers['collect.status']({ accountId: 'g2-acc' })
+    const status = await routeAction(handlers, 'collect.status')({ accountId: 'g2-acc' })
     assert.equal(status.status, 'ready')
     assert.equal(status.recovery, 'recovery_required')
     assert.equal((status.lastRun as Record<string, unknown>).runId, 'run-9')

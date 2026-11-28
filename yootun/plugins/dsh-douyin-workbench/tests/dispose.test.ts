@@ -7,7 +7,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { Config, apply, buildRouteHandlers, registerSignal } from '../src/index.ts'
 import { createTaskRegistry, disposeHostTasks } from '../src/lifecycle.ts'
-import { createFakeContext, createFakeWorkbench, tempRoot, testDeps } from './fakes.ts'
+import { createFakeContext, tempRoot, testDeps } from './fakes.ts'
+import { routeAction } from './route-actions.ts'
 
 test('插件 Config：stateDir 缺省空串、maxPages 缺省 1000、batchConcurrency 缺省 3、生命周期预算缺省 20000/8000/60000', () => {
   assert.deepEqual(Config({}), { stateDir: '', maxPages: 1000, batchConcurrency: 3, disposeBudgetMs: 20000, browserCloseTimeoutMs: 8000, launchTimeoutMs: 60000 })
@@ -42,7 +43,7 @@ test('disposeHostTasks：置位 → abort 全部信号 → 等 settle → 清理
     assert.equal(deps.loginRuns.size, 0, '登录记录表随卸载清空（mount-restore 2.3）')
     assert.equal(deps.taskRegistry.activeCount, 0, '任务全部 settle')
     // 置位后 handler 拒绝新 action。
-    await assert.rejects(() => buildRouteHandlers(deps)['browser.status']({}), /plugin is disposing/)
+    await assert.rejects(() => routeAction(buildRouteHandlers(deps), 'browser.status')({}), /plugin is disposing/)
   } finally {
     await cleanup()
   }
@@ -52,7 +53,7 @@ test('apply：登记 route，dispose 逆序释放且无残留', async () => {
   const { ctx, dispose } = createFakeContext()
   const { root, cleanup } = await tempRoot()
   try {
-    apply(ctx, { stateDir: root })
+    apply(ctx, Config({ stateDir: root }))
     assert.equal(ctx.registrations.length, 1)
     assert.equal(ctx.registrations[0]?.path, '/api/desktop/yootun/douyin-workbench')
     await dispose()
@@ -66,7 +67,7 @@ test('dispose 后无泄漏：重复 dispose 幂等、信号表与注册表归零
   const { ctx, dispose } = createFakeContext()
   const { root, cleanup } = await tempRoot()
   try {
-    apply(ctx, { stateDir: root })
+    apply(ctx, Config({ stateDir: root }))
     await dispose()
     await dispose()
     assert.equal(ctx.registrations.length, 0)

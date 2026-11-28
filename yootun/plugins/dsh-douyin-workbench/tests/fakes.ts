@@ -7,7 +7,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createDouyinHostDeps, type DouyinHostContext, type DouyinHostDeps } from '../src/index.ts'
+import { createDouyinHostDeps, type DouyinHostContext, type DouyinHandlerDeps } from '../src/index.ts'
 import type { RouteRequest, RouteResponse } from '../src/route.ts'
 import type { WorkbenchFace } from '../src/workbench.ts'
 
@@ -65,8 +65,8 @@ export async function tempRoot(): Promise<{ root: string; cleanup: () => Promise
  * @param options.workbench - fake face（缺省无调用的空 face）。
  * @returns the deps, the recorded calls, and the root cleanup.
  */
-export async function testDeps(options: { workbench?: WorkbenchFace } = {}): Promise<{
-  deps: DouyinHostDeps
+export async function testDeps(options: { workbench?: ReturnType<typeof createFakeWorkbench> } = {}): Promise<{
+  deps: DouyinHandlerDeps
   calls: FakeWorkbenchCall[]
   cleanup: () => Promise<void>
 }> {

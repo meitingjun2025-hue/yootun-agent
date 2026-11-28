@@ -41,7 +41,7 @@ function consumedKitComponents(): Set<string> {
     if (file === 'kit-styles.ts') continue
     const source = readFileSync(join(clientDir, file), 'utf8')
     for (const match of source.matchAll(/import \{([^}]+)\} from '@yootun\/dsh-client-ui-kit'/gu)) {
-      for (const raw of match[1].split(',')) {
+      for (const raw of (match[1] ?? '').split(',')) {
         const name = raw.trim().split(/\s+as\s+/u)[0]?.trim().replace(/^type /u, '') ?? ''
         if (name !== '' && !NO_STYLESHEET_EXPORTS.has(name)) names.add(name)
       }
@@ -85,6 +85,7 @@ describe('稳定码 → 词典键覆盖（源码层，防新增稳定码漏文�
     for (const code of STABLE_ERROR_CODES) {
       // REASON_KEYS 已类型穷尽（缺键 build 失败）；这里锁定值指向的词典键确有文案。
       const key = (COVERED_REASON_KEYS as Record<string, string>)[code]
+      if (key === undefined) throw new Error(`missing reason key for ${code}`)
       expect(key, `missing reason key for ${code}`).toBe(`reason.${code}`)
       expect(key in zh, `missing zh copy for ${code}`).toBe(true)
     }

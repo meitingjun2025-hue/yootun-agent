@@ -159,6 +159,7 @@ test('permitted：loopback 基础防线 + cross-site 拒绝 + Origin 精确匹�
     method: 'POST',
     socket: { remoteAddress: remote },
     headers,
+    async *[Symbol.asyncIterator]() { yield '' },
   })
   assert.equal(permitted(make({}), origin), true, '双头缺失（Desktop 转发形态）放行')
   assert.equal(permitted(make({ origin }), origin), true)

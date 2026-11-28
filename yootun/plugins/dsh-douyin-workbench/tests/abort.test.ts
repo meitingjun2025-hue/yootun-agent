@@ -10,6 +10,7 @@ import { buildRouteHandlers, completeLoginAfterSuccess, createDouyinHostDeps } f
 import { disposeHostTasks } from '../src/lifecycle.ts'
 import { createFakeWorkbench, tempRoot, type FakeWorkbenchCall } from './fakes.ts'
 import { createIngestClient, ingestCollectedWorks, type IngestWorkbench } from '../src/ingest.ts'
+import { routeAction } from './route-actions.ts'
 
 /** 记录 signal 的假 workbench（按脚本应答）。 */
 function signalRecordingFace(script: Array<(signal: AbortSignal | undefined, call: FakeWorkbenchCall) => { structuredContent?: unknown; throwCode?: string }>): {
@@ -177,7 +178,7 @@ test('请求级 signal：直接 action（works.list）经 guard 创建并原样�
   try {
     const deps = createDouyinHostDeps({ root, workbenchFace: recorder.face })
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['works.list']({ accountId: 'acc-s' })
+    const payload = await routeAction(handlers, 'works.list')({ accountId: 'acc-s' })
     assert.equal(payload.status, 'ready')
     assert.ok(recorder.seen[0] instanceof AbortSignal, 'guard 创建的请求级 signal 必须到达 face')
     // action settle 后请求级 controller 从 deps.signals 移除。
@@ -191,7 +192,7 @@ test('挂起的直接 action 被 dispose 取消并 settle；请求级 signal 清
   const recorder = signalRecordingFace([])
   // face：所有调用挂起直到 signal abort。
   const hanging: ReturnType<typeof createFakeWorkbench>['face'] = {
-    async callTool(caller, domain, name, args, signal) {
+    async callTool(_caller, _domain, _name, _args, signal) {
       void recorder
       return new Promise((_resolve, reject) => {
         if (signal?.aborted === true) { reject(new Error('aborted')); return }
@@ -204,7 +205,7 @@ test('挂起的直接 action 被 dispose 取消并 settle；请求级 signal 清
     const deps = createDouyinHostDeps({ root, workbenchFace: hanging })
     const handlers = buildRouteHandlers(deps)
     let settled = false
-    const pending = handlers['run.get']({ runId: 'r1' }).then(
+    const pending = routeAction(handlers, 'run.get')({ runId: 'r1' }).then(
       () => { settled = true },
       () => { settled = true },
     )
@@ -232,14 +233,14 @@ test('collect.start：返回后后台采集照常推进，请求级 signal 清�
     await writeFile(paths(root).storageStatePath('acc-bg'), '{"cookies":[]}')
     const deps = createDouyinHostDeps({ root, workbenchFace: createFakeWorkbench().face })
     const handlers = buildRouteHandlers(deps)
-    const payload = await handlers['collect.start']({ accountId: 'acc-bg' })
+    const payload = await routeAction(handlers, 'collect.start')({ accountId: 'acc-bg' })
     assert.equal(payload.status, 'ready')
     // 后台 collect 信号已登记（区别于请求级 action: 前缀）。
     assert.ok([...deps.signals.keys()].includes('collect:acc-bg'), '后台采集使用 collect controller 信号')
     assert.equal([...deps.signals.keys()].filter(key => key.startsWith('action:')).length, 0, '请求级 signal 已清理')
     // 等后台 run settle（无 Chrome 环境下快速失败终态）。
     await deps.taskRegistry.awaitSettled()
-    const status = await handlers['collect.status']({ accountId: 'acc-bg' })
+    const status = await routeAction(handlers, 'collect.status')({ accountId: 'acc-bg' })
     assert.equal(status.status, 'ready')
     // settle 后后台信号清理。
     assert.equal([...deps.signals.keys()].includes('collect:acc-bg'), false, '后台 run settle 后 collect 信号清理')

@@ -113,7 +113,7 @@ describe('顶级导航（布局契约：作品数据 / 账号总览 / 报表三�
   })
 
   it('I3(wx) 挂载恢复：collect.status 带中断摘要 → 横幅出现（应用退出重开主场景）', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
       if (action === 'accounts.list') return { status: 'ok', accounts: [] }
       // 挂载恢复的选中账号状态查询：带中断摘要（重启后内存记录为 null，只有 lastRun）。
@@ -133,7 +133,7 @@ describe('顶级导航（布局契约：作品数据 / 账号总览 / 报表三�
   })
 
   it('I3(wx) 灵敏度：只有 collect.status 带摘要 → 横幅仍出现（批量恢复路不带摘要）', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string, args?: Record<string, unknown>) => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ready', chrome: 'available', driver: 'available' }
       if (action === 'accounts.list') return { status: 'ok', accounts: [] }
       // 只有单账号恢复路带摘要：collectAll.status 无摘要（横幅只能来自 collect.status）。
@@ -220,7 +220,7 @@ describe('AI 报表页（wx-report-client 附录 B W2 / W4）', () => {
   })
 
   it('W2 报表页的请求经本插件 hostAction：action 名与 reportId 参数正确', async () => {
-    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ok', chrome: 'available', driver: 'available' }
       if (action === 'accounts.list') return { status: 'ok', accounts: [] }
       if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null }
@@ -257,7 +257,7 @@ describe('AI 报表页（wx-report-client 附录 B W2 / W4）', () => {
         retention: { durationSeconds: 45, maxLostSecond: 3, retentionAtMaxLostPct: 36 },
       },
     }]
-    apiMock.hostAction.mockImplementation(async (action: string, args: Record<string, unknown> = {}) => {
+    apiMock.hostAction.mockImplementation(async (action: string) => {
       if (action === 'browser.status') return { status: 'ok', chrome: 'available', driver: 'available' }
       if (action === 'accounts.list') return { status: 'ok', accounts: [] }
       if (action === 'collect.status') return { status: 'ok', collect: null, busy: false, runningAccountIds: [], lastRun: null }

@@ -6,14 +6,16 @@
  * 运行：`pnpm --filter @yootun/dsh-managed-mcp test`。
  */
 import assert from 'node:assert/strict'
-import { test, type TestContext } from 'node:test'
+import { test } from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { PreToolDecision, ToolExecution, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { credentialRef, type CredentialRef } from '@deepseek-ai/dsh-credentials'
-import { brandString, type ToolCallId } from '@deepseek-ai/dsh-brand'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { McpClientHost } from '@deepseek-ai/dsh-mcp-client'
 import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-constants.ts'
 import * as ManagedMcp from '../src/index.ts'
@@ -98,7 +100,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
       setAccess(value) { accessValue = value },
       setKey(value) { keyValue = value },
       emitCredentialUpdate() { ctx.emit('credentials/reference-updated', credentialRef(ACCESS_CREDENTIAL_REF) as CredentialRef) },
-      emitSettingsUpdate() { ctx.emit('settings/document-updated', ManagedMcp.ACCESS_NAMESPACE, 1) },
+      emitSettingsUpdate() { ctx.emit('settings/document-updated', brandString<SettingsNamespace>(ManagedMcp.ACCESS_NAMESPACE), 1) },
       restoreEnv() { process.env.YOOTUN_AGENT_MCP_URL = previousUrl },
     }
   } catch (error: unknown) {
@@ -137,6 +139,8 @@ interface SupervisorBootOptions {
   rebuildBackoffMs: number
   /** 退避抖动随机源注入（定值 → 延迟无抖动）。 */
   random?: (() => number) | undefined
+  /** 退避定时调度注入（受控时钟：记录申请的延迟，由用例显式触发）。 */
+  delay?: ManagedMcp.DelayScheduler | undefined
   /** 官方重连策略覆盖（测试缝：小预算加速 `failed`）。 */
   reconnect?: ManagedMcp.SupervisorOptions['reconnect']
 }
@@ -165,6 +169,7 @@ async function bootSupervisor(options: SupervisorBootOptions): Promise<Superviso
     const supervisor = ManagedMcp.createSupervisor(ctx, {
       rebuildBackoffMs: options.rebuildBackoffMs,
       ...(options.random !== undefined ? { random: options.random } : {}),
+      ...(options.delay !== undefined ? { delay: options.delay } : {}),
       ...(options.reconnect !== undefined ? { reconnect: options.reconnect } : {}),
     })
     supervisor.reevaluate('test boot')
@@ -196,6 +201,40 @@ async function shutdownSupervisor(booted: SupervisorBooted): Promise<void> {
 
 /** 自愈用例的重连覆盖：官方 client 一次失败即 `failed`，加速状态机收敛。 */
 const FAST_FAILED_RECONNECT = { enabled: true, initialDelayMs: 20, maxDelayMs: 100, maxAttempts: 1 } as const
+
+/**
+ * 受控的退避调度替身：记录监督器每次申请的延迟毫秒数，保留待触发的回调由
+ * 用例显式触发（{@link fireFirst}），取消即从待触发集合移除。真实定时器被
+ * 换掉后，用例对退避只断言申请值与取消行为，不再度量真实时间。
+ */
+class ControlledDelays {
+  /** 按申请顺序记录的延迟毫秒数。 */
+  readonly requested: number[] = []
+  private readonly pending = new Map<number, () => void>()
+  private nextHandle = 0
+
+  /** The {@link ManagedMcp.DelayScheduler} to inject into the supervisor. */
+  scheduler(): ManagedMcp.DelayScheduler {
+    return (handler, delayMs) => {
+      this.requested.push(delayMs)
+      const handle = this.nextHandle
+      this.nextHandle += 1
+      this.pending.set(handle, handler)
+      return () => { this.pending.delete(handle) }
+    }
+  }
+
+  /** 已申请未触发（或未取消）的重建数。 */
+  get pendingCount(): number { return this.pending.size }
+
+  /** 触发最早申请的重建；无待触发时失败，防止用例凭空推进。 */
+  fireFirst(): void {
+    const first = [...this.pending.entries()][0]
+    if (first === undefined) throw new Error('no pending rebuild to fire')
+    this.pending.delete(first[0])
+    first[1]()
+  }
+}
 
 /** 状态路由的响应替身（结构面，无 cast）：记录状态码与响应体。 */
 class FakeStatusResponse implements ManagedMcp.StatusRouteResponse {
@@ -551,29 +590,22 @@ test('S1：门禁通过后挂载，快照 connecting → connected，count 为�
   }
 })
 
-test('S2：failed 后无事件按退避自愈重建，第二次失败延迟约为两倍', async () => {
+test('S2：failed 后无事件按退避自愈重建，第二次申请翻倍的延迟', async () => {
   const fixture = await startAgentFixture()
   fixture.setMode('reject')
-  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  const delays = new ControlledDelays()
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT, delay: delays.scheduler() })
   try {
     await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'first failure exhausts the official attempt budget')
     assert.equal(Number.isNaN(Date.parse(booted.supervisor.snapshot().retryAt ?? 'invalid')), false, 'failed 期间快照带排定的 retryAt')
-    const firstFailedAt = Date.now()
-    const attemptsAfterFirstFailure = booted.fixture.authorization.length
-    // 无任何门禁事件：第一次自愈重建的挂载请求 + 新一轮 failed。
-    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterFirstFailure, 'second failure follows the first self-heal rebuild')
-    const secondFailedAt = Date.now()
-    const firstDelay = secondFailedAt - firstFailedAt
-    assert.ok(firstDelay >= 850, `第一次自愈延迟 ${String(firstDelay)}ms 达到基值量级`)
-    assert.ok(firstDelay <= 1800, `第一次自愈延迟 ${String(firstDelay)}ms 在基值窗内`)
+    assert.deepEqual(delays.requested, [1000], '第一次自愈申请退避基值')
 
-    const attemptsAfterSecondFailure = booted.fixture.authorization.length
-    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterSecondFailure, 'third failure follows the doubled-backoff rebuild')
-    const thirdFailedAt = Date.now()
-    const secondDelay = thirdFailedAt - secondFailedAt
-    assert.ok(secondDelay >= 1700, `第二次自愈延迟 ${String(secondDelay)}ms 达到两倍量级`)
-    assert.ok(secondDelay <= 2900, `第二次自愈延迟 ${String(secondDelay)}ms 在两倍窗内`)
-    assert.ok(secondDelay > firstDelay, '第二次延迟严格大于第一次（退避倍增）')
+    // 无任何门禁事件：显式触发排定的退避，监督器销毁重建并再次失败。
+    const attemptsAfterFirstFailure = booted.fixture.authorization.length
+    delays.fireFirst()
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && delays.requested.length === 2, 'second failure follows the first self-heal rebuild')
+    assert.ok(booted.fixture.authorization.length > attemptsAfterFirstFailure, '自愈重建发起过新的连接尝试')
+    assert.deepEqual(delays.requested, [1000, 2000], '第二次自愈申请翻倍的延迟（退避倍增）')
   } finally {
     await shutdownSupervisor(booted)
   }
@@ -582,23 +614,22 @@ test('S2：failed 后无事件按退避自愈重建，第二次失败延迟约�
 test('S3：connected 后退避复位，下一次失败回到基值', async () => {
   const fixture = await startAgentFixture()
   fixture.setMode('reject')
-  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  const delays = new ControlledDelays()
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT, delay: delays.scheduler() })
   try {
     await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'first failure (backoff at base)')
+    assert.deepEqual(delays.requested, [1000], '失败时按退避基值申请')
     fixture.setMode('healthy')
+    delays.fireFirst()
     await waitFor(() => booted.supervisor.snapshot().state === 'connected', 'self-heal rebuild connects')
-    // connected 复位退避（触发时翻倍的值回到基值）。用凭证重建制造下一次失败：
-    // 该既有路径不触碰退避，失败后的退避值只反映 connected 的复位。
+    assert.deepEqual(delays.requested, [1000], 'connected 复位退避，无新申请')
+    // 用凭证重建制造下一次失败：该既有路径不触碰退避，失败后的退避值只反映
+    // connected 的复位。
     fixture.setMode('reject')
     booted.setKey('rotated-model-key')
     booted.emitCredentialUpdate()
-    await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'failure #2 after the credential rebuild')
-    const failedAt = Date.now()
-    const attemptsAfterSecondFailure = booted.fixture.authorization.length
-    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && booted.fixture.authorization.length > attemptsAfterSecondFailure, 'self-heal rebuild from the reset backoff')
-    const delay = Date.now() - failedAt
-    assert.ok(delay >= 850, `复位后延迟 ${String(delay)}ms 达到基值量级`)
-    assert.ok(delay <= 1800, `复位后延迟 ${String(delay)}ms 是基值而非翻倍值`)
+    await waitFor(() => booted.supervisor.snapshot().state === 'failed' && delays.requested.length === 2, 'failure #2 after the credential rebuild')
+    assert.deepEqual(delays.requested, [1000, 1000], '复位后下一次失败回到基值而非翻倍值')
   } finally {
     await shutdownSupervisor(booted)
   }
@@ -607,14 +638,15 @@ test('S3：connected 后退避复位，下一次失败回到基值', async () =>
 test('S4：dispose 清除待触发的重建，不再 mount', async () => {
   const fixture = await startAgentFixture()
   fixture.setMode('reject')
-  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT })
+  const delays = new ControlledDelays()
+  const booted = await bootSupervisor({ fixture, rebuildBackoffMs: 1000, random: () => 0.5, reconnect: FAST_FAILED_RECONNECT, delay: delays.scheduler() })
   try {
     await waitFor(() => booted.supervisor.snapshot().state === 'failed', 'failure schedules the rebuild')
-    await booted.supervisor.dispose()
+    assert.equal(delays.pendingCount, 1, 'failed 排定了待触发的重建')
     const attemptsAtDispose = fixture.authorization.length
-    fixture.setMode('healthy')
-    await new Promise(resolve => setTimeout(resolve, 1400))
-    assert.equal(fixture.authorization.length, attemptsAtDispose, 'dispose 后原定的重建不再发生（无新连接尝试）')
+    await booted.supervisor.dispose()
+    assert.equal(delays.pendingCount, 0, 'dispose 取消待触发的重建')
+    assert.equal(fixture.authorization.length, attemptsAtDispose, 'dispose 后无新连接尝试')
     assert.equal(booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length, 0, 'dispose 后无 yootun 工具')
   } finally {
     await shutdownSupervisor(booted)

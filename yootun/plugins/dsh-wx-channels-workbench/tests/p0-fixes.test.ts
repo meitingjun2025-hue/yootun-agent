@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createProfileLocks } from '@yootun/dsh-workbench-host-kit'
+import type { CollectStartInput } from '../src/runner.ts'
 
 const { withProfileLock } = createProfileLocks()
 
@@ -64,11 +65,11 @@ test('loginWithQrCode abort 后 profiles 目录无 pending-* 残留', async () =
 
   const controller = new AbortController()
   const { loginWithQrCode } = await import('../src/session.ts')
-  const { ensureProfileDir } = await import('../src/state.ts')
 
   // 启动登录（chromeFactory 注入假实现：永不 resolve，模拟 Chrome 打开挂起）。
   const pending = loginWithQrCode({
     root,
+    locks: createProfileLocks(),
     chromeFactory: async options => {
       // 创建 profile 目录（模拟 Chrome persistent context）。
       mkdirSync(options.profileDir, { recursive: true })
@@ -117,6 +118,7 @@ test('loginWithQrCode abort 后 factory 晚 resolve：close + 二次清理，无
   // resolve 一个可 close 的 context（模拟 Chrome persistent context 慢启动）。
   const pending = loginWithQrCode({
     root,
+    locks: createProfileLocks(),
     chromeFactory: async options => {
       const signal = controller.signal
       while (!signal.aborted) await new Promise(resolve => setTimeout(resolve, 5))
@@ -305,7 +307,7 @@ test('启动恢复接线：恢复失败只告警不阻断启动，startupInterru
 
 test('批量门面：probed 前置探测投影原样透传给单账号控制器（缺透传 = 复用失效）', async () => {
   const { createWxBatchFacade } = await import('../src/index.ts')
-  const startedInputs: Array<Record<string, unknown>> = []
+  const startedInputs: Array<CollectStartInput> = []
   const facade = createWxBatchFacade({
     start: async input => { startedInputs.push(input); return { started: true, record: null } },
     status: () => null,
@@ -315,7 +317,7 @@ test('批量门面：probed 前置探测投影原样透传给单账号控制器�
     wait: async () => null,
     cancel: () => false,
   })
-  const probed = { state: { sessionStatus: 'ok', reason: null, sessionSeq: 1, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-1', profile: null }, reported: true, probedAt: 42 }
+  const probed = { state: { sessionStatus: 'ok' as const, reason: null, sessionSeq: 1, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-1', sessionStatusReported: true }, reported: true, probedAt: 42 }
   await facade.start({ accountId: 'acc-1', probed })
   assert.equal(startedInputs[0]?.fromBatch, true)
   assert.deepEqual(startedInputs[0]?.probed, probed)
@@ -334,7 +336,7 @@ test('批量前置探测回调：probe 暂存投影原样交给批量控制器�
       browserStatusFn: async () => ({ chrome: 'available', driver: 'available' }),
       logger: { warn: () => undefined },
     })
-    const probed = { state: { sessionStatus: 'ok', reason: null, sessionSeq: 2, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-7', profile: null }, reported: true, probedAt: 7 }
+    const probed = { state: { sessionStatus: 'ok' as const, reason: null, sessionSeq: 2, checkedAt: '2026-11-27T00:00:00Z', vaultRef: 'v', accountId: 'acc-7', sessionStatusReported: true }, reported: true, probedAt: 7 }
     const probe = createWxBatchProbe({
       workbench: { callTool: async () => ({ structuredContent: {}, content: [] }) },
       root,

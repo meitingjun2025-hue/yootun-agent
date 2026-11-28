@@ -542,7 +542,9 @@ test('metrics_trend：形状合规非法日期（2026-13-45）行级剔除，不
   ] } } }
   let trend: ReturnType<typeof parseItemMetricsTrend> = null
   assert.doesNotThrow(() => { trend = parseItemMetricsTrend(json, '2026-11-23') }, '非法日期不得抛 RangeError')
-  assert.deepEqual(trend?.map(point => point.day), ['2026-11-12'], '只保留合法点')
+  // 闭包赋值后控制流仍把 trend 窄化为 null，这里放宽回声明类型再读。
+  const points = trend as ReturnType<typeof parseItemMetricsTrend>
+  assert.deepEqual(points?.map(point => point.day), ['2026-11-12'], '只保留合法点')
 })
 
 test('resolveClientStatus：仅完整且成功=预期才 completed', () => {
