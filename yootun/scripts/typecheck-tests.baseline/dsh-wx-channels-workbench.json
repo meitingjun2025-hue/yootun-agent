@@ -1,0 +1,13 @@
+{
+ "as never": {
+  "tests/batch-concurrency.test.ts": 6,
+  "tests/dispose.test.ts": 11,
+  "tests/host.test.ts": 16,
+  "tests/p0-fixes.test.ts": 5,
+  "tests/profile-lock.test.ts": 5,
+  "tests/runs.test.ts": 13
+ },
+ "两段式断言": {
+  "tests/host.test.ts": 6
+ }
+}

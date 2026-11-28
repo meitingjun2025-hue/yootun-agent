@@ -93,6 +93,13 @@ jobs:
       - name: Build yootun packages
         # 打包闭包（ROOT_PACKAGES 含 @yootun/dsh-bundle-yootun）要求 lib/ 产物已就位。
         run: pnpm --filter '@yootun/*' run build
+      - name: Run yootun test type gate
+        # yootun 的测试文件不在任何官方类型检查范围（聚合程序不含 yootun 的
+        # tests/**，各包 tsconfig 只含 src），门禁补上这道检查：聚合 tsconfig
+        # 每次运行时生成、不落库，tsc -b 检查全部测试与辅助文件，另做压制写法
+        # 与游离测试文件两项文本检查。必须排在构建之后：被引用项目要读已生成
+        # 的声明文件。规则全文见 yootun/docs/test-type-safety-standard.md。
+        run: node yootun/scripts/typecheck-tests.mjs
       - name: Write Windows packaging settings
         # unsigned 打包同样要求平台 dotenv（.env.windows 由本步骤生成，仓库内只有模板）。
         # 三个键即官方 unsigned 校验的最小集：品牌 appId + production 策略 origin

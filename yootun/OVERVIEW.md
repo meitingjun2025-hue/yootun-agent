@@ -35,6 +35,7 @@
 - [docs/inline-changes.md](docs/inline-changes.md) — 第 2 层内联改动登记簿：官方目录允许触碰的全部位置，先登记后动工；
 - [docs/upstream-sync.md](docs/upstream-sync.md) — 上游同步 SOP、官方 gate 波及结论、历次同步记录；
 - [docs/plugin-ui-ux-standard.md](docs/plugin-ui-ux-standard.md) — 后续业务插件的统一 UI/UX 规范：官方底盘、yootun 复合组件、插件场景层与助手 Dock / 图表模式。
+- [docs/test-type-safety-standard.md](docs/test-type-safety-standard.md) — 测试类型安全规范：测试的唯一类型检查是分区门禁 `scripts/typecheck-tests.mjs`（官方 typecheck 不含 yootun 测试），测试底盘写法、压制写法的禁用限用与基线、出错处置流程。
 - [docs/1110/](docs/1110/00-overview.md) — 第一步迁移分册（历史记录，按日期冻结）。其中 08 册（MCP 桌面接入契约）与 09 册（工作台迁移计划）的现行条款以 cross-repo-sync.md 为准，冲突处已在分册内标注调整日期。
 - [docs/1124/](docs/1124/00-overview.md)、[docs/1125/](docs/1125/00-overview.md)、[docs/1126/](docs/1126/00-overview.md)、[docs/1127/](docs/1127/00-overview.md)、[docs/1128/](docs/1128/00-overview.md) — 按建单日期存放的实施单索引；每天建单各开一个 `docs/<MMDD>/` 目录（规则见 [cross-repo-sync.md](docs/cross-repo-sync.md) 第四节）。
 

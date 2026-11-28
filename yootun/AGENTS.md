@@ -21,7 +21,7 @@
 
 ## 构建与测试
 
-- 分区测试不进官方 vitest scope；各包 `pnpm --filter <pkg> test` 自跑，类型门是该包的 `build`（`tsc -p tsconfig.json && tsdown`）。
+- 分区测试不进官方 vitest scope；各包 `pnpm --filter <pkg> test` 自跑，包源码的类型门是该包的 `build`（`tsc -p tsconfig.json && tsdown`）；测试的类型检查不在这两道检查里，只有测试类型门禁 `node yootun/scripts/typecheck-tests.mjs`，提交前按包运行、CI 构建后全量运行，压制写法与处置规则见 [docs/test-type-safety-standard.md](docs/test-type-safety-standard.md)。
 - 新增测试文件按被测的功能或修复后的行为命名（如 `session.test.ts`、`batch-concurrency.test.ts`、`abort.test.ts`），文件名不使用实施单或分册的章节号、用例编号、轮次或批次号（如 `d2.test.ts`、`d4d5.test.ts`、`lifecycle3.test.ts`、`p0-fixes.test.ts`）；已有这类文件名的测试保持不动，修改时沿用原文件。
 - 改动触及官方 gate 的全仓清单项（`verify-no-unknown-casts`、`verify-cordis-root`、oxlint）时按官方标准写；`pnpm run lint` 全仓扫描本分区。
 - 浏览器页面不读 `MODELS_API_KEY`、Cookie、storage_state 或本地路径；所有远端调用经 Host 同源路由。
