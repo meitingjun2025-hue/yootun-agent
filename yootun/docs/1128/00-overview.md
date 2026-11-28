@@ -10,7 +10,7 @@
 |---|---|---|
 | [device-review-fixes.md](features/device-review-fixes.md) | 真机验收修复（第二轮）：抖音账号总览的账号表现排行、热门作品与单账号分析的爆款视频表，操作列表头与按钮对齐；视频号账号作品表加「查看详情」按钮；视频号账号表现表字号同作品表；视频号总览趋势图首尾日期标签完整显示 | 开发完成（2026-11-28，自动验收通过），待真机验收 |
 | [managed-mcp-status-route.md](features/managed-mcp-status-route.md) | Agent 面状态路由的注册修复：设置页「智能体工具」一行恒显示「未加载，请重启应用」，原因是状态路由在 `webServer` 就绪前被跳过注册；改为随 `webServer` 的可用性注册 | 开发完成（2026-11-28，自动验收通过），待真机验收 |
-| [yootun-test-type-gate.md](features/yootun-test-type-gate.md) | `yootun` 测试类型门禁：自建聚合类型检查接入 CI，修复门禁查出的全部存量类型错误（451 条、55 个文件），`managed-mcp` 三条自愈用例改用受控时钟 | 草案 |
+| [yootun-test-type-gate.md](features/yootun-test-type-gate.md) | `yootun` 测试类型门禁：自建聚合类型检查接入 CI，修复门禁查出的全部存量类型错误（451 条、55 个文件），`managed-mcp` 三条自愈用例改用受控时钟 | 开发完成（2026-11-28，自动验收通过），待合入 |
 
 ## 对现有功能的影响
 
