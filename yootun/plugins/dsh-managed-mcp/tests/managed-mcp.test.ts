@@ -1,7 +1,8 @@
 /**
  * Agent 面 managed MCP 生命周期与 guard 测试（node --test，真实 Cordis 组合 +
  * 假 MCP server）：未激活零连接、激活后仅 Agent 面注册、key 更新/移除、
- * guard 读/写/未分类 ask、Workbench/Catalog 拒绝、卸载清理。
+ * guard 读/写/未分类 ask、Workbench/Catalog 拒绝、卸载清理、状态路由随
+ * webServer 的可用性注册。
  * 运行：`pnpm --filter @yootun/dsh-managed-mcp test`。
  */
 import assert from 'node:assert/strict'
@@ -18,7 +19,7 @@ import { VALIDATION_VERSION } from '@yootun/dsh-client-ui-access/src/access-cons
 import * as ManagedMcp from '../src/index.ts'
 import { createAgentStatusRouteHandler, permitted } from '../src/status-route.ts'
 import { classifyAgentTool, AGENT_TOOL_NAMES } from '../src/guard.ts'
-import { ACCESS_CREDENTIAL_REF } from '../src/constants.ts'
+import { ACCESS_CREDENTIAL_REF, STATUS_PATH } from '../src/constants.ts'
 import { startAgentFixture, type AgentFixture } from './fixture-agent-server.ts'
 
 const ACTIVATED_SNAPSHOT = { setupComplete: true, validationVersion: Number(VALIDATION_VERSION) }
@@ -35,6 +36,8 @@ interface BootOptions {
   fixture?: AgentFixture | undefined
   /** 是否先在根作用域注册一个外部 `mcpClientHost`（模拟桌面 profile 的官方 mcp-manager）。 */
   foreignHost?: boolean | undefined
+  /** 插件加载前已在根作用域就绪的 webServer；缺省不提供。 */
+  webServer?: FakeWebServer | undefined
 }
 
 interface Booted {
@@ -78,6 +81,7 @@ async function boot(options: BootOptions = {}): Promise<Booted> {
       resolve: async () => keyValue === undefined ? undefined : { source: 'test' as const, value: keyValue },
     })
   }
+  if (options.webServer !== undefined) ctx.reflect.provide('webServer', options.webServer)
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
@@ -204,6 +208,41 @@ class FakeStatusResponse implements ManagedMcp.StatusRouteResponse {
   setHeader(): void {}
 
   end(body?: string | undefined): void { this.body = body ?? '' }
+}
+
+/** 状态路由处理函数的结构面：接受请求与响应替身。 */
+type StatusRouteHandler = (req: ManagedMcp.StatusRouteRequest, res: ManagedMcp.StatusRouteResponse) => Promise<void>
+
+/** 状态路由的请求替身：缺省为 loopback、无体的 POST（Desktop 转发剥双头形态）。 */
+function statusRequest(overrides: { method?: string | undefined; remote?: string | undefined; headers?: Record<string, string> | undefined; body?: string | undefined } = {}): ManagedMcp.StatusRouteRequest {
+  const method = overrides.method ?? 'POST'
+  const remote = overrides.remote ?? '127.0.0.1'
+  const headers = overrides.headers ?? {}
+  const body = overrides.body ?? ''
+  async function* iterate(): AsyncGenerator<Buffer> {
+    if (body.length > 0) yield Buffer.from(body)
+  }
+  return { method, socket: { remoteAddress: remote }, headers, [Symbol.asyncIterator]: iterate }
+}
+
+/** webServer 替身（结构面）：记录注册的路由与注销次数；origin 可指定。 */
+class FakeWebServer {
+  /** 经 register 收到的路由，按注册顺序。 */
+  readonly registered: Array<{ kind: string; path: string; handler: StatusRouteHandler }> = []
+  /** 路由注销次数。 */
+  disposed = 0
+  private readonly origin: string
+
+  constructor(origin = 'http://127.0.0.1:3210') {
+    this.origin = origin
+  }
+
+  getOrigin(): string { return this.origin }
+
+  register(route: { kind: string; path: string; handler: StatusRouteHandler }): () => void {
+    this.registered.push(route)
+    return () => { this.disposed += 1 }
+  }
 }
 
 test('已分类 Agent 工具无重复、全有归类，Catalog 与 Workbench 名不归类', () => {
@@ -603,16 +642,7 @@ test('S6：状态路由 POST 快照、405/403/503 与空体契约', async () => 
   let disposing = false
   const handler = createAgentStatusRouteHandler(() => 'http://127.0.0.1:1', { snapshot: () => snapshot }, () => disposing)
 
-  const request = (overrides: { method?: string | undefined; remote?: string | undefined; headers?: Record<string, string> | undefined; body?: string | undefined } = {}): ManagedMcp.StatusRouteRequest => {
-    const method = overrides.method ?? 'POST'
-    const remote = overrides.remote ?? '127.0.0.1'
-    const headers = overrides.headers ?? {}
-    const body = overrides.body ?? ''
-    async function* iterate(): AsyncGenerator<Buffer> {
-      if (body.length > 0) yield Buffer.from(body)
-    }
-    return { method, socket: { remoteAddress: remote }, headers, [Symbol.asyncIterator]: iterate }
-  }
+  const request = statusRequest
 
   // POST 无体（Desktop 转发剥双头形态）→ 200 快照，字段恰为契约集合。
   const ok = new FakeStatusResponse()
@@ -680,6 +710,73 @@ test('S6：无 webServer 时不注册状态路由且插件照常加载', async (
     assert.equal(booted.ctx.get('webServer'), undefined, '组合未提供 webServer')
     await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered without a webServer')
     assert.equal(booted.fixture.authorization.length > 0, true, '监督器挂载不受影响')
+  } finally {
+    await shutdown(booted)
+  }
+})
+
+test('S7：webServer 晚于插件就绪时，状态路由在其就绪后注册并可响应', async () => {
+  const booted = await boot()
+  const webServer = new FakeWebServer()
+  try {
+    await waitFor(() => booted.registeredNames().filter(name => name.startsWith('mcp__yootun-agent__')).length === AGENT_TOOL_NAMES.length, 'agent tools registered before a webServer exists')
+    assert.equal(webServer.registered.length, 0)
+    booted.ctx.reflect.provide('webServer', webServer)
+    await waitFor(() => webServer.registered.length === 1, 'status route registered once the webServer is available')
+    const [route] = webServer.registered
+    assert.equal(route?.kind, 'exact')
+    assert.equal(route?.path, STATUS_PATH)
+    const response = new FakeStatusResponse()
+    await route?.handler(statusRequest(), response)
+    assert.equal(response.code, 200)
+    const payload = JSON.parse(response.body) as Record<string, unknown>
+    assert.equal(payload.status, 'ok')
+    assert.ok(['disabled', 'connecting', 'connected', 'failed', 'waiting-credentials'].includes(payload.state as string))
+    assert.equal(webServer.disposed, 0)
+  } finally {
+    await shutdown(booted)
+  }
+  assert.equal(webServer.disposed, 1, '插件卸载时路由随之注销')
+})
+
+test('S8：webServer 先于插件就绪时，插件加载后随即注册状态路由，origin 取自该实例', async () => {
+  const webServer = new FakeWebServer('http://127.0.0.1:4321')
+  const booted = await boot({ webServer })
+  try {
+    await waitFor(() => webServer.registered.length === 1, 'status route registered on the boot-time webServer')
+    const [route] = webServer.registered
+    assert.equal(route?.path, STATUS_PATH)
+    const sameOrigin = new FakeStatusResponse()
+    await route?.handler(statusRequest({ headers: { origin: 'http://127.0.0.1:4321' } }), sameOrigin)
+    assert.equal(sameOrigin.code, 200)
+    const foreign = new FakeStatusResponse()
+    await route?.handler(statusRequest({ headers: { origin: 'https://evil.example' } }), foreign)
+    assert.equal(foreign.code, 403)
+  } finally {
+    await shutdown(booted)
+  }
+})
+
+test('S9：webServer 被替换后，状态路由在旧实例上注销、在新实例上重新注册', async () => {
+  const booted = await boot()
+  const first = new FakeWebServer('http://127.0.0.1:4321')
+  const second = new FakeWebServer('http://127.0.0.1:4322')
+  const mount = (server: FakeWebServer) => booted.ctx.plugin({
+    name: 'fake-web-server',
+    apply: (scope: Context) => { scope.reflect.provide('webServer', server) },
+  })
+  try {
+    const firstFiber = mount(first)
+    await waitFor(() => first.registered.length === 1, 'status route registered on the first instance')
+    await firstFiber.dispose()
+    await waitFor(() => first.disposed === 1, 'status route removed from the first instance')
+    assert.equal(second.registered.length, 0)
+    mount(second)
+    await waitFor(() => second.registered.length === 1, 'status route registered on the replacement instance')
+    const [route] = second.registered
+    const response = new FakeStatusResponse()
+    await route?.handler(statusRequest({ headers: { origin: 'http://127.0.0.1:4322' } }), response)
+    assert.equal(response.code, 200, 'origin 取自替换后的实例')
   } finally {
     await shutdown(booted)
   }
